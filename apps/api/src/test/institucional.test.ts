@@ -54,6 +54,34 @@ describe("identidade institucional", () => {
     expect(q).not.toMatch(/undefined|null/);
   });
 
+  /**
+   * Agora a identidade é EDITÁVEL (Ajustes → Dados da empresa). Quando a Thaís preenche os dados
+   * jurídicos, eles entram na qualificação da CONTRATADA e os marcadores "[A PREENCHER]" somem.
+   */
+  it("dados jurídicos preenchidos entram no contrato e derrubam os marcadores", () => {
+    const q = qualificacaoContratada({
+      razaoSocial: "Med Consultoria em Gestão LTDA",
+      cnpj: "12.345.678/0001-90",
+      enderecoCompleto: "Av. Paulista, 1000, São Paulo/SP",
+    });
+    expect(q).toContain("Med Consultoria em Gestão LTDA");
+    expect(q).toContain("12.345.678/0001-90");
+    expect(q).toContain("Av. Paulista, 1000, São Paulo/SP");
+    expect(q).not.toContain("[A PREENCHER");
+  });
+
+  it("preenchimento parcial: o que veio entra, o que falta continua marcado", () => {
+    const q = qualificacaoContratada({ razaoSocial: "Fulano ME" });
+    expect(q).toContain("Fulano ME");
+    expect(q).toContain("**[A PREENCHER: CNPJ]**"); // ainda sem CNPJ
+  });
+
+  it("o rodapé aceita dados do banco (editados pela Thaís)", () => {
+    const r = rodapeInstitucional({ email: "novo@med.com.br", telefone: "(11) 0000-0000" });
+    expect(r).toContain("novo@med.com.br");
+    expect(r).toContain("(11) 0000-0000");
+  });
+
   it("nenhum material cliente-facing tem contato solto no código", () => {
     const arquivos = [
       "apps/web/src/features/documentos/DocumentoBranded.tsx",

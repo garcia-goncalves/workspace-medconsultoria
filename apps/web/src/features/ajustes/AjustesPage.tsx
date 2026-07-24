@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Briefcase, Mail, UserCog, Send, FileText, Tags, Compass, Building2, ChevronRight, type LucideIcon } from "lucide-react";
+import { Briefcase, Mail, UserCog, Send, FileText, Tags, Compass, Building2, Landmark, ChevronRight, type LucideIcon } from "lucide-react";
+import { hasRoleLevel, type Role } from "@app/shared";
+import { useAuth } from "../../lib/auth-context";
 import { PageHeader } from "../../components/ui/page-header";
 import { CategoriasDialog } from "../financeiro/CategoriasDialog";
 import { OrigensDialog } from "../crm/leads/OrigensDialog";
 import { OperadorasDialog } from "../documentos/OperadorasDialog";
+import { IdentidadeDialog } from "./IdentidadeDialog";
 
-type DialogId = "categorias" | "origens" | "operadoras";
+type DialogId = "categorias" | "origens" | "operadoras" | "identidade";
 
 interface AjusteItem {
   icon: LucideIcon;
@@ -15,6 +18,8 @@ interface AjusteItem {
   /** Ou navega para uma página (`to`), ou abre um diálogo de catálogo aqui mesmo (`dialog`). */
   to?: string;
   dialog?: DialogId;
+  /** Papel mínimo para ver o item (omitido = todos da equipe). */
+  minRole?: Role;
 }
 
 /**
@@ -75,6 +80,13 @@ const SECOES: { titulo: string; descricao: string; itens: AjusteItem[] }[] = [
     descricao: "Os bastidores da empresa — acesso restrito.",
     itens: [
       {
+        icon: Landmark,
+        label: "Dados da empresa",
+        desc: "Marca, contato e dados jurídicos (razão social, CNPJ, endereço, foro) que entram nos contratos, propostas e e-mails.",
+        dialog: "identidade",
+        minRole: "ADMIN",
+      },
+      {
         icon: UserCog,
         label: "Equipe e acessos",
         desc: "Quem entra no sistema e o que cada pessoa pode fazer (equipe e acessos do Portal).",
@@ -91,7 +103,9 @@ const SECOES: { titulo: string; descricao: string; itens: AjusteItem[] }[] = [
 ];
 
 export function AjustesPage() {
+  const { user } = useAuth();
   const [dialog, setDialog] = useState<DialogId | null>(null);
+  const podeVer = (it: AjusteItem) => !it.minRole || hasRoleLevel(user.role, it.minRole);
 
   return (
     <div className="flex h-full flex-col gap-5">
@@ -100,14 +114,17 @@ export function AjustesPage() {
         subtitle="Tudo que você configura uma vez e o sistema usa sozinho, num lugar só. Você raramente precisa entrar aqui."
       />
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
-        {SECOES.map((secao) => (
+        {SECOES.map((secao) => {
+          const itens = secao.itens.filter(podeVer);
+          if (itens.length === 0) return null;
+          return (
           <section key={secao.titulo}>
             <div className="mb-2.5">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{secao.titulo}</h2>
               <p className="text-xs text-muted-foreground">{secao.descricao}</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {secao.itens.map((it) => {
+              {itens.map((it) => {
                 const cls =
                   "group flex items-start gap-3 rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-md";
                 const inner = (
@@ -136,13 +153,15 @@ export function AjustesPage() {
               })}
             </div>
           </section>
-        ))}
+          );
+        })}
       </div>
 
       {/* Catálogos abertos a partir de Ajustes (mesmos diálogos usados em Financeiro/Vendas/Documentos). */}
       <CategoriasDialog open={dialog === "categorias"} onClose={() => setDialog(null)} />
       <OrigensDialog open={dialog === "origens"} onClose={() => setDialog(null)} />
       <OperadorasDialog open={dialog === "operadoras"} onClose={() => setDialog(null)} />
+      <IdentidadeDialog open={dialog === "identidade"} onClose={() => setDialog(null)} />
     </div>
   );
 }

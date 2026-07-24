@@ -23,6 +23,7 @@ import { buscaRouter } from "../modules/busca/busca.router.js";
 import { formulariosRouter } from "../modules/formularios/formularios.router.js";
 import { iaRouter } from "../modules/ia/ia.router.js";
 import { sistemaRouter } from "../modules/sistema/sistema.router.js";
+import { identidadeRouter } from "../modules/identidade/identidade.router.js";
 
 /** Router raiz — cada módulo de domínio pluga aqui um sub-router. */
 export const appRouter = router({
@@ -50,6 +51,7 @@ export const appRouter = router({
   formularios: formulariosRouter,
   ia: iaRouter,
   sistema: sistemaRouter,
+  identidade: identidadeRouter,
 });
 
 /** Tipo consumido pelo front para type-safety ponta-a-ponta. */

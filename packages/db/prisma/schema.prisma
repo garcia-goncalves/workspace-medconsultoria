@@ -331,6 +331,30 @@ model Operadora {
   @@index([ordem])
 }
 
+/// IDENTIDADE INSTITUCIONAL — linha única (singleton, id "default"), editável pela Thaís em
+/// Ajustes → Dados da empresa. É a fonte da verdade que alimenta contratos, propostas e e-mails.
+/// Semeada com os dados de contato reais; os campos jurídicos (razão social, CNPJ, endereço, foro)
+/// começam nulos e só ela preenche — nada de CNPJ inventado num contrato. Ver institucional.ts.
+model IdentidadeInstitucional {
+  id           String   @id @default("default")
+  // Marca e contato (cliente-facing)
+  nome         String
+  tagline      String
+  site         String
+  siteUrl      String
+  email        String
+  telefone     String
+  cidade       String
+  instagram    String
+  instagramUrl String
+  // Dados jurídicos — a Thaís preenche; enquanto nulos, saem como marcador visível "[A PREENCHER]"
+  razaoSocial      String? @db.Text
+  cnpj             String?
+  enderecoCompleto String? @db.Text
+  foro             String? @db.Text
+  atualizadoEm DateTime @updatedAt
+}
+
 /// Catálogo de serviços da MedConsultoria (editável). O lead marca no cadastro o
 /// que precisa; guia proposta/briefing/contrato e, ao fechar, vira tarefas do projeto.
 /// Como um valor de serviço é cobrado: uma única vez (avulso) ou todo mês (recorrente).

@@ -16,6 +16,7 @@ import { qualificacaoContratada } from "@app/shared";
 import { aiService } from "../../lib/ai.js";
 import { avancarLeadPorClienteAuto, garantirClienteDoLead } from "../leads/leads.service.js";
 import { listModelos } from "./modelos.service.js";
+import { getIdentidade } from "../identidade/identidade.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { isAiEnabled } from "../../config.js";
 
@@ -453,7 +454,9 @@ export async function criarContrato(input: CriarContratoInput, userId: string) {
   const r = montarServicos(input.itens, servicos);
   const valorBloco = [r.investimento, input.observacoes?.trim() ? `\n${input.observacoes.trim()}` : ""].filter(Boolean).join("");
   const prazoTxt = textoVigencia(input.vigenciaMeses);
-  const foroTxt = "da comarca do domicílio da CONTRATANTE";
+  // Identidade da CONTRATADA e foro vêm de Ajustes → Dados da empresa (editáveis pela Thaís).
+  const identidade = await getIdentidade();
+  const foroTxt = identidade.foro?.trim() || "da comarca do domicílio da CONTRATANTE";
 
   const modelo = input.modeloId
     ? await prisma.modeloDocumento.findUnique({ where: { id: input.modeloId } })
@@ -467,7 +470,7 @@ export async function criarContrato(input: CriarContratoInput, userId: string) {
     .replace(/\{\{\s*valor\s*\}\}/g, valorBloco)
     .replace(/\{\{\s*prazo\s*\}\}/g, prazoTxt)
     .replace(/\{\{\s*foro\s*\}\}/g, foroTxt)
-    .replace(/\{\{\s*contratada\s*\}\}/g, qualificacaoContratada());
+    .replace(/\{\{\s*contratada\s*\}\}/g, qualificacaoContratada(identidade));
   const conteudo = render(comMarcadores, {}, cliente);
   const titulo = input.titulo?.trim() || `${modelo.nome} — ${cliente.nome}`;
 
@@ -677,8 +680,10 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
       : "Condições conforme a proposta comercial e o escopo de trabalho aprovados pela CONTRATANTE.";
     variaveis.valor = "Conforme os valores da proposta comercial aprovada pela CONTRATANTE.";
     variaveis.prazo = textoVigencia(12);
-    variaveis.foro = "da comarca do domicílio da CONTRATANTE";
-    variaveis.contratada = qualificacaoContratada();
+    // Foro e qualificação da CONTRATADA de Ajustes → Dados da empresa (editáveis pela Thaís).
+    const identidade = await getIdentidade();
+    variaveis.foro = identidade.foro?.trim() || "da comarca do domicílio da CONTRATANTE";
+    variaveis.contratada = qualificacaoContratada(identidade);
   }
 
   const conteudo = render(modelo.corpo, variaveis, cliente);
