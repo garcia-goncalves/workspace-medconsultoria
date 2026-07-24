@@ -1078,9 +1078,33 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 
 **Verificado ao vivo (Playwright, 1920×1080, Root):** Mensagens — janela NÃO rola (1080=1080), lista e thread rolam por dentro, divisor arrasta 320→470px e persiste, duplo-clique volta a 320. Agenda Semana — janela não rola, a grade (`min-h-0 flex-1 overflow-y-auto`) rola por dentro com o cabeçalho dos dias fixo (idem Dia/Lista). Documentos/Início seguem no scroll de janela (`main=flex-1`). typecheck web OK.
 
+## ADR-84 — Tempo real por polling (Opção A), sem WebSocket nem VPS ✅
+
+**Contexto:** a hospedagem (TineHost, LiteSpeed/lsnode) **não faz upgrade de WebSocket** — o suporte confirmou que só numa VPS — e ainda bufferiza o long-polling do Socket.IO, então o tempo real do Socket.IO não chegava em produção. O tempo real do app é pequeno (chat de Mensagens, Suporte e sininho); o resto (Início/Sistema/Vendas) já era por polling.
+
+**Decisão:** entregar o tempo real por **POLLING** (`refetchInterval`), o mesmo caminho HTTP curto que o proxy já entrega sem bufferizar. **Não contratamos VPS.**
+- `apps/web/src/lib/socket.ts`: `POLL` (intervalos num lugar só) + `REALTIME_SOCKET_ENABLED = !import.meta.env.PROD || VITE_REALTIME === "1"`.
+- Socket.IO fica **desligado no build de produção** (ligado só em dev/testes, onde funciona) — senão abriria conexões long-poll penduradas no LiteSpeed. Cada `useEffect` de socket respeita o gate.
+- Intervalos: Mensagens 4s (conversa aberta) / 8s (lista); Suporte 6–15s; sininho 20s.
+- Guarda `apps/web/src/lib/socket.test.ts`. Servidor Socket.IO intacto; religa via `VITE_REALTIME=1` (se um dia vier VPS ou serviço externo tipo Pusher/Ably).
+
+**Verificado:** typecheck+testes verdes; deploy 24/07 no ar servindo o build novo. Revoga a necessidade do "proxy WS" citada nas pendências.
+
+## ADR-85 — Identidade institucional editável (Dados da empresa) ✅
+
+**Contexto:** os dados jurídicos da empresa (razão social, CNPJ, endereço, foro) estavam engessados/nulos no código (`institucional.ts`) — só a Thaís pode fornecê-los. O dono pediu tudo **configurável pela tela, nada engessado**.
+
+**Decisões:**
+1. Modelo `IdentidadeInstitucional` (linha única, `id: "default"`), migração aditiva. A **fonte da verdade vira o banco**; as constantes de `institucional.ts` viram padrão/fallback.
+2. Módulo `apps/api/src/modules/identidade/`: `get` (funcionarioProcedure) + `atualizar` (adminProcedure). `getIdentidade()` semeia a linha na 1ª leitura (upsert) com os dados de contato reais; jurídicos começam **null** — ninguém inventa CNPJ.
+3. `qualificacaoContratada(d?)`/`rodapeInstitucional(d?)` (shared) aceitam os dados do banco; marcador `**[A PREENCHER]**` só quando vazio. `documentos.service.ts` (contrato manual e auto do lead) lê CONTRATADA e foro do banco.
+4. UI: `IdentidadeDialog` em **Ajustes → Administração**, card visível só p/ ADMIN+ (`minRole` na AjustesPage). Guia "?" de Ajustes menciona.
+
+**Verificado:** typecheck api+web; API 79/79; web 32/32; migração `CREATE TABLE`. **No servidor (24/07):** migrate deploy 53/53, client regenerado (conhece o modelo), query e upsert OK, linha semeada (jurídicos null). **PENDENTE (Thaís):** preencher os dados jurídicos pela tela.
+
 ## Pendências (viram ADR quando decididas)
 
-- Passenger vs Nginx Unit na TineHost (mecanismo de restart / proxy WS).
+- ~~Passenger vs Nginx Unit na TineHost (mecanismo de restart / proxy WS).~~ **Restart** = `touch tmp/restart.txt` (LiteSpeed/lsnode). **WS resolvido no ADR-84** (tempo real por polling; não precisa de proxy WS).
 - ~~Engine de exportação de PDF em hospedagem compartilhada.~~ **Resolvido no ADR-47** (PDF = `window.print()` da moldura branded = WYSIWYG, sem servidor).
 - Estratégia de polimorfismo (`entidadeTipo+entidadeId` vs tabelas de junção) se a performance exigir.
 - Zustand vs Context para o estado global mínimo do front.

@@ -45,7 +45,7 @@ Regra de ouro de segurança: **default-deny**. Nenhum endpoint/mutação sem che
 | Data (front) | TanStack Query + TanStack Router       | Type-safe, integra com tRPC                    |
 | Forms        | react-hook-form + Zod                  | Reusa schemas de`packages/shared`            |
 | API          | **tRPC** sobre **Fastify** | Type-safety ponta-a-ponta, mínimo boilerplate |
-| Real-time    | Socket.IO (mesmo processo Fastify)     | Notificações agora, chat depois              |
+| Real-time    | **Polling** (`refetchInterval`) em prod; Socket.IO em dev | Hospedagem não faz upgrade de WebSocket (ADR-84); socket desligado no build de prod, religa com `VITE_REALTIME=1` |
 | ORM          | Prisma                                 | DX excelente, tipos gerados                    |
 | Banco        | MySQL (utf8mb4)                        | Requisito da hospedagem                        |
 | Auth         | Cookie httpOnly assinado + argon2id    | Sem token em localStorage (anti-XSS)           |
@@ -259,7 +259,7 @@ workspace-medconsultoria/
 
 Detalhe e critérios de verificação em `ROADMAP.md`.
 
-- **Fase 0 — Fundação & Docs** ✅ (falta apenas o deploy em produção)
+- **Fase 0 — Fundação & Docs** ✅ (**deploy em produção FEITO** — app no ar em https://workspace.medconsultoria.com.br)
 - **Fase 1 — CRM** ✅
 - **Fase 2 — Projetos + Kanban + Timer** ✅
 - **Fase 3 — Agenda + Reuniões + Notificações** ✅
@@ -272,7 +272,7 @@ Detalhe e critérios de verificação em `ROADMAP.md`.
 
 **Evolução pós-MVP (entregue):** funil inteligente (playbook + serviços + passos automáticos + geração de documentos), captação pública + Portal do prospect + acesso automático, sistema de e-mails branded (SMTP + templates editáveis + histórico + preferências), assinatura eletrônica de documentos, painel Sistema/observabilidade (ROOT), dashboard por papel, e o pacote de funil ganho/perda (lead perdido reversível + taxa de conversão + conversão→Financeiro/Agenda + origem comercial na ficha).
 
-MVP + evolução completos, em **fase de polimento** ← *estamos aqui*. Pendência principal: **deploy em produção** na TineHost (adiado a pedido do dono).
+MVP + evolução completos, **no ar em produção** (TineHost, https://workspace.medconsultoria.com.br) ← *estamos aqui*, em **fase de polimento**. Tempo real por polling (ADR-84; a hospedagem não faz WebSocket). Pendências do dono: rotacionar chave OpenAI/senha SMTP e preencher os dados jurídicos em Ajustes → Dados da empresa (ADR-85).
 
 ---
 
