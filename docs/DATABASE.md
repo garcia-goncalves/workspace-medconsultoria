@@ -46,6 +46,9 @@ Erros do servidor agrupados por `fingerprint @unique` (estilo "issue" do Sentry)
 ### Incidente
 Aberto automaticamente pelo motor de alertas quando um sinal cruza o limiar (com histerese). `regra`, `titulo`, `severidade` ("degradado"|"critico"), `componente`, `detalhe`, `status` (ABERTO|RECONHECIDO|RESOLVIDO), `valorPico?`, `createdAt`, `reconhecidoEm?`, `resolvidoEm?`. Guarda histórico + MTTR.
 
+### IdentidadeInstitucional (ADR-85)
+**Identidade da empresa, editável pela Thaís** (Ajustes → Dados da empresa). Linha única (singleton, `id: "default"`). Campos de marca/contato **NOT NULL** (semeados com os dados reais na 1ª leitura via `getIdentidade()` upsert): `nome`, `tagline`, `site`, `siteUrl`, `email`, `telefone`, `cidade`, `instagram`, `instagramUrl`. Campos **jurídicos NULLABLE** (`@db.Text` onde faz sentido): `razaoSocial?`, `cnpj?`, `enderecoCompleto?`, `foro?` — começam `null` (ninguém inventa CNPJ; enquanto vazios, o contrato mostra `**[A PREENCHER]**`). `atualizadoEm`. É a **fonte da verdade** que alimenta contratos/propostas/e-mails; `packages/shared/.../institucional.ts` é o padrão/fallback. Escrita só ADMIN+ (`identidade.atualizar`), leitura pela equipe (`identidade.get`).
+
 ---
 
 ## 3. CRM (Fase 1 + funil inteligente)

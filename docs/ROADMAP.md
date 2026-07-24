@@ -178,7 +178,7 @@ Próximo incremento: criar tarefas via IA, responder perguntas sobre dados do cl
 - [x] **Segurança (ADR-13):** `@fastify/helmet` (headers), `@fastify/rate-limit` (300/min por IP) e throttle de login por IP+e-mail. CSP pendente p/ o deploy.
 - [x] **Ficha do cliente virou hub:** projetos, documentos, próximas reuniões e (p/ admin) financeiro do cliente, com atalho "Novo projeto" já vinculado (`clientes.relacionados`).
 
-**Pendência principal:** deploy em produção na TineHost segue **adiado**, a pedido do dono (ver Fase 0 e `CLAUDE.md §12`).
+**Deploy em produção FEITO** ✅ — app no ar em https://workspace.medconsultoria.com.br (TineHost). Tempo real por polling (ADR-84; a hospedagem não faz WebSocket). Pendências do dono: rotacionar chave OpenAI/senha SMTP e preencher os dados jurídicos em Ajustes → Dados da empresa (ADR-85).
 
 > **Ondas de auditoria (2026-07):** Onda 1 (responsável reatribuível, projeto CRUD, autocomplete) ✅ · Onda 2 (segurança + ficha-hub) ✅ · Onda 3 (robustez/UX: erro de query, 404, unificar componentes) e Onda 4 (limpeza de código morto + doc-drift) — em andamento.
 
