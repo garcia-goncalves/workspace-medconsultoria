@@ -28,6 +28,7 @@ import {
   Settings,
   FileText,
   SlidersHorizontal,
+  Landmark,
   SendHorizontal,
 } from "lucide-react";
 import { cn } from "@app/ui";
@@ -230,7 +231,8 @@ const GUIA_AJUSTES: Passo[] = [
   { icon: SlidersHorizontal, titulo: "Configure uma vez, o sistema usa sozinho", descricao: "Aqui ficam as configurações que você define uma vez e a aplicação aplica no dia a dia. Você raramente precisa voltar." },
   { icon: Briefcase, titulo: "Automações", descricao: "Serviços (o catálogo e o que cada um dispara na venda), Modelos de documento (os textos-base de proposta, contrato, ata e recibo) e Mensagens automáticas (os e-mails e avisos que o sistema envia com a marca da empresa)." },
   { icon: ListChecks, titulo: "Catálogos", descricao: "Listas reutilizáveis: Categorias (financeiro), Origens (de onde vêm os leads) e Operadoras (para credenciamento). Você também as edita onde são usadas — aqui estão todas num lugar só." },
-  { icon: UserCog, titulo: "Administração", descricao: "Atalhos para Equipe e acessos, E-mails enviados (monitor de entregas) e, para o Root, o painel Sistema." },
+  { icon: Landmark, titulo: "Dados da empresa", descricao: "Em Administração, o administrador edita a identidade da empresa: marca, contato e os dados jurídicos (razão social, CNPJ, endereço e foro). São eles que entram na qualificação da empresa nos contratos — enquanto um campo jurídico ficar em branco, o contrato mostra “[A PREENCHER]” no lugar, nunca um dado inventado." },
+  { icon: UserCog, titulo: "Administração", descricao: "Atalhos para Dados da empresa, Equipe e acessos, E-mails enviados (monitor de entregas) e, para o Root, o painel Sistema." },
 ];
 
 const GUIA_MODELOS: Passo[] = [
