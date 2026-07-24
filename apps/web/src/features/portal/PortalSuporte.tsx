@@ -3,7 +3,7 @@ import { LifeBuoy, Plus, ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@app/ui";
 import { CHAMADO_STATUS_LABEL, type ChamadoStatus } from "@app/shared";
 import { trpc } from "../../lib/trpc";
-import { getSocket } from "../../lib/socket";
+import { getSocket, POLL, REALTIME_SOCKET_ENABLED } from "../../lib/socket";
 import { data } from "../../lib/format-date";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -27,8 +27,11 @@ export function PortalSuporte() {
   const [assunto, setAssunto] = useState("");
   const [mensagem, setMensagem] = useState("");
 
-  const chamados = trpc.portal.suporte.listChamados.useQuery();
-  const thread = trpc.portal.suporte.mensagens.useQuery({ conversaId: sel ?? "" }, { enabled: !!sel });
+  const chamados = trpc.portal.suporte.listChamados.useQuery(undefined, { refetchInterval: POLL.suporteLista });
+  const thread = trpc.portal.suporte.mensagens.useQuery(
+    { conversaId: sel ?? "" },
+    { enabled: !!sel, refetchInterval: sel ? POLL.suporteThread : false },
+  );
   const enviar = trpc.portal.suporte.enviar.useMutation({
     onSuccess: () => {
       if (sel) utils.portal.suporte.mensagens.invalidate({ conversaId: sel });
@@ -47,6 +50,7 @@ export function PortalSuporte() {
   });
 
   useEffect(() => {
+    if (!REALTIME_SOCKET_ENABLED) return; // polling acima entrega em produção
     const socket = getSocket();
     const onMsg = () => {
       utils.portal.suporte.listChamados.invalidate();

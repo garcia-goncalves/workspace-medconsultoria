@@ -9,7 +9,7 @@ import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@app/api/router";
 import { trpc } from "../../lib/trpc";
 import { useAuth } from "../../lib/auth-context";
-import { getSocket } from "../../lib/socket";
+import { getSocket, POLL, REALTIME_SOCKET_ENABLED } from "../../lib/socket";
 import { hora, data } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -110,8 +110,11 @@ export function MensagensPage() {
     }
   }, []);
 
-  const conversas = trpc.mensagens.listConversas.useQuery({ arquivadas: verArquivadas });
-  const mensagens = trpc.mensagens.listMensagens.useQuery({ conversaId: selId ?? "" }, { enabled: !!selId });
+  const conversas = trpc.mensagens.listConversas.useQuery({ arquivadas: verArquivadas }, { refetchInterval: POLL.listaConversas });
+  const mensagens = trpc.mensagens.listMensagens.useQuery(
+    { conversaId: selId ?? "" },
+    { enabled: !!selId, refetchInterval: selId ? POLL.conversaAberta : false },
+  );
   const invalida = () => {
     if (selId) utils.mensagens.listMensagens.invalidate({ conversaId: selId });
     utils.mensagens.listConversas.invalidate();
@@ -128,6 +131,7 @@ export function MensagensPage() {
   const reabrir = trpc.mensagens.reabrir.useMutation({ onSuccess: invalida });
 
   useEffect(() => {
+    if (!REALTIME_SOCKET_ENABLED) return; // em produção o polling acima entrega; socket ficaria pendurado no LiteSpeed
     const socket = getSocket();
     const onMsg = (payload: { conversaId: string }) => {
       utils.mensagens.listConversas.invalidate();

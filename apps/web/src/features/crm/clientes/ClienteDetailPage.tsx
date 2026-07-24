@@ -42,7 +42,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../../../components/ui
 import { Badge, type BadgeProps } from "../../../components/ui/badge";
 import { QueryError } from "../../../components/ui/query-error";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
-import { getSocket } from "../../../lib/socket";
+import { getSocket, POLL, REALTIME_SOCKET_ENABLED } from "../../../lib/socket";
 import { ClienteFormDialog } from "./ClienteFormDialog";
 import { NovaOportunidadeDialog } from "./NovaOportunidadeDialog";
 import { AssistenteIADialog } from "../../../components/ui/assistente-ia";
@@ -82,10 +82,11 @@ export function ClienteDetailPage() {
 
   const cliente = trpc.clientes.get.useQuery({ id: clienteId });
   const rel = trpc.clientes.relacionados.useQuery({ id: clienteId });
-  const chamados = trpc.clientes.chamados.useQuery({ clienteId });
+  const chamados = trpc.clientes.chamados.useQuery({ clienteId }, { refetchInterval: POLL.chamadosCliente });
   const emails = trpc.emailsEnviados.doCliente.useQuery({ clienteId }, { enabled: !!clienteId });
 
   useEffect(() => {
+    if (!REALTIME_SOCKET_ENABLED) return; // polling acima entrega em produção
     const socket = getSocket();
     const onMsg = () => utils.clientes.chamados.invalidate({ clienteId });
     socket.on("mensagem", onMsg);

@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { cn } from "@app/ui";
 import { trpc } from "../../lib/trpc";
-import { getSocket } from "../../lib/socket";
+import { getSocket, POLL, REALTIME_SOCKET_ENABLED } from "../../lib/socket";
 import { haQuanto } from "../../lib/format-date";
 
 interface Notif {
@@ -74,7 +74,7 @@ export function NotificationBell() {
   const [aberto, setAberto] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const utils = trpc.useUtils();
-  const notificacoes = trpc.notificacoes.list.useQuery(undefined, { staleTime: 30_000 });
+  const notificacoes = trpc.notificacoes.list.useQuery(undefined, { staleTime: 30_000, refetchInterval: POLL.notificacoes });
   const invalidate = () => utils.notificacoes.list.invalidate();
   const markAll = trpc.notificacoes.markAllRead.useMutation({ onSuccess: invalidate });
   const markRead = trpc.notificacoes.markRead.useMutation({ onSuccess: invalidate });
@@ -84,6 +84,7 @@ export function NotificationBell() {
 
   // Recebe push em tempo real e refaz a busca.
   useEffect(() => {
+    if (!REALTIME_SOCKET_ENABLED) return; // polling acima entrega em produção
     const socket = getSocket();
     const onNotif = () => invalidate();
     socket.on("notificacao", onNotif);
