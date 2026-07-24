@@ -173,38 +173,50 @@ const GUIA_FUNIL: Passo[] = [
 ];
 
 const GUIA_CLIENTES: Passo[] = [
-  { icon: Users, titulo: "Sua base de clientes", descricao: "Aqui ficam todos os clientes. Use “Novo cliente” para cadastrar manualmente — ou eles chegam automaticamente ao converter um lead." },
-  { icon: FileText, titulo: "A ficha do cliente", descricao: "Clique num cliente para abrir a ficha: dados de contato, situação comercial, projetos, documentos, compromissos e histórico — tudo num só lugar." },
+  { icon: Users, titulo: "Sua base de clientes", descricao: "Só quem já é cliente (Ativo ou Inativo) — leads e prospects em negociação ficam no Funil de Vendas. No topo, os números: total, ativos, inativos e quantos têm o Portal ativo." },
+  { icon: Filter, titulo: "Buscar e filtrar", descricao: "Filtre por Todos / Ativos / Inativos e por responsável, ou busque por nome. Use “Novo cliente” para cadastrar à mão — ou eles chegam sozinhos quando você converte um lead no funil." },
+  { icon: FileText, titulo: "A ficha do cliente", descricao: "Clique num cliente para abrir a ficha — o hub dele: contatos, anotações, origem comercial, serviços contratados, projetos, documentos, próximas reuniões e o financeiro (só ADMIN)." },
+  { icon: MessageSquare, titulo: "Suporte e Portal", descricao: "Na ficha você acompanha os chamados de suporte do cliente e envia o acesso ao Portal (“Enviar acesso”). Ativar/Desativar o cliente é um clique — toda exclusão pede confirmação." },
+  { icon: Sparkles, titulo: "Nova oportunidade (upsell)", descricao: "Cliente quer mais um serviço? Use “Nova oportunidade”: abre um novo negócio no funil já com os serviços escolhidos, sem transformar o cliente em lead de novo." },
 ];
 
 const GUIA_SERVICOS: Passo[] = [
-  { icon: Briefcase, titulo: "Catálogo de serviços", descricao: "Os serviços que a MedConsultoria oferece. O lead escolhe no cadastro (site ou manual) e eles aparecem no card." },
-  { icon: ListChecks, titulo: "Passos de cada serviço", descricao: "No ícone de lista, defina os passos padrão do serviço por etapa. Eles entram automaticamente no checklist do lead que contratar aquele serviço." },
-  { icon: Settings, titulo: "Editar à vontade", descricao: "Crie, renomeie, ative/desative ou remova serviços. As mudanças valem para os próximos cadastros." },
+  { icon: Briefcase, titulo: "Catálogo de serviços", descricao: "Os serviços que a MedConsultoria oferece, com categoria e preço (valor fixo e/ou % do faturamento, avulso ou mensal). O lead escolhe no cadastro (site ou manual) e eles entram no card e no contrato." },
+  { icon: SlidersHorizontal, titulo: "Configurar cada serviço", descricao: "No botão “Configurar”, um diálogo com três abas: Detalhes (preço, cláusulas de contrato), Exigências (o que o cliente precisa enviar) e Passos (as tarefas da venda por etapa)." },
+  { icon: ListChecks, titulo: "Exigências e passos", descricao: "As Exigências viram o checklist que o cliente cumpre no Portal (documento, resposta ou briefing). Os Passos entram automaticamente no funil do lead que contratar o serviço." },
+  { icon: Settings, titulo: "Organizar", descricao: "Crie, renomeie, reordene (arraste), ative/desative ou remova serviços. As mudanças valem para os próximos cadastros — os projetos já criados não mudam." },
 ];
 
 const GUIA_PROJETOS: Passo[] = [
-  { icon: FolderKanban, titulo: "Projetos por cliente", descricao: "Cada projeto pertence a um cliente. Crie manualmente ou deixe o funil criar ao converter um lead (já com os serviços como tarefas)." },
-  { icon: ArrowRightLeft, titulo: "Quadro kanban", descricao: "As tarefas andam pelas colunas (Inbox → A Fazer → Em andamento → Aguardando → Concluído). Arraste os cartões conforme o trabalho avança." },
-  { icon: ListChecks, titulo: "Dentro do cartão", descricao: "Cada tarefa tem checklist, prazo, prioridade, responsável e registro de tempo. Atribua responsáveis para todos verem o que é deles." },
+  { icon: FolderKanban, titulo: "Um projeto por serviço", descricao: "Ao converter um lead, nasce um projeto para cada serviço contratado (“Serviço — Cliente”), já com os cartões do roteiro. A lista ordena por urgência (atrasados primeiro) e mostra ativos, pausados, concluídos e com atraso." },
+  { icon: ArrowRightLeft, titulo: "Quadro kanban", descricao: "As colunas são o fluxo: A fazer → Em andamento → Aguardando cliente / Aguardando terceiros → Concluído. Arraste o cartão por qualquer ponto; o status de alguns cartões anda sozinho conforme o cliente entrega." },
+  { icon: MousePointerClick, titulo: "Abrir o cartão", descricao: "Clique no cartão para abrir: à esquerda o checklist, à direita o cronômetro e os comentários. Marcar todas as tarefas de um cartão o conclui; concluir todos os cartões conclui o projeto." },
+  { icon: ListChecks, titulo: "Checklist, prazo e responsável", descricao: "Cada tarefa tem checklist, prazo, prioridade e responsável — atribua para cada um ver o que é dele. O cartão “Entregas do cliente” marca-se sozinho quando o cliente envia pelo Portal." },
+  { icon: CalendarClock, titulo: "Cronômetro", descricao: "Inicie e pare o cronômetro no cartão para registrar o tempo trabalhado. Cada sessão vira um registro — útil para acompanhar esforço por projeto." },
 ];
 
 const GUIA_AGENDA: Passo[] = [
-  { icon: CalendarClock, titulo: "Sua agenda", descricao: "Compromissos, reuniões, retornos e lembretes — pessoais ou da empresa. Crie um evento clicando no dia/horário." },
-  { icon: Compass, titulo: "5 visões", descricao: "Alterne entre Lista, Dia, Semana, Mês e Ano no seletor do topo, conforme o que você precisa enxergar." },
-  { icon: Sparkles, titulo: "Lembretes automáticos", descricao: "O sistema avisa antes dos compromissos. Reuniões com link (Meet/Zoom/Jitsi) aparecem com botão de entrar." },
+  { icon: CalendarClock, titulo: "Sua agenda", descricao: "Compromissos, retornos e reuniões da empresa e pessoais. Cada evento pode ter cliente, projeto, participantes da equipe, recorrência e link de reunião. Crie no “Novo evento” ou clicando num horário." },
+  { icon: Compass, titulo: "5 visões", descricao: "Alterne entre Lista, Dia, Semana, Mês e Ano. Dia e Semana são grades de horário com arrastar-para-reagendar; use “Hoje” para voltar ao presente e o filtro Empresa / Pessoal / Tudo." },
+  { icon: ArrowRightLeft, titulo: "Reagendar arrastando", descricao: "Nas visões de grade, arraste o bloco do evento para outro horário para reagendar (eventos não recorrentes). A linha do “agora” mostra o horário atual." },
+  { icon: CheckCircle2, titulo: "Conflitos e lembretes", descricao: "Se dois eventos se sobrepõem, o sistema avisa (anel âmbar) — sem bloquear. Lembretes internos saem 15 min antes; o cliente recebe um e-mail nas 24h anteriores à reunião." },
+  { icon: Sparkles, titulo: "Reuniões e Resumo por IA", descricao: "Reuniões com link (Meet/Zoom/Jitsi) ganham botão de entrar, e o cliente confirma presença e baixa o .ics pelo Portal. O “Resumo IA” no topo resume o período para você." },
 ];
 
 const GUIA_FINANCEIRO: Passo[] = [
-  { icon: Wallet, titulo: "A pagar e a receber", descricao: "Nas abas, lance contas a pagar e a receber com valor, vencimento e categoria. Marque como pago quando quitar." },
-  { icon: ArrowRightLeft, titulo: "Alertas e resultado", descricao: "O sistema destaca contas vencidas e a vencer, e mostra o resultado (recebido − pago) do mês." },
-  { icon: Settings, titulo: "Categorias", descricao: "Organize por categorias para entender de onde vem e para onde vai o dinheiro." },
+  { icon: Wallet, titulo: "Duas carteiras", descricao: "Empresa (os livros da MedConsultoria, compartilhados com a gestão) e Pessoal (privada — só você vê a sua). O seletor Empresa / Pessoal / Tudo no topo troca a visão." },
+  { icon: ListChecks, titulo: "A pagar e a receber", descricao: "Nas abas, lance contas com valor, vencimento e categoria. Contas recorrentes se renovam sozinhas: ao marcar uma como paga, a próxima ocorrência é criada automaticamente." },
+  { icon: CheckCircle2, titulo: "Precisa de você", descricao: "O bloco “Precisa de você” junta o que está vencido, vence hoje e nesta semana — a pagar e a receber. Marque como paga/recebida com um clique." },
+  { icon: ArrowRightLeft, titulo: "Resultado e para onde vai", descricao: "Os KPIs mostram a receber e a pagar pendentes, o saldo previsto e o resultado do mês (realizado). O gráfico por categoria mostra de onde vem e para onde vai o dinheiro." },
+  { icon: Settings, titulo: "Categorias", descricao: "Organize entradas e saídas por categoria, separadas por carteira (Empresa × Pessoal). Edite-as em “Categorias” aqui ou em Ajustes → Catálogos." },
 ];
 
 const GUIA_DOCUMENTOS: Passo[] = [
-  { icon: FileText, titulo: "Modelos e documentos", descricao: "Na aba Modelos ficam os textos-base (proposta, contrato, briefing, ata) com campos {{como este}}. Na aba Documentos, os gerados." },
-  { icon: Sparkles, titulo: "Gerar preenchido", descricao: "Crie um documento a partir de um modelo escolhendo o cliente — os dados dele entram automaticamente. Você ainda pode editar o texto e melhorar com IA." },
-  { icon: FileSignature, titulo: "Assinatura digital", descricao: "No documento, clique em Solicitar assinaturas: cliente e MedConsultoria recebem um link, assinam (desenhando ou digitando) e fica registrado com data, hora e código de integridade." },
+  { icon: FileText, titulo: "O arquivo de documentos", descricao: "Todos os documentos gerados (propostas, contratos, atas, recibos…), com a situação de cada um. Filtre por cliente, tipo e situação, ou busque pelo título. Os modelos ficam em Ajustes → Modelos." },
+  { icon: Sparkles, titulo: "Novo documento", descricao: "Em “Novo documento”, escolha o que criar e o cliente: a Proposta monta-se pelos serviços (com preços do catálogo e total), a Ata a IA resume suas anotações e a Pauta a IA gera com o contexto do cliente." },
+  { icon: MousePointerClick, titulo: "Revisar e melhorar", descricao: "O documento nasce em rascunho, numa folha A4 com a marca. Edite o texto, use a IA para melhorar, e siga o fluxo Rascunho → Em revisão → Aprovado → Enviado. Exporte em PDF ou Word." },
+  { icon: FileSignature, titulo: "Assinatura digital", descricao: "Em “Solicitar assinaturas”, cliente e MedConsultoria recebem um link, assinam (desenhando ou digitando) com validade jurídica (Lei 14.063/2020) e fica registrado com data, hora e código de integridade." },
+  { icon: CheckCircle2, titulo: "Automação", descricao: "Ao mover o lead para “Proposta”, o sistema já gera a proposta; ao aceitar, gera o contrato com as cláusulas de cada serviço — os dois nascem em revisão e avisam a equipe." },
 ];
 
 const GUIA_MENSAGENS: Passo[] = [
@@ -234,13 +246,16 @@ const GUIA_COMUNICACOES: Passo[] = [
 ];
 
 const GUIA_EMAILS_ENVIADOS: Passo[] = [
-  { icon: SendHorizontal, titulo: "Monitor de e-mails enviados", descricao: "O registro de tudo que o sistema disparou: convites, boas-vindas, links de assinatura, lembretes. Veja quantos saíram, quantos falharam e o motivo de cada falha." },
-  { icon: Filter, titulo: "Filtros", descricao: "Filtre por status (enviados / só falhas), tipo de e-mail e período. Use quando um cliente disser que não recebeu — aqui você confirma se saiu e o que aconteceu." },
+  { icon: SendHorizontal, titulo: "Monitor de e-mails enviados", descricao: "O registro de tudo que o sistema disparou: convites, boas-vindas, links de assinatura, lembretes. Os KPIs no topo mostram enviados nos últimos 7 dias, falhas e a taxa de entrega." },
+  { icon: Filter, titulo: "Filtros", descricao: "Filtre por status (enviados / só falhas), tipo de e-mail, período e busca. Use quando um cliente disser que não recebeu — aqui você confirma se saiu, para quem e quando." },
+  { icon: CheckCircle2, titulo: "Por que falhou", descricao: "Cada falha traz o motivo (ex.: caixa inexistente, servidor recusou). Se o SMTP não estiver configurado, os e-mails aparecem como “modo dev” — o link é mostrado na tela em vez de enviado." },
 ];
 
 const GUIA_USUARIOS: Passo[] = [
-  { icon: UserCog, titulo: "Equipe e acessos", descricao: "Gerencie a equipe interna e os acessos do Portal do Cliente. Convide por e-mail — a pessoa define a própria senha pelo link." },
-  { icon: Settings, titulo: "Papéis", descricao: "Cada usuário tem um papel (Funcionário, Administrador, Root) que define o que ele pode ver e fazer." },
+  { icon: UserCog, titulo: "Equipe e acessos", descricao: "Aqui ficam a equipe interna e os clientes com acesso ao Portal, com nome, e-mail, papel e situação. A tabela mostra quem está ativo e quem já aceitou o convite." },
+  { icon: Mail, titulo: "Convidar", descricao: "Em “Convidar usuário”, informe e-mail e papel — a pessoa recebe um link e define a própria senha. Você nunca digita a senha de ninguém; nenhuma senha fica exposta." },
+  { icon: Settings, titulo: "Papéis (menor privilégio)", descricao: "Funcionário (o necessário para o trabalho), Administrador (tudo da empresa) e Root (tudo + o painel Sistema). Você só atribui papéis ABAIXO do seu — só o Root cria Administradores." },
+  { icon: CheckCircle2, titulo: "Ativar e desativar", descricao: "Desative um acesso para bloquear a entrada sem apagar o histórico; reative quando precisar. Ações sobre pares ou superiores ficam ocultas para você." },
 ];
 
 const GUIA_CONFIG: Passo[] = [
