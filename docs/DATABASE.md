@@ -130,7 +130,7 @@ Colunas do kanban são o enum `CardStatus` no próprio card. `id`, `projetoId`, 
 `id`, `titulo`, `descricao?`, `tipo (EventoTipo: COMPROMISSO|RETORNO|REUNIAO|LEMBRETE|PESSOAL)`, **`escopo (EventoEscopo: PESSOAL|EMPRESA)`**, `inicio`, `fim?`, `diaInteiro`, `local?`, `linkReuniao?`, **`recorrencia (Recorrencia: NENHUMA|DIARIA|SEMANAL|MENSAL)`**, `recorrenciaAte?`, `donoId`, `clienteId?`, `projetoId?`, `lembreteEnviado Boolean`, timestamps, `deletedAt?`. Recorrência é enum + `recorrenciaAte` (expandida no servidor); não há model separado.
 
 ### Notificacao
-`id`, `userId`, `tipo`, `titulo`, `corpo?`, `entidadeTipo?`, `entidadeId?`, `lida`, `createdAt`. Empurrada via Socket.IO; clicável (leva à entidade).
+`id`, `userId`, `tipo`, `titulo`, `corpo?`, `entidadeTipo?`, `entidadeId?`, `lida`, `createdAt`. Notificação in-app; em produção o cliente busca por polling (Socket.IO fica desligado em prod, só dev/reforço — ADR-84). Clicável (leva à entidade).
 
 ---
 

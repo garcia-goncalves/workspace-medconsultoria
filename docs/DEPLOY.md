@@ -3,12 +3,10 @@
 Guia para colocar o Workspace no ar em **https://workspace.medconsultoria.com.br**.
 O app é **um único processo Node** (`server.js`) que serve, na mesma porta: a API tRPC, o WebSocket (Socket.IO) e o site (SPA) já buildado. O deploy envia um **artefato auto-contido** por SSH (a TineHost tem SSH, mas não Git).
 
-> ✅ O artefato de produção já foi **testado localmente** (um processo servindo `/health`, o SPA, o fallback de rotas e o tRPC com MySQL). O pipeline está pronto — falta só você me passar os dados da hospedagem.
+> ✅ Este é o **pipeline real de produção**, já validado: homologação e produção foram concluídas — o app está **no ar** em `https://workspace.medconsultoria.com.br`.
 >
-> ⚠️ **Não faça deste o primeiro deploy.** Suba antes em **homologação** — subdomínio, banco e
-> uploads separados, sem e-mail real — e só promova para produção depois de validar lá.
-> Passo a passo: **[`HOMOLOGACAO.md`](./HOMOLOGACAO.md)**. Este documento continua sendo a
-> referência técnica (DirectAdmin, Passenger, rsync); a homologação só muda os endereços e o `.env`.
+> Passo a passo de homologação (referência histórica): **[`HOMOLOGACAO.md`](./HOMOLOGACAO.md)**. Este documento continua sendo a
+> referência técnica (DirectAdmin, LiteSpeed/lsnode, rsync); a homologação só muda os endereços e o `.env`.
 
 ---
 
@@ -29,7 +27,7 @@ No painel DirectAdmin da TineHost (ou com o suporte deles), reúna:
 
 **Node / hospedagem**
 - [ ] Qual **versão do Node** a TineHost oferece? Precisa ser **≥ 20**.
-- [ ] O painel usa **Passenger** ou **Nginx Unit** para apps Node? (muda o comando de restart e o "startup file").
+- [x] O painel usa **LiteSpeed/lsnode** para apps Node (confirmado — não é Passenger nem Nginx Unit).
 - [ ] O caminho da pasta do app (algo como `/home/SEU_USUARIO/domains/workspace.medconsultoria.com.br/app`).
 - [ ] A rede de saída (outbound) está liberada? (necessário só se for usar a **IA/OpenAI** em produção.)
 
@@ -111,7 +109,7 @@ O que ele executa:
 |------|-------|---------|
 | **`@node-rs/argon2` (nativo)** | Hash de senha usa binário nativo; hospedagem compartilhada pode não ter binário compatível (glibc/plataforma). | Trocar por `argon2` (WASM) ou `@node-rs/bcrypt`; ou pré-compilar. **Testar login logo no 1º deploy.** |
 | **Versão do Node** | Precisa ≥ 20. | Pedir upgrade à TineHost ou usar o selector de versão do painel. |
-| **Passenger vs Nginx Unit** | Muda o restart e o proxy do WebSocket. | Ajustar `DEPLOY_RESTART_CMD`; confirmar que o WS (Socket.IO) passa pelo proxy. |
+| ~~**Passenger vs Nginx Unit**~~ | **RESOLVIDO:** confirmado **LiteSpeed/lsnode**. WebSocket não é suportado pelo proxy → tempo real por polling (ADR-84). | — |
 | **CSP do Helmet** | Hoje `contentSecurityPolicy: false` (para não quebrar o SPA). | Ligar e afinar `script-src` testando o SPA buildado (o Vite injeta um pequeno script de módulo). |
 | **Pool do MySQL** | Limite de conexões do plano. | Ajustar `connection_limit` na `DATABASE_URL` do Prisma. |
 | **Rede outbound (OpenAI)** | Pode estar bloqueada. | Só afeta a IA; sem a chave, o app funciona igual. |
@@ -137,7 +135,7 @@ O que ele executa:
             https://workspace.medconsultoria.com.br  (1 processo: API + WS + SPA)
 ```
 
-> Quando você me passar os dados do §1, eu preencho o `.env.deploy`, ajusto o restart conforme Passenger/Unit, e conduzo o 1º deploy com você — validando o smoke test e o login.
+> Restart ajustado para LiteSpeed/lsnode (`touch tmp/restart.txt`); deploy já conduzido, com smoke test e login validados.
 
 ---
 
@@ -162,7 +160,7 @@ Ele verifica, com base na stack real (exit ≠ 0 se alguma verificação **CRÍT
 | Env obrigatórias + `SESSION_SECRET` forte | crítico | segredo ≥ 16 chars |
 | `NODE_ENV=production` | aviso | cookies `secure`, e-mail/CSP reais |
 | DNS de `WEB_ORIGIN`, rede OpenAI/SMTP | aviso | outbound liberado onde necessário |
-| WebSocket (Socket.IO) | aviso | lembrete: o proxy precisa permitir *upgrade* de WebSocket |
+| ~~WebSocket (Socket.IO)~~ | obsoleto | WS indisponível na hospedagem (LiteSpeed/lsnode não faz upgrade); tempo real por **polling** (ADR-84) |
 
 Se o Argon2 nativo falhar no plano de hospedagem: a app tem **Plano B portátil (`bcryptjs`)** — a abstração `apps/api/src/lib/password.ts` identifica o algoritmo pelo prefixo do hash, então argon2 e bcrypt coexistem; no login bem-sucedido, hashes legados são **reescritos (rehash)** para Argon2id quando ele estiver disponível.
 
@@ -177,9 +175,9 @@ Se o Argon2 nativo falhar no plano de hospedagem: a app tem **Plano B portátil 
 
 ---
 
-## 12. Guia passo a passo — CloudLinux Node.js Selector + Passenger (infra CONFIRMADA)
+## 12. Guia passo a passo — CloudLinux Node.js Selector + LiteSpeed/lsnode (infra CONFIRMADA)
 
-> Ambiente **testado diretamente na TineHost** (probe Node + Passenger + Argon2 + WebSocket, todos OK). Este guia usa os valores reais confirmados. Onde aparecer **[CONFIRMAR]**, verifique no painel na hora.
+> Ambiente **testado diretamente na TineHost** (probe Node + LiteSpeed/lsnode + Argon2, todos OK). **WebSocket NÃO é suportado** por essa infra — o tempo real de produção é **polling** (ADR-84). Este guia usa os valores reais confirmados. Onde aparecer **[CONFIRMAR]**, verifique no painel na hora.
 
 **Valores confirmados**
 | Item | Valor |
@@ -192,14 +190,14 @@ Se o Argon2 nativo falhar no plano de hospedagem: a app tem **Plano B portátil 
 | Uploads persistentes | `/home3/medconsultoria/app-data/workspace-medconsultoria/uploads` |
 | Node | **20.19.2** · npm 10.8.2 |
 | Banco | **MariaDB 10.6.22** em `localhost` |
-| Modo | **Production** · Passenger · startup `app.cjs` |
+| Modo | **Production** · LiteSpeed/lsnode · startup `app.cjs` |
 | Domínio | `https://workspace.medconsultoria.com.br` |
 | Repositório | `https://github.com/thi-garcia/workspace-medconsultoria` (privado) |
 
 ### Passo 1 — Subdomínio + SSL (DirectAdmin)
 1. Em **Domain Setup**, garanta que `workspace.medconsultoria.com.br` existe e aponta para a conta.
 2. Em **SSL Certificates**, emita **Let's Encrypt** para o subdomínio (Force HTTPS ligado).
-3. **Remova/renomeie** o `index.html` padrão em `public_html` (senão ele intercepta o domínio e o Passenger não assume). Ex.: `mv public_html/index.html public_html/_index.html.bak`.
+3. **Remova/renomeie** o `index.html` padrão em `public_html` (senão ele intercepta o domínio e o lsnode não assume). Ex.: `mv public_html/index.html public_html/_index.html.bak`.
 
 ### Passo 2 — Criar a aplicação Node (CloudLinux Node.js Selector)
 No painel **Setup Node.js App** → **Create Application**:
@@ -208,7 +206,7 @@ No painel **Setup Node.js App** → **Create Application**:
 - **Application root:** `workspace-medconsultoria` (relativo ao HOME → `/home3/medconsultoria/workspace-medconsultoria`).
 - **Application URL:** `workspace.medconsultoria.com.br` (raiz do domínio).
 - **Application startup file:** `app.cjs` (shim CommonJS gerado pelo `bundle-deploy` que carrega o servidor ESM por import dinâmico — ver Passo 4).
-- Criar. O painel gera um **virtualenv** e o registro Passenger em `public_html/.htaccess`. Anote o comando **"Enter to the virtual environment"** (`source /home3/medconsultoria/nodevenv/.../bin/activate`) para instalar deps com o Node certo.
+- Criar. O painel gera um **virtualenv** e o registro do proxy (LiteSpeed/lsnode) em `public_html/.htaccess`. Anote o comando **"Enter to the virtual environment"** (`source /home3/medconsultoria/nodevenv/.../bin/activate`) para instalar deps com o Node certo.
 
 ### Passo 3 — Pasta persistente de uploads
 ```bash
@@ -220,12 +218,12 @@ Fica **fora** do Application Root e do `public_html` → o deploy (`rsync --dele
 1. Na sua máquina: `pnpm build:deploy` (gera `apps/api/dist` auto-contido: `server.js` + `public/` + `prisma/` + `package.json` de produção + `preflight.mjs`).
 2. Ajuste o `deploy.sh` (`.env.deploy`): `DEPLOY_PATH=/home3/medconsultoria/workspace-medconsultoria`, host/usuário/porta/chave SSH **[CONFIRMAR]**.
 3. `./deploy.sh` faz: `rsync` do `dist/` → Application Root; via SSH, `npm install --omit=dev`, `prisma generate`, `prisma migrate deploy`, restart.
-4. **Startup `app.cjs`** (gerado automaticamente pelo `bundle-deploy`, fica na raiz do Application Root ao lado de `server.js`): o Passenger carrega o startup via `require()` (CommonJS), então usar `.cjs` que faz `import("./server.js")` evita o `ERR_REQUIRE_ESM` (o `server.js` é ESM). **Validado localmente**: `node app.cjs` sobe a API e responde `/health`. O Passenger **intercepta o `.listen()`** do Fastify e gerencia a porta/socket — por isso `API_PORT` é ignorado sob Passenger (não precisa casar com a porta do painel).
+4. **Startup `app.cjs`** (gerado automaticamente pelo `bundle-deploy`, fica na raiz do Application Root ao lado de `server.js`): o lsnode carrega o startup via `require()` (CommonJS), então usar `.cjs` que faz `import("./server.js")` evita o `ERR_REQUIRE_ESM` (o `server.js` é ESM). **Validado localmente**: `node app.cjs` sobe a API e responde `/health`. O lsnode **intercepta o `.listen()`** do Fastify e gerencia a porta/socket — por isso `API_PORT` é ignorado sob lsnode (não precisa casar com a porta do painel).
 
 ### Passo 5 — Variáveis de ambiente (`.env` na raiz do Application Root)
 ```
 NODE_ENV=production
-# API_PORT: ignorado sob Passenger (ele gerencia a porta). Deixe o default ou omita.
+# API_PORT: ignorado sob LiteSpeed/lsnode (ele gerencia a porta). Deixe o default ou omita.
 DATABASE_URL=mysql://USUARIO:SENHA@localhost:3306/BANCO   # MariaDB local [CONFIRMAR user/senha/banco]
 SESSION_SECRET=<gerar 32+ bytes: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
 WEB_ORIGIN=https://workspace.medconsultoria.com.br
@@ -249,9 +247,9 @@ node preflight.mjs
 Só siga se **todas as verificações CRÍTICAS** passarem (Argon2, MySQL, migrations, UPLOADS_DIR absoluto+gravável, SESSION_SECRET). Ver §10.
 
 ### Passo 8 — Restart, logs, WebSocket
-- **Restart:** botão **Restart** no Node Selector, ou `touch tmp/restart.txt` no Application Root (Passenger relê).
-- **Logs:** `stderr.log`/`stdout.log` do Passenger (no painel ou em `~/logs`), + o `ErrorLog` no painel **Sistema** da app (ROOT).
-- **WebSocket:** confirmado funcional na TineHost com `transports: ["websocket"]`. O Passenger encaminha o upgrade; nada extra a configurar. Se algum dia cair para long-polling, revisar `.htaccess`/proxy.
+- **Restart:** botão **Restart** no Node Selector, ou `touch tmp/restart.txt` no Application Root (lsnode/LiteSpeed relê).
+- **Logs:** `stderr.log`/`stdout.log` do lsnode (no painel ou em `~/logs`), + o `ErrorLog` no painel **Sistema** da app (ROOT).
+- **WebSocket:** **NÃO suportado** na TineHost — LiteSpeed/lsnode não faz upgrade de WS. O tempo real de produção é **polling** (ADR-84); religa o Socket.IO em prod com `VITE_REALTIME=1` se algum dia a hospedagem passar a suportar upgrade.
 
 ### Passo 9 — Atualização de versão (deploys futuros)
 `pnpm build:deploy` → `./deploy.sh` (rsync + migrate + restart). O `.env` e a pasta de uploads são preservados.

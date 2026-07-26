@@ -1,8 +1,14 @@
 # Plano de Limpeza de Dados de Teste (Bloco 5)
 
-> **Status: PLANO — NADA FOI EXECUTADO.**
-> Nenhum registro foi apagado. Este documento é o plano que precisa da sua aprovação
-> explícita antes de qualquer execução destrutiva, conforme combinado.
+> **⚠️ SUPERADO (2026-07-26).** Este documento é um registro PRÉ-DEPLOY — e este plano em
+> particular já foi **totalmente executado** (Etapas 1-4, ver §6). O app já está **em
+> produção** em https://workspace.medconsultoria.com.br (TineHost/LiteSpeed-lsnode; tempo real
+> por polling; backup automático ativo). Estado atual e decisões: ver `/CLAUDE.md` e
+> `docs/DECISIONS.md` (ADR-84..87). Mantido abaixo como histórico.
+
+> **Status: CONCLUÍDO (Etapas 1-4 executadas).**
+> ~~PLANO — NADA FOI EXECUTADO.~~ As quatro etapas do plano abaixo foram executadas, a
+> destrutiva (Etapa 3) com autorização explícita do dono e dump prévio — ver §6.
 >
 > Levantamento: 2026-07-20 · main `38eabd2`
 
@@ -169,7 +175,7 @@ e o banco de E2E **não são tocados** — o ensaio usa banco e portas próprios
 
 ---
 
-## 3. O que eu **não** vou fazer sem sua ordem expressa
+## 3. O que eu **não** vou fazer sem sua ordem expressa (histórico — DECIDIDO/EXECUTADO, ver §6)
 
 - Apagar qualquer coisa antes do seu "pode executar".
 - Rodar a Etapa 3 sem dump prévio.
@@ -180,17 +186,18 @@ e o banco de E2E **não são tocados** — o ensaio usa banco e portas próprios
 
 ---
 
-## 4. Decisão que eu preciso de você
+## 4. Decisão que eu preciso de você — **DECIDIDO: Opção B, executada (ver §6)**
 
 As Etapas **1, 2 e 4 já foram executadas** — todas não destrutivas, nenhum registro apagado.
-Falta só a **Etapa 3** (`db:demo:clean`), que é a única que apaga dados:
+Faltava só a **Etapa 3** (`db:demo:clean`/`db:limpar`), a única que apaga dados:
 
 | Opção | O que executo |
 |---|---|
-| **A — Parar por aqui** | Nada mais. O banco de dev fica sujo como está, mas **não piora mais** (Etapa 2 impede). |
-| **B — Executar a Etapa 3** (recomendado) | Crio o `db:demo:clean` com dry-run + dump automático, mostro a lista do que seria apagado, e só então aplico. |
+| A — Parar por aqui | Nada mais. O banco de dev fica sujo como está, mas **não piora mais** (Etapa 2 impede). |
+| **B — Executar a Etapa 3** (recomendado) ✅ **ESCOLHIDA** | `db:limpar` com dry-run + dump automático, lista do que seria apagado, e só então aplicado — com autorização do dono. |
 
-Enquanto não houver decisão, **a Etapa 3 não é executada**.
+~~Enquanto não houver decisão, a Etapa 3 não é executada.~~ Decidido e executado em 2026-07-20
+(§6).
 
 ---
 

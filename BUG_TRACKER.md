@@ -7,7 +7,7 @@ Histórico de bugs encontrados na auditoria funcional (Bloco 3+). Para cada um: 
 | ID | Status | Título | Encontrado em | PR | Commit |
 |----|--------|--------|---------------|----|----|
 | BUG-001 | 🟢 corrigido | Overflow horizontal na ficha do cliente no mobile | 2026-07-17 (validação ao vivo, celular 390) | #10 | `4c8f455` |
-| BUG-002 | 🟢 corrigido | 404 de recurso mostrava "erro de conexão / tentar de novo" (páginas de detalhe) | 2026-07-17 (edge: URL de recurso inexistente) | #12 | _(pendente merge)_ |
+| BUG-002 | 🟢 corrigido | 404 de recurso mostrava "erro de conexão / tentar de novo" (páginas de detalhe) | 2026-07-17 (edge: URL de recurso inexistente) | #12 | `ca1e4fb` |
 
 ---
 

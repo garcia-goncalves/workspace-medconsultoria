@@ -1,7 +1,13 @@
 # DEPLOY_CHECKLIST_TINEHOST.md
 
+> **⚠️ SUPERADO (2026-07-26).** Este documento é um registro PRÉ-DEPLOY. O app já está **em
+> produção** em https://workspace.medconsultoria.com.br (TineHost/LiteSpeed-lsnode; tempo real
+> por polling; backup automático ativo). Estado atual e decisões: ver `/CLAUDE.md` e
+> `docs/DECISIONS.md` (ADR-84..87). Mantido abaixo como histórico.
+
 > Auditoria de deploy · **21/07/2026** · main `5eea798`
-> **Ambiente de homologação ainda não existe.** Nada aqui foi executado no servidor.
+> ~~**Ambiente de homologação ainda não existe.** Nada aqui foi executado no servidor.~~
+> **ATUALIZAÇÃO 2026-07-26:** já executado — app em produção desde 26/07/2026.
 >
 > Escopo: tudo que pode **impedir ou dificultar** a execução na TineHost.
 > Companheiros: `docs/DEPLOY.md` (passo a passo técnico) · `docs/HOMOLOGACAO.md` (1º deploy).
@@ -24,7 +30,7 @@ Auditado no código, não presumido.
 | **Cookie** | `httpOnly` · `signed` · `sameSite=lax` · **`secure` automático quando `NODE_ENV=production`** | `auth.router.ts` |
 | **CORS** | restrito a `WEB_ORIGIN`, com `credentials: true` | `server.ts` |
 | **Segurança HTTP** | Helmet + rate-limit global (300/min) + throttle de login (8/15min por IP+e-mail) | `server.ts`, `auth.service.ts` |
-| **WebSocket** | Socket.IO **sem forçar transporte** → cai para long-polling se o upgrade falhar | `realtime/socket.ts` |
+| **WebSocket** | ~~Socket.IO sem forçar transporte → cai para long-polling se o upgrade falhar~~ ATUALIZADO: a infra (LiteSpeed/lsnode) não suporta WebSocket; Socket.IO fica **desligado no build de produção** por decisão — tempo real é por **polling** (`refetchInterval`), religável com `VITE_REALTIME=1` (ADR-84) | `realtime/socket.ts` |
 | **Migrations** | 53, aplicadas por `prisma migrate deploy` (nunca `migrate dev`) | `docs/DEPLOY.md` |
 | **Uploads** | `UPLOADS_DIR` configurável, com default local | `config.ts` |
 | **Seed** | cria ROOT + ADMIN + etapas do funil; idempotente, **nunca sobrescreve senha existente** | `packages/db/prisma/seed.ts` |
@@ -45,7 +51,7 @@ Auditado no código, não presumido.
 | 4 | **SSL** no subdomínio | sem HTTPS o cookie `secure` não volta e **ninguém loga** |
 | 5 | **WebSocket liberado** no proxy | se não, o tempo real cai para polling (funciona, mas consome mais) |
 | 6 | **Rede de saída** para `api.openai.com:443` e o SMTP | IA e e-mail dependem |
-| 7 | **Backup do MySQL** (rotina do painel ou cron) | não existe hoje |
+| 7 | **Backup do MySQL** (rotina do painel ou cron) | ~~não existe hoje~~ IMPLEMENTADO: cron diário 03:00 (`scripts/server/backup-db.sh`), ADR-86 |
 
 ---
 
@@ -99,7 +105,7 @@ Nada bloqueia o deploy **técnico** de homologação. Bloqueiam o **uso comercia
 | # | Risco | Grav. | Mitigação |
 |---|---|---|---|
 | R1 | **Node < 20 no servidor** | 🔴 | Confirmar ANTES. Sem saída simples — Argon2 e o build exigem |
-| R2 | **WebSocket bloqueado pelo Passenger** | 🟠 | **Já mitigado**: Socket.IO não força transporte e cai para long-polling. Validar na §8 |
+| R2 | **WebSocket bloqueado pelo Passenger** | 🟠 | ~~Já mitigado: Socket.IO não força transporte e cai para long-polling. Validar na §8~~ ATUALIZADO: hospedagem é LiteSpeed/lsnode (não Passenger); WebSocket confirmado **não suportado**; Socket.IO desligado no build de prod, tempo real por polling (ADR-84) |
 | R3 | **Uploads dentro do Application Root** | 🔴 | `UPLOADS_DIR` fora dele. **Testar com um restart**, não só com um upload |
 | R4 | **Sem HTTPS → ninguém loga** | 🔴 | `secure: isProd`. SSL é pré-requisito, não item de polimento |
 | R5 | **`WEB_ORIGIN` divergente do domínio** | 🔴 | Quebra CORS e cookie. Tem de bater **exatamente**, com `https://` |
@@ -169,7 +175,8 @@ pnpm doutor --url https://homolog.medconsultoria.com.br --perfil admin
 
 **Manual — o que o doutor não vê e só o servidor revela**
 - [ ] **Login sobrevive a refresh** (cookie `secure` sob HTTPS) 🔴
-- [ ] **Tempo real**: Mensagens em duas abas, mensagem chega sozinha 🟠 *(maior risco)*
+- [ ] **Tempo real**: Mensagens em duas abas, mensagem chega sozinha 🟠 *(~~maior risco~~
+      ATUALIZADO: WebSocket não suportado pela hospedagem; tempo real é por polling, ADR-84)*
 - [ ] **Upload sobrevive a restart**: anexar → **reiniciar pelo painel** → arquivo continua lá 🔴
 - [ ] **Download** do arquivo anexado
 - [ ] **PDF**: abrir documento e salvar em PDF
@@ -185,8 +192,10 @@ pnpm doutor --url https://homolog.medconsultoria.com.br --perfil admin
 
 ## 11. Lacunas conhecidas (declaradas, não resolvidas)
 
-1. **Nada disto foi executado num servidor.** Toda a validação foi local.
-2. **Sem backup automatizado** — só o dump manual do `db:limpar`.
+1. ~~**Nada disto foi executado num servidor.** Toda a validação foi local.~~ ATUALIZADO
+   2026-07-26: executado — app em produção.
+2. ~~**Sem backup automatizado** — só o dump manual do `db:limpar`.~~ ATUALIZADO: implementado
+   (cron diário, ADR-86).
 3. **Sem monitoramento externo.**
 4. **Script de atualização** não existe como comando único: hoje é `build:deploy` + `deploy.sh` + migrate + restart, manual. Vale automatizar **depois** do 1º deploy bem-sucedido — automatizar um processo nunca executado é otimizar no escuro.
 5. **`pnpm doutor` não roda no CI** contra um app subido.
