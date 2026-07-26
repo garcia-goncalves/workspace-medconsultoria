@@ -29,6 +29,7 @@ import {
   FileText,
   SlidersHorizontal,
   Landmark,
+  HardDrive,
   SendHorizontal,
 } from "lucide-react";
 import { cn } from "@app/ui";
@@ -267,9 +268,10 @@ const GUIA_CONFIG: Passo[] = [
 ];
 
 const GUIA_SISTEMA: Passo[] = [
-  { icon: ServerCog, titulo: "Painel técnico (só Root)", descricao: "A saúde da aplicação em tempo real: banco, memória, event loop e taxa de erro. As abas separam Visão geral, Incidentes, Desempenho, Banco, Erros, Sessões, Atividade e Manutenção." },
-  { icon: ListChecks, titulo: "Erros e incidentes", descricao: "Erros capturados automaticamente ficam na aba Erros — resolva, oculte ou peça a análise da IA. Incidentes registram quedas e degradações, com o histórico de uptime." },
-  { icon: Sparkles, titulo: "Diagnóstico e manutenção", descricao: "Use o Diagnóstico com IA no topo para uma leitura rápida do estado. Em Manutenção você limpa sessões expiradas e vê as migrações do banco e a configuração do ambiente." },
+  { icon: ServerCog, titulo: "Painel técnico (só Root)", descricao: "A saúde da aplicação em tempo real: banco, memória, event loop e taxa de erro. As abas separam Visão geral, Incidentes, Desempenho, Banco, Operação, Erros, Sessões, Atividade e Manutenção." },
+  { icon: ListChecks, titulo: "Erros e incidentes", descricao: "Erros capturados automaticamente ficam na aba Erros — resolva, oculte ou peça a análise da IA. Incidentes registram quedas e degradações, com o histórico de uptime. O Root recebe e-mail de erros e incidentes." },
+  { icon: HardDrive, titulo: "Operação (backups e alertas)", descricao: "Na aba Operação você vê os backups automáticos do banco (e pode fazer um na hora), os reinícios automáticos do app e o estado dos alertas. Se o app cair, o Root é avisado por e-mail — mesmo com o app fora do ar." },
+  { icon: Sparkles, titulo: "Diagnóstico e manutenção", descricao: "No topo, o Diagnóstico com IA dá uma leitura rápida do estado, e “Baixar diagnóstico” exporta tudo em um arquivo. Em Manutenção você limpa sessões expiradas e vê as migrações do banco e a configuração do ambiente." },
 ];
 
 // A ORDEM importa: `guiaDaRota` casa por prefixo, então rotas mais específicas vêm ANTES das
