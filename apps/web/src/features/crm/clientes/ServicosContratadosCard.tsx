@@ -104,8 +104,14 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
   const confirmar = useConfirmar();
   const q = trpc.clientes.servicos.useQuery({ id: clienteId });
   const invalidate = () => utils.clientes.servicos.invalidate({ id: clienteId });
-  const ativar = trpc.clientes.ativarServico.useMutation({ onSuccess: invalidate });
-  const cancelar = trpc.clientes.cancelarServico.useMutation({ onSuccess: invalidate });
+  // Contratar/cancelar serviço muda o nº de serviços do cliente → atualiza também a listagem
+  // (contador "servicosContratados" e o selo "sem serviço" na ClientesListPage).
+  const invalidateComLista = () => {
+    invalidate();
+    utils.clientes.list.invalidate();
+  };
+  const ativar = trpc.clientes.ativarServico.useMutation({ onSuccess: invalidateComLista });
+  const cancelar = trpc.clientes.cancelarServico.useMutation({ onSuccess: invalidateComLista });
   const removerArquivo = trpc.clientes.removerArquivo.useMutation({ onSuccess: invalidate });
   const { user } = useAuth();
   // Excluir arquivo é ADMIN+ (RBAC). FUNCIONARIO envia/atualiza, mas não exclui.

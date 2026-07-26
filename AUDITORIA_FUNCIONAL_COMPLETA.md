@@ -511,3 +511,23 @@ Não constam no site nem na política de privacidade — foram procurados em amb
 Equipe/usuários reais · subserviços e preços de tabela · operadoras · hospitais ·
 categorias e origens · textos dos modelos de documento · textos dos modelos de e-mail ·
 mensagens automáticas · formulários/briefings · texto jurídico dos contratos.
+
+---
+
+## Auditoria funcional COMPLETA da app (2026-07-26)
+
+Varredura de CRUD + confirmações + automação em toda a aplicação (7 áreas em paralelo + verificação ao vivo via Playwright, logado como ROOT).
+
+**Resultado — o que está OK (verificado):**
+- **Confirmação em TODA ação destrutiva** (excluir/arquivar/apagar/cancelar/remover/sair-do-grupo): 100% via `useConfirm`/`usePrompt`, em toda a app **e no Portal**. Verificado ao vivo: criar cliente (confirma) → arquivar cliente (confirma "Deseja...") → some da lista.
+- **CRUD completo** (criar/salvar/editar/excluir/fechar; diálogos com Salvar/Cancelar) — nenhum botão morto.
+- **Documentos**: o cliente abre/baixa os documentos dele (rota `/arquivos/:id`) e os da MedConsultoria (modal + PDF/Word); a equipe abre os do cliente na ficha. OK.
+- **SISTEMA**: 3 botões do cabeçalho + 13 queries + 9 abas + IA real testados ao vivo (ver ADR-87); + "Baixar diagnóstico".
+
+**Corrigido nesta rodada — 8 lacunas de AUTOMAÇÃO (cache stale; dado certo no banco, UI não atualizava na hora):**
+1. ClientesListPage / 2. ClienteDetailPage — convidar Portal agora invalida `clientes.resumo` (KPI "Com Portal ativo").
+3. ServicosContratadosCard — contratar/cancelar serviço invalida `clientes.list` (contador/selo "sem serviço").
+4. LeadsPipelinePage — convidar Portal usa `invalidarFunil()` (resumo/taxa + ficha do cliente).
+5. CardPanel / 6. ProjetosListPage — auto-conclusão e exclusão de projeto invalidam `clientes.relacionados` (ficha do cliente).
+7. CategoriasDialog — salvar categoria invalida `contas.list`/`porCategoria` (nome/cor no Financeiro).
+8. DocumentoDetailPage — mudar status/conteúdo invalida `documentos.list` (situação na listagem).

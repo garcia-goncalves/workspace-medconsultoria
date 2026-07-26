@@ -62,6 +62,8 @@ export function CardPanel({
     // Marcar checklist pode auto-mover o card e auto-concluir/reabrir o projeto.
     utils.projetos.get.invalidate({ id: projetoId });
     utils.projetos.list.invalidate();
+    // A ficha do cliente lista os projetos dele com a situação — reflete a auto-conclusão/reabertura.
+    utils.clientes.relacionados.invalidate();
   };
 
   const startTimer = trpc.cards.startTimer.useMutation({ onSuccess: refresh });
