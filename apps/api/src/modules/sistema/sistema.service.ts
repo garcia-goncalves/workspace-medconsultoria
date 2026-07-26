@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { TRPCError } from "@trpc/server";
 import { prisma, getSlowQueries } from "@app/db";
-import { config, isAiEnabled } from "../../config.js";
+import { config, isAiEnabled, isEmailReal } from "../../config.js";
 import { contarConexoesSocket } from "../../realtime/socket.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { statusJobs, scanProativo } from "../../realtime/reminders.js";
@@ -565,4 +570,71 @@ export function configInfo() {
     iaAtiva: isAiEnabled,
     cspLigada: false, // Helmet com CSP desativada por ora (ver docs/DEPLOY.md)
   };
+}
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * OPERAÇÃO — visibilidade dos backups automáticos, dos reinícios do health-check e do estado dos
+ * alertas ao ROOT. Os caminhos vêm do .env do SERVIDOR (`BACKUPS_DIR`/`OPS_DIR`); no dev eles não
+ * existem, então a aba mostra "não configurado neste ambiente". Só leitura (ROOT).
+ */
+export function operacao() {
+  const dir = config.BACKUPS_DIR;
+  const disponivel = !!dir && existsSync(dir);
+
+  let backups: { total: number; ultimo: { quando: string; tamanho: number } | null; tamanhoTotal: number; retencao: number } | null = null;
+  let reinicios: string[] = [];
+
+  if (disponivel && dir) {
+    const arquivos = readdirSync(dir)
+      .filter((f) => /^auto-db-.*\.sql\.gz$/.test(f))
+      .map((f) => {
+        const st = statSync(join(dir, f));
+        return { nome: f, tamanho: st.size, mtime: st.mtimeMs };
+      })
+      .sort((a, b) => b.mtime - a.mtime);
+
+    backups = {
+      total: arquivos.length,
+      ultimo: arquivos[0] ? { quando: new Date(arquivos[0].mtime).toISOString(), tamanho: arquivos[0].tamanho } : null,
+      tamanhoTotal: arquivos.reduce((s, a) => s + a.tamanho, 0),
+      retencao: 14,
+    };
+
+    const logHealth = join(dir, "health.log");
+    if (existsSync(logHealth)) {
+      reinicios = readFileSync(logHealth, "utf8").trim().split("\n").filter(Boolean).slice(-12).reverse();
+    }
+  }
+
+  return {
+    disponivel,
+    backups,
+    reinicios,
+    alertas: {
+      // O ROOT já recebe E-MAIL de incidentes e de erros novos/regressões (tipos emailáveis,
+      // minRole ROOT). O e-mail de "app fora do ar" vem do cron (fora do app). Ver ADR-87.
+      emailReal: isEmailReal,
+      tiposAoRoot: ["incidente", "erro"],
+    },
+  };
+}
+
+/** Dispara um backup do banco SOB DEMANDA (executa o script de ops instalado no servidor). ROOT. */
+export async function fazerBackup() {
+  const ops = config.OPS_DIR;
+  if (!ops) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Backup sob demanda só está disponível no servidor (OPS_DIR não configurado)." });
+  }
+  const script = join(ops, "backup-db.sh");
+  if (!existsSync(script)) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Script de backup não encontrado no servidor." });
+  }
+  try {
+    const { stdout } = await execFileAsync("bash", [script], { timeout: 120_000 });
+    return { ok: true, saida: stdout.trim().split("\n").slice(-3).join("\n") };
+  } catch (e) {
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Falha ao gerar o backup: ${e instanceof Error ? e.message : "erro desconhecido"}` });
+  }
 }

@@ -25,6 +25,11 @@ const schema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().optional(),
+  // Ops de produção (opcionais; definidas só no .env do servidor). Deixam a aba "Operação" da
+  // SISTEMA enxergar os backups automáticos e disparar um backup sob demanda. Ausentes no dev →
+  // a aba mostra "não configurado neste ambiente" (degrada com elegância).
+  BACKUPS_DIR: z.string().optional(),
+  OPS_DIR: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

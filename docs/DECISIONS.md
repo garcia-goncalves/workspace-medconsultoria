@@ -1113,6 +1113,17 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 
 **Limites reconhecidos (ação do dono):** backups ficam **no mesmo servidor** (protegem contra erro lógico, não contra perda do host) e `uploads/` ainda não é copiado; o health-check **não alerta** se o servidor inteiro cair. **RECOMENDO:** monitor de uptime **externo** (UptimeRobot grátis) + cópia periódica dos dumps para fora do servidor. Ver DEPLOY.md § Passo 10.
 
+## ADR-87 — SISTEMA aba "Operação" + alerta de app-fora ao ROOT ✅
+
+**Contexto:** o dono quer a SISTEMA como cockpit completo do ROOT e ser avisado quando o sistema cair. **Verificação antes de construir:** o ROOT **já recebe e-mail** de incidentes (`notificarRoot`) e de erros novos/regressões (`notificarRootErro`) — tipos `incidente`/`erro` são emailáveis (`minRole: ROOT`, templates no `emails.registry`). Só faltava (a) visibilidade dos backups/reinícios e (b) o aviso quando o app está **totalmente fora** (aí o próprio app não envia e-mail).
+
+**Decisões:**
+1. **Aba "Operação"** (`SistemaPage`, `sistema.operacao` — rootProcedure): backups automáticos (último/quantidade/espaço + **"Fazer backup agora"** que executa `OPS_DIR/backup-db.sh`), reinícios do health-check (tail do `health.log`) e estado dos alertas (e-mail real? quais tipos vão ao ROOT). Caminhos por `BACKUPS_DIR`/`OPS_DIR` (env do servidor); no dev degrada para "disponível no servidor".
+2. **Alerta de app-fora** no `healthcheck.sh` (cron): ao detectar queda + restart, envia e-mail ao ROOT via **sendmail local** — funciona MESMO com o app fora (o ponto cego de qualquer monitor interno). Cooldown de 30 min (não spamma).
+3. **Não** adicionamos monitor externo pago (UptimeRobot) nem APM — desnecessário para ferramenta interna; o combo health-check-que-reinicia-e-avisa + monitores do host cobrem o caso real. Monitor externo fica como recomendação opcional ao dono (queda total do host).
+
+**Verificado:** typecheck api+web; API 79/79; web 32/32; rota carregada (401 = protegida). Deploy: `BACKUPS_DIR`/`OPS_DIR` no `.env` do servidor + `healthcheck.sh` atualizado.
+
 ## Pendências (viram ADR quando decididas)
 
 - ~~Passenger vs Nginx Unit na TineHost (mecanismo de restart / proxy WS).~~ **Restart** = `touch tmp/restart.txt` (LiteSpeed/lsnode). **WS resolvido no ADR-84** (tempo real por polling; não precisa de proxy WS).

@@ -46,6 +46,7 @@ type Aba =
   | "incidentes"
   | "desempenho"
   | "banco"
+  | "operacao"
   | "erros"
   | "sessoes"
   | "atividade"
@@ -57,6 +58,7 @@ const ABAS: { id: Aba; label: string; icon: typeof Activity }[] = [
   { id: "incidentes", label: "Incidentes", icon: Siren },
   { id: "desempenho", label: "Desempenho", icon: Gauge },
   { id: "banco", label: "Banco", icon: Database },
+  { id: "operacao", label: "Operação", icon: HardDrive },
   { id: "erros", label: "Erros", icon: Bug },
   { id: "sessoes", label: "Sessões", icon: MonitorSmartphone },
   { id: "atividade", label: "Atividade", icon: History },
@@ -104,6 +106,7 @@ export function SistemaPage() {
       {aba === "incidentes" && <AbaIncidentes />}
       {aba === "desempenho" && <AbaDesempenho />}
       {aba === "banco" && <AbaBanco />}
+      {aba === "operacao" && <AbaOperacao />}
       {aba === "erros" && <AbaErros />}
       {aba === "sessoes" && <AbaSessoes />}
       {aba === "atividade" && <AbaAtividade />}
@@ -1106,6 +1109,116 @@ function AbaAtividade() {
 }
 
 /* ----------------------------- Manutenção ----------------------------- */
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+/**
+ * OPERAÇÃO — o cockpit de ops do ROOT: backups automáticos (com "fazer agora"), reinícios do
+ * health-check e o estado dos alertas por e-mail. No dev os caminhos não existem → degrada com
+ * uma mensagem clara. Ver ADR-87.
+ */
+function AbaOperacao() {
+  const op = trpc.sistema.operacao.useQuery(undefined, { refetchInterval: 30_000 });
+  const utils = trpc.useUtils();
+  const backup = trpc.sistema.fazerBackup.useMutation({ onSuccess: () => void utils.sistema.operacao.invalidate() });
+
+  if (op.isLoading) return <Skeleton className="h-64 w-full rounded-xl" />;
+  if (op.error) return <QueryError message={op.error.message} onRetry={() => op.refetch()} />;
+  const d = op.data!;
+
+  return (
+    <div className="space-y-6">
+      {/* Backups */}
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          <HardDrive className="h-4 w-4" /> Backups automáticos
+        </h2>
+        {!d.disponivel ? (
+          <EmptyState
+            icon={HardDrive}
+            title="Disponível no servidor"
+            description="Os backups automáticos rodam no servidor de produção (cron diário às 03:00). Este painel os mostra quando aberto lá — no ambiente local não há o que exibir."
+          />
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <StatCard icon={Timer} label="Último backup" value={d.backups?.ultimo ? haQuanto(d.backups.ultimo.quando) : "nenhum"} tom={d.backups?.ultimo ? "ok" : "alerta"} />
+              <StatCard icon={Database} label="Guardados" value={`${d.backups?.total ?? 0} / ${d.backups?.retencao ?? 14}`} hint="retém 14 dias" />
+              <StatCard icon={HardDrive} label="Espaço usado" value={d.backups ? fmtBytes(d.backups.tamanhoTotal) : "—"} />
+            </div>
+            <Card>
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="text-xs text-muted-foreground">
+                  {d.backups?.ultimo
+                    ? `Último em ${dataHora(d.backups.ultimo.quando)} (${fmtBytes(d.backups.ultimo.tamanho)}). `
+                    : "Nenhum backup gerado ainda. "}
+                  Automático diário às 03:00 (BRT).
+                </div>
+                <Button variant="outline" disabled={backup.isPending} onClick={() => backup.mutate()}>
+                  <HardDrive className="h-4 w-4" />
+                  {backup.isPending ? "Gerando…" : "Fazer backup agora"}
+                </Button>
+              </CardContent>
+            </Card>
+            {backup.data && <p className="text-xs text-success">✅ Backup gerado. {backup.data.saida}</p>}
+            {backup.error && <p className="text-xs text-destructive">{backup.error.message}</p>}
+          </>
+        )}
+      </section>
+
+      {/* Reinícios automáticos */}
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          <RefreshCw className="h-4 w-4" /> Reinícios automáticos (health-check)
+        </h2>
+        {!d.disponivel ? (
+          <p className="text-xs text-muted-foreground">Disponível no servidor.</p>
+        ) : d.reinicios.length === 0 ? (
+          <Card>
+            <CardContent className="p-4 text-sm text-muted-foreground">Nenhum reinício registrado — o app não caiu. 🎉</CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="p-0">
+              <ul className="divide-y">
+                {d.reinicios.map((linha, i) => (
+                  <li key={i} className="px-4 py-2 text-xs">
+                    <code className="text-muted-foreground">{linha}</code>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+      </section>
+
+      {/* Alertas ao ROOT */}
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          <ShieldCheck className="h-4 w-4" /> Alertas ao ROOT
+        </h2>
+        <Card>
+          <CardContent className="space-y-2 p-4 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={d.alertas.emailReal ? "success" : "warning"}>{d.alertas.emailReal ? "E-mail ativo" : "E-mail em modo dev"}</Badge>
+              <span className="text-muted-foreground">
+                O ROOT recebe e-mail automático de <strong>incidentes</strong> e de <strong>erros novos/regressões</strong>.
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Quando o app fica <strong>totalmente fora do ar</strong>, o aviso vem do health-check no servidor (cron, independente do app): ele reinicia o app e envia e-mail ao ROOT.
+            </p>
+          </CardContent>
+        </Card>
+      </section>
+    </div>
+  );
+}
 
 function AbaManutencao() {
   const migracoes = trpc.sistema.migracoes.useQuery();

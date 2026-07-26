@@ -19,6 +19,8 @@ export const sistemaRouter = router({
   historicoUptime: rootProcedure.query(() => sistema.historicoUptime()),
   migracoes: rootProcedure.query(() => sistema.migracoes()),
   config: rootProcedure.query(() => sistema.configInfo()),
+  operacao: rootProcedure.query(() => sistema.operacao()),
+  fazerBackup: rootProcedure.mutation(() => sistema.fazerBackup()),
 
   revogarSessao: rootProcedure
     .input(z.object({ id: z.string() }))
