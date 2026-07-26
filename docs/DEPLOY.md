@@ -257,6 +257,14 @@ Só siga se **todas as verificações CRÍTICAS** passarem (Argon2, MySQL, migra
 `pnpm build:deploy` → `./deploy.sh` (rsync + migrate + restart). O `.env` e a pasta de uploads são preservados.
 
 ### Passo 10 — Backup e rollback
-- **Backup:** `mysqldump` do banco (cron) **+** a pasta `app-data/.../uploads`, guardados fora do servidor.
-- **Rollback:** manter o `dist/` anterior; para rollback simples, versionar releases em `releases/<data>` e apontar um symlink (posso adaptar o `deploy.sh` quando formos publicar).
-- **Restauração:** restaurar o dump do MySQL + a pasta de uploads no mesmo caminho, e apontar a app para eles.
+
+**Backup automático (implementado 26/07):** scripts em `scripts/server/`, instalados no servidor em `~/domains/workspace.medconsultoria.com.br/ops/` e agendados no cron do usuário:
+- `backup-db.sh` — **diário 03:00 BRT**: `mysqldump --single-transaction` + gzip → `../backups/auto-db-<TS>.sql.gz`, **retém os 14 mais recentes** (rotação automática). Log em `../backups/backup.log`.
+- `healthcheck.sh` — **a cada 5 min**: `curl /health`; se cair (2 tentativas), dispara `touch tmp/restart.txt` (auto-restart do lsnode) e loga em `../backups/health.log`.
+- `install-cron.sh` — instalador **idempotente** (preserva crons existentes; roda uma vez).
+- **Reinstalar** (após recriar o ambiente): reenviar `scripts/server/*.sh` para `ops/`, `chmod +x`, rodar `install-cron.sh`.
+- ⚠️ **Falta cobrir:** os backups ficam **no mesmo servidor** (protegem contra erro lógico/DROP, não contra perda do host) e a pasta `uploads/` ainda não entra no backup automático. **Recomendação ao dono:** (a) baixar os dumps para fora do servidor periodicamente (ou storage externo) e (b) um **monitor de uptime externo** (ex.: UptimeRobot, grátis) — o `healthcheck` interno não alerta se o servidor inteiro cair.
+
+**Rollback:** o deploy tira **snapshot do release** (`../backups/release-pre-<TS>.tar.gz`, sem `node_modules`) e **dump do banco** antes de migrar. Para reverter: extrair o snapshot sobre `public_html` e restaurar o dump.
+
+**Restauração:** `gunzip < auto-db-<TS>.sql.gz | mysql <db>` + restaurar `uploads/` no mesmo caminho.

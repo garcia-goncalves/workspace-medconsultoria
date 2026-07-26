@@ -245,6 +245,8 @@ workspace-medconsultoria/
 
 ## 10. Fluxo de desenvolvimento
 
+> **Princípio (o dev/IA é o cérebro, não o executor):** todo pedido do dono é **avaliado e criticado** antes de executado — se há risco, redundância ou um caminho melhor, isso é dito no terminal, com uma **recomendação explícita ("RECOMENDO: X")**. "Não precisa fazer tudo o que peço" — obedecer em silêncio desperdiça a expertise. Sempre verificar a realidade no código (a doc/auditoria pode estar desatualizada) antes de agir. Ver memória `criticar-e-recomendar`.
+
 1. **Antes de codar:** confirmar o estado real via codebase-memory MCP (`index_status`, `get_architecture`, `search_graph`) — o kick-prompt é hipótese, não verdade.
 2. **TDD:** escreva o teste que falha, depois implemente.
 3. **Reuse primeiro:** procure função/utilitário existente antes de criar.
@@ -279,11 +281,11 @@ MVP + evolução completos, **no ar em produção** (TineHost, https://workspace
 ## 12. Pendências (a confirmar; não bloqueiam a Fase 0)
 
 - Versão do Node disponível na TineHost.
-- Passenger vs Nginx Unit (muda o mecanismo de restart e o proxy de WebSocket).
+- ~~Passenger vs Nginx Unit (muda o mecanismo de restart e o proxy de WebSocket).~~ **RESOLVIDO:** LiteSpeed/lsnode; restart = `touch tmp/restart.txt`; WebSocket não é suportado → tempo real por **polling** (ADR-84).
 - Limites de conexão do MySQL (afeta o pool do Prisma).
 - Rede outbound liberada (necessária para a API de IA na Fase 9).
 - Engine de PDF em hospedagem compartilhada (puppeteer normalmente não roda — avaliar `@react-pdf/renderer` ou DOCX+conversão) — decidir na Fase 7.
-- Política de backup do MySQL.
+- ~~Política de backup do MySQL.~~ **RESOLVIDO (26/07):** `scripts/server/backup-db.sh` via cron diário (03:00 BRT, `mysqldump --single-transaction` + gzip, retém 14) + `healthcheck.sh` a cada 5 min (auto-restart). Ver DEPLOY.md.
 - **Pasta de uploads persistente na TineHost** (`UPLOADS_DIR`): apontar para uma pasta FORA do diretório do deploy (o rsync sobrescreve) e incluí-la no backup — ADR-26.
 
 > Ao resolver qualquer item acima, registre a resposta em `DECISIONS.md` e remova daqui.

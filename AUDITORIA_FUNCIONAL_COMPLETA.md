@@ -143,8 +143,8 @@ Fonte: `apps/api/src/trpc/trpc.ts` + `apps/api/src/modules/*/*.router.ts`. Hiera
 | uploads (REST, fora do tRPC) | sessão; CLIENTE só o próprio arquivo | `/upload`, `/arquivos/:id`, `/transcrever`, `/avatar` |
 
 ### 4.1 Inconsistências de RBAC a decidir (não são bugs de segurança evidentes — são **decisões de produto**)
-1. ⚠️ **`clientes.remove` / `clientes.removerArquivo` = FUNCIONARIO**: qualquer funcionário apaga cadastro/arquivos de qualquer cliente (dado sensível/LGPD), sem exigir ADMIN nem 2ª aprovação. `usuarios.remove` e `financeiro.*` exigem ADMIN. → **confirmar com o dono** se é intencional (CRM operado por toda a equipe) ou se deve subir para ADMIN.
-2. ⚠️ **`documentos.modelos.remove` / `documentos.operadoras.remover` = FUNCIONARIO**, enquanto catálogos equivalentes (`servicos`/`origens`/`formularios`) exigem ADMIN. → alinhar limiar (subir p/ ADMIN) ou documentar a exceção.
+1. ✅ **RESOLVIDO (26/07)** — ~~`clientes.remove` / `clientes.removerArquivo` = FUNCIONARIO~~: hoje **`clientes.remove` = ADMIN+** (arquivamento lógico), **`clientes.excluirDefinitivo` = ROOT** (exclusão física) e **`clientes.removerArquivo` = ADMIN+**. Funcionário só gerencia; excluir é ADMIN/ROOT. Confirmado com o dono (só ADMIN/ROOT excluem clientes).
+2. ✅ **RESOLVIDO (26/07)** — ~~`documentos.modelos.remove` / `documentos.operadoras.remover` = FUNCIONARIO~~: hoje ambos são **ADMIN+**, alinhados a `servicos`/`origens`/`formularios`.
 3. ℹ️ **`POST /upload` (REST)** reimplementa a checagem de role manualmente (não reusa `funcionarioProcedure`); aceita `clienteId` arbitrário da equipe. Risco baixo hoje, mas fora do padrão central — se a hierarquia mudar, este arquivo não acompanha.
 4. ℹ️ **`cards.removeComentario`** passa a autorização como booleano do router ao service — padrão diferente do resto (autorização na procedure ou 100% no service).
 
