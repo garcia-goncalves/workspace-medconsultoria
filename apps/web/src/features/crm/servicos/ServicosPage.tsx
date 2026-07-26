@@ -104,7 +104,12 @@ function PrecoFields({ control }: { control: Control<CreateServicoInput> }) {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label className="text-xs font-normal text-muted-foreground">Valor</Label>
+          <Label
+            className="text-xs font-normal text-muted-foreground"
+            hint="O preço sugerido para este serviço; pode ser ajustado depois em cada proposta ou contrato."
+          >
+            Valor
+          </Label>
           <Controller
             control={control}
             name="valor"
@@ -112,7 +117,12 @@ function PrecoFields({ control }: { control: Control<CreateServicoInput> }) {
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs font-normal text-muted-foreground">Cobrança padrão</Label>
+          <Label
+            className="text-xs font-normal text-muted-foreground"
+            hint="Avulso: cobrado uma vez. Mensal: cobrado todo mês enquanto o serviço estiver ativo."
+          >
+            Cobrança padrão
+          </Label>
           <RecorrenciaSelect control={control} name="valorRecorrencia" />
         </div>
       </div>
@@ -122,7 +132,12 @@ function PrecoFields({ control }: { control: Control<CreateServicoInput> }) {
 
       {mostrarPercentual && (
         <div className="space-y-1.5 border-t pt-3">
-          <Label className="text-xs font-normal text-muted-foreground">% do faturamento do cliente (mensal)</Label>
+          <Label
+            className="text-xs font-normal text-muted-foreground"
+            hint="Cobrado como % sobre o valor faturado do cliente todo mês — sozinho ou somado ao valor. Deixe em branco se não usar."
+          >
+            % do faturamento do cliente (mensal)
+          </Label>
           <Controller
             control={control}
             name="percentual"
@@ -142,9 +157,6 @@ function PrecoFields({ control }: { control: Control<CreateServicoInput> }) {
               </div>
             )}
           />
-          <p className="text-xs text-muted-foreground">
-            Só o Faturamento: cobrado como % sobre o valor faturado do cliente a cada mês — sozinho, ou somado ao valor. Deixe em branco o que não usar.
-          </p>
         </div>
       )}
     </div>
@@ -192,7 +204,9 @@ function NovoServicoDialog({ open, onClose }: { open: boolean; onClose: () => vo
           {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="s-cat">Categoria</Label>
+          <Label htmlFor="s-cat" hint="Agrupa o serviço no catálogo. Escolher 'Faturamento' libera o campo de % sobre o faturamento do cliente.">
+            Categoria
+          </Label>
           <Select id="s-cat" {...register("categoria")}>
             <option value="">Sem categoria</option>
             {CATEGORIAS_SERVICO.map((c) => (
@@ -270,7 +284,9 @@ function DetalhesPanel({
         {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="d-cat">Categoria</Label>
+        <Label htmlFor="d-cat" hint="Agrupa o serviço no catálogo. Escolher 'Faturamento' libera o campo de % sobre o faturamento do cliente.">
+          Categoria
+        </Label>
         <Select id="d-cat" {...register("categoria")}>
           <option value="">Sem categoria</option>
           {CATEGORIAS_SERVICO.map((c) => (
@@ -286,16 +302,18 @@ function DetalhesPanel({
         <Textarea id="d-desc" rows={3} placeholder="O que este serviço inclui…" {...register("descricao")} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="d-clausulas">Cláusulas do contrato</Label>
+        <Label
+          htmlFor="d-clausulas"
+          hint="Entram automaticamente no contrato quando o cliente aceita a proposta, junto com as cláusulas dos outros serviços contratados."
+        >
+          Cláusulas do contrato
+        </Label>
         <Textarea
           id="d-clausulas"
           rows={5}
           placeholder="Condições deste serviço que entram no contrato…"
           {...register("clausulasContrato")}
         />
-        <p className="text-xs text-muted-foreground">
-          Entram automaticamente no <strong>contrato</strong> quando o cliente aceita a proposta — junto com as cláusulas dos outros serviços contratados.
-        </p>
       </div>
       {atualizar.error && <p className="text-sm text-destructive">{atualizar.error.message}</p>}
 

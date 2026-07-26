@@ -128,7 +128,7 @@ export function LeadFormDialog({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="origem">Origem</Label>
+            <Label htmlFor="origem" hint="De onde este lead veio (indicação, site, evento…) — ajuda a saber o que está trazendo mais clientes.">Origem</Label>
             <Autocomplete
               id="origem"
               value={watch("origem") ?? ""}
@@ -139,7 +139,7 @@ export function LeadFormDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="valorEstimado">Valor estimado</Label>
+            <Label htmlFor="valorEstimado" hint="Quanto você espera fechar com este lead (pode ajustar depois).">Valor estimado</Label>
             <MoneyInput
               id="valorEstimado"
               value={watch("valorEstimado")}
@@ -149,7 +149,7 @@ export function LeadFormDialog({
         </div>
 
         <div className="space-y-1">
-          <Label htmlFor="responsavelId">Responsável</Label>
+          <Label htmlFor="responsavelId" hint="Quem da equipe vai cuidar deste lead.">Responsável</Label>
           <Combobox
             id="responsavelId"
             value={watch("responsavelId") ?? ""}
@@ -162,7 +162,7 @@ export function LeadFormDialog({
 
         {servicos.data && servicos.data.length > 0 && (
           <div className="space-y-1">
-            <Label>Serviços que o lead precisa</Label>
+            <Label hint="Marque os serviços de interesse — eles viram o checklist do card no funil.">Serviços que o lead precisa</Label>
             <div className="max-h-[88px] overflow-y-auto rounded-lg border bg-muted/20 p-2">
               <ServicosPicker
                 servicos={servicos.data}

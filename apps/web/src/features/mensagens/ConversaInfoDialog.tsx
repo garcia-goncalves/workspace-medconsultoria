@@ -103,7 +103,7 @@ export function ConversaInfoDialog({ conversaId, onClose, onSaiu }: { conversaId
               </div>
 
               <div className="space-y-1.5">
-                <Label>Assunto</Label>
+                <Label hint="Um resumo curto do que o cliente precisa.">Assunto</Label>
                 <div className="flex gap-2">
                   <Input value={assunto} onChange={(e) => setAssunto(e.target.value)} placeholder="Ex.: Dúvida sobre faturamento" />
                   <Button variant="outline" size="sm" disabled={!assunto.trim() || setAssuntoM.isPending} onClick={() => setAssuntoM.mutate({ conversaId, assunto })}>
@@ -114,7 +114,7 @@ export function ConversaInfoDialog({ conversaId, onClose, onSaiu }: { conversaId
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label>Status</Label>
+                  <Label hint="Situação atual do chamado: aberto, em andamento ou resolvido.">Status</Label>
                   <div className="flex flex-wrap gap-1.5">
                     {STATUS.map((s) => (
                       <button key={s} onClick={() => setStatus.mutate({ conversaId, status: s })} className={cn("rounded-full border px-2.5 py-1 text-xs font-medium transition-colors", d.status === s ? statusCor[s] : "border-border text-muted-foreground hover:bg-accent")}>
@@ -124,7 +124,7 @@ export function ConversaInfoDialog({ conversaId, onClose, onSaiu }: { conversaId
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="prio">Prioridade</Label>
+                  <Label htmlFor="prio" hint="Quão urgente é este chamado.">Prioridade</Label>
                   <Select id="prio" value={d.prioridade} onChange={(e) => setPrio.mutate({ conversaId, prioridade: e.target.value as ChamadoPrioridade })}>
                     {(Object.keys(CHAMADO_PRIORIDADE_LABEL) as ChamadoPrioridade[]).map((p) => (
                       <option key={p} value={p}>
@@ -136,7 +136,7 @@ export function ConversaInfoDialog({ conversaId, onClose, onSaiu }: { conversaId
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="resp">Responsável</Label>
+                <Label htmlFor="resp" hint="Quem da equipe vai atender este chamado.">Responsável</Label>
                 <Select id="resp" value={d.responsavel?.id ?? ""} onChange={(e) => setResp.mutate({ conversaId, responsavelId: e.target.value || null })}>
                   <option value="">Sem responsável</option>
                   {(equipe.data ?? []).map((u) => (
@@ -151,7 +151,7 @@ export function ConversaInfoDialog({ conversaId, onClose, onSaiu }: { conversaId
 
           {isGrupo && d.podeGerir && (
             <div className="space-y-1.5">
-              <Label>Nome do grupo</Label>
+              <Label hint="O nome que todos os participantes verão na lista de conversas.">Nome do grupo</Label>
               <div className="flex gap-2">
                 <Input value={nomeGrupo} onChange={(e) => setNomeGrupo(e.target.value)} />
                 <Button variant="outline" size="sm" disabled={!nomeGrupo.trim() || renomear.isPending} onClick={() => renomear.mutate({ conversaId, nome: nomeGrupo })}>
@@ -163,7 +163,7 @@ export function ConversaInfoDialog({ conversaId, onClose, onSaiu }: { conversaId
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label>Participantes ({d.participantes.length})</Label>
+              <Label hint="Pessoas que fazem parte desta conversa e podem ver as mensagens.">Participantes ({d.participantes.length})</Label>
               {isGrupo && d.podeGerir && (
                 <button onClick={() => setAddOpen((v) => !v)} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                   <UserPlus className="h-3.5 w-3.5" /> Adicionar

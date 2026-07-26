@@ -93,8 +93,7 @@ export function DefinirSenhaPage() {
         <input type="hidden" {...register("token")} />
 
         <div className="space-y-1.5">
-          <Label htmlFor="novaSenha">Nova senha</Label>
-          <p className="text-xs text-muted-foreground">Mínimo de 8 caracteres.</p>
+          <Label htmlFor="novaSenha" hint="Use no mínimo 8 caracteres.">Nova senha</Label>
           <div className="relative">
             <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -120,7 +119,7 @@ export function DefinirSenhaPage() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="confirmar">Confirmar senha</Label>
+          <Label htmlFor="confirmar" hint="Repita a mesma senha para confirmar que digitou certo.">Confirmar senha</Label>
           <div className="relative">
             <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input

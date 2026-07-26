@@ -59,11 +59,11 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
         <p className="text-sm text-muted-foreground">O que este cliente paga por este serviço. Começa com o valor de referência; ajuste como quiser.</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label>Valor</Label>
+            <Label hint="O que este cliente paga por este serviço.">Valor</Label>
             <MoneyInput value={valor} onChange={setValor} />
           </div>
           <div className="space-y-1.5">
-            <Label>Cobrança</Label>
+            <Label hint="Avulso: cobrado uma vez. Mensal: cobrado todo mês enquanto o serviço estiver ativo.">Cobrança</Label>
             <Select value={valorRecorrencia} onChange={(e) => setValorRecorrencia(e.target.value as "AVULSO" | "MENSAL")}>
               <option value="AVULSO">Avulso (1x)</option>
               <option value="MENSAL">Mensal</option>
@@ -72,7 +72,9 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
         </div>
         {ehFaturamento && (
           <div className="space-y-1.5">
-            <Label>% do faturamento do cliente (mensal)</Label>
+            <Label hint="Cobrado como % sobre o valor faturado do cliente todo mês — sozinho ou somado ao valor.">
+              % do faturamento do cliente (mensal)
+            </Label>
             <div className="relative">
               <input
                 type="number"

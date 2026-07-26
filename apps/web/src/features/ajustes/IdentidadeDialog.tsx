@@ -143,21 +143,21 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
               <p className="text-xs text-muted-foreground">Entram na qualificação da CONTRATADA nos contratos. Deixe em branco o que ainda não tiver.</p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="id-razao">Razão social</Label>
+              <Label htmlFor="id-razao" hint="Nome oficial da empresa, o mesmo que consta no CNPJ.">Razão social</Label>
               <Input id="id-razao" value={form.razaoSocial} onChange={(e) => set("razaoSocial", e.target.value)} placeholder="Ex.: Med Consultoria em Gestão de Saúde LTDA" />
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="id-cnpj">CNPJ</Label>
+                <Label htmlFor="id-cnpj" hint="CNPJ da empresa, usado na qualificação da CONTRATADA nos contratos.">CNPJ</Label>
                 <MaskedInput id="id-cnpj" inputMode="numeric" format={maskCpfCnpj} value={form.cnpj} onChange={(e) => set("cnpj", e.target.value)} placeholder="00.000.000/0000-00" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="id-foro">Foro de eleição</Label>
+                <Label htmlFor="id-foro" hint="Comarca escolhida para resolver disputas do contrato, ex.: da comarca de São Paulo/SP.">Foro de eleição</Label>
                 <Input id="id-foro" value={form.foro} onChange={(e) => set("foro", e.target.value)} placeholder="Ex.: da comarca de São Paulo/SP" />
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="id-endereco">Endereço completo (sede)</Label>
+              <Label htmlFor="id-endereco" hint="Endereço da sede da empresa, como aparece nos contratos.">Endereço completo (sede)</Label>
               <Textarea id="id-endereco" value={form.enderecoCompleto} onChange={(e) => set("enderecoCompleto", e.target.value)} placeholder="Rua, número, complemento, bairro, CEP" rows={2} />
             </div>
             <p className="flex items-start gap-2 rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">

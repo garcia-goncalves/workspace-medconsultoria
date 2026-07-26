@@ -47,7 +47,7 @@ export function SmartCampos({
         const id = `campo-${nome}`;
         return (
           <div key={nome} className="space-y-1">
-            <Label htmlFor={id} className="text-xs">
+            <Label htmlFor={id} className="text-xs" hint={`O que você digitar aqui substitui {{${nome}}} no documento ao gerar.`}>
               {rotulo(nome)}
             </Label>
             {tipo === "money" ? (

@@ -121,7 +121,7 @@ export function ProjetoFormDialog({
       <form id="projeto-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         {!clienteIdFixo && !isEdit && (
           <div className="space-y-1.5">
-            <Label htmlFor="clienteId">Cliente *</Label>
+            <Label htmlFor="clienteId" hint="Cliente ao qual este projeto pertence.">Cliente *</Label>
             <Combobox
               id="clienteId"
               value={watch("clienteId") ?? ""}
@@ -137,7 +137,7 @@ export function ProjetoFormDialog({
         )}
 
         <div className="space-y-1.5">
-          <Label htmlFor="nome">Nome do projeto *</Label>
+          <Label htmlFor="nome" hint="Nome que identifica o projeto nas listas e no quadro de cartões.">Nome do projeto *</Label>
           <Input id="nome" autoFocus autoComplete="off" {...register("nome")} />
           {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
         </div>
@@ -154,7 +154,7 @@ export function ProjetoFormDialog({
           </div>
           {isEdit && (
             <div className="space-y-1.5">
-              <Label htmlFor="status">Status</Label>
+              <Label htmlFor="status" hint="Situação atual do projeto: Ativo, Pausado ou Concluído.">Status</Label>
               <Select id="status" value={status} onChange={(e) => setStatus(e.target.value as ProjetoStatus)}>
                 {(Object.keys(STATUS_LABEL) as ProjetoStatus[]).map((s) => (
                   <option key={s} value={s}>
@@ -167,7 +167,7 @@ export function ProjetoFormDialog({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="responsavelId">Responsável</Label>
+          <Label htmlFor="responsavelId" hint="Quem vai conduzir este projeto. Deixe em branco para ficar com você.">Responsável</Label>
           <Combobox
             id="responsavelId"
             value={watch("responsavelId") ?? ""}

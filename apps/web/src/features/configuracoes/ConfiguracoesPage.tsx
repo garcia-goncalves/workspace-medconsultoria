@@ -66,7 +66,7 @@ function PerfilCard() {
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="space-y-1.5">
-          <Label>Foto de perfil</Label>
+          <Label hint="Use uma foto sua (rosto) — ela aparece em toda a plataforma.">Foto de perfil</Label>
           <AvatarUpload
             id={user.id}
             nome={user.nome}
@@ -75,7 +75,6 @@ function PerfilCard() {
             onRemover={() => removerAvatar.mutate()}
             podeRemover
           />
-          <p className="text-xs text-muted-foreground">Use uma foto sua (rosto) — ela aparece em toda a plataforma.</p>
         </div>
         <form
           onSubmit={handleSubmit((d) => {
@@ -166,7 +165,9 @@ function SenhaCard() {
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="novaSenha">Nova senha</Label>
+              <Label htmlFor="novaSenha" hint="Mínimo de 8 caracteres.">
+                Nova senha
+              </Label>
               <Input id="novaSenha" type="password" autoComplete="new-password" {...register("novaSenha")} />
               {errors.novaSenha && (
                 <p className="text-xs text-destructive">{errors.novaSenha.message}</p>

@@ -123,7 +123,7 @@ export function CapturaLeadPage() {
 
         {servicos.data && servicos.data.length > 0 && (
           <div className="space-y-1.5">
-            <Label>Quais serviços você precisa?</Label>
+            <Label hint="Marque tudo que se aplica — assim já sabemos por onde começar.">Quais serviços você precisa?</Label>
             <ServicosPicker servicos={servicos.data} value={selecionados} onChange={setSelecionados} />
           </div>
         )}

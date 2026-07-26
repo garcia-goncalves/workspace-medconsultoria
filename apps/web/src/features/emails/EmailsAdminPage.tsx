@@ -371,7 +371,7 @@ export function EmailsAdminPage() {
                   )}
 
                   <div className="space-y-1.5">
-                    <Label htmlFor={CAMPO_ID.assunto}>Assunto do e-mail</Label>
+                    <Label htmlFor={CAMPO_ID.assunto} hint="Título que aparece na caixa de entrada do destinatário, antes de abrir o e-mail.">Assunto do e-mail</Label>
                     <Input
                       id={CAMPO_ID.assunto}
                       value={form.assunto}
@@ -380,7 +380,7 @@ export function EmailsAdminPage() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor={CAMPO_ID.titulo}>Título{atual.notificacao ? " (e-mail e sino)" : ""}</Label>
+                    <Label htmlFor={CAMPO_ID.titulo} hint="Título em destaque dentro do e-mail (e da notificação, quando houver).">Título{atual.notificacao ? " (e-mail e sino)" : ""}</Label>
                     <Input
                       id={CAMPO_ID.titulo}
                       value={form.titulo}
@@ -389,7 +389,7 @@ export function EmailsAdminPage() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor={CAMPO_ID.corpo}>Corpo (separe parágrafos com uma linha em branco)</Label>
+                    <Label htmlFor={CAMPO_ID.corpo} hint="Texto principal da mensagem. Use os campos automáticos abaixo para inserir dados do destinatário.">Corpo (separe parágrafos com uma linha em branco)</Label>
                     <Textarea
                       id={CAMPO_ID.corpo}
                       rows={6}
@@ -400,7 +400,7 @@ export function EmailsAdminPage() {
                   </div>
                   {atual.temCta && (
                     <div className="space-y-1.5">
-                      <Label htmlFor={CAMPO_ID.ctaTexto}>Texto do botão</Label>
+                      <Label htmlFor={CAMPO_ID.ctaTexto} hint="Texto exibido no botão de ação do e-mail, ex.: Acessar o Portal.">Texto do botão</Label>
                       <Input
                         id={CAMPO_ID.ctaTexto}
                         value={form.ctaTexto}
@@ -410,7 +410,7 @@ export function EmailsAdminPage() {
                     </div>
                   )}
                   <div className="space-y-1.5">
-                    <Label htmlFor={CAMPO_ID.nota}>Observação (rodapé pequeno, opcional)</Label>
+                    <Label htmlFor={CAMPO_ID.nota} hint="Texto pequeno no rodapé do e-mail, para um aviso extra opcional.">Observação (rodapé pequeno, opcional)</Label>
                     <Textarea
                       id={CAMPO_ID.nota}
                       rows={2}

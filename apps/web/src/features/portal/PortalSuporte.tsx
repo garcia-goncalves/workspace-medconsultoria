@@ -140,11 +140,11 @@ export function PortalSuporte() {
       >
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="assunto">Assunto *</Label>
+            <Label htmlFor="assunto" hint="Um resumo curto do que você precisa, para a equipe entender rápido.">Assunto *</Label>
             <Input id="assunto" autoFocus value={assunto} onChange={(e) => setAssunto(e.target.value)} placeholder="Ex.: Dúvida sobre a minha fatura" />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="msg">Mensagem</Label>
+            <Label htmlFor="msg" hint="Explique com mais detalhes o que você precisa (opcional).">Mensagem</Label>
             <Textarea id="msg" value={mensagem} onChange={(e) => setMensagem(e.target.value)} placeholder="Conte pra gente o que você precisa…" />
           </div>
         </div>

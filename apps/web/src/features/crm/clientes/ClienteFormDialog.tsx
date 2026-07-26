@@ -156,14 +156,14 @@ export function ClienteFormDialog({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="tipo">Tipo</Label>
+            <Label htmlFor="tipo" hint="Pessoa Jurídica (empresa) ou Pessoa Física? Isso define se pedimos CNPJ ou CPF.">Tipo</Label>
             <Select id="tipo" {...register("tipo")}>
               <option value="PJ">Pessoa Jurídica</option>
               <option value="PF">Pessoa Física</option>
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="documento">{isPF ? "CPF" : "CNPJ"}</Label>
+            <Label htmlFor="documento" hint={isPF ? "O CPF do cliente (opcional)." : "O CNPJ da empresa (opcional)."}>{isPF ? "CPF" : "CNPJ"}</Label>
             <MaskedInput
               id="documento"
               inputMode="numeric"
@@ -188,7 +188,7 @@ export function ClienteFormDialog({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="responsavelId">Responsável</Label>
+          <Label htmlFor="responsavelId" hint="Quem da equipe cuida deste cliente no dia a dia.">Responsável</Label>
           <Combobox
             id="responsavelId"
             value={watch("responsavelId") ?? ""}
