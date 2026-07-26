@@ -218,8 +218,8 @@ export function LeadsPipelinePage() {
   const convidarPortal = trpc.leads.convidarPortal.useMutation({
     onSuccess: (r) => {
       setErroConvite(null);
-      utils.leads.list.invalidate();
-      utils.clientes.list.invalidate();
+      // O convite avança o lead ("Qualificação") → atualiza board, resumo/taxa e a ficha do cliente.
+      invalidarFunil();
       setConviteInfo({ email: r.email, conviteUrl: r.conviteUrl, emailEnviado: r.emailEnviado });
     },
     onError: (e) => {

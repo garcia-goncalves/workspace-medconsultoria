@@ -229,6 +229,7 @@ export function ClientesListPage() {
     onSuccess: (r) => {
       setErroConvite(null);
       utils.clientes.list.invalidate();
+      utils.clientes.resumo.invalidate(); // KPI "Com Portal ativo" reflete o novo acesso na hora
       setConviteInfo({ email: r.email, conviteUrl: r.conviteUrl, emailEnviado: r.emailEnviado });
     },
     onError: (e) => {

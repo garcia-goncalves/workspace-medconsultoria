@@ -114,7 +114,12 @@ export function ProjetosListPage() {
 
   const projetos = trpc.projetos.list.useQuery();
   const equipe = trpc.usuarios.equipe.useQuery();
-  const remove = trpc.projetos.remove.useMutation({ onSuccess: () => utils.projetos.list.invalidate() });
+  const remove = trpc.projetos.remove.useMutation({
+    onSuccess: () => {
+      utils.projetos.list.invalidate();
+      utils.clientes.relacionados.invalidate(); // a ficha do cliente lista os projetos dele
+    },
+  });
 
   // Referência estável (senão `?? []` gera novo array a cada render e derrota os useMemo abaixo).
   const base = useMemo(() => projetos.data ?? [], [projetos.data]);

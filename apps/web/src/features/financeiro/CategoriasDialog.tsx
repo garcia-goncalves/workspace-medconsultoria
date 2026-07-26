@@ -114,6 +114,9 @@ export function CategoriasDialog({ open, onClose }: { open: boolean; onClose: ()
         }
       }
       await utils.financeiro.categorias.list.invalidate();
+      // O nome/cor da categoria aparece nas contas e no "por categoria" do Financeiro — atualiza lá também.
+      utils.financeiro.contas.list.invalidate();
+      utils.financeiro.contas.porCategoria.invalidate();
       fechar();
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Não consegui salvar. Tente de novo.");

@@ -298,7 +298,11 @@ export function DocumentoDetailPage() {
     if (doc.data && !editando) setConteudo(doc.data.conteudo);
   }, [doc.data, editando]);
 
-  const invalidate = () => utils.documentos.get.invalidate({ id: documentoId });
+  const invalidate = () => {
+    utils.documentos.get.invalidate({ id: documentoId });
+    // Status/conteúdo mudam o que a LISTA de documentos mostra (situação) — atualiza lá também.
+    utils.documentos.list.invalidate();
+  };
   const salvar = trpc.documentos.updateConteudo.useMutation({
     onSuccess: () => (invalidate(), setEditando(false)),
   });
