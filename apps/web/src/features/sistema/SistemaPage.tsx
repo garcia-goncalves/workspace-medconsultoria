@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   Cpu,
   Database,
+  Download,
   Gauge,
   GitBranch,
   HardDrive,
@@ -39,6 +40,7 @@ import { QueryError } from "../../components/ui/query-error";
 import { EmptyState } from "../../components/ui/empty-state";
 import { Table, THead, TH, TR, TD } from "../../components/ui/table";
 import { AssistenteIADialog } from "../../components/ui/assistente-ia";
+import { toast } from "../../components/ui/toast";
 import { AreaMini, BarraUso } from "./MiniChart";
 
 type Aba =
@@ -77,6 +79,7 @@ export function SistemaPage() {
         <BotaoDiagnosticoIA />
         <BotaoVarredura />
         <BotaoDiagnostico />
+        <BotaoBaixarDiagnostico />
       </PageHeader>
 
       <HealthBanner />
@@ -264,6 +267,9 @@ function BotaoDiagnostico() {
       await navigator.clipboard.writeText(JSON.stringify(d, null, 2));
       setCopiado(true);
       setTimeout(() => setCopiado(false), 2500);
+    } catch {
+      // Alguns navegadores bloqueiam a área de transferência (sem gesto/contexto seguro).
+      toast('Não consegui copiar. Use "Baixar diagnóstico" para exportar o arquivo.');
     } finally {
       setCarregando(false);
     }
@@ -273,6 +279,37 @@ function BotaoDiagnostico() {
     <Button variant="outline" onClick={copiar} disabled={carregando}>
       {copiado ? <ClipboardCheck className="h-4 w-4 text-success" /> : <Clipboard className="h-4 w-4" />}
       {copiado ? "Copiado!" : "Copiar diagnóstico"}
+    </Button>
+  );
+}
+
+/** Baixa o diagnóstico completo do sistema como um JSON — confiável mesmo sem clipboard; ideal para anexar a um chamado. */
+function BotaoBaixarDiagnostico() {
+  const utils = trpc.useUtils();
+  const [baixando, setBaixando] = useState(false);
+
+  async function baixar() {
+    setBaixando(true);
+    try {
+      const d = await utils.sistema.diagnostico.fetch();
+      const blob = new Blob([JSON.stringify(d, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sistema-diagnostico-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast("Não consegui gerar o arquivo de diagnóstico.");
+    } finally {
+      setBaixando(false);
+    }
+  }
+
+  return (
+    <Button variant="outline" onClick={baixar} disabled={baixando}>
+      <Download className="h-4 w-4" />
+      Baixar diagnóstico
     </Button>
   );
 }
