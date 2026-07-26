@@ -1102,6 +1102,17 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 
 **Verificado:** typecheck api+web; API 79/79; web 32/32; migração `CREATE TABLE`. **No servidor (24/07):** migrate deploy 53/53, client regenerado (conhece o modelo), query e upsert OK, linha semeada (jurídicos null). **PENDENTE (Thaís):** preencher os dados jurídicos pela tela.
 
+## ADR-86 — Backup automático + health-check no servidor (ops de produção) ✅
+
+**Contexto:** app no ar em produção, mas sem backup automático nem monitoramento — a única pendência de infra do CLAUDE.md §12 ainda aberta. Hospedagem compartilhada (TineHost, sem painel de backup gerenciado para o banco da app).
+
+**Decisões** (scripts versionados em `scripts/server/`, instalados em `~/domains/.../ops/`, agendados no cron do usuário — preservando o cron pré-existente de outro domínio):
+1. **Backup diário** (`backup-db.sh`, 03:00 BRT): `mysqldump --single-transaction --quick` + gzip, **rotação de 14 dias**. Parse do `DATABASE_URL` via Node (lida com URL-encoding na senha); `set +u` ao redor do `activate` do CloudLinux (não é nounset-safe). Testado (gerou dump de 20K).
+2. **Health-check + auto-restart** (`healthcheck.sh`, a cada 5 min): `curl /health`; 2 falhas → `touch tmp/restart.txt` (lsnode respawna). Cobre app **travado**, não queda do host.
+3. **Instalador idempotente** (`install-cron.sh`): só anexa o que falta ao crontab.
+
+**Limites reconhecidos (ação do dono):** backups ficam **no mesmo servidor** (protegem contra erro lógico, não contra perda do host) e `uploads/` ainda não é copiado; o health-check **não alerta** se o servidor inteiro cair. **RECOMENDO:** monitor de uptime **externo** (UptimeRobot grátis) + cópia periódica dos dumps para fora do servidor. Ver DEPLOY.md § Passo 10.
+
 ## Pendências (viram ADR quando decididas)
 
 - ~~Passenger vs Nginx Unit na TineHost (mecanismo de restart / proxy WS).~~ **Restart** = `touch tmp/restart.txt` (LiteSpeed/lsnode). **WS resolvido no ADR-84** (tempo real por polling; não precisa de proxy WS).
