@@ -149,20 +149,18 @@ export function UsuarioFormDialog({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="email">E-mail *</Label>
-          {!isEdit && (
-            <p className="text-xs text-muted-foreground">
-              A pessoa recebe um link para definir a própria senha.
-            </p>
-          )}
+          <Label htmlFor="email" hint={!isEdit ? "A pessoa recebe um link neste e-mail para definir a própria senha e ativar o acesso." : undefined}>
+            E-mail *
+          </Label>
           <Input id="email" type="email" autoComplete="email" {...register("email", { required: "Informe o e-mail" })} />
           {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="role">Papel *</Label>
-            <p className="text-xs text-muted-foreground">Determina o que a pessoa pode acessar no sistema.</p>
+            <Label htmlFor="role" hint="Determina o que a pessoa pode acessar no sistema. Funcionário vê o essencial; Administrador gere a empresa; Root tem acesso técnico total.">
+              Papel *
+            </Label>
             <Select id="role" disabled={isSelf} {...register("role")}>
               {rolesDisponiveis.map((r) => (
                 <option key={r} value={r}>
