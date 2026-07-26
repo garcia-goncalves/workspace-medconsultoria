@@ -88,7 +88,7 @@ export function NovaOportunidadeDialog({
 
         {servicos.data && servicos.data.length > 0 && (
           <div className="space-y-1">
-            <Label>Quais serviços ele quer nesta oportunidade?</Label>
+            <Label hint="Marque os serviços deste novo negócio — eles já entram como checklist no card do funil.">Quais serviços ele quer nesta oportunidade?</Label>
             <div className="max-h-[92px] overflow-y-auto rounded-lg border bg-muted/20 p-2">
               <ServicosPicker servicos={servicos.data} value={servicoIds} onChange={setServicoIds} />
             </div>
@@ -97,7 +97,7 @@ export function NovaOportunidadeDialog({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="valor">Valor estimado</Label>
+            <Label htmlFor="valor" hint="Quanto você espera fechar com este negócio (pode ajustar depois).">Valor estimado</Label>
             <MoneyInput id="valor" value={valor} onChange={setValor} />
           </div>
         </div>

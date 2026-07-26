@@ -211,7 +211,7 @@ export function CategoriasDialog({ open, onClose }: { open: boolean; onClose: ()
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="cat-nome">Nome</Label>
+            <Label htmlFor="cat-nome" hint="Nome da categoria, ex.: Consultoria, Aluguel.">Nome</Label>
             <Input
               id="cat-nome"
               value={nome}
@@ -222,14 +222,14 @@ export function CategoriasDialog({ open, onClose }: { open: boolean; onClose: ()
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label htmlFor="cat-tipo">Tipo</Label>
+              <Label htmlFor="cat-tipo" hint="Receita = dinheiro que entra. Despesa = dinheiro que sai.">Tipo</Label>
               <Select id="cat-tipo" value={tipo} onChange={(e) => setTipo(e.target.value as CategoriaTipo)}>
                 <option value="RECEITA">Receita</option>
                 <option value="DESPESA">Despesa</option>
               </Select>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="cat-cor">Cor</Label>
+              <Label htmlFor="cat-cor" hint="Cor usada para identificar a categoria nos gráficos e listas.">Cor</Label>
               <div className="flex h-10 items-center gap-2 rounded-md border border-input bg-card px-2">
                 <input
                   id="cat-cor"

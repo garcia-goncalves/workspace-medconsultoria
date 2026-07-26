@@ -465,7 +465,7 @@ export function NovoDocumentoDialog({
       <div className="space-y-4">
         <div className={cn("grid grid-cols-1 gap-3", !clienteFixo && "sm:grid-cols-2")}>
           <div className="space-y-1.5">
-            <Label htmlFor="modelo">O que criar? *</Label>
+            <Label htmlFor="modelo" hint="Escolha o tipo de documento — proposta, contrato, recibo, ata, plano de ação, etc.">O que criar? *</Label>
             <Combobox
               id="modelo"
               value={modeloId}
@@ -552,7 +552,7 @@ export function NovoDocumentoDialog({
                 <PropostaServicosPicker sel={sel} setSel={setSel} titulo="Serviços do contrato" />
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <Label htmlFor="cont-vig">Vigência</Label>
+                    <Label htmlFor="cont-vig" hint="Duração do contrato; renova automaticamente ao final, salvo aviso prévio.">Vigência</Label>
                     <Select id="cont-vig" value={String(vigenciaMeses)} onChange={(e) => setVigenciaMeses(Number(e.target.value))}>
                       {VIGENCIAS.map((v) => (
                         <option key={v} value={v}>
@@ -563,12 +563,14 @@ export function NovoDocumentoDialog({
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="cont-obs">Observações (cláusulas extras, condições)</Label>
+                  <Label
+                    htmlFor="cont-obs"
+                    hint="As cláusulas de cada serviço entram automaticamente no contrato ao gerar. Nasce como rascunho para revisão."
+                  >
+                    Observações (cláusulas extras, condições)
+                  </Label>
                   <Textarea id="cont-obs" rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  As cláusulas de cada serviço entram automaticamente no objeto do contrato ao gerar. Nasce como rascunho para revisão.
-                </p>
               </>
             )}
           </>
@@ -588,7 +590,11 @@ export function NovoDocumentoDialog({
           </div>
         ) : modo === "PAUTA" ? (
           <div className="space-y-1.5">
-            <Label htmlFor="pauta-top" className="flex items-center gap-1.5">
+            <Label
+              htmlFor="pauta-top"
+              className="flex items-center gap-1.5"
+              hint="A IA monta a pauta usando o contexto do cliente (serviços, etapa no funil)."
+            >
               <CalendarClock className="h-4 w-4 text-primary" /> O que você quer tratar na reunião? *
             </Label>
             <Textarea
@@ -599,9 +605,6 @@ export function NovoDocumentoDialog({
               className="min-h-32"
             />
             {ia.data?.disponivel && <AudioTranscricao onTexto={(t) => setTopicos((a) => anexar(a, t))} />}
-            <p className="text-xs text-muted-foreground">
-              A IA monta a pauta e os pontos a não esquecer usando o contexto do cliente (serviços, etapa no funil).
-            </p>
           </div>
         ) : modo === "RECIBO" ? (
           <div className="space-y-3">
@@ -627,7 +630,7 @@ export function NovoDocumentoDialog({
               </p>
             )}
             <div className="space-y-1">
-              <Label htmlFor="rec-ref">Referente a *</Label>
+              <Label htmlFor="rec-ref" hint="Descreva o serviço ou período a que este recibo se refere.">Referente a *</Label>
               <Input
                 id="rec-ref"
                 value={reciboReferente}
@@ -683,7 +686,9 @@ export function NovoDocumentoDialog({
               )
             ) : (
               <div className="space-y-1.5">
-                <Label htmlFor="instrucoes">O que a IA deve gerar?</Label>
+                <Label htmlFor="instrucoes" hint="A IA gera um rascunho — você revisa e aprova antes de enviar.">
+                  O que a IA deve gerar?
+                </Label>
                 <Textarea
                   id="instrucoes"
                   autoComplete="off"
@@ -693,9 +698,6 @@ export function NovoDocumentoDialog({
                   className="min-h-24"
                 />
                 <AudioTranscricao onTexto={(t) => setInstrucoes((a) => anexar(a, t))} />
-                <p className="text-xs text-muted-foreground">
-                  A IA gera um <strong>rascunho</strong> — você revisa e aprova antes de enviar.
-                </p>
               </div>
             )}
           </>

@@ -137,7 +137,7 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
       <div className="space-y-5">
         {/* Foto / logotipo */}
         <div className="space-y-1.5">
-          <Label>Foto ou logotipo</Label>
+          <Label hint="Pode ser a sua foto ou o logotipo da sua empresa/clínica. JPG, PNG ou WebP, até 5 MB.">Foto ou logotipo</Label>
           <AvatarUpload
             id={user.id}
             nome={user.nome}
@@ -156,7 +156,6 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
             }}
             podeRemover
           />
-          <p className="text-xs text-muted-foreground">Pode ser a sua foto ou o logotipo da sua empresa/clínica. JPG, PNG ou WebP, até 5 MB.</p>
         </div>
 
         {/* Dados cadastrais */}
@@ -167,20 +166,26 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="perfil-nome">{ehPJ ? "Nome da empresa/clínica" : "Nome completo"}</Label>
+            <Label htmlFor="perfil-nome" hint={ehPJ ? "Nome oficial da empresa ou clínica, como aparece nos documentos." : "Seu nome completo, como no documento de identidade."}>
+              {ehPJ ? "Nome da empresa/clínica" : "Nome completo"}
+            </Label>
             <Input id="perfil-nome" value={form.nome} onChange={(e) => set("nome", e.target.value)} placeholder={ehPJ ? "Ex.: Clínica Saúde+" : "Seu nome completo"} />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="perfil-tipo">Tipo de cadastro</Label>
+              <Label htmlFor="perfil-tipo" hint="Escolha pessoa física (CPF) se for cadastro individual, ou pessoa jurídica (CNPJ) se for empresa/clínica.">
+                Tipo de cadastro
+              </Label>
               <Select id="perfil-tipo" value={form.tipo} onChange={(e) => set("tipo", e.target.value)}>
                 <option value="PJ">Pessoa jurídica (empresa/clínica)</option>
                 <option value="PF">Pessoa física</option>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="perfil-doc">{ehPJ ? "CNPJ" : "CPF"}</Label>
+              <Label htmlFor="perfil-doc" hint={ehPJ ? "CNPJ da empresa/clínica, com ou sem pontuação." : "Seu CPF, com ou sem pontuação."}>
+                {ehPJ ? "CNPJ" : "CPF"}
+              </Label>
               <MaskedInput
                 id="perfil-doc"
                 inputMode="numeric"
@@ -194,7 +199,7 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="perfil-email">E-mail</Label>
+              <Label htmlFor="perfil-email" hint="Usamos este e-mail para falar com você e enviar avisos importantes.">E-mail</Label>
               <Input
                 id="perfil-email"
                 type="email"
@@ -205,7 +210,7 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="perfil-tel">Telefone</Label>
+              <Label htmlFor="perfil-tel" hint="Um número para contato, com DDD.">Telefone</Label>
               <MaskedInput
                 id="perfil-tel"
                 inputMode="tel"

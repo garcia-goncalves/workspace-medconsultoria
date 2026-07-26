@@ -63,7 +63,9 @@ export function FormularioDialog({ open, onClose, form }: { open: boolean; onClo
           <Input id="f-tit" autoFocus value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: Briefing de logotipo" />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="f-desc">Descrição (aparece para o cliente)</Label>
+          <Label htmlFor="f-desc" hint="Texto de apresentação que o cliente vê antes de responder ao formulário.">
+            Descrição (aparece para o cliente)
+          </Label>
           <Textarea id="f-desc" rows={2} value={descricao} onChange={(e) => setDescricao(e.target.value)} />
         </div>
       </form>

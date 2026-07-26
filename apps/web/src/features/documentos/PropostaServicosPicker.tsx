@@ -59,7 +59,7 @@ export function PropostaServicosPicker({
 
   return (
     <div className="space-y-1">
-      <Label>{titulo}</Label>
+      <Label hint="Marque os serviços que entram neste documento e ajuste valor, quantidade e recorrência de cada um.">{titulo}</Label>
       <div className="max-h-[26vh] space-y-1 overflow-y-auto rounded-lg border p-2">
         {(servicos.data ?? []).map((s) => {
           const marcado = !!sel[s.id];

@@ -106,11 +106,11 @@ export function NovaConversaDialog({ open, onClose, onCreated }: { open: boolean
           </button>
           <div className="rounded-lg border bg-muted/20 p-2.5 text-sm font-medium">{cliente.nome}</div>
           <div className="space-y-1.5">
-            <Label htmlFor="assunto">Assunto do chamado *</Label>
+            <Label htmlFor="assunto" hint="Um resumo curto do que o cliente precisa.">Assunto do chamado *</Label>
             <Input id="assunto" autoFocus value={assunto} onChange={(e) => setAssunto(e.target.value)} placeholder="Ex.: Dúvida sobre faturamento" />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="prio">Prioridade</Label>
+            <Label htmlFor="prio" hint="Quão urgente é este chamado.">Prioridade</Label>
             <Select id="prio" value={prioridade} onChange={(e) => setPrioridade(e.target.value as ChamadoPrioridade)}>
               {(Object.keys(CHAMADO_PRIORIDADE_LABEL) as ChamadoPrioridade[]).map((p) => (
                 <option key={p} value={p}>
@@ -124,7 +124,7 @@ export function NovaConversaDialog({ open, onClose, onCreated }: { open: boolean
         <>
           {modo === "GRUPO" && (
             <div className="mb-3 space-y-1.5">
-              <Label htmlFor="nomeGrupo">Nome do grupo *</Label>
+              <Label htmlFor="nomeGrupo" hint="O nome que todos os participantes verão na lista de conversas.">Nome do grupo *</Label>
               <Input id="nomeGrupo" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Equipe Comercial" />
             </div>
           )}

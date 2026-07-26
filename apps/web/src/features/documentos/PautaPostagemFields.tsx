@@ -37,12 +37,12 @@ export function PautaPostagemFields({
   return (
     <div className="space-y-3">
       <div className="space-y-1">
-        <Label htmlFor="post-periodo">Período</Label>
+        <Label htmlFor="post-periodo" hint="Mês ou intervalo que este calendário de postagens cobre. Ex.: Agosto/2026.">Período</Label>
         <Input id="post-periodo" value={periodo} onChange={(e) => setPeriodo(e.target.value)} placeholder="Ex.: Agosto/2026" />
       </div>
 
       <div className="space-y-1.5">
-        <Label>Postagens</Label>
+        <Label hint="Uma linha por post: data, rede social, formato (Reels, Stories…) e tema/legenda.">Postagens</Label>
         <div className="space-y-1.5">
           {posts.map((p, i) => (
             <div key={i} className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-muted/20 p-1.5">

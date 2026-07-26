@@ -92,7 +92,7 @@ export function ModeloFormDialog({
             {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="tipo">Tipo</Label>
+            <Label htmlFor="tipo" hint="Que tipo de documento este modelo gera (proposta, contrato, recibo…).">Tipo</Label>
             <Select id="tipo" {...register("tipo")}>
               {(Object.keys(TIPO_MODELO_LABEL) as TipoModelo[])
                 .filter((t) => t !== "BRIEFING")
@@ -106,7 +106,12 @@ export function ModeloFormDialog({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="corpo">Corpo do modelo</Label>
+          <Label
+            htmlFor="corpo"
+            hint="Escreva o texto do documento. Use {{variavel}} para os campos — {{cliente.nome}} e {{data}} se preenchem sozinhos."
+          >
+            Corpo do modelo
+          </Label>
           <Textarea
             id="corpo"
             autoComplete="off"
@@ -115,10 +120,6 @@ export function ModeloFormDialog({
             {...register("corpo")}
           />
           {errors.corpo && <p className="text-xs text-destructive">{errors.corpo.message}</p>}
-          <p className="text-xs text-muted-foreground">
-            Dica: <code>{"{{cliente.nome}}"}</code> e <code>{"{{data}}"}</code> são preenchidos
-            automaticamente; os demais viram campos ao criar o documento.
-          </p>
         </div>
       </form>
     </Modal>

@@ -35,7 +35,7 @@ export function CredenciamentoPicker({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <Label className="flex items-center gap-1.5">
+        <Label className="flex items-center gap-1.5" hint="Marque os convênios/operadoras para os quais este cliente será credenciado.">
           <Building2 className="h-4 w-4 text-primary" /> Operadoras a credenciar *
         </Label>
         <button
@@ -73,7 +73,7 @@ export function CredenciamentoPicker({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1">
-          <Label htmlFor="cred-valor">Investimento por operadora</Label>
+          <Label htmlFor="cred-valor" hint="Valor cobrado do cliente por cada operadora selecionada acima.">Investimento por operadora</Label>
           <MoneyInput id="cred-valor" value={valorOperadora} onChange={(v) => setValorOperadora(v ?? 0)} className="h-9" />
         </div>
         <div className="flex flex-col justify-end">

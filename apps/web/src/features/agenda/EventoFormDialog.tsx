@@ -214,7 +214,7 @@ export function EventoFormDialog({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="tipo">Tipo</Label>
+            <Label htmlFor="tipo" hint="Compromisso, retorno ao cliente ou reunião — organiza os eventos por tipo.">Tipo</Label>
             <Select id="tipo" {...register("tipo")}>
               {(Object.keys(EVENTO_TIPO_LABEL) as EventoTipo[]).map((t) => (
                 <option key={t} value={t}>
@@ -224,7 +224,7 @@ export function EventoFormDialog({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="escopo">Escopo</Label>
+            <Label htmlFor="escopo" hint="Empresa = evento do negócio. Pessoal = evento particular, só seu.">Escopo</Label>
             <Select id="escopo" {...register("escopo")}>
               <option value="EMPRESA">Empresa</option>
               <option value="PESSOAL">Pessoal</option>
@@ -263,7 +263,7 @@ export function EventoFormDialog({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="linkReuniao">Link da reunião</Label>
+            <Label htmlFor="linkReuniao" hint="Link do Meet/Zoom/Jitsi — vai junto no e-mail se o cliente for avisado.">Link da reunião</Label>
             <Input id="linkReuniao" placeholder="Meet/Zoom/Jitsi — https://…" autoComplete="off" {...register("linkReuniao")} />
             {errors.linkReuniao && <p className="text-xs text-destructive">{errors.linkReuniao.message}</p>}
           </div>
@@ -275,7 +275,7 @@ export function EventoFormDialog({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="recorrencia">Repetição</Label>
+            <Label htmlFor="recorrencia" hint="Repete o evento automaticamente (diário, semanal, etc.).">Repetição</Label>
             <Select id="recorrencia" {...register("recorrencia")}>
               {(Object.keys(RECORRENCIA_LABEL) as Recorrencia[]).map((r) => (
                 <option key={r} value={r}>
@@ -285,14 +285,14 @@ export function EventoFormDialog({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="recorrenciaAte">Repetir até</Label>
+            <Label htmlFor="recorrenciaAte" hint="Data em que a repetição do evento para.">Repetir até</Label>
             <Input id="recorrenciaAte" type="date" autoComplete="off" {...register("recorrenciaAte")} />
           </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="clienteId">Cliente</Label>
+            <Label htmlFor="clienteId" hint="Vincula o evento a um cliente e permite avisá-lo por e-mail.">Cliente</Label>
             <Combobox
               id="clienteId"
               value={clienteId ?? ""}
@@ -303,7 +303,7 @@ export function EventoFormDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="projetoId">Projeto</Label>
+            <Label htmlFor="projetoId" hint="Vincula o evento a um projeto específico (opcional).">Projeto</Label>
             <Combobox
               id="projetoId"
               value={projetoId ?? ""}
@@ -318,7 +318,7 @@ export function EventoFormDialog({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {/* Participantes da equipe (além de você — convidados veem o evento e recebem o lembrete). */}
           <div className="space-y-1">
-            <Label>
+            <Label hint="Colegas convidados veem o evento na agenda deles e recebem lembrete.">
               <Users className="mr-1 inline h-3.5 w-3.5" />
               Participantes da equipe
             </Label>

@@ -33,7 +33,7 @@ export function PlanoAcaoFields({
   return (
     <div className="space-y-3">
       <div className="space-y-1">
-        <Label htmlFor="plano-obj">Objetivo do plano *</Label>
+        <Label htmlFor="plano-obj" hint="O resultado que este plano de ação pretende alcançar.">Objetivo do plano *</Label>
         <Textarea
           id="plano-obj"
           rows={2}
@@ -44,7 +44,7 @@ export function PlanoAcaoFields({
       </div>
 
       <div className="space-y-1.5">
-        <Label>Ações</Label>
+        <Label hint="Uma linha por ação: o que fazer, quem é o responsável e o prazo.">Ações</Label>
         <div className="space-y-1.5">
           {acoes.map((a, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -91,7 +91,7 @@ export function PlanoAcaoFields({
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="plano-ind">Como mediremos o sucesso</Label>
+        <Label htmlFor="plano-ind" hint="Os números ou indicadores que mostram se o plano deu certo.">Como mediremos o sucesso</Label>
         <Textarea
           id="plano-ind"
           rows={2}

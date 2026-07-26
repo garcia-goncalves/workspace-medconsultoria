@@ -123,7 +123,7 @@ export function ContaFormDialog({
       <form id="conta-form" onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
         {/* Carteira: Empresa × Pessoal (não editável ao editar — moveria a privacidade) */}
         <div className="space-y-1">
-          <Label>Carteira</Label>
+          <Label hint="Empresa = contas do negócio. Pessoal = suas contas particulares, separadas.">Carteira</Label>
           <div className="inline-flex w-full rounded-lg border p-0.5">
             {(["EMPRESA", "PESSOAL"] as Escopo[]).map((e) => {
               const on = escopo === e;
@@ -148,7 +148,7 @@ export function ContaFormDialog({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="tipo">Tipo</Label>
+            <Label htmlFor="tipo" hint="A pagar = você vai pagar. A receber = você vai receber.">Tipo</Label>
             <Select id="tipo" {...register("tipo")}>
               <option value="PAGAR">A pagar</option>
               <option value="RECEBER">A receber</option>
@@ -173,12 +173,12 @@ export function ContaFormDialog({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="vencimento">Vencimento *</Label>
+            <Label htmlFor="vencimento" hint="Data limite para pagar ou receber esta conta.">Vencimento *</Label>
             <Input id="vencimento" type="date" autoComplete="off" {...register("vencimento")} />
             {errors.vencimento && <p className="text-xs text-destructive">{errors.vencimento.message}</p>}
           </div>
           <div className="space-y-1">
-            <Label htmlFor="categoriaId">Categoria</Label>
+            <Label htmlFor="categoriaId" hint="Agrupa a conta para organizar os relatórios financeiros.">Categoria</Label>
             <Combobox
               id="categoriaId"
               value={watch("categoriaId") ?? ""}
@@ -193,7 +193,7 @@ export function ContaFormDialog({
         {/* Recorrência (se repete, a próxima é criada sozinha ao marcar paga) */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="recorrencia">Repete?</Label>
+            <Label htmlFor="recorrencia" hint="Se repete, ao marcar a conta como paga/recebida a próxima já é criada sozinha.">Repete?</Label>
             <Select id="recorrencia" {...register("recorrencia")}>
               {RECORRENCIAS.map((r) => (
                 <option key={r} value={r}>
@@ -204,20 +204,15 @@ export function ContaFormDialog({
           </div>
           {recorrencia !== "NENHUMA" && (
             <div className="space-y-1">
-              <Label htmlFor="recorrenciaAte">Repetir até (opcional)</Label>
+              <Label htmlFor="recorrenciaAte" hint="Data em que a repetição para de gerar novas contas.">Repetir até (opcional)</Label>
               <Input id="recorrenciaAte" type="date" autoComplete="off" {...register("recorrenciaAte")} />
             </div>
           )}
         </div>
-        {recorrencia !== "NENHUMA" && (
-          <p className="-mt-1 text-xs text-muted-foreground">
-            Ao marcar como {watch("tipo") === "RECEBER" ? "recebida" : "paga"}, a próxima já é criada sozinha. 🔁
-          </p>
-        )}
 
         {escopo === "EMPRESA" && (
           <div className="space-y-1">
-            <Label htmlFor="clienteId">Cliente (opcional)</Label>
+            <Label htmlFor="clienteId" hint="Vincula esta conta a um cliente — útil para relatórios.">Cliente (opcional)</Label>
             <Combobox
               id="clienteId"
               value={watch("clienteId") ?? ""}

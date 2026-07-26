@@ -118,7 +118,7 @@ export function CardFormDialog({
     >
       <form id="card-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         <div className="space-y-1.5">
-          <Label htmlFor="titulo">Título *</Label>
+          <Label htmlFor="titulo" hint="Nome curto que identifica a tarefa no cartão.">Título *</Label>
           <Input id="titulo" autoFocus autoComplete="off" {...register("titulo")} />
           {errors.titulo && <p className="text-xs text-destructive">{errors.titulo.message}</p>}
         </div>
@@ -130,7 +130,7 @@ export function CardFormDialog({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="prioridade">Prioridade</Label>
+            <Label htmlFor="prioridade" hint="Define a urgência da tarefa e a ordem de destaque no quadro.">Prioridade</Label>
             <Select id="prioridade" {...register("prioridade")}>
               {(Object.keys(PRIORIDADE_LABEL) as Prioridade[]).map((p) => (
                 <option key={p} value={p}>
@@ -146,7 +146,7 @@ export function CardFormDialog({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="responsavelId">Responsável</Label>
+          <Label htmlFor="responsavelId" hint="Quem vai executar esta tarefa. Deixe em branco para ficar com você.">Responsável</Label>
           <Combobox
             id="responsavelId"
             value={watch("responsavelId") ?? ""}
