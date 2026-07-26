@@ -234,6 +234,55 @@ export function NovoDocumentoDialog({
     if (ehCredenciamento && operadorasSel.length > 0) {
       corpo = corpo.replace(/\{\{\s*operadoras\s*\}\}/g, operadorasSel.map((o) => `- **${o}**`).join("\n"));
     }
+    // PROPOSTA COMERCIAL: espelha o servidor (montarServicos) — tabela de serviços + investimento +
+    // prazo/condições/observações + apresentação. Assim a prévia mostra a proposta COMPLETA em tempo real.
+    if (modo === "PROPOSTA" && !ehCredenciamento) {
+      const servDe = (id: string) => servicosAtivos.data?.find((s) => s.id === id);
+      const ids = Object.keys(sel);
+      let av = 0;
+      let me = 0;
+      const pcts: string[] = [];
+      const linhas = Object.entries(sel).map(([id, i]) => {
+        const qtd = i.qtd || 1;
+        const sub = (i.valor || 0) * qtd;
+        if (i.recorrencia === "MENSAL") me += sub;
+        else av += sub;
+        const partes: string[] = [];
+        if (sub > 0) {
+          const base = qtd > 1 ? `${qtd} × ${formatBRL(i.valor || 0)} = ${formatBRL(sub)}` : formatBRL(sub);
+          partes.push(base + (i.recorrencia === "MENSAL" ? "/mês" : ""));
+        }
+        if (i.percentual != null && i.percentual > 0) {
+          partes.push(`${i.percentual}% do faturamento/mês`);
+          pcts.push(`${i.percentual}% do faturamento (${servDe(id)?.nome ?? "serviço"})`);
+        }
+        const preco = partes.length ? partes.join(" + ") : "a combinar";
+        const desc = servDe(id)?.descricao ? ` — ${servDe(id)?.descricao}` : "";
+        return `| **${servDe(id)?.nome ?? "Serviço"}**${desc} | ${preco} |`;
+      });
+      const tabela = ids.length
+        ? `| Serviço | Investimento |\n| --- | --- |\n${linhas.join("\n")}`
+        : "_(selecione os serviços ao lado para vê-los aqui)_";
+      const inv: string[] = [];
+      if (av > 0) inv.push(`- **À vista (1x):** ${formatBRL(av)}`);
+      if (me > 0) inv.push(`- **Mensal:** ${formatBRL(me)}/mês`);
+      for (const p of pcts) inv.push(`- **${p}** — por mês`);
+      if (!inv.length) inv.push("- A combinar");
+      const extras = [
+        prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : "",
+        condicoes.trim() ? `**Condições de pagamento:** ${condicoes.trim()}` : "",
+      ].filter(Boolean);
+      const bloco = [`## Serviços propostos\n\n${tabela}`, `## Investimento\n\n${inv.join("\n")}`];
+      if (extras.length) bloco.push(extras.join("  \n"));
+      if (observacoes.trim()) bloco.push(observacoes.trim());
+      const apresentacao =
+        (usarIA ? "*(A IA vai personalizar esta apresentação ao gerar.)* " : "") +
+        "A MedConsultoria cuida de todos os processos da sua clínica para lhe dar mais tempo e tranquilidade " +
+        "para fazer o que mais importa: cuidar de vidas. Apresentamos a seguir a proposta pensada para as suas necessidades.";
+      corpo = corpo
+        .replace(/\{\{\s*servicos\s*\}\}/g, bloco.join("\n\n"))
+        .replace(/\{\{\s*apresentacao\s*\}\}/g, apresentacao);
+    }
     if (modo === "CONTRATO") {
       const nomeDe = (id: string) => servicosAtivos.data?.find((s) => s.id === id)?.nome ?? "Serviço";
       const ids = Object.keys(sel);
