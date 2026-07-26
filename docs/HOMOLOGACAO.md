@@ -1,15 +1,21 @@
 # HOMOLOGAÇÃO — primeiro deploy, em ambiente separado
 
+> **⚠️ SUPERADO (2026-07-26).** Este documento é um registro PRÉ-DEPLOY. O app já está **em
+> produção** em https://workspace.medconsultoria.com.br (TineHost/LiteSpeed-lsnode; tempo real
+> por polling; backup automático ativo). Estado atual e decisões: ver `/CLAUDE.md` e
+> `docs/DECISIONS.md` (ADR-84..87). Mantido abaixo como histórico.
+
 > **Para que serve:** subir a aplicação num endereço real da TineHost **antes** de produção, para
-> descobrir o que só aparece no servidor (versão do Node, Passenger, limites do MySQL, WebSocket
-> atrás do proxy, pasta de uploads). Com dados de teste e **sem** e-mail real.
+> descobrir o que só aparece no servidor (versão do Node, ~~Passenger~~ LiteSpeed/lsnode, limites
+> do MySQL, WebSocket — hoje sabe-se **não suportado**, tempo real por polling, ADR-84 — pasta de
+> uploads). Com dados de teste e **sem** e-mail real.
 >
 > Tudo que foi validado até aqui foi **local**. O primeiro deploy sempre revela algo — é por isso
 > que ele acontece aqui, e não direto no ambiente que a Thaís vai usar.
 >
 > Este documento cobre **só o que difere de produção**. O passo a passo detalhado
-> (DirectAdmin, CloudLinux Node.js Selector, Passenger, rsync) está em **`docs/DEPLOY.md` §12** —
-> siga aquele, aplicando as diferenças abaixo.
+> (DirectAdmin, CloudLinux Node.js Selector, LiteSpeed/lsnode, rsync) está em **`docs/DEPLOY.md`
+> §12** — siga aquele, aplicando as diferenças abaixo.
 
 ---
 
@@ -115,7 +121,9 @@ pnpm doutor --url https://homolog.medconsultoria.com.br --perfil admin
 
 - [ ] **Login** entra e a sessão **sobrevive a um refresh** (cookie com `Secure` sob HTTPS).
 - [ ] **WebSocket**: abrir Mensagens em duas abas e ver a mensagem chegar sozinha.
-      *É o item de maior risco atrás do Passenger.*
+      *~~É o item de maior risco atrás do Passenger.~~ RESOLVIDO: a hospedagem (LiteSpeed/lsnode)
+      não suporta WebSocket; tempo real é por polling (`refetchInterval`), ADR-84 — não há mais
+      item a validar aqui.*
 - [ ] **Upload**: anexar um arquivo na ficha de um cliente, baixar de volta,
       **reiniciar a aplicação pelo painel** e conferir que o arquivo continua lá
       (prova que `UPLOADS_DIR` está fora do diretório do deploy).
@@ -150,6 +158,8 @@ O deploy é **reversível**: mantenha o bundle anterior e restaure o dump do ban
 Os riscos conhecidos e seus planos B estão em **DEPLOY.md §7**. Os quatro pendentes desde o
 início do projeto (`docs/CLAUDE.md §12`) só se resolvem aqui: versão do Node, Passenger vs
 Nginx Unit, limite de conexões do MySQL e WebSocket atrás do proxy.
+> **ATUALIZAÇÃO 2026-07-26:** resolvidos — hospedagem é LiteSpeed/lsnode (não Passenger nem
+> Nginx Unit); WebSocket não suportado, tempo real por polling (ADR-84).
 
 ---
 

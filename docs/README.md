@@ -60,7 +60,7 @@ pnpm dev                           # sobe web (Vite) + api (Fastify) em paralelo
 | `pnpm typecheck` | TypeScript em todo o monorepo |
 | `./deploy.sh` | Deploy por SSH para produção (ver `ARCHITECTURE.md §9`) |
 
-> **Testes automatizados (Vitest/Playwright) e lint (ESLint) ainda não estão configurados** — não há suíte de testes, config de lint nem essas dependências instaladas. A verificação hoje é `pnpm typecheck` + `pnpm build` verdes e exercitar o fluxo real no navegador (manual ou via Playwright MCP). TDD com Vitest/Playwright é planejado — ver `ROADMAP.md`.
+> **Testes automatizados e lint estão configurados:** Vitest (serviços/procedures), Playwright para E2E (`pnpm test:e2e:isolado`, banco separado) e ESLint, com CI verde. Cada bug do `BUG_TRACKER.md` tem teste de regressão. A verificação de uma mudança é `pnpm typecheck` + `pnpm build` + a suíte de testes verdes, além de exercitar o fluxo real no navegador (manual ou via Playwright MCP).
 
 ---
 

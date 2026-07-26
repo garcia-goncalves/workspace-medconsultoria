@@ -20,6 +20,8 @@ Aplicação **monolítica de um único processo Node**, servida no DirectAdmin. 
                                MySQL (utf8mb4)
 ```
 
+> Em **produção** o WebSocket fica **DESLIGADO** — a hospedagem (LiteSpeed/lsnode) não faz upgrade de WS. O tempo real de fato é **polling** (ADR-84); Socket.IO roda só em dev/testes, e pode ser religado em prod com `VITE_REALTIME=1`.
+
 **Por que um processo só [ADR-2]:** DirectAdmin espera um startup file único e simplifica deploy/manutenção. Sem microserviços, sem orquestração — a complexidade não se justifica para uma equipe pequena e um app interno.
 
 ---
@@ -113,12 +115,12 @@ Em `trpc/`:
 
 ## 6. Real-time (Socket.IO)
 
-- Anexado ao mesmo servidor Fastify (mesma porta) — WebSocket é suportado pelo DirectAdmin.
+- Anexado ao mesmo servidor Fastify (mesma porta). **Em produção o WebSocket NÃO é suportado**: a infra é LiteSpeed/lsnode, que não faz upgrade de WS → o tempo real virou **polling** (ADR-84). Socket.IO fica ligado em dev/testes.
 - Autenticação no **handshake** reutilizando o cookie de sessão. Conexão sem sessão válida é recusada.
 - **Rooms:** cada usuário entra em `user:<id>`. O objeto `notificationService` (`realtime/socket.ts`), via `emitToUser(userId, evento, payload)`, empurra notificações e mensagens (atribuição de tarefa, lembrete, vencimento).
 - **Loops no servidor** (`realtime/reminders.ts`): lembrete de agenda (eventos em ≤15 min) + **scan proativo** (~10 min) que gera alertas deduplicados — tarefas atrasadas (para o responsável), contas vencidas e documentos aguardando revisão (para admins). Notificações são **clicáveis** no front (levam à entidade por `entidadeTipo`/`entidadeId`) com leitura individual. Ver ADR-12.
 - Fase 6 (chat) reutiliza a mesma infra: o envio de mensagem (`mensagens.service.ts`) chama `emitToUser` para a room `user:<id>` de cada participante da conversa — não há rooms por conversa/projeto. Rooms dedicadas (`conversa:<id>`, `projeto:<id>`) são uma evolução futura, ainda não implementada.
-- Fallback de polling do Socket.IO cobre ambientes onde o WS puro falhe.
+- Em produção o Socket.IO fica **totalmente desligado** (não é fallback): o polling é o mecanismo primário de tempo real; religa com `VITE_REALTIME=1` (ADR-84).
 
 ---
 
@@ -158,16 +160,16 @@ ssh USER@host '
   cd app &&
   npm ci --omit=dev &&
   npx prisma migrate deploy &&
-  touch tmp/restart.txt            # Passenger; ou restart via Nginx Unit
+  touch tmp/restart.txt            # LiteSpeed/lsnode relê e reinicia
 '
 ```
 
 - Startup file no painel DirectAdmin = `dist/server.js`.
 - `deploy.sh` encapsula tudo; chave SSH como secret no GitHub Actions.
 - Migrations versionadas no repo; `prisma migrate deploy` roda no servidor (nunca `migrate dev` em produção).
-- Variáveis sensíveis em `.env` no servidor (fora do git): `DATABASE_URL`, `SESSION_SECRET`, `OPENAI_API_KEY` (futuro).
+- Variáveis sensíveis em `.env` no servidor (fora do git): `DATABASE_URL`, `SESSION_SECRET`, `OPENAI_API_KEY` (já em uso em produção).
 
-**Riscos a validar no 1º deploy:** versão do Node; Passenger vs Nginx Unit (muda o restart e o proxy WS); pool de conexões MySQL; engine de PDF. Ver `CLAUDE.md §12`.
+**Riscos validados no deploy:** infra confirmada **LiteSpeed/lsnode** (não Passenger/Nginx Unit); pool de conexões MySQL OK; engine de PDF resolvida (Fase 7: `window.print()`/blob). Ver `CLAUDE.md §12`.
 
 ---
 
@@ -218,7 +220,7 @@ O funil de vendas é automatizado. Mecânica em `leads.service.ts`:
 
 - **Envio único:** `enviarEmailTemplate()` (`emails/enviados.service.ts`) renderiza o template branded (logo por CID), envia por SMTP (`enviarEmail`) e registra em `EmailEnviado` — inclusive o **motivo da falha** (`erro`) quando o SMTP recusa. `isEmailReal` = SMTP configurado.
 - **Monitor global (ROOT/ADMIN):** página dedicada `/emails-enviados` (`EmailsEnviadosMonitorPage`) sobre `emailsEnviados.resumo` (indicadores: enviados/falhas 7d, hoje, taxa de entrega, `isEmailReal`) + `emailsEnviados.todos` (lista filtrável por status/tipo/período/busca, paginada por limite). Responde "mandou? falhou? por quê?" sem depender de APM externo (coerente com ADR-2/ADR-18).
-- **Notificação = e-mail:** `notificar()` é o ponto único — cria a `Notificacao` in-app, faz push por Socket.IO **e** dispara o e-mail da mesma categoria se ela for "emailável" e o usuário não tiver desativado (`PreferenciaEmail`, opt-out). Suporta dedup (`unico`) para o scan proativo.
+- **Notificação = e-mail:** `notificar()` é o ponto único — cria a `Notificacao` in-app (o cliente busca por polling em produção; Socket.IO faz push só em dev/testes — ADR-84) **e** dispara o e-mail da mesma categoria se ela for "emailável" e o usuário não tiver desativado (`PreferenciaEmail`, opt-out). Suporta dedup (`unico`) para o scan proativo.
 - **Templates editáveis:** `EMAIL_TEMPLATES` (registry) semeia `EmailTemplate` (assunto/título/corpo/CTA com `{{variaveis}}`), editáveis em Comunicações (`emails` router, admin). Grupos: Transacionais (sempre), Notificações (respeitam preferência), Sistema (só ROOT).
 
 ## 15. Assinatura eletrônica de documentos [ADR-17]

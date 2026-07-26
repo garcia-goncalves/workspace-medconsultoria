@@ -1,5 +1,10 @@
 # STATUS GERAL DA APLICAÇÃO
 
+> **⚠️ SUPERADO (2026-07-26).** Este documento é um registro PRÉ-DEPLOY. O app já está **em
+> produção** em https://workspace.medconsultoria.com.br (TineHost/LiteSpeed-lsnode; tempo real
+> por polling; backup automático ativo). Estado atual e decisões: ver `/CLAUDE.md` e
+> `docs/DECISIONS.md` (ADR-84..87). Mantido abaixo como histórico.
+
 > Auditoria consolidada · **21/07/2026** · main `32ffa42`
 > Base: 42 PRs mergeados com CI verde, 12 bugs registrados, validação ao vivo em navegador.
 >
@@ -17,10 +22,11 @@
 | Banco (MySQL/Prisma) | 53 migrations aplicadas · banco de dev **zerado** de dados fictícios |
 | Autenticação | 12 bugs de acesso resolvidos · login instrumentado |
 | Testes | 85 unitários · 74 E2E · 24 specs · CI 3 jobs |
-| Deploy | Bundle auto-contido compila · guias de produção e homologação escritos |
+| Deploy | Bundle auto-contido compila · guias de produção e homologação escritos [ATUALIZAÇÃO 2026-07-26: deploy já feito, app em produção] |
 
 **Nunca rodou fora da máquina local.** Todo "funciona" abaixo significa *funciona em ambiente
-de desenvolvimento*.
+de desenvolvimento*. [ATUALIZAÇÃO 2026-07-26: desde então o app rodou e validou em produção —
+ver `/CLAUDE.md`.]
 
 ---
 
@@ -81,11 +87,11 @@ de banco limpo) · `pnpm test:e2e:isolado` (E2E sem sujar o banco de dev).
 
 | Risco | Gravidade | Situação |
 |---|---|---|
-| **Nunca rodou na TineHost** — Node, Passenger, WebSocket atrás do proxy, limite de conexões MySQL | 🔴 | 4 pendências abertas desde o início (`CLAUDE.md §12`); só o deploy resolve |
+| **Nunca rodou na TineHost** — Node, Passenger, WebSocket atrás do proxy, limite de conexões MySQL | 🔴 | 4 pendências abertas desde o início (`CLAUDE.md §12`); só o deploy resolve [ATUALIZAÇÃO 2026-07-26: RESOLVIDAS — hospedagem é LiteSpeed/lsnode (não Passenger); WebSocket não é suportado, tempo real por polling (ADR-84)] |
 | **Credenciais expostas em 21/07** — chave OpenAI e senha SMTP coladas em conversa | 🔴 | **rotacionar antes do deploy** |
 | **Bundle > 500 kB** sem divisão de código | 🟡 | aceitável para app interno; piora em 3G |
 | **Throttle de login em memória** | 🟡 | zera a cada restart; ok para 1 processo |
-| **Sem backup automatizado do MySQL** | 🟠 | `db:limpar` faz dump; produção precisa de rotina |
+| **Sem backup automatizado do MySQL** | 🟠 | `db:limpar` faz dump; produção precisa de rotina [ATUALIZAÇÃO 2026-07-26: IMPLEMENTADO — cron diário 03:00 (`scripts/server/backup-db.sh`), ADR-86] |
 | **Sem monitoramento externo** | 🟡 | painel Sistema é interno: se o app cair, ninguém avisa |
 
 ---
@@ -174,3 +180,7 @@ jurídicos, a rotação das credenciais e a validação no servidor real.
 
 O caminho está documentado ponta a ponta (`docs/HOMOLOGACAO.md` → `docs/DEPLOY.md`). O próximo
 passo depende de acesso ao painel da TineHost.
+
+> **ATUALIZAÇÃO 2026-07-26:** o app **já está em produção** desde 26/07/2026
+> (https://workspace.medconsultoria.com.br). Pendências restantes: dados jurídicos e rotacionar
+> chave OpenAI/senha SMTP — ver `/CLAUDE.md §11-12`.

@@ -6,7 +6,7 @@ Legenda de status: ⬜ pendente · 🟨 em andamento · ✅ concluída.
 
 ---
 
-## Fase 0 — Fundação & Documentação 🟨
+## Fase 0 — Fundação & Documentação ✅
 
 **Objetivo:** base sólida sobre a qual todo o resto é construído.
 
@@ -17,9 +17,9 @@ Legenda de status: ⬜ pendente · 🟨 em andamento · ✅ concluída.
 - [x] Auth completo: login, sessão por cookie httpOnly, argon2id, RBAC (middlewares tRPC), seed do 1º ROOT.
 - [x] Infra Socket.IO + `NotificationService` (base, sem features ainda).
 - [x] Indexar no codebase-memory MCP.
-- [ ] Pipeline de deploy SSH (`deploy.sh` esqueleto pronto) + 1º deploy "hello autenticado" em produção — **pendente: dados da TineHost**.
+- [x] Pipeline de deploy SSH (`deploy.sh`) + deploy em produção concluído.
 
-**Verificação (local):** ✅ `pnpm typecheck` verde nos 5 pacotes · ✅ `pnpm --filter @app/web build` OK · ✅ login/sessão/logout/401 testados end-to-end via API · ✅ `/health` OK. **Falta:** deploy em `workspace.medconsultoria.com.br` (aguarda credenciais/SSH da TineHost).
+**Verificação (local):** ✅ `pnpm typecheck` verde nos 5 pacotes · ✅ `pnpm --filter @app/web build` OK · ✅ login/sessão/logout/401 testados end-to-end via API · ✅ `/health` OK. **Deploy em produção FEITO** ✅ — app no ar em `workspace.medconsultoria.com.br` (TineHost).
 
 ---
 

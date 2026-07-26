@@ -1,7 +1,8 @@
 # 🔑 ACESSOS E LINKS — Workspace MedConsultoria (ambiente local)
 
 > Guia rápido para acompanhar a aplicação **rodando na sua máquina**.
-> Este é o ambiente de desenvolvimento (local). O de produção (workspace.medconsultoria.com.br) fica para depois.
+> Este é o ambiente de desenvolvimento (local). O app já está **em produção** em
+> https://workspace.medconsultoria.com.br — ver seção "Acessos de PRODUÇÃO" no final deste documento.
 
 ---
 
@@ -26,7 +27,8 @@ Se não abrir (ex.: você reiniciou o computador), veja "Como ligar" no final.
 > O seed **nunca sobrescreve a senha** de uma conta que já existe — pode rodar à vontade.
 
 **FUNCIONÁRIO e CLIENTE:** não existem mais como conta fixa. A limpeza de 20/07/2026 removeu
-os usuários fictícios. Crie-os pelo fluxo real da aplicação:
+os usuários fictícios — inclusive o antigo login de teste `cliente@medconsultoria.com.br`
+(**removido**, não use mais). Crie-os pelo fluxo real da aplicação:
 
 - **funcionário** → **Ajustes → Equipe e acessos → convidar** (o convite chega por e-mail);
 - **cliente** → cadastre o cliente e use **"Enviar acesso ao Portal"** na ficha dele.
@@ -112,7 +114,7 @@ No topo de qualquer tela há uma **busca global**. Aperte **Ctrl + K** (ou cliqu
 
 O cliente entra pelo **mesmo endereço** (http://localhost:4310) com um login de papel **CLIENTE** e cai num ambiente **separado e isolado** — ele nunca vê o menu interno nem dados de outros clientes.
 
-- **Como testar:** saia da sua conta e entre com `cliente@medconsultoria.com.br` / `medconsultoria123`.
+- **Como testar:** crie um acesso de Portal para um cliente real (ver abaixo) — não há mais login de teste fixo.
 - **O que o cliente vê:** o **andamento do atendimento** (a etapa do funil em linguagem amigável), **documentos para assinar**, projetos, documentos, **e-mails recebidos**, próximas reuniões e um **chat de Suporte** com a equipe — tudo vinculado **apenas ao cadastro dele** (Acme Saude).
 - **Prospect (ainda não é cliente):** quem chega pela captação também ganha acesso e acompanha o próprio atendimento pelo Portal desde o primeiro contato.
 - **Liberdade do cliente:** no card "Seu atendimento" há um link discreto **"Não tenho mais interesse"** — se o cliente desistir, o lead vai automaticamente para **Perdidos** na aplicação (e a equipe é avisada). Se mudar de ideia, aparece um botão **"Quero retomar"** que o traz de volta ao funil.
@@ -190,8 +192,19 @@ Verificação técnica da API (opcional): http://localhost:4319/health deve resp
 ## 📌 Importante
 
 - Isto roda **na sua máquina** — só você acessa. Ninguém de fora vê.
-- Publicar no endereço real (workspace.medconsultoria.com.br) é uma etapa separada, que faremos quando você tiver os dados da hospedagem (TineHost).
-- Este documento vale para o ambiente local; quando publicarmos, crio um equivalente com os acessos de produção.
+- O ambiente de produção é separado (ver seção "Acessos de PRODUÇÃO" abaixo).
+
+---
+
+## 🌐 Acessos de PRODUÇÃO
+
+> App **já publicado e no ar**. Senhas reais não ficam neste documento — só quem tem a senha sabe.
+
+- **URL:** https://workspace.medconsultoria.com.br
+- **ROOT:** `root@medconsultoria.com.br` — senha trocada pelo dono diretamente no app (Configurações).
+- **ADMIN (Thaís):** `thais.garcia@medconsultoria.com.br` — senha de teste até ela trocar pelo app.
+- **SSH (deploy):** porta `1992`, chave `~/.ssh/medconsultoria_deploy`.
+- Não existe mais login de teste de CLIENTE/FUNCIONÁRIO fixo em produção — crie acessos pelo fluxo real (Equipe e acessos / Enviar acesso ao Portal).
 
 ---
 

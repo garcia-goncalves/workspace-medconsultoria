@@ -283,8 +283,8 @@ MVP + evolução completos, **no ar em produção** (TineHost, https://workspace
 - Versão do Node disponível na TineHost.
 - ~~Passenger vs Nginx Unit (muda o mecanismo de restart e o proxy de WebSocket).~~ **RESOLVIDO:** LiteSpeed/lsnode; restart = `touch tmp/restart.txt`; WebSocket não é suportado → tempo real por **polling** (ADR-84).
 - Limites de conexão do MySQL (afeta o pool do Prisma).
-- Rede outbound liberada (necessária para a API de IA na Fase 9).
-- Engine de PDF em hospedagem compartilhada (puppeteer normalmente não roda — avaliar `@react-pdf/renderer` ou DOCX+conversão) — decidir na Fase 7.
+- ~~Rede outbound liberada (necessária para a API de IA na Fase 9).~~ **RESOLVIDO:** IA (OpenAI) em uso em produção.
+- ~~Engine de PDF em hospedagem compartilhada (puppeteer normalmente não roda — avaliar `@react-pdf/renderer` ou DOCX+conversão) — decidir na Fase 7.~~ **RESOLVIDO (Fase 7):** PDF via `window.print()`, Word via blob.
 - ~~Política de backup do MySQL.~~ **RESOLVIDO (26/07):** `scripts/server/backup-db.sh` via cron diário (03:00 BRT, `mysqldump --single-transaction` + gzip, retém 14) + `healthcheck.sh` a cada 5 min (auto-restart). Ver DEPLOY.md.
 - **Pasta de uploads persistente na TineHost** (`UPLOADS_DIR`): apontar para uma pasta FORA do diretório do deploy (o rsync sobrescreve) e incluí-la no backup — ADR-26.
 
