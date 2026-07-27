@@ -234,7 +234,7 @@ function HealthBanner() {
               {saude.data.statusGeral === "ok" ? "Todos os sistemas operacionais" : `Sistema ${info.label.toLowerCase()}`}
             </div>
             <div className="text-xs text-muted-foreground">
-              Uptime {formatUptime(saude.data.uptimeSeg)} · {saude.data.ambiente} · atualizado {haQuanto(new Date())}
+              Uptime {formatUptime(saude.data.uptimeSeg)} · {saude.data.ambiente} · atualizado {haQuanto(new Date(saude.dataUpdatedAt))}
             </div>
           </div>
         </div>
@@ -678,7 +678,7 @@ function AbaDesempenho() {
   return (
     <div className="space-y-6">
       <p className="text-xs text-muted-foreground">
-        Janela ao vivo dos últimos ~10 minutos (amostra a cada 10s). RED = Rate / Errors / Duration.
+        Janela ao vivo dos últimos ~10 minutos (amostra a cada 10s). RED = Requisições / Erros / Duração.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -880,7 +880,7 @@ function AbaBanco() {
         {d.tabelas.length === 0 ? (
           <Card>
             <CardContent className="p-5 text-sm text-muted-foreground">
-              Não foi possível ler o information_schema (privilégio negado no host).
+              Não foi possível ler as informações do banco (permissão negada no servidor).
             </CardContent>
           </Card>
         ) : (
@@ -1202,7 +1202,7 @@ function AbaOperacao() {
                 </Button>
               </CardContent>
             </Card>
-            {backup.data && <p className="text-xs text-success">✅ Backup gerado. {backup.data.saida}</p>}
+            {backup.data && <p className="text-xs text-success">Backup gerado. {backup.data.saida}</p>}
             {backup.error && <p className="text-xs text-destructive">{backup.error.message}</p>}
           </>
         )}
@@ -1217,7 +1217,7 @@ function AbaOperacao() {
           <p className="text-xs text-muted-foreground">Disponível no servidor.</p>
         ) : d.reinicios.length === 0 ? (
           <Card>
-            <CardContent className="p-4 text-sm text-muted-foreground">Nenhum reinício registrado — o app não caiu. 🎉</CardContent>
+            <CardContent className="p-4 text-sm text-muted-foreground">Nenhum reinício registrado — o app não caiu.</CardContent>
           </Card>
         ) : (
           <Card>
@@ -1302,9 +1302,9 @@ function AbaManutencao() {
             <CardContent className="grid gap-x-6 gap-y-2 p-4 text-sm sm:grid-cols-2">
               <ConfigLinha rotulo="Ambiente" valor={conf.data.ambiente} />
               <ConfigLinha rotulo="Porta da API" valor={String(conf.data.apiPort)} />
-              <ConfigLinha rotulo="Origem web" valor={conf.data.webOrigin} />
+              <ConfigLinha rotulo="Endereço de origem (CORS)" valor={conf.data.webOrigin} />
               <ConfigLinha rotulo="IA" valor={conf.data.iaAtiva ? "Ativa" : "Desligada"} />
-              <ConfigLinha rotulo="CSP (Helmet)" valor={conf.data.cspLigada ? "Ligada" : "Desligada"} />
+              <ConfigLinha rotulo="Proteção de cabeçalhos (CSP)" valor={conf.data.cspLigada ? "Ligada" : "Desligada"} />
             </CardContent>
           </Card>
         )}

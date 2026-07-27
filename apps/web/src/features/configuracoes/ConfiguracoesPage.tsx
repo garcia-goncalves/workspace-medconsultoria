@@ -98,7 +98,7 @@ function PerfilCard() {
                 <>
                   são definidos na administração —{" "}
                   <Link to="/usuarios" className="text-primary hover:underline">
-                    gerencie em Usuários
+                    gerencie em Equipe e acessos
                   </Link>
                   .
                 </>
@@ -310,7 +310,7 @@ function EquipeCard() {
       <CardHeader>
         <CardTitle>
           <Users className="h-4 w-4 text-muted-foreground" />
-          Equipe & acessos
+          Equipe e acessos
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -318,7 +318,7 @@ function EquipeCard() {
           Cadastre funcionários e crie acessos de Portal para os clientes.
         </p>
         <Link to="/usuarios" className={buttonVariants({ variant: "outline" })}>
-          Gerenciar usuários
+          Gerenciar equipe
           <ArrowRight className="h-4 w-4" />
         </Link>
       </CardContent>
@@ -341,7 +341,7 @@ export function ConfiguracoesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Configurações" subtitle="Seu perfil, sua senha e as preferências de quais e-mails você quer receber." />
+      <PageHeader title="Configurações" subtitle="Seu perfil, sua senha, as preferências de quais e-mails você recebe e o histórico das mensagens enviadas a você." />
       <div className="grid gap-6 lg:grid-cols-2">
         <PerfilCard />
         <SenhaCard />

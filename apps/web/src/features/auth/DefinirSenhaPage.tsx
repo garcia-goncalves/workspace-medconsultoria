@@ -74,7 +74,7 @@ export function DefinirSenhaPage() {
           <ShieldCheck className="h-6 w-6" />
         </div>
         <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-          Olá, {info.data?.nome?.split(" ")[0] ?? "bem-vindo"}!
+          Olá{info.data?.nome?.split(" ")[0] ? `, ${info.data.nome.split(" ")[0]}` : ""}!
         </h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
           Defina sua senha para ativar o acesso de <strong>{info.data?.email}</strong>.

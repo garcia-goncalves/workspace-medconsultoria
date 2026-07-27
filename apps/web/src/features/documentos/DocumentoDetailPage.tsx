@@ -493,7 +493,7 @@ export function DocumentoDetailPage() {
           <div className="sticky top-0 z-10 flex items-center justify-between gap-2 rounded-xl border bg-card px-4 py-2.5 shadow-sm">
             <span className="flex items-center gap-2 text-sm font-medium">
               <Pencil className="h-4 w-4 text-primary" />
-              Editando · o preview atualiza ao lado
+              Editando · a prévia atualiza ao lado
             </span>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setEditando(false)} disabled={salvar.isPending}>

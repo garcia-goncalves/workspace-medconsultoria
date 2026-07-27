@@ -187,12 +187,12 @@ export function MensagensPage() {
     if (editTexto.trim() && editId) editar.mutate({ mensagemId: editId, conteudo: editTexto });
   };
   const confirmarApagarMsg = async (m: Mensagem) => {
-    if (await confirm({ title: "Apagar mensagem", description: "A mensagem será apagada para todos.", confirmText: "Apagar", variant: "destructive" })) apagarMsg.mutate({ mensagemId: m.id });
+    if (await confirm({ title: "Remover mensagem", description: "A mensagem será removida para todos.", confirmText: "Remover", variant: "destructive" })) apagarMsg.mutate({ mensagemId: m.id });
   };
   const confirmarApagarConversa = async (c: Conversa) => {
     setMenuId(null);
-    const msg = c.tipo === "INDIVIDUAL" ? "A conversa será removida da sua lista." : c.tipo === "GRUPO" ? "O grupo será apagado para todos." : "O chamado será removido.";
-    if (await confirm({ title: "Apagar conversa", description: msg, confirmText: "Apagar", variant: "destructive" })) apagarConversa.mutate({ conversaId: c.id });
+    const msg = c.tipo === "INDIVIDUAL" ? "A conversa será removida da sua lista." : c.tipo === "GRUPO" ? "O grupo será removido para todos." : "O chamado será removido.";
+    if (await confirm({ title: "Remover conversa", description: msg, confirmText: "Remover", variant: "destructive" })) apagarConversa.mutate({ conversaId: c.id });
   };
 
   const TABS: Filtro[] = ["todas", "direta", "grupo", "cliente", "lead"];
@@ -286,7 +286,7 @@ export function MensagensPage() {
                     <MenuItem icon={c.fixado ? PinOff : Pin} label={c.fixado ? "Desafixar" : "Fixar"} onClick={() => (setMenuId(null), fixar.mutate({ conversaId: c.id, ligar: !c.fixado }))} />
                     <MenuItem icon={c.silenciado ? Bell : BellOff} label={c.silenciado ? "Reativar som" : "Silenciar"} onClick={() => (setMenuId(null), silenciar.mutate({ conversaId: c.id, ligar: !c.silenciado }))} />
                     <MenuItem icon={c.arquivado ? ArchiveRestore : Archive} label={c.arquivado ? "Desarquivar" : "Arquivar"} onClick={() => (setMenuId(null), arquivar.mutate({ conversaId: c.id, ligar: !c.arquivado }))} />
-                    <MenuItem icon={Trash2} label="Apagar" danger onClick={() => confirmarApagarConversa(c)} />
+                    <MenuItem icon={Trash2} label="Remover" danger onClick={() => confirmarApagarConversa(c)} />
                   </div>
                 )}
               </div>
@@ -406,7 +406,7 @@ export function MensagensPage() {
                       {minha && !apagada && !editando && (
                         <div className="flex gap-0.5 self-center opacity-0 transition-opacity group-hover/msg:opacity-100">
                           <button onClick={() => (setEditId(m.id), setEditTexto(m.conteudo))} className="rounded p-1 text-muted-foreground hover:bg-accent" title="Editar"><Pencil className="h-3 w-3" /></button>
-                          <button onClick={() => confirmarApagarMsg(m)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Apagar"><Trash2 className="h-3 w-3" /></button>
+                          <button onClick={() => confirmarApagarMsg(m)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover"><Trash2 className="h-3 w-3" /></button>
                         </div>
                       )}
                       {!minha && emGrupo && (mostrarAvatar ? <Avatar id={m.autor.id} nome={m.autor.nome} avatarUrl={m.autor.avatarUrl} className="h-6 w-6" text="text-[10px]" /> : <span className="w-6 shrink-0" />)}
@@ -425,7 +425,7 @@ export function MensagensPage() {
                       >
                         {mostrarAutor && !apagada && <div className={cn("mb-0.5 text-xs font-semibold", doCliente ? "text-brand-blueText" : "text-primary")}>{m.autor.nome}{doCliente && " · cliente"}</div>}
                         {apagada ? (
-                          <p>🚫 mensagem apagada</p>
+                          <p>🚫 mensagem removida</p>
                         ) : editando ? (
                           <div className="flex items-center gap-1">
                             <Input value={editTexto} onChange={(e) => setEditTexto(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") salvarEdicao(); if (e.key === "Escape") setEditId(null); }} className="h-8 min-w-48 bg-card text-foreground" autoFocus />

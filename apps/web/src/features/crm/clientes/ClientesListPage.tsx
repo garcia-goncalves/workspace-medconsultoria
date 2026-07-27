@@ -163,7 +163,7 @@ function ClienteCard({ c, onOpen, onConvidarPortal }: { c: ClienteItem; onOpen: 
           </span>
         ) : (
           <span className="inline-flex items-center gap-1 text-warning" title="Cliente sem serviço contratado — registre o que ele tem">
-            <AlertTriangle className="h-3.5 w-3.5" /> sem serviço
+            <AlertTriangle className="h-3.5 w-3.5" /> Sem serviço
           </span>
         )}
         {proxima && (

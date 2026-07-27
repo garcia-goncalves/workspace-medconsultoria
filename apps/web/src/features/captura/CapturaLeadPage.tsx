@@ -13,6 +13,17 @@ import { Textarea } from "../../components/ui/textarea";
 import { AuthShell } from "../auth/AuthShell";
 import { ServicosPicker } from "../crm/leads/ServicosPicker";
 
+// Painel de marca voltado ao LEAD (fala dos serviços da consultoria, não do painel interno).
+const PAINEL_TITULO = (
+  <>
+    Sua clínica organizada,
+    <br />
+    do credenciamento ao dia a dia.
+  </>
+);
+const PAINEL_DESCRICAO =
+  "Deixe a burocracia com quem entende do setor da saúde e ganhe tempo para o que realmente importa: cuidar dos seus pacientes.";
+
 export function CapturaLeadPage() {
   const capturar = trpc.leads.capturar.useMutation();
   const servicos = trpc.servicos.publicos.useQuery();
@@ -41,7 +52,7 @@ export function CapturaLeadPage() {
 
   if (capturar.isSuccess) {
     return (
-      <AuthShell>
+      <AuthShell eyebrow={null} titulo={PAINEL_TITULO} descricao={PAINEL_DESCRICAO}>
         <div className="text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-success/10 text-success">
             <CheckCircle2 className="h-6 w-6" />
@@ -56,7 +67,7 @@ export function CapturaLeadPage() {
   }
 
   return (
-    <AuthShell>
+    <AuthShell eyebrow={null} titulo={PAINEL_TITULO} descricao={PAINEL_DESCRICAO}>
       <div className="mb-8">
         <h2 className="text-2xl font-semibold tracking-tight text-foreground">Fale com a MedConsultoria</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">

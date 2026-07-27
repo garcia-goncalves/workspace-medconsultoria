@@ -367,9 +367,9 @@ export function CardPanel({
                                       onClick={async () => {
                                         if (
                                           await confirm({
-                                            title: "Apagar comentário",
+                                            title: "Remover comentário",
                                             description: "Este comentário será removido. Esta ação não pode ser desfeita.",
-                                            confirmText: "Apagar",
+                                            confirmText: "Remover",
                                             variant: "destructive",
                                           })
                                         )

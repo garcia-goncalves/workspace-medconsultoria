@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { UserPlus, X, LogOut, ExternalLink, Loader2, Check, Trash2 } from "lucide-react";
 import { cn } from "@app/ui";
-import { CHAMADO_STATUS_LABEL, CHAMADO_PRIORIDADE_LABEL, type ChamadoStatus, type ChamadoPrioridade } from "@app/shared";
+import { CHAMADO_STATUS_LABEL, CHAMADO_PRIORIDADE_LABEL, ROLE_LABEL, type ChamadoStatus, type ChamadoPrioridade, type Role } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
@@ -60,7 +60,7 @@ export function ConversaInfoDialog({ conversaId, onClose, onSaiu }: { conversaId
     if (await confirm({ title: "Sair da conversa", description: "Você deixará de receber as mensagens desta conversa.", confirmText: "Sair", variant: "destructive" })) sair.mutate({ conversaId });
   };
   const confirmarApagar = async () => {
-    if (await confirm({ title: "Apagar conversa", description: isChamado ? "O chamado será removido para todos." : "O grupo será apagado para todos os participantes.", confirmText: "Apagar", variant: "destructive" })) apagar.mutate({ conversaId });
+    if (await confirm({ title: "Remover conversa", description: isChamado ? "O chamado será removido para todos." : "O grupo será removido para todos os participantes.", confirmText: "Remover", variant: "destructive" })) apagar.mutate({ conversaId });
   };
 
   const titulo = isChamado ? `Chamado ${d?.numero ? `#${d.numero}` : ""}` : isGrupo ? "Detalhes do grupo" : "Detalhes da conversa";
@@ -74,7 +74,7 @@ export function ConversaInfoDialog({ conversaId, onClose, onSaiu }: { conversaId
       )}
       {((isGrupo && d.podeGerir) || (isChamado && d.ehAdmin)) && (
         <Button variant="outline" size="sm" onClick={confirmarApagar} className="text-destructive hover:bg-destructive/10">
-          <Trash2 className="h-4 w-4" /> Apagar {isChamado ? "chamado" : "grupo"}
+          <Trash2 className="h-4 w-4" /> Remover {isChamado ? "chamado" : "grupo"}
         </Button>
       )}
     </>
@@ -187,7 +187,7 @@ export function ConversaInfoDialog({ conversaId, onClose, onSaiu }: { conversaId
                 <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
                   <Avatar id={p.id} nome={p.nome} avatarUrl={p.avatarUrl} className="h-7 w-7" text="text-xs" />
                   <span className="flex-1">{p.nome}</span>
-                  <span className="text-[10px] uppercase text-muted-foreground">{p.role === "CLIENTE" ? "cliente" : p.role.toLowerCase()}</span>
+                  <span className="text-[10px] uppercase text-muted-foreground">{ROLE_LABEL[p.role as Role]}</span>
                   {isGrupo && d.podeGerir && (
                     <button
                       onClick={async () => {

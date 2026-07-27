@@ -483,7 +483,7 @@ export function ClienteDetailPage() {
             <CardContent className="space-y-2.5 text-sm">
               {c.documento && (
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Documento</span>
+                  <span className="text-muted-foreground">CPF/CNPJ</span>
                   <span className="font-medium">{maskCpfCnpj(c.documento)}</span>
                 </div>
               )}

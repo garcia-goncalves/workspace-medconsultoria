@@ -32,7 +32,7 @@ export function BriefingDialog({ requisitoId, onClose, onSaved }: { requisitoId:
       utils.portal.meusServicos.invalidate();
       onSaved?.();
       if (vars.enviar) {
-        toast("Briefing enviado! Nossa equipe já recebeu. 🙌", "success");
+        toast("Formulário enviado! Nossa equipe já recebeu. 🙌", "success");
         onClose();
       } else {
         toast("Rascunho salvo.", "success");
@@ -62,7 +62,7 @@ export function BriefingDialog({ requisitoId, onClose, onSaved }: { requisitoId:
     const w = window.open("", "_blank");
     if (!w) return;
     w.document.write(
-      `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${escapeHtml(q.data?.titulo ?? "Briefing")}</title></head><body style="font-family:Arial,sans-serif;max-width:640px;margin:24px auto;color:#111"><h1 style="color:#002463">${escapeHtml(q.data?.titulo ?? "")}</h1>${linhas}</body></html>`,
+      `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${escapeHtml(q.data?.titulo ?? "Formulário")}</title></head><body style="font-family:Arial,sans-serif;max-width:640px;margin:24px auto;color:#111"><h1 style="color:#002463">${escapeHtml(q.data?.titulo ?? "")}</h1>${linhas}</body></html>`,
     );
     w.document.close();
     w.focus();
@@ -92,7 +92,7 @@ export function BriefingDialog({ requisitoId, onClose, onSaved }: { requisitoId:
   ) : null;
 
   return (
-    <Modal open onClose={onClose} title={q.data?.titulo ?? "Briefing"} footer={footer}>
+    <Modal open onClose={onClose} title={q.data?.titulo ?? "Formulário"} footer={footer}>
       {q.isLoading ? (
         <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
@@ -102,7 +102,7 @@ export function BriefingDialog({ requisitoId, onClose, onSaved }: { requisitoId:
           {q.data?.descricao && <p className="text-sm text-muted-foreground">{q.data.descricao}</p>}
           {enviado && (
             <div className="rounded-md border border-success/40 bg-success/5 px-3 py-2 text-xs text-success">
-              Você já enviou este briefing. Pode revisar e reenviar se precisar.
+              Você já enviou este formulário. Pode revisar e reenviar se precisar.
             </div>
           )}
 

@@ -202,7 +202,7 @@ export function FinanceiroPage() {
                       : "border-input bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
                   )}
                 >
-                  {s === "TODAS" ? "Todas" : s === "PENDENTES" ? "Pendentes" : "Pagas"}
+                  {s === "TODAS" ? "Todas" : s === "PENDENTES" ? "Pendentes" : receber ? "Recebidas" : "Pagas"}
                 </button>
               ))}
             </div>

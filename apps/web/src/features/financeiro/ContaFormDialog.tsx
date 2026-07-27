@@ -185,7 +185,7 @@ export function ContaFormDialog({
               onChange={(v) => setValue("categoriaId", v, { shouldDirty: true })}
               options={(categorias.data ?? []).map((c) => ({ value: c.id, label: c.nome }))}
               placeholder="Buscar categoria…"
-              emptyText="Nenhuma categoria."
+              emptyText="Nenhuma categoria encontrada."
             />
           </div>
         </div>
@@ -193,7 +193,7 @@ export function ContaFormDialog({
         {/* Recorrência (se repete, a próxima é criada sozinha ao marcar paga) */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label htmlFor="recorrencia" hint="Se repete, ao marcar a conta como paga/recebida a próxima já é criada sozinha.">Repete?</Label>
+            <Label htmlFor="recorrencia" hint="Se repete, ao marcar a conta como paga/recebida a próxima já é criada sozinha.">Repetição</Label>
             <Select id="recorrencia" {...register("recorrencia")}>
               {RECORRENCIAS.map((r) => (
                 <option key={r} value={r}>

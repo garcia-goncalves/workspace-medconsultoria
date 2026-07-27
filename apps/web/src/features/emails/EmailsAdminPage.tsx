@@ -46,13 +46,13 @@ const CAMPO_ID: Record<keyof Campos, string> = {
 const GRUPOS: { id: "Transacionais" | "Notificações" | "Sistema"; label: string; descricao: string }[] = [
   {
     id: "Transacionais",
-    label: "Mensagens automáticas",
+    label: "Boas-vindas e acessos",
     descricao: "E-mails que o sistema envia sozinho: boas-vindas, acesso ao Portal, confirmações e assinatura.",
   },
   {
     id: "Notificações",
     label: "Avisos e lembretes",
-    descricao: "Aparecem como e-mail e também no sininho de notificações do app.",
+    descricao: "Aparecem como e-mail e também no sino de notificações do app.",
   },
   {
     id: "Sistema",

@@ -439,8 +439,9 @@ export function LeadDetailPanel({
               variant="outline"
               size="sm"
               onClick={() => acoes.onConvidarPortal({ id: d.id, nome: d.nome, email: d.email, clienteId: d.clienteId })}
+              title="Enviar (ou reenviar) o acesso ao Portal do Cliente"
             >
-              <KeyRound className="h-4 w-4" /> Portal
+              <KeyRound className="h-4 w-4" /> Enviar acesso
             </Button>
             <Button variant="outline" size="sm" className="text-success" onClick={() => acoes.onConverter({ id: d.id, nome: d.nome })}>
               <UserCheck className="h-4 w-4" /> Converter

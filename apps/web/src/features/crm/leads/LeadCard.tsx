@@ -159,10 +159,10 @@ export function LeadCard({
             onClick={onConvidarPortal}
             disabled={convidandoPortal}
             className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
-            title={lead.portalAtivo ? "Reenviar convite do Portal" : "Convidar para o Portal"}
+            title={lead.portalAtivo ? "Reenviar acesso ao Portal do Cliente" : "Enviar acesso ao Portal do Cliente"}
           >
             <KeyRound className="h-3.5 w-3.5" />
-            Portal
+            {lead.portalAtivo ? "Reenviar acesso" : "Enviar acesso"}
           </button>
           <div className="ml-auto flex items-center gap-1">
             <button
