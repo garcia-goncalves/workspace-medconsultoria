@@ -123,8 +123,11 @@ export function CapturaLeadPage() {
 
         {servicos.data && servicos.data.length > 0 && (
           <div className="space-y-1.5">
-            <Label hint="Marque tudo que se aplica — assim já sabemos por onde começar.">Quais serviços você precisa?</Label>
-            <ServicosPicker servicos={servicos.data} value={selecionados} onChange={setSelecionados} />
+            <Label hint="Marque tudo que se aplica — assim já sabemos por onde começar. É opcional.">Quais serviços você precisa?</Label>
+            {/* Altura limitada + scroll interno: com muitos serviços, a lista não estica a página. */}
+            <div className="max-h-28 overflow-y-auto rounded-lg border border-input bg-muted/20 p-2">
+              <ServicosPicker servicos={servicos.data} value={selecionados} onChange={setSelecionados} />
+            </div>
           </div>
         )}
 

@@ -124,7 +124,7 @@ Proteção interna: componente `RoleGuard` (`hasRoleLevel`) = defesa em profundi
 | Rota | Página | Proteção | Estado |
 |---|---|---|---|
 | `/login`, `/esqueci-senha`, `/redefinir-senha`, `/definir-senha` | Auth | credencial / token no backend | Completo [código] |
-| `/captura` | CapturaLeadPage | honeypot + UTM | Completo [código] |
+| `/comecar` | CapturaLeadPage | honeypot + UTM | Completo [código] |
 | `/assinar/{token}` | AssinarPage | publicProcedure token-scoped, grava IP+UA, trava se conteúdo mudou | Completo [código] |
 | `/proposta/{token}` | PropostaPublicaPage | publicProcedure token-scoped, grava IP | Completo [código] · **verificado ao vivo (aceite)** |
 

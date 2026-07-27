@@ -173,7 +173,7 @@ export function LeadsPipelinePage() {
   const filtrando = !!busca.trim() || !!filtroResp;
 
   const copiarCaptacao = async () => {
-    await navigator.clipboard.writeText(`${window.location.origin}/captura`);
+    await navigator.clipboard.writeText(`${window.location.origin}/comecar`);
     setLinkCopiado(true);
     setTimeout(() => setLinkCopiado(false), 2000);
   };
