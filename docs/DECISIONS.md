@@ -155,7 +155,7 @@ Status: ✅ Aceito · 🔄 Substituído · 💤 Proposto.
 
 **Contexto:** leads chegavam por WhatsApp/e-mail e eram digitados na mão; o cliente só via o trabalho depois de virar cliente. Queríamos capturar do site e dar visibilidade desde o primeiro contato.
 
-**Decisão:** form público `/captura` (`publicProcedure`, honeypot + rate-limit) que detecta a origem (UTM/referrer/ads) e deduplica recaptura. Ao captar/convidar, `garantirAcessoPortal()` cria uma conta Cliente **PROSPECT** + acesso ao Portal de forma idempotente; o lead segue no funil (`Lead.clienteId`). O prospect acompanha o próprio atendimento no Portal; na conversão o acesso tem continuidade.
+**Decisão:** form público `/comecar` (originalmente `/captura`, renomeado — "captura" assustava o lead; `publicProcedure`, honeypot + rate-limit) que detecta a origem (UTM/referrer/ads) e deduplica recaptura. Ao captar/convidar, `garantirAcessoPortal()` cria uma conta Cliente **PROSPECT** + acesso ao Portal de forma idempotente; o lead segue no funil (`Lead.clienteId`). O prospect acompanha o próprio atendimento no Portal; na conversão o acesso tem continuidade.
 
 **Consequências:** o cliente se sente acompanhado desde o lead; menos digitação manual. Exige cuidado de isolamento (o prospect é CLIENTE com escopo por `clienteId`) e idempotência para não duplicar contas/e-mails.
 

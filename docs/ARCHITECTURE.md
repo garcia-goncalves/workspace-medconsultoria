@@ -212,7 +212,7 @@ O funil de vendas é automatizado. Mecânica em `leads.service.ts`:
 
 ## 13. Captação pública & Portal do prospect [ADR-15]
 
-- **Form público** (`/captura` → `leads.capturar`, `publicProcedure`): honeypot + rate-limit por IP. Deriva a origem/rastreio (UTM/referrer/ads via `derivarRastreioOrigem`); recaptura do mesmo e-mail atualiza o lead existente em vez de duplicar.
+- **Form público** (`/comecar` → `leads.capturar`, `publicProcedure`): honeypot + rate-limit por IP. Deriva a origem/rastreio (UTM/referrer/ads via `derivarRastreioOrigem`); recaptura do mesmo e-mail atualiza o lead existente em vez de duplicar.
 - **Acesso automático ao Portal:** ao captar (ou convidar), `garantirAcessoPortal()` cria uma conta Cliente **PROSPECT** + usuário CLIENTE pendente + token de convite, idempotente. O lead segue no funil (`Lead.clienteId` liga a conta sem convertê-lo). O **prospect acompanha o próprio atendimento no Portal** (etapa traduzida em linguagem amigável, documentos para assinar). Na conversão, o acesso tem continuidade (não recria).
 - **Livre-arbítrio (ADR-20):** o prospect pode **desistir** pelo Portal (`portal.desistir`, motivo opcional) → o lead vira perdido e a equipe é avisada (`lead_desistiu`); e **retomar** depois (`portal.retomar` → `lead_retomou`). Ambos escopados ao `clienteId` da sessão (`desistenciaPeloCliente`/`retomarPeloCliente` em `leads.service`), nunca por id vindo do cliente.
 

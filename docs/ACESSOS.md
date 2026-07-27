@@ -16,6 +16,62 @@ Se não abrir (ex.: você reiniciou o computador), veja "Como ligar" no final.
 
 ---
 
+## 🗺️ Mapa completo de páginas (TODAS as rotas)
+
+> Referência **completa e exaustiva** de todas as telas da aplicação — nenhuma fica de fora.
+> Em produção troque `http://localhost:4310` por `https://workspace.medconsultoria.com.br`.
+> **Acesso:** _Público_ = sem login · _CLIENTE_ = Portal do Cliente · _Equipe_ = qualquer conta interna
+> (Funcionário/Admin/Root) · _Admin+_ = Admin ou Root · _Root_ = só o dono.
+
+### 1) Páginas públicas (abrem **sem login**)
+
+| Caminho                | Página (componente)     | Acesso           | O que é                                                                                     |
+| ---------------------- | ----------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
+| `/comecar`             | `CapturaLeadPage`       | Público          | **Formulário de captação** ("Fale com a MedConsultoria") — quem preenche vira lead no funil (origem detectada) e já ganha acesso ao Portal. *(Nome antigo `/captura` foi removido de propósito.)* |
+| `/login`               | `LoginPage`             | Público          | **Entrar** no sistema (mostrado em qualquer caminho quando não há sessão)                    |
+| `/esqueci-senha`       | `EsqueciSenhaPage`      | Público          | Pedir um **link de redefinição** de senha por e-mail                                         |
+| `/redefinir-senha`     | `RedefinirSenhaPage`    | Público (token)  | Definir uma **nova senha** usando o link recebido por e-mail                                 |
+| `/definir-senha`       | `DefinirSenhaPage`      | Público (token)  | **Primeira senha** de uma conta recém-convidada (equipe ou cliente)                          |
+| `/assinar/{token}`     | `AssinarPage`           | Público (token)  | **Assinatura eletrônica** de um documento (proposta/contrato) — grava IP+navegador          |
+| `/proposta/{token}`    | `PropostaPublicaPage`   | Público (token)  | Ver e **aceitar uma proposta** online                                                        |
+
+### 2) Portal do Cliente (login de papel **CLIENTE**)
+
+| Caminho                | Página (componente)               | Acesso   | O que é                                                                                       |
+| ---------------------- | --------------------------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `/` (e qualquer rota)  | `PortalHome` dentro de `PortalLayout` | CLIENTE  | **Área do cliente** isolada: andamento do atendimento, documentos para assinar, projetos, documentos, e-mails recebidos, próximas reuniões e **chat de Suporte** — só os dados dele |
+
+### 3) Área interna (equipe — dentro do `AppLayout`)
+
+| Caminho                | Página (componente)             | Acesso  | O que é                                                                            |
+| ---------------------- | ------------------------------- | ------- | ---------------------------------------------------------------------------------- |
+| `/`                    | `DashboardPage`                 | Equipe  | **Início** — o que precisa da sua atenção hoje (ações, IA, funil, reuniões, upsell) |
+| `/leads`               | `LeadsPipelinePage`             | Equipe  | **Vendas** — funil de leads (Kanban)                                                |
+| `/clientes`            | `ClientesListPage`              | Equipe  | **Clientes** — lista (Ativos/Inativos)                                              |
+| `/clientes/{id}`       | `ClienteDetailPage`             | Equipe  | **Ficha do cliente** — hub completo                                                 |
+| `/projetos`            | `ProjetosListPage`              | Equipe  | **Projetos** — lista por cliente                                                    |
+| `/projetos/{id}`       | `ProjetoDetailPage`             | Equipe  | **Kanban do projeto**                                                               |
+| `/agenda`              | `AgendaPage`                    | Equipe  | **Agenda** — calendário (Lista/Dia/Semana/Mês/Ano)                                  |
+| `/mensagens`           | `MensagensPage`                 | Equipe  | **Mensagens** — chat interno + Suporte na mesma conversa                            |
+| `/documentos`          | `DocumentosPage`                | Equipe  | **Documentos** — gerar/gerir (proposta, ata, briefing…) + Formulários              |
+| `/documentos/{id}`     | `DocumentoDetailPage`           | Equipe  | **Documento aberto** (edição/preview A4)                                            |
+| `/servicos`            | `ServicosPage`                  | Admin+  | **Serviços** — catálogo + exigências + passos do checklist                          |
+| `/financeiro`          | `FinanceiroPage`                | Admin+  | **Financeiro** — carteiras Empresa×Pessoal, a pagar/receber                         |
+| `/modelos`             | `ModelosPage`                   | Admin+  | **Modelos de documentos** — biblioteca de modelos com `{{variáveis}}`               |
+| `/modelos/{id}`        | `ModeloDetailPage`              | Admin+  | **Editar modelo**                                                                   |
+| `/usuarios`            | `UsuariosPage`                  | Admin+  | **Equipe & acessos** — convidar equipe e criar acesso ao Portal                     |
+| `/emails`              | `EmailsAdminPage`               | Admin+  | **Comunicações** — editar os textos dos e-mails do sistema                          |
+| `/emails-enviados`     | `EmailsEnviadosMonitorPage`     | Admin+  | **E-mails enviados** — monitor (entregues/falhas + motivo)                          |
+| `/ajustes`             | `AjustesPage`                   | Admin+  | **Ajustes** — Modelos, Categorias, Origens, Operadoras e **Dados da empresa**       |
+| `/configuracoes`       | `ConfiguracoesPage`             | Equipe  | **Configurações** — seu perfil e trocar a própria senha                             |
+| `/sistema`             | `SistemaPage`                   | **Root**| **Sistema** — saúde, desempenho, erros, incidentes, sessões e **Operação**          |
+| `/login` (já logado)   | `JaConectadoPage`               | Logado  | "**Já conectado**" — mostra quem está logado e oferece **trocar de conta**          |
+| *(qualquer outra)*     | `NotFound`                      | —       | "Página não encontrada" (estado amigável dentro do shell)                          |
+
+> **Como as rotas são resolvidas:** as **públicas** são tratadas em `App.tsx` (por `window.location.pathname`, fora do gate de login); o **Portal** (`PortalHome`) aparece quando o papel é CLIENTE; a **área interna** é o `router.tsx` (TanStack Router) dentro do `AppLayout`. As telas com _Admin+/Root_ são protegidas por `RoleGuard`.
+
+---
+
 ## 🔐 Logins de teste (senha `medconsultoria123` em todos)
 
 | E-mail                                 | Papel        | O que vê                                                                    |
@@ -67,6 +123,8 @@ novo (ou use uma janela anônima, `Ctrl+Shift+N`).
 | 📅**Agenda**              | http://localhost:4310/agenda        | Semana com compromissos/retornos/reuniões;**Novo evento**, link "Entrar" nas reuniões; **🔔 sino** no topo avisa lembretes em tempo real                   |
 | 💬**Mensagens**           | http://localhost:4310/mensagens     | Chat interno em tempo real: conversas individuais e grupos, não-lidas. Botão**+** para nova conversa                                                                   |
 | 📄**Documentos**          | http://localhost:4310/documentos    | Gera proposta/ata/briefing a partir de modelos com`{{variáveis}}` **ou com IA (✨)**; fluxo rascunho→revisão→**aprovação**→enviado; export PDF/Word |
+| 🧩**Modelos**             | http://localhost:4310/modelos       | **Admin**: biblioteca de **modelos de documentos** (com `{{variáveis}}`) que alimentam a tela Documentos |
+| 🛠️**Ajustes**            | http://localhost:4310/ajustes       | **Admin**: catálogos e configurações — Modelos, **Categorias**, **Origens**, **Operadoras** e **Dados da empresa** (CNPJ/razão/endereço/foro editáveis) |
 | 💰**Financeiro**          | http://localhost:4310/financeiro    | Contas a pagar/receber, resumo,**alerta de vencidas**, marcar paga, **gerenciar categorias**. **Só administradores**                                  |
 | ⚙️**Configurações**   | http://localhost:4310/configuracoes | Editar seu**perfil** e **trocar a senha** (abre pelo menu do usuário)                                                                                       |
 | 👤**Usuários & acessos** | http://localhost:4310/usuarios      | **Admin**: cadastrar equipe interna **e criar acessos ao Portal do Cliente**                                                                                 |
@@ -90,7 +148,7 @@ novo (ou use uma janela anônima, `Ctrl+Shift+N`).
 
 | Link                                        | O que é                                                                                                                          |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **http://localhost:4310/captura**     | **Formulário de captação** para pôr no site — quem preenche vira um lead no funil (com a **origem detectada** automaticamente) e já ganha acesso ao Portal para acompanhar |
+| **http://localhost:4310/comecar**     | **Formulário de captação** ("Fale com a MedConsultoria") para pôr no site — quem preenche vira um lead no funil (com a **origem detectada** automaticamente) e já ganha acesso ao Portal para acompanhar. *(Nome antigo `/captura` foi removido — "captura" assustava o futuro cliente.)* |
 | `http://localhost:4310/assinar/...`       | Página de **assinatura eletrônica** de um documento (o link vai por e-mail para o cliente assinar proposta/contrato)             |
 
 > No **Funil de vendas**, o botão **"Link de captação"** copia o endereço do formulário público. Cadastro **manual** de lead também registra "de onde veio". O botão **"Perdidos"** mostra os leads que não avançaram (com o motivo) e permite **reabrir**.

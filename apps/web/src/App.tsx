@@ -25,7 +25,9 @@ export function App() {
   if (publicPath === "/definir-senha") return <DefinirSenhaPage />;
   if (publicPath === "/esqueci-senha") return <EsqueciSenhaPage />;
   if (publicPath === "/redefinir-senha") return <RedefinirSenhaPage />;
-  if (publicPath === "/captura") return <CapturaLeadPage />;
+  // Caminho amigável para o lead. Nome antigo (`/captura`) foi removido de propósito:
+  // "captura" assustava o futuro cliente. Só existe `/comecar`.
+  if (publicPath === "/comecar") return <CapturaLeadPage />;
   if (publicPath.startsWith("/assinar/")) return <AssinarPage token={decodeURIComponent(publicPath.slice("/assinar/".length))} />;
   if (publicPath.startsWith("/proposta/")) return <PropostaPublicaPage token={decodeURIComponent(publicPath.slice("/proposta/".length))} />;
 

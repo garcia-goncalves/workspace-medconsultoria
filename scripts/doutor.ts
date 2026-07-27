@@ -109,7 +109,7 @@ async function entrar(page: Page): Promise<boolean> {
 }
 
 /** Rotas válidas conhecidas — para apontar link quebrado sem navegar em cada um. */
-const rotasValidas = new Set([...ROTAS, "/esqueci-senha", "/captura"]);
+const rotasValidas = new Set([...ROTAS, "/esqueci-senha", "/comecar"]);
 const ehRotaConhecida = (href: string) =>
   rotasValidas.has(href) ||
   /^\/(clientes|projetos|documentos|modelos|leads|formularios)\/[\w-]+$/.test(href);
