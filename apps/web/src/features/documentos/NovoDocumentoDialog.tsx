@@ -231,8 +231,25 @@ export function NovoDocumentoDialog({
   const conteudoPreview = () => {
     if (!modelo) return "";
     let corpo = modelo.corpo;
-    if (ehCredenciamento && operadorasSel.length > 0) {
-      corpo = corpo.replace(/\{\{\s*operadoras\s*\}\}/g, operadorasSel.map((o) => `- **${o}**`).join("\n"));
+    // PROPOSTA DE CREDENCIAMENTO: preenche {{operadoras}} E {{servicos}} (investimento por operadora),
+    // espelhando o servidor — antes só {{operadoras}} era preenchido e {{servicos}} ficava placeholder.
+    if (ehCredenciamento) {
+      const ops = operadorasSel;
+      const fee = valorOperadora || 0;
+      const investeTxt =
+        fee > 0
+          ? `**${formatBRL(fee * ops.length)}** para o credenciamento em **${ops.length} operadora(s)** — ${formatBRL(fee)} por operadora.`
+          : "Investimento a combinar conforme as operadoras selecionadas.";
+      const extras = [
+        prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : "",
+        condicoes.trim() ? `**Condições de pagamento:** ${condicoes.trim()}` : "",
+      ].filter(Boolean);
+      const bloco = [`## Investimento\n\n${investeTxt}`];
+      if (extras.length) bloco.push(extras.join("  \n"));
+      if (observacoes.trim()) bloco.push(observacoes.trim());
+      corpo = corpo
+        .replace(/\{\{\s*operadoras\s*\}\}/g, ops.length ? ops.map((o) => `- **${o}**`).join("\n") : "_(selecione as operadoras ao lado)_")
+        .replace(/\{\{\s*servicos\s*\}\}/g, bloco.join("\n\n"));
     }
     // PROPOSTA COMERCIAL: espelha o servidor (montarServicos) — tabela de serviços + investimento +
     // prazo/condições/observações + apresentação. Assim a prévia mostra a proposta COMPLETA em tempo real.
