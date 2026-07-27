@@ -129,7 +129,7 @@ export function DocumentoEditor({
         className="min-h-[62vh] flex-1 resize-none rounded-none border-0 bg-card px-4 py-3 font-mono text-[13px] leading-relaxed shadow-none focus-visible:ring-0"
       />
       <div className="flex items-center justify-between border-t bg-muted/20 px-4 py-1.5 text-[11px] text-muted-foreground">
-        <span>Formate pela barra ou digite Markdown — o preview ao lado atualiza sozinho.</span>
+        <span>Formate pela barra ou digite Markdown — a prévia ao lado atualiza sozinha.</span>
         <span className="tabular-nums">{palavras} palavra{palavras === 1 ? "" : "s"}</span>
       </div>
     </div>

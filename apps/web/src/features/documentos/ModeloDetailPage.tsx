@@ -139,7 +139,7 @@ export function ModeloDetailPage() {
           <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card px-4 py-2.5 shadow-sm">
             <span className="flex items-center gap-2 text-sm font-medium">
               <Pencil className="h-4 w-4 text-primary" />
-              Editando o modelo · o preview atualiza ao lado
+              Editando o modelo · a prévia atualiza ao lado
             </span>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setEditando(false)} disabled={salvar.isPending}>
@@ -179,7 +179,7 @@ export function ModeloDetailPage() {
             <DocumentoEditor value={corpo} onChange={setCorpo} className="lg:sticky lg:top-16" />
             <div className="rounded-xl border bg-muted/30 p-4 sm:p-6">
               <p className="mb-2 text-xs text-muted-foreground">
-                Preview — os <code>{"{{campos}}"}</code> aparecem como <strong>[nome do campo]</strong> e são preenchidos ao gerar o documento.
+                Prévia — os <code>{"{{campos}}"}</code> aparecem como <strong>[nome do campo]</strong> e são preenchidos ao gerar o documento.
               </p>
               <DocumentoBranded {...previewBranded} />
             </div>

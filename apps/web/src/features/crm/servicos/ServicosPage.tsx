@@ -424,7 +424,7 @@ function ExigenciasPanel({ servico }: { servico: ServicoRow }) {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-<strong>O cliente envia:</strong> o que o cliente precisa entregar para este serviço. Tudo aparece no Portal do cliente e chega na ficha.
+<strong>O cliente envia:</strong> o que o cliente precisa entregar para este serviço. Tudo aparece no Portal do Cliente e chega na ficha.
         </p>
         {ia.data?.disponivel && (
           <Button
@@ -982,7 +982,7 @@ export function ServicosPage() {
     <div className="space-y-5">
       <PageHeader
         title="Serviços"
-        subtitle="Os serviços que a MedConsultoria oferece. Ao configurar cada um, você define, em ordem: o que fazer Para vender, O que o cliente envia e O que a equipe faz. Arraste pela alça para ordenar."
+        subtitle="Os serviços que a MedConsultoria oferece. Ao configurar cada um, você define, em ordem: Para vender, O cliente envia e A equipe faz. Arraste pela alça para ordenar."
       >
         <Button onClick={() => setNovo(true)}>
           <Plus className="h-4 w-4" />

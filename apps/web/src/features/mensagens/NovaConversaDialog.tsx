@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, User, Users, Headset, ArrowLeft } from "lucide-react";
 import { cn } from "@app/ui";
-import { CHAMADO_PRIORIDADE_LABEL, type ChamadoPrioridade } from "@app/shared";
+import { CHAMADO_PRIORIDADE_LABEL, type ChamadoPrioridade, SITUACAO_COMERCIAL_LABEL, type SituacaoComercial } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
@@ -143,7 +143,7 @@ export function NovaConversaDialog({ open, onClose, onCreated }: { open: boolean
                   <button key={c.id} onClick={() => setCliente({ id: c.id, nome: c.nome })} className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-accent">
                     <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-blueText/10 text-xs font-semibold text-brand-blueText">{c.nome.charAt(0).toUpperCase()}</span>
                     <span className="flex-1 font-medium">{c.nome}</span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{c.situacaoComercial}</span>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{SITUACAO_COMERCIAL_LABEL[c.situacaoComercial as SituacaoComercial]}</span>
                   </button>
                 ))}
               </>
