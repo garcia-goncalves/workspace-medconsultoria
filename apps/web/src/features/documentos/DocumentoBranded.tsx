@@ -214,39 +214,83 @@ export function DocumentoBranded(props: DocumentoBrandedProps) {
     const titleHtml = title?.outerHTML ?? "";
     const footHtml = foot?.outerHTML ?? "";
 
-    // Altura de cada bloco do corpo (incluindo margens) via posições relativas.
+    // Altura de cada bloco de topo do corpo. TABELAS altas são fatiadas por LINHAS (senão uma
+    // tabela maior que a folha estoura o A4 — bug de proposta com muitos serviços). Guardamos o
+    // cabeçalho e cada linha medidos, para reconstruir tabelas que cabem em cada página.
     const bodyRectTop = body.getBoundingClientRect().top;
     const bodyRectH = body.getBoundingClientRect().height;
     const kids = Array.from(body.children) as HTMLElement[];
-    const blocks = kids.map((c, i) => {
+    type Bloco =
+      | { tipo: "atomo"; html: string; h: number }
+      | { tipo: "tabela"; abre: string; cabecalho: string; cabH: number; linhas: { html: string; h: number }[]; h: number };
+    const blocos: Bloco[] = kids.map((c, i) => {
       const top = c.getBoundingClientRect().top - bodyRectTop;
       const prox = kids[i + 1];
       const next = prox ? prox.getBoundingClientRect().top - bodyRectTop : bodyRectH;
-      return { html: c.outerHTML, h: Math.max(1, next - top) };
+      const h = Math.max(1, next - top);
+      if (c.tagName === "TABLE") {
+        const thead = c.querySelector("thead");
+        const tbody = c.querySelector("tbody") ?? c;
+        const trs = Array.from(tbody.querySelectorAll(":scope > tr")) as HTMLElement[];
+        return {
+          tipo: "tabela",
+          abre: c.outerHTML.slice(0, c.outerHTML.indexOf(">") + 1), // "<table ...>"
+          cabecalho: thead?.outerHTML ?? "",
+          cabH: thead ? thead.getBoundingClientRect().height : 0,
+          linhas: trs.map((tr) => ({ html: tr.outerHTML, h: tr.getBoundingClientRect().height })),
+          h,
+        };
+      }
+      return { tipo: "atomo", html: c.outerHTML, h };
     });
 
-    // Empacota os blocos em páginas (a 1ª desconta o cabeçalho+título).
-    const pagesBlocks: string[][] = [];
-    let cur: string[] = [];
+    // Empacota em páginas (a 1ª desconta cabeçalho+título). Cada página guarda o HTML interno do corpo.
+    const paginas: string[] = [];
+    let cur = "";
     let budget = CONTENT_H - headZone;
-    for (const b of blocks) {
-      if (b.h > budget && cur.length > 0) {
-        pagesBlocks.push(cur);
-        cur = [];
-        budget = CONTENT_H;
+    const novaPagina = () => {
+      paginas.push(cur);
+      cur = "";
+      budget = CONTENT_H;
+    };
+    for (const b of blocos) {
+      if (b.tipo === "atomo") {
+        if (b.h > budget && cur) novaPagina();
+        cur += b.html;
+        budget -= b.h;
+      } else if (b.h <= budget) {
+        cur += `${b.abre}${b.cabecalho}<tbody>${b.linhas.map((l) => l.html).join("")}</tbody></table>`;
+        budget -= b.h;
+      } else {
+        // Tabela maior que a página: fatia por linhas — cada fatia repete o cabeçalho.
+        let idx = 0;
+        while (idx < b.linhas.length) {
+          const primeira = b.linhas[idx];
+          if (cur && primeira && budget < b.cabH + primeira.h + 8) novaPagina();
+          let frag = `${b.abre}${b.cabecalho}<tbody>`;
+          let usado = b.cabH;
+          let postas = 0;
+          for (let l = b.linhas[idx]; l && (usado + l.h <= budget || postas === 0); l = b.linhas[idx]) {
+            frag += l.html;
+            usado += l.h;
+            idx++;
+            postas++;
+          }
+          cur += `${frag}</tbody></table>`;
+          budget -= usado;
+          if (idx < b.linhas.length) novaPagina();
+        }
       }
-      cur.push(b.html);
-      budget -= b.h;
     }
-    pagesBlocks.push(cur);
+    paginas.push(cur);
 
     // Rodapé fica na última página; se não couber, ganha uma página só para ele.
     const footOwnPage = budget < footH;
-    const last = pagesBlocks.length - 1;
-    const html = pagesBlocks.map((blks, p) => {
+    const last = paginas.length - 1;
+    const html = paginas.map((inner, p) => {
       const topo = p === 0 ? headHtml + titleHtml : "";
       const base = p === last && !footOwnPage ? footHtml : "";
-      return `${topo}<div class="doc-body">${blks.join("")}</div>${base}`;
+      return `${topo}<div class="doc-body">${inner}</div>${base}`;
     });
     if (footOwnPage && footHtml) html.push(`<div class="doc-body"></div>${footHtml}`);
     setPages(html);
