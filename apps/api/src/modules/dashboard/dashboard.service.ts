@@ -92,13 +92,13 @@ export async function dashboard(userId: string, role: Role) {
     }),
     // Tarefas (delegação interna) que eu preciso fazer — separadas dos cartões de projeto.
     prisma.tarefa.findMany({
-      where: { deletedAt: null, status: { not: "CONCLUIDA" }, responsavelId: userId },
+      where: { deletedAt: null, status: { not: "CONCLUIDA" }, responsaveis: { some: { userId } } },
       include: { cliente: { select: { id: true, nome: true } }, projeto: { select: { id: true, nome: true } } },
       orderBy: [{ prazo: "asc" }, { createdAt: "desc" }],
       take: 7,
     }),
     prisma.tarefa.count({
-      where: { deletedAt: null, status: { not: "CONCLUIDA" }, responsavelId: userId, prazo: { lt: hojeInicio } },
+      where: { deletedAt: null, status: { not: "CONCLUIDA" }, responsaveis: { some: { userId } }, prazo: { lt: hojeInicio } },
     }),
   ]);
 

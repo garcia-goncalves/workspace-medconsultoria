@@ -26,8 +26,8 @@ export const TAREFA_PRIORIDADE_LABEL: Record<TarefaPrioridade, string> = {
 export const createTarefaSchema = z.object({
   titulo: z.string().trim().min(1, "Informe o que precisa ser feito").max(200),
   descricao: textoOpcional,
-  // Quem faz. Em branco = eu mesmo (o back usa o usuário logado).
-  responsavelId: idOpcional,
+  // Quem faz — UM ou VÁRIOS responsáveis (tarefa "da equipe"). Vazio = eu mesmo (o back usa o logado).
+  responsavelIds: z.array(z.string().min(1)).default([]),
   prazo: dataOpcional,
   prioridade: tarefaPrioridadeEnum.default("NORMAL"),
   clienteId: idOpcional,

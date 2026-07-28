@@ -12,7 +12,7 @@ const clean = (v?: string | null): string | null => {
 };
 
 const include = {
-  responsavel: { select: { id: true, nome: true, avatarUrl: true } },
+  responsaveis: { include: { user: { select: { id: true, nome: true, avatarUrl: true } } } },
   criadoPor: { select: { id: true, nome: true, avatarUrl: true } },
   cliente: { select: { id: true, nome: true } },
   projeto: { select: { id: true, nome: true } },
@@ -26,9 +26,9 @@ function whereFiltro(filtro: ListTarefasInput["filtro"]) {
 }
 
 export async function listTarefas(input: ListTarefasInput, ctx: Ctx) {
-  // "Comigo" = sou o responsável · "Deleguei" = eu pedi · "Equipe" = tudo (só gestão).
+  // "Comigo" = sou um dos responsáveis · "Deleguei" = eu pedi · "Equipe" = tudo (só gestão).
   let escopo: Record<string, unknown>;
-  if (input.aba === "COMIGO") escopo = { responsavelId: ctx.userId };
+  if (input.aba === "COMIGO") escopo = { responsaveis: { some: { userId: ctx.userId } } };
   else if (input.aba === "DELEGUEI") escopo = { criadoPorId: ctx.userId };
   else {
     if (!hasRoleLevel(ctx.role as never, "ADMIN"))
@@ -49,39 +49,53 @@ export async function listTarefas(input: ListTarefasInput, ctx: Ctx) {
 export async function contarTarefas(ctx: Ctx) {
   const aberta = { deletedAt: null, status: { not: "CONCLUIDA" as TarefaStatus } };
   const [comigo, deleguei] = await Promise.all([
-    prisma.tarefa.count({ where: { ...aberta, responsavelId: ctx.userId } }),
+    prisma.tarefa.count({ where: { ...aberta, responsaveis: { some: { userId: ctx.userId } } } }),
     prisma.tarefa.count({ where: { ...aberta, criadoPorId: ctx.userId } }),
   ]);
   return { comigo, deleguei };
 }
 
+/** Normaliza a lista de responsáveis: sem vazios/duplicados; vazio = só eu. */
+function normalizarResponsaveis(ids: string[] | undefined, ctx: Ctx): string[] {
+  const limpos = [...new Set((ids ?? []).map((x) => x.trim()).filter(Boolean))];
+  return limpos.length > 0 ? limpos : [ctx.userId];
+}
+
 async function tarefaComAcesso(id: string, ctx: Ctx, opts: { donoApenas?: boolean } = {}) {
-  const tarefa = await prisma.tarefa.findFirst({ where: { id, deletedAt: null } });
+  const tarefa = await prisma.tarefa.findFirst({
+    where: { id, deletedAt: null },
+    include: { responsaveis: { select: { userId: true } } },
+  });
   if (!tarefa) throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada." });
   const admin = hasRoleLevel(ctx.role as never, "ADMIN");
   const ehDono = tarefa.criadoPorId === ctx.userId;
-  const ehResponsavel = tarefa.responsavelId === ctx.userId;
+  const ehResponsavel = tarefa.responsaveis.some((r) => r.userId === ctx.userId);
   const permitido = opts.donoApenas ? ehDono || admin : ehDono || ehResponsavel || admin;
   if (!permitido) throw new TRPCError({ code: "FORBIDDEN", message: "Você não pode alterar esta tarefa." });
   return tarefa;
 }
 
-/** Avisa o responsável de que uma tarefa foi delegada a ele (não avisa quando é você mesmo). */
-async function avisarDelegacao(tarefa: { id: string; titulo: string; responsavelId: string; criadoPorId: string }) {
-  if (tarefa.responsavelId === tarefa.criadoPorId) return;
+/** Avisa cada responsável recém-atribuído (menos quem criou/você mesmo). */
+async function avisarDelegacao(tarefa: { id: string; titulo: string; criadoPorId: string }, paraIds: string[]) {
+  const destinatarios = [...new Set(paraIds)].filter((uid) => uid !== tarefa.criadoPorId);
+  if (destinatarios.length === 0) return;
   const dePor = await prisma.user.findUnique({ where: { id: tarefa.criadoPorId }, select: { nome: true } });
-  await notificar(
-    tarefa.responsavelId,
-    "tarefa_delegada",
-    { tarefa: tarefa.titulo, dePor: dePor?.nome ?? "Alguém da equipe" },
-    { entidadeTipo: "tarefa", entidadeId: tarefa.id },
+  await Promise.all(
+    destinatarios.map((uid) =>
+      notificar(
+        uid,
+        "tarefa_delegada",
+        { tarefa: tarefa.titulo, dePor: dePor?.nome ?? "Alguém da equipe" },
+        { entidadeTipo: "tarefa", entidadeId: tarefa.id },
+      ),
+    ),
   );
 }
 
-/** Avisa quem pediu de que a tarefa foi concluída (não avisa quando você conclui a sua própria). */
-async function avisarConclusao(tarefa: { id: string; titulo: string; responsavelId: string; criadoPorId: string }) {
-  if (tarefa.responsavelId === tarefa.criadoPorId) return;
-  const porQuem = await prisma.user.findUnique({ where: { id: tarefa.responsavelId }, select: { nome: true } });
+/** Avisa quem pediu de que a tarefa foi concluída (não avisa quando é você mesmo quem pediu). */
+async function avisarConclusao(tarefa: { id: string; titulo: string; criadoPorId: string }, porUserId: string) {
+  if (porUserId === tarefa.criadoPorId) return;
+  const porQuem = await prisma.user.findUnique({ where: { id: porUserId }, select: { nome: true } });
   await notificar(
     tarefa.criadoPorId,
     "tarefa_concluida",
@@ -91,27 +105,29 @@ async function avisarConclusao(tarefa: { id: string; titulo: string; responsavel
 }
 
 export async function createTarefa(input: CreateTarefaInput, ctx: Ctx) {
-  const responsavelId = clean(input.responsavelId) ?? ctx.userId;
+  const responsaveis = normalizarResponsaveis(input.responsavelIds, ctx);
   const tarefa = await prisma.tarefa.create({
     data: {
       titulo: input.titulo.trim(),
       descricao: clean(input.descricao),
       criadoPorId: ctx.userId,
-      responsavelId,
       prazo: input.prazo ?? null,
       prioridade: input.prioridade,
       clienteId: clean(input.clienteId),
       projetoId: clean(input.projetoId),
+      responsaveis: { create: responsaveis.map((userId) => ({ userId })) },
     },
     include,
   });
-  await avisarDelegacao(tarefa);
+  await avisarDelegacao(tarefa, responsaveis);
   return tarefa;
 }
 
 export async function updateTarefa(input: UpdateTarefaInput, ctx: Ctx) {
   const atual = await tarefaComAcesso(input.id, ctx);
-  const novoResponsavel = input.responsavelId !== undefined ? clean(input.responsavelId) ?? ctx.userId : atual.responsavelId;
+  const idsAntes = atual.responsaveis.map((r) => r.userId);
+  const trocaResponsaveis = input.responsavelIds !== undefined;
+  const novosIds = trocaResponsaveis ? normalizarResponsaveis(input.responsavelIds, ctx) : idsAntes;
 
   // Concluir grava a data; reabrir limpa.
   let concluidaEm = atual.concluidaEm;
@@ -124,20 +140,23 @@ export async function updateTarefa(input: UpdateTarefaInput, ctx: Ctx) {
     data: {
       ...(input.titulo !== undefined ? { titulo: input.titulo.trim() } : {}),
       ...(input.descricao !== undefined ? { descricao: clean(input.descricao) } : {}),
-      responsavelId: novoResponsavel,
       ...(input.prazo !== undefined ? { prazo: input.prazo ?? null } : {}),
       ...(input.prioridade !== undefined ? { prioridade: input.prioridade } : {}),
       ...(input.clienteId !== undefined ? { clienteId: clean(input.clienteId) } : {}),
       ...(input.projetoId !== undefined ? { projetoId: clean(input.projetoId) } : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
       concluidaEm,
+      ...(trocaResponsaveis ? { responsaveis: { deleteMany: {}, create: novosIds.map((userId) => ({ userId })) } } : {}),
     },
     include,
   });
 
-  // Avisa se delegou para uma pessoa nova; avisa quem pediu se acabou de concluir.
-  if (novoResponsavel !== atual.responsavelId) await avisarDelegacao(tarefa);
-  if (input.status === "CONCLUIDA" && atual.status !== "CONCLUIDA") await avisarConclusao(tarefa);
+  // Avisa só os responsáveis recém-adicionados; avisa quem pediu se acabou de concluir.
+  if (trocaResponsaveis) {
+    const adicionados = novosIds.filter((uid) => !idsAntes.includes(uid));
+    await avisarDelegacao(tarefa, adicionados);
+  }
+  if (input.status === "CONCLUIDA" && atual.status !== "CONCLUIDA") await avisarConclusao(tarefa, ctx.userId);
   return tarefa;
 }
 
@@ -148,7 +167,7 @@ export async function setStatus(id: string, status: TarefaStatus, ctx: Ctx) {
     data: { status, concluidaEm: status === "CONCLUIDA" ? new Date() : null },
     include,
   });
-  if (status === "CONCLUIDA" && atual.status !== "CONCLUIDA") await avisarConclusao(tarefa);
+  if (status === "CONCLUIDA" && atual.status !== "CONCLUIDA") await avisarConclusao(tarefa, ctx.userId);
   return tarefa;
 }
 

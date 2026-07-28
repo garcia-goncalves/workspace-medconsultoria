@@ -163,15 +163,15 @@ export function TarefasPage() {
           {(tarefas.data ?? []).map((t) => {
             const concluida = t.status === "CONCLUIDA";
             const atrasada = !concluida && t.prazo && new Date(t.prazo) < inicioDoDia();
-            // "Comigo" mostra quem pediu; "Deleguei" mostra o responsável; "Equipe" mostra quem pediu.
-            const pessoa = aba === "DELEGUEI" ? t.responsavel : t.criadoPor;
-            const rotuloPessoa = aba === "DELEGUEI" ? "para" : "de";
+            const responsaveis = t.responsaveis.map((r) => r.user);
+            // "Comigo" mostra quem pediu; "Deleguei"/"Equipe" mostram os responsáveis.
+            const mostrarCriador = aba === "COMIGO";
             const abrirEdicao = () =>
               setEditar({
                 id: t.id,
                 titulo: t.titulo,
                 descricao: t.descricao,
-                responsavelId: t.responsavel.id,
+                responsavelIds: responsaveis.map((u) => u.id),
                 prazo: t.prazo,
                 prioridade: t.prioridade as TarefaPrioridade,
                 clienteId: t.cliente?.id ?? null,
@@ -198,10 +198,21 @@ export function TarefasPage() {
                   {t.descricao && <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{t.descricao}</p>}
 
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      <Avatar id={pessoa.id} nome={pessoa.nome} avatarUrl={pessoa.avatarUrl} className="h-4 w-4" text="text-[9px]" />
-                      {rotuloPessoa} {pessoa.nome}
-                    </span>
+                    {mostrarCriador ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Avatar id={t.criadoPor.id} nome={t.criadoPor.nome} avatarUrl={t.criadoPor.avatarUrl} className="h-4 w-4" text="text-[9px]" />
+                        de {t.criadoPor.nome}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="flex -space-x-1">
+                          {responsaveis.slice(0, 3).map((u) => (
+                            <Avatar key={u.id} id={u.id} nome={u.nome} avatarUrl={u.avatarUrl} className="h-4 w-4 ring-1 ring-card" text="text-[9px]" />
+                          ))}
+                        </span>
+                        para {responsaveis.map((u) => u.nome.split(" ")[0]).join(", ")}
+                      </span>
+                    )}
                     {t.prazo && (
                       <span className={cn("inline-flex items-center gap-1", atrasada && "font-medium text-destructive")}>
                         <CalendarClock className="h-3.5 w-3.5" />
