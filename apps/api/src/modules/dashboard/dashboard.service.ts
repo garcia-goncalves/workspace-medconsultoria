@@ -1,6 +1,7 @@
 import { prisma } from "@app/db";
 import type { Role } from "@app/shared";
 import { hasRoleLevel } from "@app/shared";
+import { hojeBRT } from "../../lib/datas.js";
 import { listEventos } from "../agenda/agenda.service.js";
 import { resumo as financeiroResumo } from "../financeiro/contas.service.js";
 import { listStages } from "../pipeline/pipeline.service.js";
@@ -48,10 +49,9 @@ export async function dashboard(userId: string, role: Role) {
   const isAdmin = hasRoleLevel(role, "ADMIN");
   const isRoot = role === "ROOT";
 
-  const hojeInicio = new Date();
-  hojeInicio.setHours(0, 0, 0, 0);
-  const hojeFim = new Date();
-  hojeFim.setHours(23, 59, 59, 999);
+  // "Hoje" ancorado no fuso de Brasília (casa com prazos/vencimentos gravados em 00:00Z).
+  const hojeInicio = hojeBRT();
+  const hojeFim = new Date(hojeInicio.getTime() + DIA - 1);
   const amanhaInicio = new Date(hojeInicio.getTime() + DIA);
   const em7 = new Date(hojeInicio.getTime() + 7 * DIA);
   const d7 = new Date(Date.now() - 7 * DIA);

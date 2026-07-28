@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import type { CreateContaInput, UpdateContaInput, ListContasInput, Carteira, Recorrencia } from "@app/shared";
+import { hojeBRT, somarDiasUTC, inicioDoMesBRT, inicioDoProximoMesBRT } from "../../lib/datas.js";
 
 /** Contexto do usuário logado (para escopar a carteira PESSOAL). */
 export type Ctx = { userId: string; role: string };
@@ -16,23 +17,23 @@ const mapConta = <T extends { valor: { toNumber(): number } }>(c: T) => ({
   valor: c.valor.toNumber(),
 });
 
-const inicioDoDia = (d = new Date()) => {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-};
-const somarDias = (d: Date, n: number) => {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
-};
-
-/** Próxima ocorrência de uma série recorrente (mesmo padrão da Agenda). */
+/**
+ * Próxima ocorrência de uma série recorrente. Tudo em UTC (as datas são gravadas em
+ * meia-noite UTC). No MENSAL, fixa o dia de origem e CLAMPA ao último dia do mês alvo —
+ * assim 31/01 vira 28/02 (ou 29 em bissexto), sem "vazar" para março nem pular meses.
+ */
 function proximo(data: Date, r: Recorrencia): Date {
   const d = new Date(data);
-  if (r === "DIARIA") d.setDate(d.getDate() + 1);
-  else if (r === "SEMANAL") d.setDate(d.getDate() + 7);
-  else if (r === "MENSAL") d.setMonth(d.getMonth() + 1);
+  if (r === "DIARIA") return somarDiasUTC(d, 1);
+  if (r === "SEMANAL") return somarDiasUTC(d, 7);
+  if (r === "MENSAL") {
+    const dia = d.getUTCDate();
+    const ano = d.getUTCFullYear();
+    const mes = d.getUTCMonth() + 1;
+    // Último dia do mês alvo: dia 0 do mês seguinte.
+    const ultimoDiaAlvo = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(ano, mes, Math.min(dia, ultimoDiaAlvo), 0, 0, 0));
+  }
   return d;
 }
 
@@ -132,10 +133,21 @@ export async function marcarPaga(id: string, pago: boolean, ctx: Ctx) {
     where: { id },
     data: { pago, pagoEm: pago ? new Date() : null },
   });
-  // Ao QUITAR uma conta recorrente, já cria a próxima ocorrência (nada de esquecer).
-  if (pago && conta.recorrencia !== "NENHUMA") await gerarProximaOcorrencia(conta);
-  void atual;
+  // Só na TRANSIÇÃO pendente→paga: cria a próxima ocorrência (evita duplicar em duplo-clique/retry).
+  if (pago && !atual.pago && conta.recorrencia !== "NENHUMA") await gerarProximaOcorrencia(conta);
+  // Na volta paga→pendente: remove a sucessora antecipada, se ainda estiver pendente.
+  if (!pago && atual.pago && conta.recorrencia !== "NENHUMA") await reverterSucessora(conta);
   return mapConta(conta);
+}
+
+/** Desfaz a materialização: soft-delete da próxima ocorrência gerada (se ainda pendente). */
+async function reverterSucessora(conta: ContaSerie): Promise<void> {
+  const serie = conta.recorrenteId ?? conta.id;
+  const prox = proximo(conta.vencimento, conta.recorrencia);
+  await prisma.conta.updateMany({
+    where: { deletedAt: null, pago: false, vencimento: prox, recorrenteId: serie },
+    data: { deletedAt: new Date() },
+  });
 }
 
 // ── Recorrência (materialização, sem cron) ───────────────
@@ -149,6 +161,7 @@ type ContaSerie = {
   vencimento: Date;
   categoriaId: string | null;
   clienteId: string | null;
+  observacoes: string | null;
   recorrencia: Recorrencia;
   recorrenciaAte: Date | null;
   recorrenteId: string | null;
@@ -175,6 +188,7 @@ async function gerarProximaOcorrencia(conta: ContaSerie): Promise<boolean> {
       vencimento: prox,
       categoriaId: conta.categoriaId,
       clienteId: conta.clienteId,
+      observacoes: conta.observacoes,
       recorrencia: conta.recorrencia,
       recorrenciaAte: conta.recorrenciaAte,
       recorrenteId: serie,
@@ -193,7 +207,7 @@ export async function garantirProximasRecorrencias() {
     where: { deletedAt: null, recorrencia: { not: "NENHUMA" } },
     select: {
       id: true, tipo: true, escopo: true, donoId: true, descricao: true, valor: true,
-      vencimento: true, categoriaId: true, clienteId: true, recorrencia: true,
+      vencimento: true, categoriaId: true, clienteId: true, observacoes: true, recorrencia: true,
       recorrenciaAte: true, recorrenteId: true, pago: true,
     },
   })) as (ContaSerie & { pago: boolean })[];
@@ -216,13 +230,10 @@ export async function garantirProximasRecorrencias() {
 // ── Resumo (KPIs por carteira) ───────────────────────────
 export async function resumo(carteira: Carteira, ctx: Ctx) {
   const base = { deletedAt: null, ...whereCarteira(carteira, ctx) };
-  const hoje = inicioDoDia();
-  const em7 = somarDias(hoje, 7);
-  const mesInicio = new Date();
-  mesInicio.setDate(1);
-  mesInicio.setHours(0, 0, 0, 0);
-  const mesFim = new Date(mesInicio);
-  mesFim.setMonth(mesFim.getMonth() + 1);
+  const hoje = hojeBRT();
+  const em7 = somarDiasUTC(hoje, 7);
+  const mesInicio = inicioDoMesBRT();
+  const mesFim = inicioDoProximoMesBRT();
 
   const soma = async (where: Record<string, unknown>) =>
     (await prisma.conta.aggregate({ _sum: { valor: true }, where: { ...base, ...where } }))._sum.valor?.toNumber() ?? 0;
@@ -263,11 +274,8 @@ export async function resumo(carteira: Carteira, ctx: Ctx) {
 
 /** Distribuição de despesas/receitas do mês por categoria ("para onde vai o dinheiro"). */
 export async function porCategoria(carteira: Carteira, ctx: Ctx) {
-  const mesInicio = new Date();
-  mesInicio.setDate(1);
-  mesInicio.setHours(0, 0, 0, 0);
-  const mesFim = new Date(mesInicio);
-  mesFim.setMonth(mesFim.getMonth() + 1);
+  const mesInicio = inicioDoMesBRT();
+  const mesFim = inicioDoProximoMesBRT();
 
   const contas = await prisma.conta.findMany({
     where: { deletedAt: null, ...whereCarteira(carteira, ctx), vencimento: { gte: mesInicio, lt: mesFim } },
@@ -289,9 +297,9 @@ export async function porCategoria(carteira: Carteira, ctx: Ctx) {
 
 // ── Agenda financeira ("Precisa de você") ────────────────
 export async function agendaFinanceira(carteira: Carteira, ctx: Ctx) {
-  const hoje = inicioDoDia();
-  const amanha = somarDias(hoje, 1);
-  const em7 = somarDias(hoje, 8); // fim de "esta semana" (hoje + 7 dias, exclusivo)
+  const hoje = hojeBRT();
+  const amanha = somarDiasUTC(hoje, 1);
+  const em7 = somarDiasUTC(hoje, 8); // fim de "esta semana" (hoje + 7 dias, exclusivo)
 
   const pendentes = await prisma.conta.findMany({
     where: { deletedAt: null, pago: false, ...whereCarteira(carteira, ctx) },

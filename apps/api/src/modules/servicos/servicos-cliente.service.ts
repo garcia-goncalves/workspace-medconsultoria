@@ -5,6 +5,7 @@ import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { equipeDoCliente } from "../arquivos/arquivos.service.js";
 import { seedRequisitosSeVazio } from "./servicos.service.js";
 import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js";
+import { garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { config } from "../../config.js";
 
 /**
@@ -112,7 +113,13 @@ export async function ativarServicoCliente(
 
   // Automação: gera o cartão do serviço no projeto do cliente, com checklist (entregas do
   // cliente + passos do serviço). Best-effort — não bloqueia a contratação.
-  await garantirCardDoServicoContratado(clienteId, servicoId, servico?.nome ?? "Serviço", ator.id).catch(() => {});
+  const projetoId = await garantirCardDoServicoContratado(clienteId, servicoId, servico?.nome ?? "Serviço", ator.id).catch(() => null);
+  // Reativar um serviço cancelado volta o projeto de PAUSADO para ATIVO (trabalho novo em andamento).
+  if (projetoId) {
+    await prisma.projeto
+      .updateMany({ where: { id: projetoId, status: "PAUSADO", deletedAt: null }, data: { status: "ATIVO" } })
+      .catch(() => {});
+  }
 
   // GAP 3 — provisiona a COBRANÇA no Financeiro quando é uma contratação NOVA pela equipe
   // (a conversão do lead já cria a cobrança agregada; aqui é o upsell/serviço avulso da ficha).
@@ -149,6 +156,8 @@ export async function ativarServicoCliente(
       prisma.servico.findUnique({ where: { id: servicoId }, select: { nome: true } }),
     ]);
     if (cliente?.email) {
+      // Garante que o cliente TENHA acesso ao Portal antes de convidá-lo a acessá-lo (idempotente).
+      await garantirAcessoPortal(clienteId, cliente.nome, cliente.email).catch(() => {});
       void enviarEmailTemplate("servico_ativado", cliente.email, {
         nome: cliente.nome,
         servico: servico?.nome ?? "serviço",

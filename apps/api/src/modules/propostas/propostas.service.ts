@@ -106,8 +106,8 @@ export async function statusDoDocumento(documentoId: string) {
 
 /** Dados públicos da proposta (acesso por token, sem login). */
 export async function getPorToken(token: string) {
-  const doc = await prisma.documento.findUnique({
-    where: { propostaToken: token },
+  const doc = await prisma.documento.findFirst({
+    where: { propostaToken: token, deletedAt: null },
     select: {
       titulo: true,
       conteudo: true,
@@ -137,8 +137,8 @@ export async function getPorToken(token: string) {
  * Idempotente: se já respondida, não sobrescreve.
  */
 export async function responder(input: ResponderPropostaInput, ip?: string) {
-  const doc = await prisma.documento.findUnique({
-    where: { propostaToken: input.token },
+  const doc = await prisma.documento.findFirst({
+    where: { propostaToken: input.token, deletedAt: null },
     select: { id: true, titulo: true, conteudo: true, propostaStatus: true, propostaHash: true, clienteId: true, criadoPorId: true, itens: true, cliente: { select: { nome: true } } },
   });
   if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Link de proposta inválido." });

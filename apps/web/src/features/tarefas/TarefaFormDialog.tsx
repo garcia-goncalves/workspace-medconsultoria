@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { cn } from "@app/ui";
+import { X } from "lucide-react";
 import { createTarefaSchema, TAREFA_PRIORIDADE_LABEL, tarefaPrioridadeEnum, type CreateTarefaInput, type TarefaPrioridade } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Modal } from "../../components/ui/modal";
@@ -11,6 +11,7 @@ import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
 import { Select } from "../../components/ui/select";
 import { Combobox } from "../../components/ui/combobox";
+import { Avatar } from "../../components/ui/avatar";
 
 export interface TarefaEditavel {
   id: string;
@@ -123,31 +124,35 @@ export function TarefaFormDialog({
           <Textarea id="descricao" rows={3} autoComplete="off" placeholder="Contexto, links, o que for útil para quem vai fazer…" {...register("descricao")} />
         </div>
 
-        <div className="space-y-1">
-          <Label hint="Quem vai fazer — pode marcar mais de uma pessoa (tarefa da equipe). Em branco = você mesmo.">Responsáveis</Label>
-          {equipe.data && equipe.data.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 rounded-lg border border-input bg-muted/20 p-2">
-              {equipe.data.map((u) => {
-                const on = selecionados.includes(u.id);
+        <div className="space-y-1.5">
+          <Label hint="Quem vai fazer — pode escolher mais de uma pessoa (tarefa da equipe). Em branco = você mesmo.">Responsáveis</Label>
+          {/* Selecionados como chips removíveis (rolam se forem muitos) */}
+          {selecionados.length > 0 && (
+            <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
+              {selecionados.map((id) => {
+                const u = equipe.data?.find((x) => x.id === id);
                 return (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => toggleResponsavel(u.id)}
-                    className={cn(
-                      "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                      on ? "border-primary bg-primary text-primary-foreground" : "border-input bg-card text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {u.nome}
-                  </button>
+                  <span key={id} className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 py-0.5 pl-1 pr-1.5 text-xs font-medium text-primary">
+                    <Avatar id={u?.id} nome={u?.nome ?? "?"} avatarUrl={u?.avatarUrl} className="h-4 w-4" text="text-[9px]" />
+                    <span className="max-w-[10rem] truncate">{u?.nome ?? "…"}</span>
+                    <button type="button" onClick={() => toggleResponsavel(id)} className="rounded p-0.5 text-primary/70 transition-colors hover:text-destructive" aria-label={`Remover ${u?.nome ?? ""}`}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
                 );
               })}
             </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">Carregando a equipe…</p>
           )}
-          <p className="text-xs text-muted-foreground">{selecionados.length === 0 ? "Ninguém marcado — a tarefa fica com você." : `${selecionados.length} responsável(is) marcado(s).`}</p>
+          {/* Dropdown pesquisável para adicionar (escala para muitos colaboradores) */}
+          <Combobox
+            value=""
+            onChange={(id) => id && toggleResponsavel(id)}
+            options={(equipe.data ?? []).filter((u) => !selecionados.includes(u.id)).map((u) => ({ value: u.id, label: u.nome }))}
+            placeholder="Adicionar responsável…"
+            emptyText={selecionados.length > 0 ? "Todos já foram adicionados." : "Ninguém encontrado."}
+            allowClear={false}
+          />
+          <p className="text-xs text-muted-foreground">{selecionados.length === 0 ? "Ninguém escolhido — a tarefa fica com você." : `${selecionados.length} responsável(is).`}</p>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

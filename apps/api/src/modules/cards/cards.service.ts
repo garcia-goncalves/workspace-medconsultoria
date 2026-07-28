@@ -76,6 +76,8 @@ export async function createCard(input: CreateCardInput, userId: string) {
     data: { userId, acao: "card.criado", entidadeTipo: "card", entidadeId: card.id },
   });
   await notificarAtribuicao(card, userId);
+  // Um cartão novo (retrabalho) reabre um projeto que estava Concluído.
+  await reconciliarStatusProjeto(card.projetoId);
   return card;
 }
 
@@ -137,7 +139,9 @@ export async function moveCard(input: MoveCardInput) {
 }
 
 export async function removeCard(id: string) {
-  await prisma.card.update({ where: { id }, data: { deletedAt: new Date() } });
+  const card = await prisma.card.update({ where: { id }, data: { deletedAt: new Date() }, select: { projetoId: true } });
+  // Remover o último cartão pendente pode concluir o projeto (ou reabri-lo, se era o único).
+  await reconciliarStatusProjeto(card.projetoId);
   return { ok: true };
 }
 
@@ -170,9 +174,12 @@ export async function addChecklist(input: AddChecklistInput) {
     where: { cardId: input.cardId },
     _max: { ordem: true },
   });
-  return prisma.checklistItem.create({
+  const item = await prisma.checklistItem.create({
     data: { cardId: input.cardId, texto: input.texto.trim(), ordem: (max._max.ordem ?? -1) + 1 },
   });
+  // Um item novo (não concluído) reabre um card que estava Concluído.
+  await reconciliarStatusCard(input.cardId);
+  return item;
 }
 
 export async function toggleChecklist(id: string, concluido: boolean) {

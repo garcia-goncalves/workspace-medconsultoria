@@ -26,6 +26,8 @@ import {
   situacaoDocumento,
   EVENTO_TIPO_LABEL,
   SITUACAO_COMERCIAL_LABEL,
+  CLIENTE_TIPO_LABEL,
+  type ClienteTipo,
   CHAMADO_STATUS_LABEL,
   hasRoleLevel,
   type SituacaoComercial,
@@ -203,7 +205,7 @@ export function ClienteDetailPage() {
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold text-primary">{c.nome}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <Badge>{c.tipo}</Badge>
+              <Badge>{CLIENTE_TIPO_LABEL[c.tipo as ClienteTipo]}</Badge>
               <Badge variant={situacaoVar[c.situacaoComercial as SituacaoComercial]}>
                 {SITUACAO_COMERCIAL_LABEL[c.situacaoComercial as SituacaoComercial]}
               </Badge>
