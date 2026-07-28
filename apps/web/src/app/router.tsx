@@ -21,6 +21,7 @@ const LeadsPipelinePage = lazyRouteComponent(() => import("../features/crm/leads
 const ProjetosListPage = lazyRouteComponent(() => import("../features/projetos/ProjetosListPage"), "ProjetosListPage");
 const ProjetoDetailPage = lazyRouteComponent(() => import("../features/projetos/ProjetoDetailPage"), "ProjetoDetailPage");
 const AgendaPage = lazyRouteComponent(() => import("../features/agenda/AgendaPage"), "AgendaPage");
+const TarefasPage = lazyRouteComponent(() => import("../features/tarefas/TarefasPage"), "TarefasPage");
 const FinanceiroPage = lazyRouteComponent(() => import("../features/financeiro/FinanceiroPage"), "FinanceiroPage");
 const MensagensPage = lazyRouteComponent(() => import("../features/mensagens/MensagensPage"), "MensagensPage");
 const DocumentosPage = lazyRouteComponent(() => import("../features/documentos/DocumentosPage"), "DocumentosPage");
@@ -102,6 +103,12 @@ const agendaRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/agenda",
   component: AgendaPage,
+});
+
+const tarefasRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/tarefas",
+  component: TarefasPage,
 });
 
 const financeiroRoute = createRoute({
@@ -222,6 +229,7 @@ const loginRedirectRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   agendaRoute,
+  tarefasRoute,
   financeiroRoute,
   mensagensRoute,
   documentosRoute,

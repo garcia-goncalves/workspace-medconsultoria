@@ -7,6 +7,7 @@ import { origensRouter } from "../modules/origens/origens.router.js";
 import { leadsRouter } from "../modules/leads/leads.router.js";
 import { projetosRouter } from "../modules/projetos/projetos.router.js";
 import { cardsRouter } from "../modules/cards/cards.router.js";
+import { tarefasRouter } from "../modules/tarefas/tarefas.router.js";
 import { agendaRouter } from "../modules/agenda/agenda.router.js";
 import { notificacoesRouter } from "../modules/notificacoes/notificacoes.router.js";
 import { financeiroRouter } from "../modules/financeiro/financeiro.router.js";
@@ -41,6 +42,7 @@ export const appRouter = router({
   leads: leadsRouter,
   projetos: projetosRouter,
   cards: cardsRouter,
+  tarefas: tarefasRouter,
   agenda: agendaRouter,
   notificacoes: notificacoesRouter,
   financeiro: financeiroRouter,

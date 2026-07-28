@@ -294,6 +294,40 @@ export const EMAIL_TEMPLATES: Record<string, TemplateMeta> = {
       ctaTexto: "Ver projeto",
     },
   },
+  tarefa_delegada: {
+    label: "Tarefa delegada a você",
+    descricao: "Quando um colega cria uma tarefa/pedido e coloca você como responsável.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "tarefa", rotulo: "Tarefa", descricao: "O que precisa ser feito", exemplo: "Ligar para o contador da clínica" },
+      { chave: "dePor", rotulo: "Quem pediu", descricao: "Quem delegou a tarefa", exemplo: "Thaís Garcia" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "Nova tarefa delegada a você",
+      titulo: "Nova tarefa: {{tarefa}}",
+      corpo: "{{dePor}} delegou uma tarefa a você: \"{{tarefa}}\". Confira os detalhes e o prazo.",
+      ctaTexto: "Ver tarefa",
+    },
+  },
+  tarefa_concluida: {
+    label: "Tarefa que você pediu foi concluída",
+    descricao: "Quando o responsável conclui uma tarefa que você havia delegado.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "tarefa", rotulo: "Tarefa", descricao: "O que foi feito", exemplo: "Ligar para o contador da clínica" },
+      { chave: "porQuem", rotulo: "Quem concluiu", descricao: "Quem realizou a tarefa", exemplo: "João Pereira" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "Tarefa concluída: {{tarefa}}",
+      titulo: "Tarefa concluída: {{tarefa}}",
+      corpo: "{{porQuem}} concluiu a tarefa \"{{tarefa}}\" que você havia pedido.",
+      ctaTexto: "Ver tarefa",
+    },
+  },
   projeto_participante: {
     label: "Adicionado a um projeto",
     descricao: "Quando você é incluído na equipe de um projeto.",

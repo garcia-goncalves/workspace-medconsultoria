@@ -9,6 +9,7 @@ export * from "./schemas/evento.js";
 export * from "./schemas/conta.js";
 export * from "./schemas/usuario.js";
 export * from "./schemas/conversa.js";
+export * from "./schemas/tarefa.js";
 export * from "./schemas/documento.js";
 export * from "./schemas/formulario.js";
 export * from "./types.js";

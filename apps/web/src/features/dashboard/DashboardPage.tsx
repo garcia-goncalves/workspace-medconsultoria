@@ -5,6 +5,7 @@ import {
   Filter,
   FolderKanban,
   CheckSquare,
+  ListTodo,
   Video,
   AlertTriangle,
   Calendar,
@@ -39,6 +40,7 @@ import {
   EVENTO_TIPO_LABEL,
   STATUS_DOCUMENTO_LABEL,
   PRIORIDADE_LABEL,
+  TAREFA_PRIORIDADE_LABEL,
   type StatusDocumento,
   type Prioridade,
 } from "@app/shared";
@@ -290,7 +292,7 @@ function AcoesRapidas() {
 // ── Personalização (widgets recolhíveis + mostrar/ocultar, por usuário) ──
 
 type WidgetId =
-  | "acoes" | "sistema" | "atencao" | "plano" | "kpis" | "tarefas" | "agenda"
+  | "acoes" | "sistema" | "atencao" | "plano" | "kpis" | "tarefas" | "tarefas-comigo" | "agenda"
   | "financeiro" | "funil" | "projetos" | "equipe" | "clientes" | "docs" | "atividade";
 
 type Grupo = "dia" | "gestao";
@@ -518,6 +520,7 @@ export function DashboardPage() {
 
   const temAtencao =
     d.minhasTarefasAtrasadasCount > 0 ||
+    d.tarefasComigoAtrasadasCount > 0 ||
     d.conflitosAgendaCount > 0 ||
     (g != null &&
       (g.tarefasAtrasadasEquipeCount > 0 ||
@@ -558,7 +561,10 @@ export function DashboardPage() {
             <AttentionChip to="/agenda" icon={CalendarClock} count={d.conflitosAgendaCount} label="conflito(s) de horário na agenda" tone="danger" />
           )}
           {d.minhasTarefasAtrasadasCount > 0 && (
-            <AttentionChip to="/projetos" icon={AlertTriangle} count={d.minhasTarefasAtrasadasCount} label="tarefa(s) sua(s) atrasada(s)" tone="danger" />
+            <AttentionChip to="/projetos" icon={AlertTriangle} count={d.minhasTarefasAtrasadasCount} label="cartão(ões) seu(s) atrasado(s)" tone="danger" />
+          )}
+          {d.tarefasComigoAtrasadasCount > 0 && (
+            <AttentionChip to="/tarefas" icon={ListTodo} count={d.tarefasComigoAtrasadasCount} label="pedido(s) atrasado(s) comigo" tone="danger" />
           )}
           {g && g.tarefasAtrasadasEquipeCount > 0 && (
             <AttentionChip to="/projetos" icon={CheckSquare} count={g.tarefasAtrasadasEquipeCount} label="tarefa(s) atrasada(s) na equipe" tone="warning" />
@@ -611,7 +617,7 @@ export function DashboardPage() {
         <StatCard
           to="/projetos"
           icon={CheckSquare}
-          label="Minhas tarefas"
+          label="Meus cartões"
           value={d.minhasTarefas}
           sub={
             d.minhasTarefasAtrasadasCount > 0
@@ -638,14 +644,14 @@ export function DashboardPage() {
 
   defs.push({
     id: "tarefas",
-    titulo: "Minhas tarefas",
+    titulo: "Meus cartões",
     icon: CheckSquare,
     grupo: "dia",
     span: 1,
     link: { to: "/projetos", label: "Ver tudo" },
     render: () =>
       d.minhasTarefasLista.length === 0 ? (
-        <p className="px-4 py-10 text-center text-sm text-muted-foreground">Você está em dia. Nenhuma tarefa atribuída a você. 🎉</p>
+        <p className="px-4 py-10 text-center text-sm text-muted-foreground">Você está em dia. Nenhum cartão de projeto com você. 🎉</p>
       ) : (
         <div className="divide-y divide-border/60">
           {d.minhasTarefasLista.map((t) => {
@@ -661,6 +667,37 @@ export function DashboardPage() {
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{t.titulo}</div>
                   <div className="truncate text-xs text-muted-foreground">{t.projeto.nome}</div>
+                </div>
+                {t.prazo && (
+                  <span className={cn("shrink-0 text-xs font-medium tabular-nums", atrasada ? "text-destructive" : "text-muted-foreground")}>{dataUTC(t.prazo)}</span>
+                )}
+              </Link>
+            );
+          })}
+        </div>
+      ),
+  });
+
+  defs.push({
+    id: "tarefas-comigo",
+    titulo: "Pedidos comigo",
+    icon: ListTodo,
+    grupo: "dia",
+    span: 1,
+    link: { to: "/tarefas", label: "Ver tarefas" },
+    render: () =>
+      d.tarefasComigo.length === 0 ? (
+        <p className="px-4 py-10 text-center text-sm text-muted-foreground">Nenhum pedido para você agora. 🎉</p>
+      ) : (
+        <div className="divide-y divide-border/60">
+          {d.tarefasComigo.map((t) => {
+            const atrasada = t.prazo && new Date(t.prazo) < hoje0;
+            return (
+              <Link key={t.id} to="/tarefas" className="flex items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-accent/40">
+                {t.prioridade === "ALTA" && <Badge variant="danger">{TAREFA_PRIORIDADE_LABEL.ALTA}</Badge>}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{t.titulo}</div>
+                  <div className="truncate text-xs text-muted-foreground">{t.cliente?.nome ?? t.projeto?.nome ?? "Tarefa interna"}</div>
                 </div>
                 {t.prazo && (
                   <span className={cn("shrink-0 text-xs font-medium tabular-nums", atrasada ? "text-destructive" : "text-muted-foreground")}>{dataUTC(t.prazo)}</span>
