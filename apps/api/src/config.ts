@@ -10,6 +10,9 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL é obrigatório"),
   SESSION_SECRET: z.string().min(16, "SESSION_SECRET deve ter ao menos 16 caracteres"),
   WEB_ORIGIN: z.string().url().default("http://localhost:4310"),
+  // Root "primordial" IMUTÁVEL: nunca pode ser rebaixado, desativado ou excluído (nem por
+  // outro ROOT, nem por ele mesmo). Garante que a aplicação nunca fique sem um super-admin.
+  ROOT_PROTEGIDO_EMAIL: z.string().default("root@medconsultoria.com.br"),
   OPENAI_API_KEY: z.string().optional(),
   // Interruptor GLOBAL da IA (privacidade): "false"/"0" desliga a IA MESMO com chave presente.
   // Útil para cortar o envio de dados à OpenAI sem remover a chave. Ver docs/IA_PRIVACIDADE.md.
