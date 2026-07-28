@@ -77,11 +77,14 @@ Se não abrir (ex.: você reiniciou o computador), veja "Como ligar" no final.
 
 | E-mail                                 | Papel        | O que vê                                                                    |
 | -------------------------------------- | ------------ | ---------------------------------------------------------------------------- |
-| `root@medconsultoria.com.br`         | ROOT         | Tudo, mais o painel**Sistema**. Único que pode criar/gerenciar **administradores** |
+| `root@medconsultoria.com.br`         | ROOT         | **Root principal (imutável)** — nunca pode ser rebaixado, desativado nem excluído. Tudo + painel**Sistema**; cria e gerencia outros ROOTs/administradores |
+| `thiago.garcia@medconsultoria.com.br` | ROOT        | Root nominal (Thiago). Pode virar Admin/Funcionário se quiser; troca a senha no 1º login |
+| `andre.cintra@medconsultoria.com.br` | ROOT         | Root nominal (André). Pode virar Admin/Funcionário se quiser; troca a senha no 1º login |
 | `thais.garcia@medconsultoria.com.br` | ADMIN        | Tudo (inclusive Financeiro e Equipe) —**exceto** o painel Sistema      |
 
-> Estas duas contas são criadas pelo `pnpm db:seed` e **sobrevivem** ao `pnpm db:limpar`.
+> Estas contas são criadas pelo `pnpm db:seed` e **sobrevivem** ao `pnpm db:limpar`.
 > O seed **nunca sobrescreve a senha** de uma conta que já existe — pode rodar à vontade.
+> **`root@medconsultoria.com.br` é o root primordial protegido** (config `ROOT_PROTEGIDO_EMAIL`): garante que a aplicação nunca fique sem super-admin. Os demais roots podem ser alterados/rebaixados entre si por qualquer ROOT.
 
 **FUNCIONÁRIO e CLIENTE:** não existem mais como conta fixa. A limpeza de 20/07/2026 removeu
 os usuários fictícios — inclusive o antigo login de teste `cliente@medconsultoria.com.br`
