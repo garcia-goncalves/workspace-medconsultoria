@@ -17,6 +17,7 @@ import {
   Video,
   LifeBuoy,
   Target,
+  ListTodo,
   Briefcase,
   KeyRound,
   Sparkles,
@@ -53,6 +54,7 @@ import { ConviteLinkDialog } from "../../configuracoes/ConviteLinkDialog";
 import type { ConviteResultado } from "../../configuracoes/UsuarioFormDialog";
 import { situacaoVar } from "./ClientesListPage";
 import { ProjetoFormDialog } from "../../projetos/ProjetoFormDialog";
+import { TarefaFormDialog } from "../../tarefas/TarefaFormDialog";
 import { EmailsEnviadosList } from "../../../components/EmailsEnviadosList";
 import { useDynamicCrumb } from "../../../components/layout/Breadcrumbs";
 
@@ -99,6 +101,7 @@ export function ClienteDetailPage() {
   const [resumoIA, setResumoIA] = useState(false);
   const [editar, setEditar] = useState(false);
   const [novaOport, setNovaOport] = useState(false);
+  const [delegar, setDelegar] = useState(false);
   const [novoProjeto, setNovoProjeto] = useState(false);
   const [novoDoc, setNovoDoc] = useState(false);
   const [novaNota, setNovaNota] = useState("");
@@ -243,6 +246,10 @@ export function ClienteDetailPage() {
           <Button variant="outline" size="sm" title="Abrir um novo negócio no funil para este cliente" onClick={() => setNovaOport(true)}>
             <Target className="h-4 w-4" />
             Nova oportunidade
+          </Button>
+          <Button variant="outline" size="sm" title="Pedir para alguém da equipe cuidar de algo deste cliente" onClick={() => setDelegar(true)}>
+            <ListTodo className="h-4 w-4" />
+            Delegar tarefa
           </Button>
           {c.portalAtivo ? (
             <span className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1.5 text-sm font-medium text-primary" title="O cliente já tem acesso ativo ao Portal">
@@ -791,6 +798,8 @@ export function ClienteDetailPage() {
       />
 
       <ProjetoFormDialog open={novoProjeto} onClose={() => setNovoProjeto(false)} clienteIdFixo={c.id} />
+
+      <TarefaFormDialog open={delegar} onClose={() => setDelegar(false)} defaults={{ clienteId: c.id }} />
 
       <NovoDocumentoDialog open={novoDoc} onClose={() => setNovoDoc(false)} clienteFixo={c.id} />
 

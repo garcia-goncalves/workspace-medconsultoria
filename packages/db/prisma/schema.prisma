@@ -79,6 +79,8 @@ model User {
   preferenciasEmail   PreferenciaEmail[]
   contas              Conta[]                @relation("ContaDono")
   categorias          Categoria[]            @relation("CategoriaDono")
+  tarefasCriadas      Tarefa[]               @relation("TarefaCriador")
+  tarefasResponsavel  TarefaResponsavel[]
 
   @@index([role])
   @@index([clienteId])
@@ -233,6 +235,7 @@ model Cliente {
   servicosContratados ClienteServico[]
   arquivos         Arquivo[]
   respostasFormulario FormularioResposta[]
+  tarefas          Tarefa[]
 
   @@index([responsavelId])
   @@index([deletedAt])
@@ -669,6 +672,7 @@ model Projeto {
   cards         Card[]
   eventos       Evento[]
   documentos    Documento[]
+  tarefas       Tarefa[]
 
   @@index([clienteId])
   @@index([responsavelId])
@@ -1042,6 +1046,67 @@ model Mensagem {
   autor    User     @relation(fields: [autorId], references: [id], onDelete: Cascade)
 
   @@index([conversaId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Tarefas (delegação interna — ADR-88)
+// ─────────────────────────────────────────────────────────────
+
+enum TarefaStatus {
+  PENDENTE
+  FAZENDO
+  CONCLUIDA
+}
+
+enum TarefaPrioridade {
+  BAIXA
+  NORMAL
+  ALTA
+}
+
+/// Tarefa/pedido interno delegado entre a equipe. NÃO é entrega de cliente (isso é
+/// Projeto/Card) nem compromisso com hora marcada (Agenda) — é o "me resolve isso".
+/// `criadoPor` = quem pediu/delegou; `responsavel` = quem faz. Cliente/projeto são
+/// contexto OPCIONAL (a tarefa pode ser puramente interna, sem vínculo).
+model Tarefa {
+  id            String           @id @default(cuid())
+  titulo        String
+  descricao     String?          @db.Text
+  criadoPorId   String
+  prazo         DateTime?
+  prioridade    TarefaPrioridade @default(NORMAL)
+  status        TarefaStatus     @default(PENDENTE)
+  clienteId     String?
+  projetoId     String?
+  concluidaEm   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  deletedAt     DateTime?
+
+  criadoPor    User                @relation("TarefaCriador", fields: [criadoPorId], references: [id], onDelete: Cascade)
+  cliente      Cliente?            @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  projeto      Projeto?            @relation(fields: [projetoId], references: [id], onDelete: SetNull)
+  // Uma tarefa pode ser de VÁRIOS responsáveis (tarefa "da equipe").
+  responsaveis TarefaResponsavel[]
+
+  @@index([criadoPorId, status])
+  @@index([clienteId])
+  @@index([projetoId])
+  @@index([prazo])
+  @@index([deletedAt])
+}
+
+/// Responsáveis de uma tarefa (N por tarefa). Junção Tarefa↔User.
+model TarefaResponsavel {
+  id       String @id @default(cuid())
+  tarefaId String
+  userId   String
+
+  tarefa Tarefa @relation(fields: [tarefaId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tarefaId, userId])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────────────────────

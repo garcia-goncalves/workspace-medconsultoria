@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { ArrowLeft, Plus, Loader2, Pencil, UserPlus, Building2, AlertTriangle, CalendarClock } from "lucide-react";
+import { ArrowLeft, Plus, Loader2, Pencil, UserPlus, Building2, AlertTriangle, CalendarClock, ListTodo } from "lucide-react";
 import { cn } from "@app/ui";
 import { CARD_STATUS_ORDER, CARD_STATUS_LABEL, type CardStatus } from "@app/shared";
 import { trpc } from "../../lib/trpc";
@@ -27,6 +27,7 @@ import { CardPanel } from "./CardPanel";
 import { CardFormDialog, type CardEditavel } from "./CardFormDialog";
 import { ProjetoFormDialog } from "./ProjetoFormDialog";
 import { ParticipantesDialog } from "./ParticipantesDialog";
+import { TarefaFormDialog } from "../tarefas/TarefaFormDialog";
 import { useDynamicCrumb } from "../../components/layout/Breadcrumbs";
 
 const route = getRouteApi("/projetos/$projetoId");
@@ -99,6 +100,7 @@ export function ProjetoDetailPage() {
   const [criarStatus, setCriarStatus] = useState<CardStatus | null>(null);
   const [editCard, setEditCard] = useState<CardEditavel | null>(null);
   const [editarProjeto, setEditarProjeto] = useState(false);
+  const [delegar, setDelegar] = useState(false);
   const [gerenciarPart, setGerenciarPart] = useState(false);
 
   useEffect(() => {
@@ -229,6 +231,10 @@ export function ProjetoDetailPage() {
             <Button variant="outline" onClick={() => setEditarProjeto(true)}>
               <Pencil className="h-4 w-4" />
               Editar projeto
+            </Button>
+            <Button variant="outline" title="Pedir para alguém da equipe cuidar de algo deste projeto" onClick={() => setDelegar(true)}>
+              <ListTodo className="h-4 w-4" />
+              Delegar tarefa
             </Button>
             <Button onClick={() => setCriarStatus("A_FAZER")}>
               <Plus className="h-4 w-4" />
@@ -395,6 +401,14 @@ export function ProjetoDetailPage() {
           onClose={() => setGerenciarPart(false)}
           projetoId={projetoId}
           atuais={projeto.data.participantes.map((p) => p.user.id)}
+        />
+      )}
+
+      {projeto.data && (
+        <TarefaFormDialog
+          open={delegar}
+          onClose={() => setDelegar(false)}
+          defaults={{ projetoId: projeto.data.id, clienteId: projeto.data.clienteId }}
         />
       )}
     </div>

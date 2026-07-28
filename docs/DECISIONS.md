@@ -1124,10 +1124,23 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 
 **Verificado:** typecheck api+web; API 79/79; web 32/32; rota carregada (401 = protegida). Deploy: `BACKUPS_DIR`/`OPS_DIR` no `.env` do servidor + `healthcheck.sh` atualizado.
 
+## ADR-88 — Seção "Tarefas" (delegação interna entre a equipe) ✅
+
+**Contexto:** o dono quer um lugar para a equipe **delegar/pedir coisas entre si** ("me resolve isso"), no estilo Projetos mas para pedidos interpessoais. Requisito nº 1: **não confundir** o usuário. **Verificação antes de construir:** o app já tinha "tarefa" parcial no model `Card` (preso a um `Projeto`, com `responsavel/prazo/prioridade/status` e `notificar("tarefa_atribuida")`). A decisão de arquitetura: **reusar `Card` vs criar `Tarefa` novo**.
+
+**Decisões:**
+1. **Model `Tarefa` NOVO** (não estender `Card`). Reusar `Card` exigiria tornar `projetoId` opcional, adicionar "quem pediu" e mexer no kanban (colunas, auto-conclusão do projeto, links `/projetos/$id`, scan) — **borraria a fronteira Projetos×Tarefas** que o próprio requisito pede manter clara. Campos: `criadoPor`/`responsavel` (obrigatórios), `prazo?`, `prioridade` (BAIXA/NORMAL/ALTA), `status` (PENDENTE/FAZENDO/CONCLUIDA), `cliente?`/`projeto?` (contexto opcional). Fronteira: **Projetos** = entrega do cliente · **Tarefas** = pedido entre pessoas · **Agenda** = hora marcada · **Mensagens** = conversa.
+2. **UI a prova de leigo:** abas **Comigo** (sou responsável) / **Deleguei** (eu pedi) / **Da equipe** (só ADMIN+) + filtro Abertas/Concluídas/Todas. Módulo tRPC `tarefas` em `funcionarioProcedure` (exclui o Portal). Notificações próprias `tarefa_delegada`/`tarefa_concluida` (emailáveis, no `emails.registry`); rota da entidade `tarefa` → `/tarefas`. Botão **"Delegar tarefa"** na ficha do cliente e no projeto (nasce com contexto).
+3. **Início unifica o "o que tenho hoje":** widget **"Pedidos comigo"** (→ /tarefas) + chip de atenção "pedido(s) atrasado(s) comigo". O widget/KPI de cards de projeto foi renomeado "Minhas tarefas" → **"Meus cartões"** (desfaz o choque de nome com a nova seção).
+4. **Agenda NÃO recebeu as tarefas (de propósito):** a Agenda é um componente de **5 visões sobre `Occ`** (sem modelo de item compartilhado); injetar tarefas ali seria invasivo/frágil e confuso ("por que aparece na Lista mas não no Mês?"). A unificação ficou no Início, com risco muito menor. Reavaliar num PR próprio se o dono quiser tarefas literalmente no calendário.
+
+**Verificado:** typecheck api+web limpo; lint 0 erros; teste de cobertura do guia OK; ao vivo (local) criar→status→excluir e Início com os widgets novos.
+
 ## Pendências (viram ADR quando decididas)
 
 - ~~Passenger vs Nginx Unit na TineHost (mecanismo de restart / proxy WS).~~ **Restart** = `touch tmp/restart.txt` (LiteSpeed/lsnode). **WS resolvido no ADR-84** (tempo real por polling; não precisa de proxy WS).
 - ~~Engine de exportação de PDF em hospedagem compartilhada.~~ **Resolvido no ADR-47** (PDF = `window.print()` da moldura branded = WYSIWYG, sem servidor).
 - Estratégia de polimorfismo (`entidadeTipo+entidadeId` vs tabelas de junção) se a performance exigir.
+- **Caixa de e-mail dentro do app** (ver/enviar/receber sem sair, estilo Mensagens) — 2ª ideia do dono, **adiada**. Direção definida: TineHost/cPanel → **IMAP (ler) + SMTP (enviar)**; modelo **por usuário com múltiplas contas** (e-mail do cadastro como padrão + contas extras, inclusive externas). Alerta: Gmail/Hotmail **não** aceitam senha simples (exigem OAuth próprio) — cada provedor externo é uma integração à parte. Construir em fases (MVP: caixa ler+responder) quando priorizado.
 - Zustand vs Context para o estado global mínimo do front.
 - Política de backup do MySQL.

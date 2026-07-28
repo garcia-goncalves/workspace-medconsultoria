@@ -67,6 +67,8 @@ export async function dashboard(userId: string, role: Role) {
     minhasTarefasAtrasadasCount,
     minhasTarefasConcluidas7,
     minhasTarefasCards,
+    minhasTarefasDelegadas,
+    tarefasComigoAtrasadasCount,
   ] = await Promise.all([
     listEventos(hojeInicio, hojeFim, userId),
     listEventos(amanhaInicio, em7, userId),
@@ -88,6 +90,16 @@ export async function dashboard(userId: string, role: Role) {
       orderBy: { prazo: "asc" },
       take: 30,
     }),
+    // Tarefas (delegação interna) que eu preciso fazer — separadas dos cartões de projeto.
+    prisma.tarefa.findMany({
+      where: { deletedAt: null, status: { not: "CONCLUIDA" }, responsaveis: { some: { userId } } },
+      include: { cliente: { select: { id: true, nome: true } }, projeto: { select: { id: true, nome: true } } },
+      orderBy: [{ prazo: "asc" }, { createdAt: "desc" }],
+      take: 7,
+    }),
+    prisma.tarefa.count({
+      where: { deletedAt: null, status: { not: "CONCLUIDA" }, responsaveis: { some: { userId } }, prazo: { lt: hojeInicio } },
+    }),
   ]);
 
   // Minhas tarefas por urgência: com prazo primeiro (mais próximo/atrasado), depois sem prazo.
@@ -100,6 +112,16 @@ export async function dashboard(userId: string, role: Role) {
     })
     .slice(0, 7)
     .map((c) => ({ id: c.id, titulo: c.titulo, prazo: c.prazo, prioridade: c.prioridade, status: c.status, projeto: c.projeto }));
+
+  // Pedidos comigo (tarefas de delegação atribuídas a mim) — widget próprio no Início.
+  const tarefasComigo = minhasTarefasDelegadas.map((t) => ({
+    id: t.id,
+    titulo: t.titulo,
+    prazo: t.prazo,
+    prioridade: t.prioridade,
+    cliente: t.cliente,
+    projeto: t.projeto,
+  }));
 
   // Conflitos de horário na minha agenda (hoje + próximos 7 dias) — alerta no Início.
   const conflitosAgendaCount = contarConflitos([...eventosHoje, ...proximosEventos]);
@@ -119,6 +141,8 @@ export async function dashboard(userId: string, role: Role) {
     minhasTarefasAtrasadasCount,
     minhasTarefasConcluidas7,
     minhasTarefasLista,
+    tarefasComigo,
+    tarefasComigoAtrasadasCount,
     conflitosAgendaCount,
     gestao,
     sistema,

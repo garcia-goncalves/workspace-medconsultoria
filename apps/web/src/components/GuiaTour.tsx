@@ -197,6 +197,13 @@ const GUIA_PROJETOS: Passo[] = [
   { icon: CalendarClock, titulo: "Cronômetro", descricao: "Inicie e pare o cronômetro no cartão para registrar o tempo trabalhado. Cada sessão vira um registro — útil para acompanhar esforço por projeto." },
 ];
 
+const GUIA_TAREFAS: Passo[] = [
+  { icon: ListChecks, titulo: "Pedidos entre a equipe", descricao: "Tarefas é o lugar do “me resolve isso” — pedidos e delegações entre as pessoas da equipe. Não é entrega de cliente (isso são os Projetos) nem compromisso com hora marcada (isso é a Agenda)." },
+  { icon: Compass, titulo: "Comigo × Deleguei", descricao: "Na aba “Comigo” estão os pedidos que fizeram para você; em “Deleguei”, o que você pediu aos outros. Quem é administrador ainda vê “Da equipe”, com tudo. Filtre por Abertas, Concluídas ou Todas." },
+  { icon: MousePointerClick, titulo: "Criar e delegar", descricao: "Clique em “Nova tarefa”, escreva o que precisa e escolha o responsável (em branco = você mesmo). Dá para delegar direto da ficha do cliente e do projeto — a tarefa já nasce com o contexto." },
+  { icon: CheckCircle2, titulo: "Status, prazo e avisos", descricao: "Mude o status entre Pendente, Fazendo e Concluída — quem pediu é avisado quando você conclui. Com prazo, a tarefa aparece em “Pedidos comigo” no Início do responsável e fica em vermelho quando atrasa." },
+];
+
 const GUIA_AGENDA: Passo[] = [
   { icon: CalendarClock, titulo: "Sua agenda", descricao: "Compromissos, retornos e reuniões da empresa e pessoais. Cada evento pode ter cliente, projeto, participantes da equipe, recorrência e link de reunião. Crie no “Novo evento” ou clicando num horário." },
   { icon: Compass, titulo: "5 visões", descricao: "Alterne entre Lista, Dia, Semana, Mês e Ano. Dia e Semana são grades de horário com arrastar-para-reagendar; use “Hoje” para voltar ao presente e o filtro Empresa / Pessoal / Tudo." },
@@ -284,6 +291,7 @@ const OUTRAS: { prefixo: string; guia: Guia }[] = [
   { prefixo: "/servicos", guia: { titulo: "Serviços", passos: GUIA_SERVICOS } },
   { prefixo: "/modelos", guia: { titulo: "Modelos de documento", passos: GUIA_MODELOS } },
   { prefixo: "/projetos", guia: { titulo: "Projetos", passos: GUIA_PROJETOS } },
+  { prefixo: "/tarefas", guia: { titulo: "Tarefas", passos: GUIA_TAREFAS } },
   { prefixo: "/agenda", guia: { titulo: "Agenda", passos: GUIA_AGENDA } },
   { prefixo: "/financeiro", guia: { titulo: "Financeiro", passos: GUIA_FINANCEIRO } },
   { prefixo: "/documentos", guia: { titulo: "Documentos", passos: GUIA_DOCUMENTOS } },
