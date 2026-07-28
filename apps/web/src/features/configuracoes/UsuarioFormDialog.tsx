@@ -18,6 +18,8 @@ export interface UsuarioEditavel {
   role: Role;
   ativo: boolean;
   clienteId: string | null;
+  /** Root primordial: papel e situação ficam travados (imutável). */
+  protegido?: boolean;
 }
 
 /** Resultado de um convite, para a tela exibir o link (modo dev) ou confirmar o e-mail. */
@@ -51,12 +53,15 @@ export function UsuarioFormDialog({
   const utils = trpc.useUtils();
   const isEdit = !!usuario;
   const isSelf = usuario?.id === user.id;
+  const protegido = !!usuario?.protegido;
+  // Root primordial ou você mesmo: papel/situação travados.
+  const papelTravado = isSelf || protegido;
   const clientes = trpc.clientes.list.useQuery(undefined, { enabled: open });
 
-  // Só é possível atribuir papéis abaixo do seu (ex.: só ROOT cria ADMIN).
-  // Mantém o papel atual do alvo na lista para que a edição não o esconda.
+  // Papéis atribuíveis: em geral só abaixo do seu (ex.: ADMIN cria Funcionário). O ROOT pode
+  // atribuir QUALQUER papel, inclusive ROOT (cria outros roots). Mantém o papel atual do alvo.
   const rolesDisponiveis = ROLES.filter(
-    (r) => ROLE_LEVEL[r] < ROLE_LEVEL[user.role] || r === usuario?.role,
+    (r) => user.role === "ROOT" || ROLE_LEVEL[r] < ROLE_LEVEL[user.role] || r === usuario?.role,
   );
 
   const {
@@ -161,7 +166,7 @@ export function UsuarioFormDialog({
             <Label htmlFor="role" hint="Determina o que a pessoa pode acessar no sistema. Funcionário vê o essencial; Administrador gere a empresa; Root tem acesso técnico total.">
               Papel *
             </Label>
-            <Select id="role" disabled={isSelf} {...register("role")}>
+            <Select id="role" disabled={papelTravado} {...register("role")}>
               {rolesDisponiveis.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABEL[r]}
@@ -169,12 +174,13 @@ export function UsuarioFormDialog({
               ))}
             </Select>
             {isSelf && <p className="text-xs text-muted-foreground">Você não altera o próprio papel.</p>}
+            {protegido && !isSelf && <p className="text-xs text-muted-foreground">Root principal — sempre ROOT (não pode ser alterado).</p>}
           </div>
 
           {isEdit && (
             <div className="space-y-1.5">
               <Label htmlFor="ativo">Situação</Label>
-              <Select id="ativo" disabled={isSelf} {...register("ativo")}>
+              <Select id="ativo" disabled={papelTravado} {...register("ativo")}>
                 <option value="true">Ativo</option>
                 <option value="false">Inativo</option>
               </Select>

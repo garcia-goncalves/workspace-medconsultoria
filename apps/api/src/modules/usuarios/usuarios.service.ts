@@ -71,12 +71,18 @@ const publicSelect = {
   cliente: { select: { nome: true } },
 } as const;
 
+/** O root "primordial" (config): imutável — nunca perde ROOT, nunca é desativado/excluído. */
+function ehRootProtegido(email: string): boolean {
+  return email.trim().toLowerCase() === config.ROOT_PROTEGIDO_EMAIL.trim().toLowerCase();
+}
+
 /**
- * Impede escalonamento de privilégio: só se atribui papel **estritamente abaixo**
- * do seu (ex.: ADMIN cria Funcionário/Cliente; só ROOT cria ADMIN). Assim um admin
- * não pode criar/promover outro admin nem tomar conta de um par.
+ * Impede escalonamento de privilégio. Regra geral: só se atribui papel **estritamente abaixo**
+ * do seu (ex.: ADMIN cria Funcionário/Cliente). EXCEÇÃO: o **ROOT** pode atribuir qualquer papel,
+ * inclusive ROOT — é ele quem cria/gerencia outros roots.
  */
 export function assertPodeAtribuir(atorRole: Role, alvoRole: Role) {
+  if (atorRole === "ROOT") return;
   if (ROLE_LEVEL[alvoRole] >= ROLE_LEVEL[atorRole]) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -101,7 +107,8 @@ export async function listUsuarios() {
     orderBy: [{ ativo: "desc" }, { nome: "asc" }],
   });
   // "Pendente" = convidado mas ainda não definiu a senha. Nunca expomos o hash.
-  return users.map(({ passwordHash, ...u }) => ({ ...u, pendente: passwordHash === null }));
+  // "protegido" = root primordial (não pode ser rebaixado/desativado/excluído).
+  return users.map(({ passwordHash, ...u }) => ({ ...u, pendente: passwordHash === null, protegido: ehRootProtegido(u.email) }));
 }
 
 /** Equipe interna ativa (para atribuir responsáveis) — sem clientes de Portal. */
@@ -193,7 +200,7 @@ export async function reenviarConvite(atorRole: Role, id: string) {
   if (alvo.passwordHash !== null) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Este usuário já definiu a senha." });
   }
-  if (ROLE_LEVEL[alvo.role] >= ROLE_LEVEL[atorRole]) {
+  if (ROLE_LEVEL[alvo.role] >= ROLE_LEVEL[atorRole] && atorRole !== "ROOT") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão sobre este usuário." });
   }
   const convite = await gerarConvite(alvo.id, alvo.nome, alvo.email, alvo.role);
@@ -206,10 +213,12 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
     throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado." });
   }
   // Só se gerencia OUTROS usuários estritamente abaixo do seu papel (a si mesmo
-  // sempre — com as restrições de auto-edição abaixo). Impede tomada de par.
-  if (input.id !== atorId && ROLE_LEVEL[alvo.role] >= ROLE_LEVEL[atorRole]) {
+  // sempre — com as restrições de auto-edição abaixo). EXCEÇÃO: o ROOT pode gerir
+  // outros ROOTs (pares). Impede tomada de par por quem não é ROOT.
+  if (input.id !== atorId && ROLE_LEVEL[alvo.role] >= ROLE_LEVEL[atorRole] && atorRole !== "ROOT") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão sobre este usuário." });
   }
+  const protegido = ehRootProtegido(alvo.email);
 
   const data: {
     nome?: string;
@@ -239,6 +248,9 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
     if (input.id === atorId) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Você não pode alterar o próprio papel." });
     }
+    if (protegido) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "O root principal não pode deixar de ser ROOT." });
+    }
     assertPodeAtribuir(atorRole, input.role);
     data.role = input.role;
   }
@@ -246,6 +258,9 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
   if (input.ativo !== undefined) {
     if (input.id === atorId && input.ativo === false) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "Você não pode desativar a própria conta." });
+    }
+    if (protegido && input.ativo === false) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "O root principal não pode ser desativado." });
     }
     data.ativo = input.ativo;
   }
@@ -316,9 +331,13 @@ export async function deleteUsuario(
   if (!alvo || alvo.deletedAt) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado." });
   }
-  // Só se exclui usuário de papel estritamente abaixo do seu (protege pares e ROOT).
-  if (ROLE_LEVEL[alvo.role] >= ROLE_LEVEL[atorRole]) {
+  // Só se exclui usuário de papel estritamente abaixo do seu. EXCEÇÃO: o ROOT pode excluir
+  // outro ROOT (par) — mas NUNCA o root primordial.
+  if (ROLE_LEVEL[alvo.role] >= ROLE_LEVEL[atorRole] && atorRole !== "ROOT") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão para excluir este usuário." });
+  }
+  if (ehRootProtegido(alvo.email)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "O root principal não pode ser excluído." });
   }
 
   // Valida o destino da transferência: membro da equipe ativo (nunca o próprio excluído nem um Cliente).

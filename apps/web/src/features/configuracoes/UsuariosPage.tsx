@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { UserPlus, Pencil, Trash2, Users, Send } from "lucide-react";
+import { UserPlus, Pencil, Trash2, Users, Send, ShieldCheck } from "lucide-react";
 import { ROLE_LABEL, ROLE_LEVEL, type Role } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { useAuth } from "../../lib/auth-context";
@@ -35,12 +35,13 @@ export function UsuariosPage() {
       setConviteInfo({ email: r.email, conviteUrl: r.conviteUrl, emailEnviado: r.emailEnviado }),
   });
 
-  // Só é possível gerenciar a si mesmo ou usuários de papel abaixo do seu.
+  // Gerenciar a si mesmo, usuários de papel abaixo do seu, ou — sendo ROOT — qualquer um
+  // (o ROOT gere outros roots; o root primordial tem os controles travados no formulário).
   const podeEditar = (u: { id: string; role: Role }) =>
-    u.id === user.id || ROLE_LEVEL[u.role] < ROLE_LEVEL[user.role];
-  // Excluir exige papel estritamente abaixo do seu (nunca a si mesmo nem pares/ROOT).
-  const podeExcluir = (u: { id: string; role: Role }) =>
-    u.id !== user.id && ROLE_LEVEL[u.role] < ROLE_LEVEL[user.role];
+    u.id === user.id || ROLE_LEVEL[u.role] < ROLE_LEVEL[user.role] || user.role === "ROOT";
+  // Excluir: nunca a si mesmo nem o root primordial; papel abaixo do seu ou — sendo ROOT — um par.
+  const podeExcluir = (u: { id: string; role: Role; protegido?: boolean }) =>
+    u.id !== user.id && !u.protegido && (ROLE_LEVEL[u.role] < ROLE_LEVEL[user.role] || user.role === "ROOT");
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -93,7 +94,14 @@ export function UsuariosPage() {
                 </TD>
                 <TD className="text-muted-foreground">{u.email}</TD>
                 <TD>
-                  <Badge variant={roleVariant[u.role]}>{ROLE_LABEL[u.role]}</Badge>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Badge variant={roleVariant[u.role]}>{ROLE_LABEL[u.role]}</Badge>
+                    {u.protegido && (
+                      <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground" title="Root principal — não pode ser rebaixado, desativado nem excluído">
+                        <ShieldCheck className="h-3.5 w-3.5" /> principal
+                      </span>
+                    )}
+                  </span>
                 </TD>
                 <TD className="text-muted-foreground">{u.cliente?.nome ?? "—"}</TD>
                 <TD>
@@ -142,6 +150,7 @@ export function UsuariosPage() {
                           role: u.role,
                           ativo: u.ativo,
                           clienteId: u.clienteId,
+                          protegido: u.protegido,
                         })
                       }
                     >

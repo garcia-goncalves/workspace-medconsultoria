@@ -11,7 +11,10 @@ const raiz = resolve(__dirname, "../../../..");
  */
 describe("contas reais da equipe", () => {
   it("cobre ROOT e ADMIN", () => {
-    expect(EQUIPE_REAL.map((m) => m.role).sort()).toEqual(["ADMIN", "ROOT"]);
+    // Cobertura (não contagem fixa): precisa haver ao menos um ROOT e um ADMIN na equipe real.
+    const papeis = EQUIPE_REAL.map((m) => m.role);
+    expect(papeis).toContain("ROOT");
+    expect(papeis).toContain("ADMIN");
   });
 
   it("os e-mails batem com os documentados em docs/ACESSOS.md", () => {
