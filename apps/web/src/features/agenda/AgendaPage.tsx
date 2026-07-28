@@ -271,12 +271,20 @@ export function AgendaPage() {
     return map;
   }, [filtrados]);
 
-  // Conflitos de horário no período visível (para marcar na grade e avisar em cima).
+  // Conflitos de horário no período visível. Calculado sobre TODOS os eventos do período
+  // (não a lista filtrada): filtrar por tipo/escopo/dono não pode ESCONDER um conflito real.
   const conflitoIds = useMemo(() => {
+    const porDiaTodos = new Map<string, Occ[]>();
+    for (const ev of eventos.data ?? []) {
+      const k = dayKey(ev.inicio);
+      const arr = porDiaTodos.get(k) ?? [];
+      arr.push(ev);
+      porDiaTodos.set(k, arr);
+    }
     const s = new Set<string>();
-    for (const arr of porDia.values()) for (const id of conflitosNoDia(arr)) s.add(id);
+    for (const arr of porDiaTodos.values()) for (const id of conflitosNoDia(arr)) s.add(id);
     return s;
-  }, [porDia]);
+  }, [eventos.data]);
 
   const abrirEdicao = (ev: Occ) =>
     setEditar({

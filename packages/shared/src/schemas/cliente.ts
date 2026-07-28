@@ -2,6 +2,10 @@ import { z } from "zod";
 
 export const clienteTipoEnum = z.enum(["PF", "PJ"]);
 export type ClienteTipo = z.infer<typeof clienteTipoEnum>;
+export const CLIENTE_TIPO_LABEL: Record<ClienteTipo, string> = {
+  PF: "Pessoa física",
+  PJ: "Pessoa jurídica",
+};
 
 /**
  * Situação da relação comercial da conta (Cliente). PROSPECT/NEGOCIACAO/PERDIDO são

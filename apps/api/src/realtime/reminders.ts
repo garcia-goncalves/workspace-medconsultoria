@@ -2,6 +2,7 @@ import { prisma } from "@app/db";
 import { notificar } from "../modules/notificacoes/notificacoes.service.js";
 import { enviarEmailTemplate } from "../modules/emails/enviados.service.js";
 import { garantirProximasRecorrencias } from "../modules/financeiro/contas.service.js";
+import { hojeBRT } from "../lib/datas.js";
 
 const JANELA_MIN = 15;
 const SCAN_MIN = 10;
@@ -159,8 +160,7 @@ export async function scanProativo(): Promise<void> {
   // 2) Contas: alerta de VENCIDA e de A VENCER (≤7 dias, mesma janela do chip do Início).
   //    Carteira EMPRESA → todos os admins; carteira PESSOAL → SÓ o dono (a vida particular
   //    de um não vaza p/ outro).
-  const inicioHoje = new Date(agora);
-  inicioHoje.setHours(0, 0, 0, 0);
+  const inicioHoje = hojeBRT();
   const em7diasContas = new Date(inicioHoje.getTime() + 7 * 86_400_000);
   const contas = await prisma.conta.findMany({
     where: { deletedAt: null, pago: false, vencimento: { lt: em7diasContas } },

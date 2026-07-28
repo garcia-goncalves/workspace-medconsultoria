@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import type { CreateEventoInput, UpdateEventoInput, Recorrencia, ConflitoEventoInput } from "@app/shared";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
@@ -155,8 +156,17 @@ export async function createEvento(input: CreateEventoInput, userId: string, avi
   return evento;
 }
 
-export async function updateEvento(input: UpdateEventoInput, avisarCliente = false) {
+/** Evento PESSOAL só pode ser editado/removido pelo próprio dono (a vida particular de um não é de outro). */
+async function assertPodeMexerEvento(id: string, userId: string) {
+  const ev = await prisma.evento.findFirst({ where: { id, deletedAt: null }, select: { escopo: true, donoId: true } });
+  if (!ev) throw new TRPCError({ code: "NOT_FOUND", message: "Evento não encontrado." });
+  if (ev.escopo === "PESSOAL" && ev.donoId !== userId)
+    throw new TRPCError({ code: "FORBIDDEN", message: "Este é um compromisso pessoal de outra pessoa." });
+}
+
+export async function updateEvento(input: UpdateEventoInput, userId: string, avisarCliente = false) {
   const { id, participanteIds, ...rest } = input;
+  await assertPodeMexerEvento(id, userId);
   const atual = await prisma.evento.findUnique({ where: { id }, select: { inicio: true } });
   const data: Record<string, unknown> = {};
   if (rest.titulo !== undefined) data.titulo = rest.titulo.trim();
@@ -200,6 +210,7 @@ export async function updateEvento(input: UpdateEventoInput, avisarCliente = fal
 }
 
 export async function removeEvento(id: string, userId: string) {
+  await assertPodeMexerEvento(id, userId);
   await prisma.evento.update({ where: { id }, data: { deletedAt: new Date() } });
   await prisma.activityLog.create({
     data: { userId, acao: "evento.removido", entidadeTipo: "evento", entidadeId: id },

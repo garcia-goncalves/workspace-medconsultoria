@@ -46,6 +46,7 @@ import {
 } from "@app/shared";
 import { trpc, type RouterOutputs } from "../../lib/trpc";
 import { useAuth } from "../../lib/auth-context";
+import { TarefaFormDialog } from "../tarefas/TarefaFormDialog";
 import { PageHeader } from "../../components/ui/page-header";
 import { Badge, type BadgeProps } from "../../components/ui/badge";
 import { Skeleton } from "../../components/ui/skeleton";
@@ -265,6 +266,7 @@ function PlanoDoDia() {
 }
 
 function AcoesRapidas() {
+  const [novaTarefa, setNovaTarefa] = useState(false);
   const acoes: { to: string; icon: LucideIcon; label: string }[] = [
     { to: "/leads", icon: Filter, label: "Novo lead" },
     { to: "/clientes", icon: Building2, label: "Novo cliente" },
@@ -272,19 +274,24 @@ function AcoesRapidas() {
     { to: "/agenda", icon: Calendar, label: "Novo evento" },
     { to: "/projetos", icon: FolderKanban, label: "Novo projeto" },
   ];
+  const classe =
+    "inline-flex items-center gap-1.5 rounded-lg border bg-background/60 px-3 py-1.5 text-sm font-medium shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/40";
   return (
     <div className="flex flex-wrap gap-2 p-4">
       {acoes.map((a) => (
-        <Link
-          key={a.to + a.label}
-          to={a.to}
-          className="inline-flex items-center gap-1.5 rounded-lg border bg-background/60 px-3 py-1.5 text-sm font-medium shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/40"
-        >
+        <Link key={a.to + a.label} to={a.to} className={classe}>
           <Plus className="h-3.5 w-3.5 text-primary" />
           <a.icon className="h-4 w-4 text-muted-foreground" />
           {a.label}
         </Link>
       ))}
+      {/* Abre o formulário de tarefa direto (não navega) — pedido do dono. */}
+      <button type="button" onClick={() => setNovaTarefa(true)} className={classe}>
+        <Plus className="h-3.5 w-3.5 text-primary" />
+        <ListTodo className="h-4 w-4 text-muted-foreground" />
+        Nova tarefa
+      </button>
+      <TarefaFormDialog open={novaTarefa} onClose={() => setNovaTarefa(false)} />
     </div>
   );
 }

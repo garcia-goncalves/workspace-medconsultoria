@@ -725,7 +725,7 @@ async function avisarEquipeSobreLead(
   const avisar = new Set<string>(gestao.map((g) => g.id));
   if (lead.responsavelId) avisar.add(lead.responsavelId);
   for (const uid of avisar) {
-    await notificar(uid, tipo, { contato }, { entidadeTipo: "lead", entidadeId: lead.id });
+    void notificar(uid, tipo, { contato }, { entidadeTipo: "lead", entidadeId: lead.id }).catch(() => {});
   }
 }
 
@@ -859,7 +859,7 @@ export async function solicitarServicosPeloCliente(clienteId: string, servicoIds
   const avisar = new Set<string>(gestao.map((g) => g.id));
   if (alvo.responsavelId) avisar.add(alvo.responsavelId);
   for (const uid of avisar) {
-    await notificar(uid, "servico_solicitado", { contato, servicos: nomes }, { entidadeTipo: "lead", entidadeId: alvo.id });
+    void notificar(uid, "servico_solicitado", { contato, servicos: nomes }, { entidadeTipo: "lead", entidadeId: alvo.id }).catch(() => {});
   }
   return { ok: true };
 }
@@ -1262,7 +1262,7 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
   if (lead.responsavelId) avisar.add(lead.responsavelId);
   avisar.delete(userId);
   for (const uid of avisar) {
-    await notificar(uid, "lead_convertido", { cliente: nomeCliente }, { entidadeTipo: "cliente", entidadeId: clienteId });
+    void notificar(uid, "lead_convertido", { cliente: nomeCliente }, { entidadeTipo: "cliente", entidadeId: clienteId }).catch(() => {});
   }
 
   // Acesso ao Portal + boas-vindas — só quando a equipe optar por avisar o cliente
@@ -1344,7 +1344,7 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
         select: { id: true },
       });
       for (const u of equipe) {
-        await notificar(u.id, "lead_novo", { contato }, { entidadeTipo: "lead", entidadeId: existente.id });
+        void notificar(u.id, "lead_novo", { contato }, { entidadeTipo: "lead", entidadeId: existente.id }).catch(() => {});
       }
       return { ok: true };
     }
@@ -1391,7 +1391,7 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
     select: { id: true },
   });
   for (const u of equipe) {
-    await notificar(u.id, "lead_novo", { contato }, { entidadeTipo: "lead", entidadeId: lead.id });
+    void notificar(u.id, "lead_novo", { contato }, { entidadeTipo: "lead", entidadeId: lead.id }).catch(() => {});
   }
 
   return { ok: true };

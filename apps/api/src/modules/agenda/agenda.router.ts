@@ -17,9 +17,9 @@ export const agendaRouter = router({
 
   update: funcionarioProcedure
     .input(updateEventoSchema.and(z.object({ avisarCliente: z.boolean().optional() })))
-    .mutation(({ input }) => {
+    .mutation(({ input, ctx }) => {
       const { avisarCliente, ...dados } = input;
-      return service.updateEvento(dados, avisarCliente ?? false);
+      return service.updateEvento(dados, ctx.user.id, avisarCliente ?? false);
     }),
 
   remove: funcionarioProcedure

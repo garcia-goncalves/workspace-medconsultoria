@@ -259,6 +259,8 @@ async function criarCardsDoServico(projetoId: string, servicoId: string, servico
   }
 
   for (const id of criados) await reconciliarStatusCard(id);
+  // Alinha o status do projeto aos cartões recém-criados (reabre se estava Concluído).
+  await reconciliarStatusProjeto(projetoId);
 }
 
 /**
