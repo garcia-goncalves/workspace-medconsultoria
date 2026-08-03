@@ -24,6 +24,10 @@ cobre as **fatias 1 e 2** da seção 11 daquele documento.
 Valem para **todas** as tarefas deste plano.
 
 - **Idioma:** todo texto de interface, mensagem de erro, comentário e commit em **pt-BR**.
+- **`noUncheckedIndexedAccess` está ligado.** Todo acesso por índice (`partes[1]`,
+  `email.split("@")[1]`, `lista[0]`) devolve `T | undefined`. Trate com checagem explícita que
+  produza mensagem útil em pt-BR — **nunca** com `as string` nem com `!` em código de produção
+  (em teste, `!` é aceitável). Custou duas rodadas na Tarefa 1; não repita.
 - **Camadas:** `router` (tRPC + Zod + autorização) → `service` (regra, sem saber de HTTP) →
   Prisma. Nunca Prisma dentro de router.
 - **Autorização:** tudo neste bloco usa `funcionarioProcedure` (equipe interna; exclui o papel
@@ -200,11 +204,10 @@ export function cifrar(texto: string): string {
 
 /** Decifra. Lança se a chave estiver errada OU se o conteúdo tiver sido adulterado (GCM). */
 export function decifrar(guardado: string): string {
-  const partes = guardado.split(":");
-  if (partes.length !== 4 || partes[0] !== VERSAO) {
+  const [versao, ivB64, tagB64, cifradoB64] = guardado.split(":");
+  if (versao !== VERSAO || !ivB64 || !tagB64 || !cifradoB64) {
     throw new Error("Formato de segredo desconhecido — a caixa precisa ser reconectada.");
   }
-  const [, ivB64, tagB64, cifradoB64] = partes;
   const d = createDecipheriv("aes-256-gcm", chave(), Buffer.from(ivB64, "base64"));
   d.setAuthTag(Buffer.from(tagB64, "base64"));
   return Buffer.concat([d.update(Buffer.from(cifradoB64, "base64")), d.final()]).toString("utf8");
@@ -621,8 +624,12 @@ describe("sanitizarEmailHtml", () => {
   it("bloqueia imagem remota e conta quantas", () => {
     const r = sanitizarEmailHtml('<img src="https://rastreio/pixel.gif"><img src="http://outro/a.png">');
     expect(r.imagensRemotasBloqueadas).toBe(2);
-    expect(r.html).not.toContain("https://rastreio/pixel.gif");
-    expect(r.html).toContain("data-src-bloqueada");
+    // O que precisa ser verdade é que NENHUMA imagem tem `src` — o navegador não busca nada.
+    // A URL continua no HTML, guardada em `data-src-bloqueada`: é dela que o botão
+    // "Mostrar imagens" precisa. Afirmar que a URL sumiu quebraria esse botão.
+    expect(r.html).not.toMatch(/<img[^>]*\ssrc=/);
+    expect(r.html).toContain('data-src-bloqueada="https://rastreio/pixel.gif"');
+    expect(r.html).toContain('data-src-bloqueada="http://outro/a.png"');
   });
 
   it("preserva formatação legítima de e-mail (tabela, negrito, link http)", () => {
