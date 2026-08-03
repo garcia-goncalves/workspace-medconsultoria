@@ -33,6 +33,10 @@ const schema = z.object({
   // a aba mostra "não configurado neste ambiente" (degrada com elegância).
   BACKUPS_DIR: z.string().optional(),
   OPS_DIR: z.string().optional(),
+  // Chave de cifra das senhas das caixas de e-mail plugadas pela equipe (32 bytes em base64).
+  // Gerar com: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+  // Ausente → o e-mail dentro da aplicação fica DESLIGADO (mesma degradação do SMTP).
+  EMAIL_CRYPTO_KEY: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -78,3 +82,13 @@ const iaDesligada = ["false", "0", "off", "no"].includes((config.IA_ENABLED ?? "
 export const isAiEnabled = !!config.OPENAI_API_KEY && !iaDesligada;
 /** E-mail "real" só quando SMTP está completo; caso contrário, modo dev (link em tela). */
 export const isEmailReal = !!(config.SMTP_HOST && config.SMTP_USER && config.SMTP_PASS);
+/** E-mail dentro da app (IMAP por usuário) só liga com a chave de cifra presente e válida. */
+export const isEmailAppEnabled = (() => {
+  const b64 = config.EMAIL_CRYPTO_KEY;
+  if (!b64) return false;
+  try {
+    return Buffer.from(b64, "base64").length === 32;
+  } catch {
+    return false;
+  }
+})();
