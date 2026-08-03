@@ -409,14 +409,26 @@ No model `User` de `packages/db/prisma/schema.prisma`, junto das outras relaçõ
 
 - [ ] **Passo 4 — gerar a migration**
 
-Rodar: `pnpm db:migrate -- --name email_caixas`
+Rodar (da raiz do repositório, no Bash):
+
+```bash
+set -a; . ./.env; set +a
+pnpm --filter @app/db exec prisma migrate dev --name email_caixas --skip-generate
+```
+
+**Por que não é `pnpm db:migrate`:** o script roda o Prisma com o diretório de trabalho em
+`packages/db`, e o `.env` vive na **raiz** — o Prisma não o enxerga e morre com
+`P1012: Environment variable not found: DATABASE_URL`. Carregar o `.env` no ambiente antes
+resolve. (Custou uma rodada na execução real; não repita.)
+
 Esperado: cria `packages/db/prisma/migrations/<timestamp>_email_caixas/migration.sql` e aplica no
 MySQL da porta 3307. Se recusar por interatividade, gerar com `prisma migrate diff` e aplicar com
 `prisma migrate deploy` (armadilha conhecida do projeto).
 
 - [ ] **Passo 5 — gerar o client e conferir que compila**
 
-Rodar: `pnpm db:generate && pnpm --filter @app/api typecheck`
+Rodar (**no mesmo shell** do passo anterior, com o `.env` já carregado):
+`pnpm db:generate && pnpm --filter @app/api typecheck`
 Esperado: sem erro.
 
 - [ ] **Passo 6 — despausar o keep-alive e confirmar que a app voltou**
@@ -757,8 +769,16 @@ git commit -m "feat(email): higienização do HTML recebido (camada 1 de 3)"
 
 - [ ] **Passo 1 — instalar as dependências**
 
-Rodar: `pnpm --filter @app/api add imapflow mailparser`
-Esperado: entram em `apps/api/package.json`. (`imapflow` e `mailparser` trazem os próprios tipos.)
+Rodar:
+
+```bash
+pnpm --filter @app/api add imapflow mailparser
+pnpm --filter @app/api add -D @types/mailparser
+```
+
+Esperado: entram em `apps/api/package.json`. **`imapflow` traz os próprios tipos; `mailparser`
+NÃO traz** (`package.json` dele não tem `types`) — sem `@types/mailparser` a Tarefa 8 não compila.
+(Verificado na execução real; o plano dizia o contrário.)
 
 - [ ] **Passo 2 — implementar**
 
@@ -925,8 +945,11 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
 
   beforeAll(async () => {
     process.env.EMAIL_CRYPTO_KEY ||= randomBytes(32).toString("base64");
+    // O banco dos testes é ISOLADO (medconsultoria_test) — a vitest.config injeta a URL.
+    expect(process.env.DATABASE_URL).toContain("_test");
     const u = await prisma.user.create({
-      data: { nome: "Teste E-mail", email: `email-teste-${randomBytes(4).toString("hex")}@exemplo.local`, senhaHash: "x", role: "FUNCIONARIO" },
+      // O campo do model User é `passwordHash` — NÃO `senhaHash`.
+      data: { nome: "Teste E-mail", email: `email-teste-${randomBytes(4).toString("hex")}@exemplo.local`, passwordHash: "x", role: "FUNCIONARIO" },
     });
     userId = u.id;
   });
@@ -962,6 +985,17 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
 
 Antes, garantir no `.env` da raiz (arquivo **não** versionado):
 `EMAIL_TESTE_USER=teste@medconsultoria.com.br` e `EMAIL_TESTE_PASS=<a senha da caixa de teste>`.
+
+**E aplicar a migration no banco de teste** (ele é separado — `medconsultoria_test`; o
+`migrate dev` do passo anterior só tocou o banco de dev):
+
+```bash
+set -a; . ./.env; set +a
+DATABASE_URL="${DATABASE_URL}_test" pnpm --filter @app/db exec prisma migrate deploy
+```
+
+**Sem as duas variáveis o `describe` é PULADO** — o teste não falha, ele some do placar
+(4 skipped). Não confunda "pulou" com "passou".
 
 Rodar: `pnpm --filter @app/api test -- email-caixa`
 Esperado: FALHA com "Cannot find module '../modules/email/caixas.service.js'".
@@ -1157,10 +1191,19 @@ export async function sincronizarPastas(caixaId: string): Promise<void> {
     return lista.map((p) => ({ caminho: p.path, specialUse: p.specialUse ?? null }));
   });
 
+  // Servidor sem NENHUMA pasta não existe (a INBOX é obrigatória). Lista vazia é sinal de
+  // resposta truncada — apagar tudo aqui levaria junto o cache de mensagens de todas as pastas.
+  // (Sem esta guarda, o `deleteMany` com `notIn: []` do fim da função limpa a caixa inteira.)
+  if (doServidor.length === 0) {
+    throw new Error("O servidor não devolveu nenhuma pasta. Tente sincronizar de novo.");
+  }
+
   const vistos: string[] = [];
 
   for (const p of doServidor) {
-    const papel = (p.specialUse && POR_SPECIAL_USE[p.specialUse]) ?? null;
+    // `(p.specialUse && POR_SPECIAL_USE[p.specialUse]) ?? null` NÃO compila: com
+    // `noUncheckedIndexedAccess`, o tipo resultante inclui a string vazia.
+    const papel = p.specialUse ? (POR_SPECIAL_USE[p.specialUse] ?? null) : null;
     vistos.push(p.caminho);
     await prisma.caixaPasta.upsert({
       where: { caixaId_caminho: { caixaId, caminho: p.caminho } },
