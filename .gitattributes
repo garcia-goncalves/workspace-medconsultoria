@@ -1,0 +1,35 @@
+# Finais de linha — este projeto é editado no Windows 11 e no Parrot OS.
+# Sem esta normalização, o mesmo arquivo aparece como modificado só por
+# trocar de sistema operacional. Ver ~/.claude/DUALBOOT.md.
+
+* text=auto eol=lf
+
+# Precisam de CRLF para o Windows executar corretamente
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.sln text eol=crlf
+
+# Precisam de LF sempre, inclusive quando editados no Windows
+*.sh text eol=lf
+
+# Binários — nunca converter
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.avif binary
+*.svgz binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.eot  binary
+*.zip  binary
+*.gz   binary
+*.mp3  binary
+*.mp4  binary
+*.wav  binary
