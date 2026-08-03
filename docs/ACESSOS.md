@@ -73,13 +73,17 @@ Se não abrir (ex.: você reiniciou o computador), veja "Como ligar" no final.
 
 ---
 
-## 🔐 Logins de teste (senha `medconsultoria123` em todos)
+## 🔐 Contas do sistema
+
+> 🚫 **Nenhuma senha é escrita neste documento.** Em desenvolvimento, a senha das contas
+> semeadas é a do `.env` (`SEED_ROOT_PASSWORD`). Em produção, cada pessoa define a sua no
+> primeiro acesso. Se não souber a sua, use **"Esqueci minha senha"** na tela de login.
 
 | E-mail                                 | Papel        | O que vê                                                                    |
 | -------------------------------------- | ------------ | ---------------------------------------------------------------------------- |
 | `root@medconsultoria.com.br`         | ROOT         | **Root principal (imutável)** — nunca pode ser rebaixado, desativado nem excluído. Tudo + painel**Sistema**; cria e gerencia outros ROOTs/administradores |
-| `thiago.garcia@medconsultoria.com.br` | ROOT        | Root nominal (Thiago). Pode virar Admin/Funcionário se quiser; troca a senha no 1º login |
-| `andre.cintra@medconsultoria.com.br` | ROOT         | Root nominal (André). Pode virar Admin/Funcionário se quiser; troca a senha no 1º login |
+| `thiago.garcia@medconsultoria.com.br` | ROOT        | Root nominal (Thiago). Pode virar Admin/Funcionário se quiser. ⚠️ **senha inicial ainda não trocada** |
+| `andre.cintra@medconsultoria.com.br` | ROOT         | Root nominal (André). Pode virar Admin/Funcionário se quiser. ⚠️ **senha inicial ainda não trocada** |
 | `thais.garcia@medconsultoria.com.br` | ADMIN        | Tudo (inclusive Financeiro e Equipe) —**exceto** o painel Sistema      |
 
 > Estas contas são criadas pelo `pnpm db:seed` e **sobrevivem** ao `pnpm db:limpar`.
@@ -93,10 +97,10 @@ os usuários fictícios — inclusive o antigo login de teste `cliente@medconsul
 - **funcionário** → **Ajustes → Equipe e acessos → convidar** (o convite chega por e-mail);
 - **cliente** → cadastre o cliente e use **"Enviar acesso ao Portal"** na ficha dele.
 
-> ⚠️ **A senha real é a do `.env` (`SEED_ROOT_PASSWORD`)**, não a que está escrita aqui. Hoje as
-> duas coincidem (`medconsultoria123` — conferido). Se alguém mudar o `.env`, **este documento
-> passa a mentir** e o `pnpm acessos` continuará dando ✓ (ele testa com a senha do `.env`).
-> Ao trocar a senha, atualize esta tabela.
+> ⚠️ **A senha real é sempre a do `.env` (`SEED_ROOT_PASSWORD`)** — nunca a de um documento.
+> Por isso ela não é repetida aqui: documento com senha escrita envelhece, vaza no histórico do
+> Git e passa a mentir sem ninguém perceber. Para saber se um acesso está de pé, rode
+> **`pnpm acessos`** (ele testa contra a aplicação usando a senha do `.env`).
 
 ### ❓ Não está conseguindo entrar?
 

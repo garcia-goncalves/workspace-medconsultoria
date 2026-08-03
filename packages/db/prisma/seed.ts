@@ -25,7 +25,9 @@ async function main() {
   // um acesso que a pessoa já trocou.
   for (const membro of EQUIPE_REAL) {
     const email = process.env[membro.chaveEmail] ?? membro.emailPadrao;
-    const nome = process.env[`SEED_${membro.role}_NOME`] ?? membro.nome;
+    // Chave POR PESSOA (não por papel): um único SEED_ROOT_NOME chegou a batizar os três
+    // roots de "Administrador" em produção (28/07/2026). Espelha o `chaveEmail`.
+    const nome = process.env[membro.chaveNome] ?? membro.nome;
     const existente = await prisma.user.findUnique({ where: { email }, select: { id: true } });
     if (existente) {
       console.log(`• ${membro.role} já existe: ${email} — senha preservada.`);

@@ -22,13 +22,32 @@ export const STAGE_DEFAULTS = [
  * O seed só CRIA quem não existe: nunca sobrescreve a senha de uma conta já em uso.
  */
 export const EQUIPE_REAL = [
-  { chaveEmail: "SEED_ROOT_EMAIL", emailPadrao: "root@medconsultoria.com.br", nome: "Root", role: "ROOT" as const },
+  {
+    chaveEmail: "SEED_ROOT_EMAIL",
+    chaveNome: "SEED_ROOT_NOME",
+    emailPadrao: "root@medconsultoria.com.br",
+    nome: "Root",
+    role: "ROOT" as const,
+  },
   // Roots nominais (Thiago e André). Senha inicial = SEED_ROOT_PASSWORD; eles trocam no 1º login.
   // O seed só CRIA quem falta — nunca sobrescreve a senha de quem já entrou.
-  { chaveEmail: "SEED_ROOT2_EMAIL", emailPadrao: "thiago.garcia@medconsultoria.com.br", nome: "Thiago Garcia", role: "ROOT" as const },
-  { chaveEmail: "SEED_ROOT3_EMAIL", emailPadrao: "andre.cintra@medconsultoria.com.br", nome: "André Cintra", role: "ROOT" as const },
+  {
+    chaveEmail: "SEED_ROOT2_EMAIL",
+    chaveNome: "SEED_ROOT2_NOME",
+    emailPadrao: "thiago.garcia@medconsultoria.com.br",
+    nome: "Thiago Garcia",
+    role: "ROOT" as const,
+  },
+  {
+    chaveEmail: "SEED_ROOT3_EMAIL",
+    chaveNome: "SEED_ROOT3_NOME",
+    emailPadrao: "andre.cintra@medconsultoria.com.br",
+    nome: "André Cintra",
+    role: "ROOT" as const,
+  },
   {
     chaveEmail: "SEED_ADMIN_EMAIL",
+    chaveNome: "SEED_ADMIN_NOME",
     emailPadrao: "thais.garcia@medconsultoria.com.br",
     nome: "Thaís Garcia",
     role: "ADMIN" as const,

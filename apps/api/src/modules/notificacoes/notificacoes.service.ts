@@ -2,6 +2,7 @@ import { prisma } from "@app/db";
 import { EMAIL_TIPOS, EMAIL_CATEGORIAS, hasRoleLevel, type Role } from "@app/shared";
 import { enviarEmail } from "../../lib/email.js";
 import { renderTemplate } from "../emails/emails.service.js";
+import type { EmailTemplateChave } from "../emails/emails.registry.js";
 import { registrarEmailEnviado } from "../emails/enviados.service.js";
 import { notificationService } from "../../realtime/socket.js";
 import { config } from "../../config.js";
@@ -62,9 +63,16 @@ interface NotificarOpts {
  * página de E-mails), cria a notificação in-app, faz o push em tempo real e
  * dispara o e-mail — se a categoria for "emailável" e o usuário não a desativou.
  */
+/**
+ * Cria a notificação in-app e dispara o e-mail branded correspondente.
+ *
+ * `tipo` é a chave de um template do `emails.registry` — tipado como união literal de
+ * propósito: um tipo sem template fazia o `renderTemplate` explodir em RUNTIME e derrubar
+ * o scan proativo. Agora não compila.
+ */
 export async function notificar(
   userId: string,
-  tipo: string,
+  tipo: EmailTemplateChave,
   vars: Record<string, string>,
   opts: NotificarOpts = {},
 ): Promise<void> {

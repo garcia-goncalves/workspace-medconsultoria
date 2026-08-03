@@ -1136,6 +1136,35 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 
 **Verificado:** typecheck api+web limpo; lint 0 erros; teste de cobertura do guia OK; ao vivo (local) criar→status→excluir e Início com os widgets novos.
 
+## ADR-89 — Múltiplos ROOTs + root primordial imutável ✅
+
+> *Registrado retroativamente em 03/08/2026: a feature foi ao ar no PR #73 (28/07) sem virar ADR.*
+
+**Contexto:** o dono precisa que Thiago e André tenham acesso ROOT nominal (auditoria: saber **quem** fez o quê), mas o RBAC anterior (ADR-43) proibia atribuir papel igual ou acima do próprio — nenhum ROOT conseguia criar outro ROOT. O risco oposto é pior: se todos os roots forem rebaixados/excluídos, **a aplicação fica sem super-admin e sem como voltar** (não há console de recuperação numa hospedagem compartilhada).
+
+**Decisões:**
+1. **ROOT pode atribuir qualquer papel, inclusive ROOT** — `assertPodeAtribuir` ganhou `if (atorRole === "ROOT") return;`. A hierarquia estrita do ADR-43 continua valendo para ADMIN e abaixo.
+2. **Um root primordial imutável** (`config.ROOT_PROTEGIDO_EMAIL`, padrão `root@medconsultoria.com.br`): não pode ser rebaixado, desativado nem excluído — nem por outro ROOT, nem por si mesmo. É a garantia de que sempre existe uma porta de entrada. Os **demais** roots são livremente alteráveis entre si.
+3. **Escolhido e-mail de config, não uma flag no banco.** Uma coluna `protegido` seria editável por quem tivesse acesso ao banco (e um `UPDATE` errado destrava a proteção sem deixar rastro); a config vive no `.env` do servidor, fora do alcance da aplicação.
+4. **A trava é do servidor; a UI só reflete.** `updateUsuario`/`deleteUsuario` lançam `FORBIDDEN`; a tela desabilita papel/situação e mostra o selo **"principal"** (`listUsuarios` devolve `protegido`). Nunca confiar só no front.
+
+**Verificado:** 3 roots em produção, login dos dois nominais conferido, selo "principal" na tela `/usuarios`.
+
+## ADR-90 — Endurecimento: nome do seed por pessoa, âncora da recorrência e tipo de aviso no compilador ✅
+
+**Contexto:** varredura de 03/08/2026 procurando o que ainda faltava para a aplicação estar realmente sólida. Três defeitos reais, dois deles invisíveis até alguém se machucar.
+
+**Decisões:**
+1. **Chave de nome do seed é POR PESSOA, não por papel.** O seed lia `process.env["SEED_" + role + "_NOME"]`, então o único `SEED_ROOT_NOME` do servidor batizou os **três** roots de "Administrador" — e uma auditoria ("quem aprovou isso?") não distingue ninguém. Agora cada membro tem `chaveNome` própria (`SEED_ROOT2_NOME`, `SEED_ROOT3_NOME`…), espelhando o `chaveEmail` que já era por pessoa. Compatível: `root@` e Thaís mantêm as chaves antigas.
+2. **A recorrência MENSAL ancora no dia da PRIMEIRA conta da série.** O ADR anterior clampava a partir da ocorrência **anterior**, então uma série do dia 31 virava 28/02 e ficava **presa no dia 28 para sempre** (aluguel/salário do fim do mês adiantava 3 dias, todo mês, em silêncio). `proximo()` recebe `diaAncora`; gerar e reverter usam a mesma âncora, senão a reversão não acha a linha. Fevereiro voltou a ser exceção pontual.
+   **Duas consequências, ambas desejadas e sem migration:** (a) séries que já degradaram em produção **se curam sozinhas** na próxima geração (a âncora vem da conta origem, que nunca mudou); (b) mover **uma** ocorrência de dia ("esse mês pago dia 15") deixou de redefinir a série inteira — o ajuste pontual é pontual, e o mês seguinte volta ao dia combinado. Antes, cada adiamento manual virava a nova regra em silêncio.
+3. **Tipo de aviso é validado pelo compilador.** `EMAIL_TEMPLATES` era anotado `: Record<string, TemplateMeta>` — a anotação **alargava as chaves para `string`**, o que fazia `EmailTemplateChave` (o mecanismo de segurança que já existia) resolver para `string` e não proteger nada; era tipo morto, usado em lugar nenhum. Trocado por `satisfies`, que valida o objeto **e** preserva as chaves literais. `notificar(tipo)` passou a exigir `EmailTemplateChave`: um tipo sem template agora **não compila**, em vez de explodir em runtime e derrubar o scan proativo. Lookups por chave externa (CRUD de templates do admin, coluna do banco) usam o helper `templateDe(chave: string)`, que continua validando em runtime.
+4. **Os 5 bugs do Financeiro do PR #72 ganharam teste.** Tinham sido corrigidos sem cobertura nenhuma — qualquer refactor os traria de volta. `financeiro-recorrencia.test.ts` trava o clamp de fim de mês, o ano bissexto, a virada de ano e a âncora.
+
+**Não feito de propósito:** a constraint `@@unique([recorrenteId, vencimento])` segue **fora**. A causa-raiz já é tratada na aplicação (guarda de transição em `marcarPaga`); adicionar o índice exigiria ler/limpar duplicatas no banco de produção, e uma migration que falha no meio do `migrate deploy` é pior que o problema que resolve. Reavaliar só se aparecer duplicata real.
+
+**Verificado:** lint 0 erros · typecheck 6/6 · vitest 124 (92 api + 32 web) · e2e isolado.
+
 ## Pendências (viram ADR quando decididas)
 
 - ~~Passenger vs Nginx Unit na TineHost (mecanismo de restart / proxy WS).~~ **Restart** = `touch tmp/restart.txt` (LiteSpeed/lsnode). **WS resolvido no ADR-84** (tempo real por polling; não precisa de proxy WS).

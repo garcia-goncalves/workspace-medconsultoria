@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
-import { EMAIL_TEMPLATES, exemploVars } from "./emails.registry.js";
+import { EMAIL_TEMPLATES, templateDe, exemploVars } from "./emails.registry.js";
 import { montarEmail, LOGO_CID } from "../../lib/email-template.js";
 import { LOGO_PNG_BASE64 } from "../../lib/brand-assets.js";
 import { enviarEmail } from "../../lib/email.js";
@@ -29,7 +29,7 @@ interface OverrideRow {
 
 /** Campos efetivos = override do banco (se houver) sobre o padrão do registro. */
 function efetivo(chave: string, o: OverrideRow | null): CamposTemplate {
-  const d = EMAIL_TEMPLATES[chave]!.default;
+  const d = templateDe(chave)!.default;
   return {
     assunto: o?.assunto ?? d.assunto,
     titulo: o?.titulo ?? d.titulo,
@@ -41,7 +41,7 @@ function efetivo(chave: string, o: OverrideRow | null): CamposTemplate {
 
 /** Monta { assunto, titulo, corpo, html, texto } a partir de campos + variáveis. */
 function construir(chave: string, campos: CamposTemplate, vars: Record<string, string>) {
-  const meta = EMAIL_TEMPLATES[chave]!;
+  const meta = templateDe(chave)!;
   const assunto = interpolar(campos.assunto, vars);
   const titulo = interpolar(campos.titulo, vars);
   const corpo = interpolar(campos.corpo, vars); // texto plano (também usado na notificação in-app)
@@ -90,7 +90,7 @@ export async function atualizarTemplate(
   dados: CamposTemplate,
   atorNome: string,
 ) {
-  if (!EMAIL_TEMPLATES[chave]) throw new TRPCError({ code: "NOT_FOUND", message: "Template inexistente." });
+  if (!templateDe(chave)) throw new TRPCError({ code: "NOT_FOUND", message: "Template inexistente." });
   const data = {
     assunto: dados.assunto.trim(),
     titulo: dados.titulo.trim(),
@@ -132,7 +132,7 @@ function exemploCompleto(chave: string): Record<string, string> {
  * e o texto que apareceria na notificação do sino (título/corpo).
  */
 export function gerarPreview(chave: string, campos: CamposTemplate) {
-  if (!EMAIL_TEMPLATES[chave]) throw new TRPCError({ code: "NOT_FOUND", message: "Template inexistente." });
+  if (!templateDe(chave)) throw new TRPCError({ code: "NOT_FOUND", message: "Template inexistente." });
   const { html, titulo, corpo } = construir(chave, campos, exemploCompleto(chave));
   return {
     html: html.replace(`cid:${LOGO_CID}`, `data:image/png;base64,${LOGO_PNG_BASE64}`),
@@ -143,7 +143,7 @@ export function gerarPreview(chave: string, campos: CamposTemplate) {
 
 /** Envia um e-mail de teste com o template salvo e campos automáticos de exemplo. */
 export async function enviarTeste(chave: string, para: string) {
-  if (!EMAIL_TEMPLATES[chave]) throw new TRPCError({ code: "NOT_FOUND", message: "Template inexistente." });
+  if (!templateDe(chave)) throw new TRPCError({ code: "NOT_FOUND", message: "Template inexistente." });
   const { assunto, html, texto } = await renderTemplate(chave, exemploCompleto(chave));
   const { enviado } = await enviarEmail({ para, assunto: `[Teste] ${assunto}`, html, texto });
   if (!enviado) {
