@@ -30,7 +30,10 @@ export interface TemplateMeta {
  * (logo, cores, assinatura, rodapé) é fixo — o admin edita só o conteúdo. Para
  * `notificacao: true`, o título/corpo também são usados na notificação in-app (sino).
  */
-export const EMAIL_TEMPLATES: Record<string, TemplateMeta> = {
+// `satisfies` (e NÃO `: Record<string, TemplateMeta>`): a anotação alargava as chaves para
+// `string`, o que fazia `EmailTemplateChave` virar `string` e não proteger nada. Com
+// `satisfies`, o objeto continua validado contra TemplateMeta E preserva as chaves literais.
+export const EMAIL_TEMPLATES = {
   // ───────── Transacionais (e-mail; sempre enviados) ─────────
   convite: {
     label: "Convite de acesso",
@@ -709,13 +712,23 @@ export const EMAIL_TEMPLATES: Record<string, TemplateMeta> = {
       ctaTexto: "Ver no Sistema",
     },
   },
-};
+} satisfies Record<string, TemplateMeta>;
 
+/** União literal das chaves de template — use em quem DECLARA um tipo de aviso no código. */
 export type EmailTemplateChave = keyof typeof EMAIL_TEMPLATES;
+
+/**
+ * Busca por chave vinda de FORA (input do admin, coluna do banco): aceita `string` e devolve
+ * undefined se não existir. Quem escreve o tipo no próprio código deve usar
+ * `EmailTemplateChave` e ser barrado pelo compilador, não por esta função.
+ */
+export function templateDe(chave: string): TemplateMeta | undefined {
+  return (EMAIL_TEMPLATES as Record<string, TemplateMeta>)[chave];
+}
 
 /** Monta o mapa de valores de exemplo (para prévia e teste) de um template. */
 export function exemploVars(chave: string): Record<string, string> {
-  const meta = EMAIL_TEMPLATES[chave];
+  const meta = templateDe(chave);
   const vars: Record<string, string> = {};
   if (meta) for (const v of meta.variaveis) vars[v.chave] = v.exemplo;
   return vars;

@@ -13,7 +13,7 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-07-26)
+## Estado atual (2026-08-03)
 
 - **NO AR em produção:** https://workspace.medconsultoria.com.br (TineHost, **LiteSpeed/lsnode** — não Passenger).
   SSH porta **1992**; startup `app.cjs`; restart = `touch tmp/restart.txt`. Deploy: `pnpm build:deploy` → `tar | ssh` → `prisma migrate deploy` + `generate` → restart. Chave SSH em `~/.ssh/medconsultoria_deploy`.
@@ -21,8 +21,8 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - **Backup automático** do MySQL (cron diário) + **health-check/auto-restart** + **e-mail ao ROOT** quando o app cai (`scripts/server/`). SISTEMA tem aba **Operação** (ROOT).
 - **Dados da empresa editáveis** (razão social/CNPJ/endereço/foro + marca) em Ajustes → Dados da empresa (ADMIN+).
 - Confirmação em **100%** das ações destrutivas; CRUD completo em toda a app + Portal.
-- **Contas do servidor:** `root@medconsultoria.com.br` (ROOT) · `thais.garcia@medconsultoria.com.br` (ADMIN).
-- **Pendências do dono (só ele faz):** preencher dados jurídicos (Ajustes → Dados da empresa) e **rotacionar** a chave OpenAI + senha SMTP do `.env` do servidor.
+- **Contas do servidor:** `root@medconsultoria.com.br` (ROOT primordial, imutável — ADR-89) · `thiago.garcia@` e `andre.cintra@` (ROOTs nominais) · `thais.garcia@medconsultoria.com.br` (ADMIN).
+- **Pendências do dono (só ele faz):** ⚠️ **Thiago e André trocarem a senha inicial** (provisionada em 28/07, ainda ativa) · preencher dados jurídicos (Ajustes → Dados da empresa) · **rotacionar** a chave OpenAI + senha SMTP do `.env` do servidor · avaliar tirar `SEED_ROOT_NOME` do `.env` do servidor (hoje nomeia o root primordial de "Administrador").
 
 ## Onde está a verdade (ler nesta ordem)
 

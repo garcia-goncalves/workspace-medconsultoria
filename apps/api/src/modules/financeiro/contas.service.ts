@@ -19,15 +19,19 @@ const mapConta = <T extends { valor: { toNumber(): number } }>(c: T) => ({
 
 /**
  * Próxima ocorrência de uma série recorrente. Tudo em UTC (as datas são gravadas em
- * meia-noite UTC). No MENSAL, fixa o dia de origem e CLAMPA ao último dia do mês alvo —
- * assim 31/01 vira 28/02 (ou 29 em bissexto), sem "vazar" para março nem pular meses.
+ * meia-noite UTC). No MENSAL, usa o dia da ÂNCORA da série e CLAMPA ao último dia do mês
+ * alvo — assim 31/01 vira 28/02 (ou 29 em bissexto), sem "vazar" para março nem pular meses.
+ *
+ * `diaAncora` é o dia do vencimento da PRIMEIRA conta da série. Sem ele, o clamp partiria da
+ * ocorrência anterior e a série degradaria de vez: 31/01 → 28/02 → 28/03 → 28/04… Com ele,
+ * fevereiro é só uma exceção pontual e a série volta ao dia 31 em março.
  */
-function proximo(data: Date, r: Recorrencia): Date {
+export function proximo(data: Date, r: Recorrencia, diaAncora?: number): Date {
   const d = new Date(data);
   if (r === "DIARIA") return somarDiasUTC(d, 1);
   if (r === "SEMANAL") return somarDiasUTC(d, 7);
   if (r === "MENSAL") {
-    const dia = d.getUTCDate();
+    const dia = diaAncora ?? d.getUTCDate();
     const ano = d.getUTCFullYear();
     const mes = d.getUTCMonth() + 1;
     // Último dia do mês alvo: dia 0 do mês seguinte.
@@ -35,6 +39,19 @@ function proximo(data: Date, r: Recorrencia): Date {
     return new Date(Date.UTC(ano, mes, Math.min(dia, ultimoDiaAlvo), 0, 0, 0));
   }
   return d;
+}
+
+/**
+ * Dia do mês que ancora a série: o vencimento da conta ORIGEM (a 1ª). Uma conta sem
+ * `recorrenteId` é ela própria a origem. Se a origem sumiu, cai no dia da própria conta.
+ */
+async function diaAncoraDaSerie(conta: ContaSerie): Promise<number> {
+  if (!conta.recorrenteId) return conta.vencimento.getUTCDate();
+  const origem = await prisma.conta.findUnique({
+    where: { id: conta.recorrenteId },
+    select: { vencimento: true },
+  });
+  return (origem?.vencimento ?? conta.vencimento).getUTCDate();
 }
 
 /**
@@ -143,7 +160,9 @@ export async function marcarPaga(id: string, pago: boolean, ctx: Ctx) {
 /** Desfaz a materialização: soft-delete da próxima ocorrência gerada (se ainda pendente). */
 async function reverterSucessora(conta: ContaSerie): Promise<void> {
   const serie = conta.recorrenteId ?? conta.id;
-  const prox = proximo(conta.vencimento, conta.recorrencia);
+  // Mesma âncora usada para GERAR — senão o vencimento calculado aqui não bate com o da
+  // sucessora e a reversão não acha a linha para apagar.
+  const prox = proximo(conta.vencimento, conta.recorrencia, await diaAncoraDaSerie(conta));
   await prisma.conta.updateMany({
     where: { deletedAt: null, pago: false, vencimento: prox, recorrenteId: serie },
     data: { deletedAt: new Date() },
@@ -171,7 +190,7 @@ type ContaSerie = {
 async function gerarProximaOcorrencia(conta: ContaSerie): Promise<boolean> {
   if (conta.recorrencia === "NENHUMA") return false;
   const serie = conta.recorrenteId ?? conta.id;
-  const prox = proximo(conta.vencimento, conta.recorrencia);
+  const prox = proximo(conta.vencimento, conta.recorrencia, await diaAncoraDaSerie(conta));
   if (conta.recorrenciaAte && prox > conta.recorrenciaAte) return false;
   const existe = await prisma.conta.findFirst({
     where: { deletedAt: null, vencimento: prox, OR: [{ id: serie }, { recorrenteId: serie }] },

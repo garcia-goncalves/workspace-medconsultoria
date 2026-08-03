@@ -3,7 +3,7 @@ import type { Prisma } from "@app/db";
 import { enviarEmail } from "../../lib/email.js";
 import { isEmailReal } from "../../config.js";
 import { renderTemplate } from "./emails.service.js";
-import { EMAIL_TEMPLATES } from "./emails.registry.js";
+import { templateDe } from "./emails.registry.js";
 
 /**
  * Registra no histórico um e-mail enviado, vinculando-o (pelo e-mail do destinatário)
@@ -82,7 +82,7 @@ type Row = {
 /** Acrescenta o nome amigável do template (para exibir na lista). */
 function comRotulo(rows: Row[]) {
   return rows.map((r) => {
-    const meta = r.template ? EMAIL_TEMPLATES[r.template] : undefined;
+    const meta = r.template ? templateDe(r.template) : undefined;
     return { ...r, templateLabel: meta ? meta.label : "E-mail" };
   });
 }
@@ -140,7 +140,7 @@ export async function resumoEnviados() {
   const templates = usados
     .map((u) => u.template)
     .filter((t): t is string => !!t)
-    .map((t) => ({ chave: t, label: EMAIL_TEMPLATES[t]?.label ?? t }));
+    .map((t) => ({ chave: t, label: templateDe(t)?.label ?? t }));
 
   return {
     enviados7d,

@@ -17,6 +17,20 @@ describe("contas reais da equipe", () => {
     expect(papeis).toContain("ADMIN");
   });
 
+  it("cada pessoa tem a PRÓPRIA chave de nome (uma chave por papel batizava todo mundo igual)", () => {
+    // Bug real (28/07/2026): o seed lia `SEED_${role}_NOME`, então o único SEED_ROOT_NOME do
+    // servidor batizou os TRÊS roots de "Administrador". A chave tem de ser por pessoa, como
+    // já é a de e-mail (SEED_ROOT_EMAIL / SEED_ROOT2_EMAIL / SEED_ROOT3_EMAIL).
+    const chaves = EQUIPE_REAL.map((m) => m.chaveNome);
+    expect(new Set(chaves).size, `chaves de nome repetidas: ${chaves.join(", ")}`).toBe(EQUIPE_REAL.length);
+  });
+
+  it("o seed lê o nome pela chave da pessoa, não pelo papel", () => {
+    const seed = readFileSync(resolve(raiz, "packages/db/prisma/seed.ts"), "utf8");
+    expect(seed).not.toMatch(/SEED_\$\{membro\.role\}_NOME/);
+    expect(seed).toContain("membro.chaveNome");
+  });
+
   it("os e-mails batem com os documentados em docs/ACESSOS.md", () => {
     const doc = readFileSync(resolve(raiz, "docs/ACESSOS.md"), "utf8");
     for (const membro of EQUIPE_REAL) {

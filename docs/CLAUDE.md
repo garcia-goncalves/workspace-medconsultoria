@@ -170,6 +170,17 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 63. **Portal do Cliente — auditoria ao vivo, sem mudanças (revisão página a página, 12ª e ÚLTIMA etapa)**: produto cliente-facing revisado logando como cliente de teste (round-trip seguro via `SEED_ROOT_PASSWORD`). Excelente e responsivo (desktop+mobile) — nenhuma mudança. **🏁 Revisão página a página COMPLETA** (Início→…→Portal) — ADR-77.
 64. **Contrato automático ao aceitar + integrações + Suporte em evidência**: aceite de proposta agora gera o CONTRATO em revisão (`gerarContratoAutoParaLead` chamado em `responder`) com os serviços + as **cláusulas de cada serviço** (novo campo `Servico.clausulasContrato`, semeado+backfill, editável na aba Detalhes; entram no `{{objeto}}`). Cancelar serviço pausa o projeto do serviço; contratar serviço na ficha gera a conta a receber. Card "Chamados de suporte" subiu para 2º na ficha e ao topo no Portal, destacado — ADR-78.
 65. **Portal do Cliente — redesign**: foto do usuário saiu do topo → **menu de perfil no header** (`PortalLayout`/`ProfileMenu`: Alterar foto/Sair); nova seção **"Seus documentos"** (`PortalMeusDocumentos`: upload geral do cliente + lista, selo Você/MedConsultoria) separada de **"Documentos da MedConsultoria"** (rotulados p/ não confundir); header sticky+blur, boas-vindas refinadas. Backend já suportava (upload do portal grava no próprio clienteId; `portal.arquivos`) — ADR-79.
+66. **Portal "Editar perfil"**: o cliente edita os próprios dados cadastrais (nome/tipo/CPF-CNPJ/e-mail/telefone) dentro da LGPD — ADR-80.
+67. **Documentos inteligentes**: motor de contexto do cliente + Contrato construtor + auto-preenchimento + aceite vira serviço contratado — ADR-81.
+68. **Scroll NATIVO da janela** (reverte o "cabe na tela" dos ADR-44/59): `AppLayout` com `min-h-screen`, sidebar/cabeçalho sticky — ADR-82.
+69. **Exceção "tela cheia"** (Mensagens/Agenda) ao scroll de janela + divisor arrastável nas Mensagens — ADR-83.
+70. **Tempo real por POLLING** (`refetchInterval`), sem WebSocket nem VPS: a hospedagem não faz upgrade de WS; Socket.IO desligado no build de produção (religa com `VITE_REALTIME=1`) — ADR-84.
+71. **Identidade institucional editável** (Dados da empresa: marca/contato/CNPJ/razão/endereço/foro) em Ajustes, lida pelos contratos — ADR-85.
+72. **Backup automático + health-check no servidor** (cron diário do MySQL, auto-restart, e-mail ao ROOT quando cai) — ADR-86.
+73. **SISTEMA ganhou a aba "Operação"** + alerta de app-fora ao ROOT — ADR-87.
+74. **Seção "Tarefas"** (delegação interna entre a equipe): model `Tarefa` novo, abas Comigo/Deleguei/Da equipe, multi-responsável — ADR-88.
+75. **Múltiplos ROOTs + root primordial imutável**: ROOT cria/gerencia outros ROOTs, mas `ROOT_PROTEGIDO_EMAIL` nunca pode ser rebaixado, desativado nem excluído (garante que nunca falte super-admin) — ADR-89.
+76. **Endurecimento**: nome do seed por pessoa (um `SEED_ROOT_NOME` batizava os 3 roots igual), âncora da recorrência MENSAL na 1ª conta da série (não degrada mais para o dia 28), e tipo de aviso validado pelo compilador (`satisfies` + `notificar(tipo: EmailTemplateChave)`) — ADR-90.
 
 ---
 
