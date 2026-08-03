@@ -1165,6 +1165,20 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 
 **Verificado:** lint 0 erros · typecheck 6/6 · vitest 124 (92 api + 32 web) · e2e isolado.
 
+## ADR-91 — "Defina sua senha" no primeiro acesso ✅
+
+**Contexto:** as contas nascem com uma senha que **outra pessoa** escolheu — o seed usa a mesma `SEED_ROOT_PASSWORD` para todo mundo, e o ADMIN digita a senha ao criar um usuário pela tela. Combinava-se "troque no primeiro login" e ninguém trocava: em 03/08/2026 confirmei que os dois ROOTs provisionados em 28/07 **ainda estavam com a senha inicial**, seis dias depois. Combinado que depende de memória humana não é controle.
+
+**Decisões:**
+1. **`User.senhaTrocadaEm DateTime?`** — nulo significa "a pessoa nunca definiu a própria senha". Preenchido pelas **três** funções em que quem escolhe a senha é o dono da conta: `changePassword`, `aceitarConvite` e `redefinirSenha`.
+2. **Escolhido `senhaTrocadaEm` (data) e não uma marca booleana `senhaProvisoria`.** Com booleana eu teria que **adivinhar** quais contas já existentes estão provisórias — ou cravar e-mails numa migration, que envelhece mal. Com a data nula por padrão, toda conta interna que nunca trocou é convidada **uma vez** e o problema se extingue sozinho, sem backfill e sem lista hardcoded. De brinde, fica o registro de **quando** cada pessoa definiu a senha.
+3. **Só papéis internos.** `precisaTrocarSenha()` (em `packages/shared`, uma fonte de verdade para front e back) exige `role !== "CLIENTE"`: o cliente do Portal já escolhe a senha dele ao aceitar o convite — incomodá-lo seria ruído puro.
+4. **Página, não modal**, no gate do `App.tsx` **antes** do `AuthProvider`: a pessoa acabou de entrar e tem uma tarefa só. Modal por cima da app sugeriria que dá para adiar — e daria, fechando no X. Tem saída de emergência ("Sair") para quem entrou na conta errada.
+5. **Reusa `auth.changePassword`, sem endpoint novo.** Continua exigindo a senha atual: sem isso, uma sessão roubada trocaria a senha e trancaria o dono para fora. São ~3 segundos a mais para quem acabou de digitá-la.
+6. **E2E:** `scripts/e2e-senha-ja-trocada.mjs` marca as contas de teste logo após o seed (senão o `auth.setup` quebra — ele valida o login checando que o campo de senha some, e a página nova tem campos de senha). O fluxo em si tem spec própria, que cria a conta **dentro** do teste.
+
+**Efeito colateral desejado:** conta criada pelo ADMIN na tela Equipe & acessos também cai na regra — o ADMIN escolhe uma senha para entregar, e a pessoa troca ao entrar. Saiu de graça, sem código extra.
+
 ## Pendências (viram ADR quando decididas)
 
 - ~~Passenger vs Nginx Unit na TineHost (mecanismo de restart / proxy WS).~~ **Restart** = `touch tmp/restart.txt` (LiteSpeed/lsnode). **WS resolvido no ADR-84** (tempo real por polling; não precisa de proxy WS).

@@ -21,7 +21,7 @@ Modelagem de dados. Banco: **MySQL 8+ (utf8mb4)**. ORM: **Prisma**. Este documen
 ## 2. Identidade, Acesso & Observabilidade
 
 ### User
-`id`, `nome`, `email @unique`, `passwordHash?` (null = convite pendente, ainda sem senha), `role (enum Role)`, `ativo Boolean`, **`avatarUrl?`** (foto de perfil — caminho relativo em `avatars/{userId}/…`; servido por `GET /avatar/:userId`, enviado por `POST /avatar`; ADR-42), `clienteId?` (escopo do Portal quando `role = CLIENTE`), timestamps, `deletedAt?`.
+`id`, `nome`, `email @unique`, `passwordHash?` (null = convite pendente, ainda sem senha), `role (enum Role)`, `ativo Boolean`, **`avatarUrl?`** (foto de perfil — caminho relativo em `avatars/{userId}/…`; servido por `GET /avatar/:userId`, enviado por `POST /avatar`; ADR-42), `clienteId?` (escopo do Portal quando `role = CLIENTE`), **`senhaTrocadaEm?`** (quando a pessoa definiu a PRÓPRIA senha; nulo = nunca — conta interna nessa situação é obrigada a definir no 1º acesso, ADR-91), timestamps, `deletedAt?`.
 - `role`: `ROOT | ADMIN | FUNCIONARIO | CLIENTE`.
 - Relações: sessions, tokens, notas, notificações, preferências de e-mail, participações em projeto, docs criados/aprovados, etc.
 

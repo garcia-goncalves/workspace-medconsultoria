@@ -78,12 +78,17 @@ Se não abrir (ex.: você reiniciou o computador), veja "Como ligar" no final.
 > 🚫 **Nenhuma senha é escrita neste documento.** Em desenvolvimento, a senha das contas
 > semeadas é a do `.env` (`SEED_ROOT_PASSWORD`). Em produção, cada pessoa define a sua no
 > primeiro acesso. Se não souber a sua, use **"Esqueci minha senha"** na tela de login.
+>
+> 🔑 **A app cobra isso sozinha (ADR-91):** toda conta interna (ROOT/ADMIN/FUNCIONÁRIO) que
+> nunca definiu a própria senha cai numa página **"Defina sua senha"** logo após o login e
+> não usa mais nada até definir. Vale também para conta criada pelo ADMIN em Equipe & acessos.
+> Cliente do Portal fica de fora — ele já escolhe a senha ao aceitar o convite.
 
 | E-mail                                 | Papel        | O que vê                                                                    |
 | -------------------------------------- | ------------ | ---------------------------------------------------------------------------- |
 | `root@medconsultoria.com.br`         | ROOT         | **Root principal (imutável)** — nunca pode ser rebaixado, desativado nem excluído. Tudo + painel**Sistema**; cria e gerencia outros ROOTs/administradores |
-| `thiago.garcia@medconsultoria.com.br` | ROOT        | Root nominal (Thiago). Pode virar Admin/Funcionário se quiser. ⚠️ **senha inicial ainda não trocada** |
-| `andre.cintra@medconsultoria.com.br` | ROOT         | Root nominal (André). Pode virar Admin/Funcionário se quiser. ⚠️ **senha inicial ainda não trocada** |
+| `thiago.garcia@medconsultoria.com.br` | ROOT        | Root nominal (Thiago). Pode virar Admin/Funcionário se quiser. Define a senha no próximo login |
+| `andre.cintra@medconsultoria.com.br` | ROOT         | Root nominal (André). Pode virar Admin/Funcionário se quiser. Define a senha no próximo login |
 | `thais.garcia@medconsultoria.com.br` | ADMIN        | Tudo (inclusive Financeiro e Equipe) —**exceto** o painel Sistema      |
 
 > Estas contas são criadas pelo `pnpm db:seed` e **sobrevivem** ao `pnpm db:limpar`.

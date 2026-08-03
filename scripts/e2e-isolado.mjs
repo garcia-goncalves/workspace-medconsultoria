@@ -166,6 +166,9 @@ async function main() {
   run("pnpm", ["--filter", "@app/db", "exec", "prisma", "migrate", "deploy"], env);
   run("pnpm", ["--filter", "@app/db", "seed"], env);
   run("pnpm", ["--filter", "@app/db", "demo"], env);
+  // Contas de teste entram como "senha já definida" — senão todas caem na página de
+  // primeiro acesso (ADR-91) e o auth.setup falha. O fluxo tem spec próprio.
+  run("node", ["scripts/e2e-senha-ja-trocada.mjs"], env);
 
   // 3) Segunda instância do app, em portas próprias.
   const envApp = { ...env, API_PORT: String(API_PORT), WEB_PORT: String(WEB_PORT), WEB_ORIGIN: BASE_URL };

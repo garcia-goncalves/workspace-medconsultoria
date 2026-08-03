@@ -181,6 +181,7 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 74. **Seção "Tarefas"** (delegação interna entre a equipe): model `Tarefa` novo, abas Comigo/Deleguei/Da equipe, multi-responsável — ADR-88.
 75. **Múltiplos ROOTs + root primordial imutável**: ROOT cria/gerencia outros ROOTs, mas `ROOT_PROTEGIDO_EMAIL` nunca pode ser rebaixado, desativado nem excluído (garante que nunca falte super-admin) — ADR-89.
 76. **Endurecimento**: nome do seed por pessoa (um `SEED_ROOT_NOME` batizava os 3 roots igual), âncora da recorrência MENSAL na 1ª conta da série (não degrada mais para o dia 28), e tipo de aviso validado pelo compilador (`satisfies` + `notificar(tipo: EmailTemplateChave)`) — ADR-90.
+77. **"Defina sua senha" no 1º acesso**: `User.senhaTrocadaEm` (nulo = nunca definiu a própria); conta INTERNA cai numa página obrigatória antes de usar a app (cliente do Portal fica de fora, já escolhe no convite); `precisaTrocarSenha()` no `shared` é a fonte única — ADR-91.
 
 ---
 
