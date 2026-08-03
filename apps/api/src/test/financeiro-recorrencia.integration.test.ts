@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
-import { marcarPaga } from "../modules/financeiro/contas.service";
+import { marcarPaga, updateConta } from "../modules/financeiro/contas.service";
 import { hashPassword } from "../lib/password";
 
 /**
@@ -79,6 +79,30 @@ describe("recorrência — marcar, desmarcar e marcar de novo", () => {
     expect(serie[1]!.id, "é a mesma linha de antes").toBe(sucessoraId);
     expect(serie[1]!.deletedAt, "de volta à vida").toBeNull();
     expect(serie[1]!.pago, "ressuscita como pendente").toBe(false);
+  });
+
+  it("editar o vencimento para colidir com uma irmã dá erro EXPLICÁVEL, não erro cru do banco", async () => {
+    const origem = await prisma.conta.create({
+      data: {
+        tipo: "PAGAR",
+        escopo: "EMPRESA",
+        descricao: `${PFX}-colisao`,
+        valor: 500 as never,
+        vencimento: utc(2026, 6, 10),
+        categoriaId,
+        recorrencia: "MENSAL",
+      },
+    });
+    await prisma.conta.update({ where: { id: origem.id }, data: { recorrenteId: origem.id } });
+    await marcarPaga(origem.id, true, ctx); // gera a de 10/07
+
+    const serie = await daSerie(origem.id);
+    const sucessora = serie.find((c) => c.id !== origem.id)!;
+
+    // Puxar a sucessora para o vencimento da origem colide dentro da série.
+    await expect(
+      updateConta({ id: sucessora.id, vencimento: utc(2026, 6, 10) }, ctx),
+    ).rejects.toThrow(/já existe.*parcela.*vencimento/i);
   });
 
   it("nenhuma série fica com duas ocorrências na mesma data (o que o índice único exigiria)", async () => {
