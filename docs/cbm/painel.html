@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapa do código — Workspace MedConsultoria</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; }
+
+  .viz-root {
+    color-scheme: light;
+    --surface-0: #f4f4f2;
+    --surface-1: #fcfcfb;
+    --border:    #e2e2dd;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #7a7973;
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --grid: #e8e8e3;
+
+    font-family: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--surface-0);
+    color: var(--text-primary);
+    min-height: 100vh;
+    padding: 32px 20px 64px;
+    line-height: 1.5;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-0: #121211;
+      --surface-1: #1a1a19;
+      --border:    #33332f;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #94938a;
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+      --series-4: #c98500;
+      --grid: #2a2a27;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --border:    #33332f;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #94938a;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --grid: #2a2a27;
+  }
+
+  .wrap { max-width: 1040px; margin: 0 auto; }
+
+  header.top { margin-bottom: 8px; }
+  h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .sub { color: var(--text-secondary); font-size: 0.95rem; margin: 0; }
+  .stamp { color: var(--text-muted); font-size: 0.8rem; margin: 6px 0 0; }
+
+  section { margin-top: 40px; }
+  h2 { font-size: 1.1rem; font-weight: 650; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .lede { color: var(--text-secondary); font-size: 0.9rem; margin: 0 0 18px; max-width: 68ch; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 22px;
+  }
+
+  /* ---- Stat tiles ---- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .tile .n { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .tile .k { color: var(--text-secondary); font-size: 0.82rem; margin-top: 2px; }
+  .tile .h { color: var(--text-muted); font-size: 0.74rem; margin-top: 6px; }
+
+  /* ---- Barras ---- */
+  .rows { display: flex; flex-direction: column; gap: 10px; }
+  .row { display: grid; grid-template-columns: minmax(120px, 172px) 1fr; gap: 14px; align-items: center; }
+  .row .lbl { font-size: 0.84rem; color: var(--text-secondary); text-align: right; overflow-wrap: anywhere; }
+  .track { position: relative; height: 22px; display: flex; gap: 2px; align-items: stretch; }
+  .seg { border-radius: 0 4px 4px 0; min-width: 3px; }
+  .seg:first-child { border-radius: 4px 0 0 4px; }
+  .seg:only-child { border-radius: 0 4px 4px 0; }
+  .val { font-size: 0.78rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; align-self: center; padding-left: 8px; }
+
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin: 0 0 16px; padding: 0; list-style: none; }
+  .legend li { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; color: var(--text-secondary); }
+  .swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+
+  /* ---- Tabela ---- */
+  details { margin-top: 14px; }
+  summary { cursor: pointer; font-size: 0.84rem; color: var(--text-secondary); }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 0.84rem; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--grid); }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+
+  .nota { border-left: 3px solid var(--series-4); padding: 12px 16px; background: var(--surface-1);
+          border-radius: 0 8px 8px 0; font-size: 0.88rem; color: var(--text-secondary); margin-top: 16px; }
+  .nota strong { color: var(--text-primary); }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.86em;
+         background: var(--surface-0); padding: 1px 5px; border-radius: 4px; }
+  footer { margin-top: 48px; color: var(--text-muted); font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+<div class="wrap">
+
+  <header class="top">
+    <h1>Mapa do código</h1>
+    <p class="sub">Workspace MedConsultoria — o que existe dentro do sistema, em tamanho e em peso.</p>
+    <p class="stamp">Gerado do índice do Codebase Memory em 03/08/2026 · commit <code>2eb0578</code></p>
+  </header>
+
+  <section>
+    <h2>Os números</h2>
+    <p class="lede">Cada "peça" é uma função, tela, tipo ou tabela. Cada "ligação" é uma peça usando outra —
+      é isso que permite responder "se eu mexer aqui, o que quebra?" sem ler o projeto inteiro.</p>
+    <div class="tiles">
+      <div class="tile"><div class="n">4.314</div><div class="k">peças mapeadas</div><div class="h">funções, telas, tipos, tabelas</div></div>
+      <div class="tile"><div class="n">10.385</div><div class="k">ligações entre elas</div><div class="h">quem chama e usa quem</div></div>
+      <div class="tile"><div class="n">388</div><div class="k">arquivos de código</div><div class="h">285 deles em TypeScript</div></div>
+      <div class="tile"><div class="n">1.190</div><div class="k">funções analisadas</div><div class="h">com medida de dificuldade</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tamanho de cada área do sistema</h2>
+    <p class="lede">Linhas de código por área de negócio, separando o <strong>motor</strong> (as regras, que rodam no servidor)
+      da <strong>tela</strong> (o que você vê e clica). Área grande não é problema — é onde mora mais regra.
+      A leitura útil é a proporção: muita tela e pouco motor = área mais visual; o contrário = área com regra pesada.</p>
+
+    <div class="card">
+      <ul class="legend">
+        <li><span class="swatch" style="background:var(--series-1)"></span> Motor (servidor)</li>
+        <li><span class="swatch" style="background:var(--series-2)"></span> Tela (navegador)</li>
+      </ul>
+      <div class="rows" id="areas"></div>
+      <details>
+        <summary>Ver como tabela</summary>
+        <div class="scroll"><table>
+          <thead><tr><th>Área</th><th class="num">Motor</th><th class="num">Tela</th><th class="num">Total</th></tr></thead>
+          <tbody id="areas-tab"></tbody>
+        </table></div>
+      </details>
+    </div>
+  </section>
+
+  <section>
+    <h2>As peças mais reutilizadas</h2>
+    <p class="lede">Quantas partes diferentes do sistema dependem de cada uma. São as peças que <strong>não se mexe
+      sem cuidado</strong>: um erro aqui aparece em dezenas de telas de uma vez. Também é o sinal de que o código
+      não está duplicado — a mesma peça serve o sistema inteiro.</p>
+    <div class="card">
+      <div class="rows" id="hot"></div>
+      <div class="nota"><strong>Como ler:</strong> <code>cn</code> é usada por 90 partes porque é o utilitário que monta o
+        estilo de quase todo componente visual. <code>notificar</code> aparecer com 25 significa que aviso ao usuário
+        passa por <em>um único lugar</em> — foi decisão de projeto (ADR-16), e é por isso que dá para mudar o texto de
+        todos os e-mails num ponto só.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Onde o código é mais difícil</h2>
+    <p class="lede">"Complexidade cognitiva" mede quanto raciocínio uma função exige de quem a lê — condições dentro de
+      condições, laços aninhados, muitos caminhos. Não é bug, é <strong>risco</strong>: quanto maior, mais fácil
+      alguém errar ao mexer, e mais difícil testar.</p>
+    <div class="card">
+      <div class="rows" id="cplx"></div>
+      <div class="nota"><strong>O retrato geral é bom:</strong> a média é <strong>2,3</strong> e a mediana é <strong>0</strong> —
+        a esmagadora maioria das 1.190 funções é simples. Só <strong>37</strong> passam de 15. O problema está
+        concentrado, não espalhado: <code>NovoDocumentoDialog</code> sozinho tem 751 linhas e complexidade 114,
+        três vezes o segundo colocado. Se um dia valer a pena refatorar alguma coisa, é ele — e só ele.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Como as partes conversam</h2>
+    <p class="lede">Quantas chamadas cruzam a fronteira entre os pacotes do projeto. O desenho previsto é a tela usar
+      os componentes visuais e os tipos compartilhados, e o motor usar os mesmos tipos — nunca o contrário.</p>
+    <div class="card">
+      <div class="rows" id="bnd"></div>
+      <div class="nota"><strong>O desenho está sendo respeitado:</strong> as setas vão todas de quem usa para quem é usado
+        (<code>web → ui</code>, <code>web → shared</code>, <code>api → shared</code>). Não existe <code>ui → web</code> nem
+        <code>shared → api</code>, que seriam dependências circulares — o tipo de coisa que trava um projeto com o tempo.</div>
+    </div>
+  </section>
+
+  <footer>
+    Painel estático, gerado a partir do índice do grafo. Para atualizar depois de mudanças grandes no código,
+    peça ao Claude para reindexar o CBM e regerar este arquivo. Portas e links do projeto em <code>docs/LINKS.md</code>.
+  </footer>
+
+</div>
+</div>
+
+<script>
+  const AREAS = [
+    ["Documentos", 1519, 4249], ["Vendas (funil)", 1582, 1883], ["Equipe e acessos", 870, 1888],
+    ["Sistema (painel ROOT)", 1136, 1419], ["Clientes", 527, 2223], ["Projetos", 651, 1843],
+    ["Serviços", 1039, 1082], ["Portal do Cliente", 341, 1605], ["E-mails", 1140, 768],
+    ["Agenda", 323, 1433], ["Financeiro", 512, 1024], ["Início (dashboard)", 347, 1133],
+    ["Mensagens", 513, 864], ["Tarefas", 194, 469], ["Ajustes / catálogos", 413, 341],
+  ];
+  const HOT = [["cn", 90], ["Modal", 32], ["Card", 30], ["Badge", 27], ["useConfirm", 27],
+               ["QueryError", 25], ["notificar", 25], ["hasRoleLevel", 23], ["useAuth", 23], ["CardContent", 21]];
+  const CPLX = [["NovoDocumentoDialog", 114], ["scanProativo", 78], ["derivarRastreioOrigem", 74],
+                ["reconciliarPassosAuto", 53], ["registrarRotasArquivos", 52], ["convertLead", 50],
+                ["conteudoPreview", 47], ["avaliar", 37], ["executar", 36], ["DocumentoBranded", 33]];
+  const BND = [["tela → componentes", 85], ["tela → tipos comuns", 21], ["motor → tipos comuns", 9], ["tela → motor", 5]];
+
+  const fmt = (n) => n.toLocaleString("pt-BR");
+  const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+
+  function barras(destino, dados, cor) {
+    const max = Math.max(...dados.map((d) => d[1]));
+    const alvo = document.getElementById(destino);
+    for (const [nome, v] of dados) {
+      const row = el("div", "row");
+      row.appendChild(el("div", "lbl", nome));
+      const track = el("div", "track");
+      const seg = el("div", "seg");
+      seg.style.width = (v / max) * 100 + "%";
+      seg.style.background = cor;
+      track.appendChild(seg);
+      track.appendChild(el("span", "val", fmt(v)));
+      row.appendChild(track);
+      alvo.appendChild(row);
+    }
+  }
+
+  // Áreas — barra empilhada de 2 séries, com 2px de respiro entre os segmentos.
+  // Ordena aqui (não na mão): ordenar a lista à mão já tinha saído errada.
+  (function () {
+    const dados = [...AREAS].sort((a, b) => b[1] + b[2] - (a[1] + a[2]));
+    const max = Math.max(...dados.map((d) => d[1] + d[2]));
+    const alvo = document.getElementById("areas");
+    const tab = document.getElementById("areas-tab");
+    for (const [nome, api, web] of dados) {
+      const total = api + web;
+      const row = el("div", "row");
+      row.appendChild(el("div", "lbl", nome));
+      const track = el("div", "track");
+      track.style.width = (total / max) * 100 + "%";
+      const a = el("div", "seg"); a.style.flex = api; a.style.background = "var(--series-1)";
+      const w = el("div", "seg"); w.style.flex = web; w.style.background = "var(--series-2)";
+      track.appendChild(a); track.appendChild(w);
+      const outer = el("div", "track");
+      outer.style.width = "100%";
+      outer.appendChild(track);
+      outer.appendChild(el("span", "val", fmt(total)));
+      row.appendChild(outer);
+      alvo.appendChild(row);
+
+      const tr = el("tr");
+      tr.appendChild(el("td", null, nome));
+      tr.appendChild(el("td", "num", fmt(api)));
+      tr.appendChild(el("td", "num", fmt(web)));
+      tr.appendChild(el("td", "num", fmt(total)));
+      tab.appendChild(tr);
+    }
+  })();
+
+  barras("hot", HOT, "var(--series-1)");
+  barras("cplx", CPLX, "var(--series-4)");
+  barras("bnd", BND, "var(--series-3)");
+</script>
+</body>
+</html>
