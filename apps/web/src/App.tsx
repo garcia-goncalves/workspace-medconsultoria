@@ -1,10 +1,12 @@
 import { RouterProvider } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
+import { precisaTrocarSenha } from "@app/shared";
 import { trpc } from "./lib/trpc";
 import { LoginPage } from "./features/auth/LoginPage";
 import { DefinirSenhaPage } from "./features/auth/DefinirSenhaPage";
 import { EsqueciSenhaPage } from "./features/auth/EsqueciSenhaPage";
 import { RedefinirSenhaPage } from "./features/auth/RedefinirSenhaPage";
+import { TrocarSenhaPrimeiroAcessoPage } from "./features/auth/TrocarSenhaPrimeiroAcessoPage";
 import { CapturaLeadPage } from "./features/captura/CapturaLeadPage";
 import { AssinarPage } from "./features/assinaturas/AssinarPage";
 import { PropostaPublicaPage } from "./features/propostas/PropostaPublicaPage";
@@ -40,6 +42,12 @@ export function App() {
   }
 
   if (!me.data) return <LoginPage />;
+
+  // Conta interna que nunca definiu a própria senha: define agora, antes de usar a app
+  // (ADR-91). Fica ANTES do AuthProvider de propósito — nada da app carrega até resolver.
+  if (precisaTrocarSenha(me.data)) {
+    return <TrocarSenhaPrimeiroAcessoPage user={me.data} onSair={() => logout.mutate()} />;
+  }
 
   const authValue = {
     user: me.data,

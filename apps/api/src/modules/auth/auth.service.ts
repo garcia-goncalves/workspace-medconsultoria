@@ -20,12 +20,14 @@ function toSessionUser(u: {
   role: SessionUser["role"];
   avatarUrl: string | null;
   clienteId: string | null;
+  senhaTrocadaEm: Date | null;
 }): SessionUser {
   return {
     id: u.id,
     nome: u.nome,
     email: u.email,
     role: u.role,
+    senhaTrocadaEm: u.senhaTrocadaEm,
     avatarUrl: u.avatarUrl,
     clienteId: u.clienteId,
   };
@@ -180,7 +182,7 @@ export async function changePassword(
   if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: "A senha atual está incorreta." });
   await prisma.user.update({
     where: { id: userId },
-    data: { passwordHash: await hashPassword(novaSenha) },
+    data: { passwordHash: await hashPassword(novaSenha), senhaTrocadaEm: new Date() },
   });
   await prisma.session.deleteMany({
     where: { userId, ...(currentSid ? { NOT: { id: currentSid } } : {}) },
@@ -212,7 +214,7 @@ export async function aceitarConvite(
   }
   const user = await prisma.user.update({
     where: { id: userId },
-    data: { passwordHash: await hashPassword(novaSenha), ativo: true },
+    data: { passwordHash: await hashPassword(novaSenha), ativo: true, senhaTrocadaEm: new Date() },
   });
   const sid = await createSession(user.id, userAgent, ip);
   await prisma.activityLog.create({ data: { userId: user.id, acao: "convite_aceito" } });
@@ -274,7 +276,7 @@ export async function redefinirSenha(
   }
   const user = await prisma.user.update({
     where: { id: userId },
-    data: { passwordHash: await hashPassword(novaSenha), ativo: true },
+    data: { passwordHash: await hashPassword(novaSenha), ativo: true, senhaTrocadaEm: new Date() },
   });
   await prisma.session.deleteMany({ where: { userId } }); // derruba sessões antigas
   const sid = await createSession(user.id, userAgent, ip);

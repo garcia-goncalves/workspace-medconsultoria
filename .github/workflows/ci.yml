@@ -90,6 +90,7 @@ jobs:
         run: |
           pnpm db:seed
           pnpm db:demo
+          node scripts/e2e-senha-ja-trocada.mjs
       - run: pnpm exec playwright install --with-deps chromium
       # `turbo run dev` NÃO repassa env vars do job às tasks (a API validava config e caía → 124).
       # O app carrega o .env via env.ts; escrevê-lo aqui garante DATABASE_URL/SESSION_SECRET no boot.
@@ -180,6 +181,7 @@ jobs:
         run: |
           pnpm db:seed
           pnpm db:demo
+          node scripts/e2e-senha-ja-trocada.mjs
       - run: pnpm exec playwright install --with-deps chromium
       - name: Aguardar Mailpit (SMTP :1025 / API :8025)
         run: timeout 60 bash -c 'until curl -sf http://localhost:8025/api/v1/messages >/dev/null; do sleep 2; done' && echo "✓ Mailpit no ar"

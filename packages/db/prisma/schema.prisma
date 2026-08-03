@@ -48,6 +48,9 @@ model User {
   role         Role      @default(FUNCIONARIO)
   ativo        Boolean   @default(true)
   avatarUrl    String?
+  // Quando a pessoa definiu a PRÓPRIA senha (trocar/convite/reset). Nulo = nunca definiu —
+  // a conta ainda usa a senha compartilhada do seed e é convidada a trocar no 1º acesso.
+  senhaTrocadaEm DateTime?
   // Se role = CLIENTE, define o escopo do Portal (FK adicionada quando o módulo Cliente existir).
   clienteId    String?
   createdAt    DateTime  @default(now())

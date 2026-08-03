@@ -33,6 +33,7 @@ export async function getUserFromSession(sid: string | undefined): Promise<Sessi
     role: user.role,
     avatarUrl: user.avatarUrl,
     clienteId: user.clienteId,
+    senhaTrocadaEm: user.senhaTrocadaEm,
   };
 }
 
