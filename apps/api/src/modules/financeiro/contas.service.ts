@@ -134,8 +134,32 @@ export async function updateConta(input: UpdateContaInput, ctx: Ctx) {
   if (rest.observacoes !== undefined) data.observacoes = clean(rest.observacoes);
   // Escopo não é editável aqui (mover carteira mudaria posse/privacidade) — mantém o original.
 
-  const conta = await prisma.conta.update({ where: { id }, data });
-  return mapConta(conta);
+  try {
+    const conta = await prisma.conta.update({ where: { id }, data });
+    return mapConta(conta);
+  } catch (e) {
+    // P2002 = índice único. Aqui só pode ser (recorrenteId, vencimento): puxaram a parcela
+    // para uma data que já é de outra da MESMA série. A irmã pode estar excluída (soft-delete)
+    // e portanto invisível na tela — daí a mensagem citar isso, senão o erro fica sem sentido.
+    if (ehConflitoDeVencimento(e)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          "Já existe uma parcela desta série com este vencimento — inclusive se ela foi excluída. Escolha outra data.",
+      });
+    }
+    throw e;
+  }
+}
+
+/** Violação do índice único (recorrenteId, vencimento). */
+function ehConflitoDeVencimento(e: unknown): boolean {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    (e as { code?: string }).code === "P2002" &&
+    JSON.stringify((e as { meta?: unknown }).meta ?? "").includes("vencimento")
+  );
 }
 
 export async function removeConta(id: string, ctx: Ctx) {

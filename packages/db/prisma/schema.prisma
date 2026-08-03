@@ -955,6 +955,11 @@ model Conta {
   @@index([deletedAt])
   @@index([escopo, donoId])
   @@index([recorrenteId])
+  // Uma série não pode ter DUAS parcelas no mesmo vencimento. Vale para toda a tabela,
+  // inclusive linhas soft-deletadas — por isso a geração ressuscita a apagada em vez de
+  // criar outra (ADR-92). Conta não-recorrente tem recorrenteId nulo e fica de fora
+  // (o MySQL trata NULL como distinto em índice único).
+  @@unique([recorrenteId, vencimento])
 }
 
 // ─────────────────────────────────────────────────────────────

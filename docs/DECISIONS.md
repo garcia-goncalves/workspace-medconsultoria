@@ -1194,6 +1194,19 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 
 **Lição:** a pendência estava classificada como "só falta rodar a migration". Não estava — faltava um bug. Constraint de banco não é enfeite: ela obriga o código a ser coerente com o que se afirma sobre os dados, e foi tentando adicioná-la que o defeito apareceu.
 
+## ADR-93 — Índice único `(recorrenteId, vencimento)` em Conta ✅
+
+**Contexto:** a pendência aberta desde o PR #72, agora com o caminho livre — o ADR-92 tirou o impedimento (a geração ressuscita a apagada em vez de duplicar a data) e a contagem em produção, **sem** filtrar `deletedAt`, deu **0 grupos duplicados**.
+
+**O que a investigação revelou antes de aplicar:**
+1. **A origem da série NÃO tem `recorrenteId` nulo** — `createConta` grava `recorrenteId = próprio id` (linha "a 1ª conta da série é a âncora"). Logo toda a série compartilha o mesmo `recorrenteId` e o índice cobre a série inteira, origem incluída. Conta não-recorrente fica com nulo e **fora** do índice (o MySQL trata NULL como distinto).
+2. **`updateConta` deixava o vencimento colidir em silêncio.** Puxar uma parcela para a data de uma irmã criava duas ocorrências no mesmo dia — hoje isso passa sem reclamar. Com o índice, viraria um `P2002` cru na cara do usuário. Agora o erro é traduzido: *"Já existe uma parcela desta série com este vencimento — inclusive se ela foi excluída. Escolha outra data."* A menção ao excluído não é detalhe: a irmã pode estar soft-deletada e **invisível na tela**, e sem isso a mensagem não faria sentido.
+3. **O banco de DEV tinha uma duplicata real de 28/07/2026** — três linhas "Vivo", todas soft-deletadas, mesmo vencimento (05/09). É o ADR-92 documentado em dado real: cada ciclo marcar/desmarcar deixou uma órfã. Limpeza feita **só em dev**, mantendo a mais antiga (a que a geração ressuscitaria); produção não precisou de nada.
+
+**Decisão:** `@@unique([recorrenteId, vencimento])`. A migration foi escrita à mão e aplicada com `migrate deploy` — o `migrate dev` recusa rodar não-interativo ao criar índice único (avisa que *pode* falhar, sem saber se falharia).
+
+**Por que valeu a pena mesmo com a causa-raiz já corrigida:** a constraint não conserta bug, ela **impede que a próxima versão do código reintroduza um**. Foi tentando aplicá-la que apareceram os itens 2 e 3 acima — nenhum deles estava no radar.
+
 ## Pendências (viram ADR quando decididas)
 
 - ~~Passenger vs Nginx Unit na TineHost (mecanismo de restart / proxy WS).~~ **Restart** = `touch tmp/restart.txt` (LiteSpeed/lsnode). **WS resolvido no ADR-84** (tempo real por polling; não precisa de proxy WS).
