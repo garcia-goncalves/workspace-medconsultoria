@@ -1161,7 +1161,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 3. **Tipo de aviso é validado pelo compilador.** `EMAIL_TEMPLATES` era anotado `: Record<string, TemplateMeta>` — a anotação **alargava as chaves para `string`**, o que fazia `EmailTemplateChave` (o mecanismo de segurança que já existia) resolver para `string` e não proteger nada; era tipo morto, usado em lugar nenhum. Trocado por `satisfies`, que valida o objeto **e** preserva as chaves literais. `notificar(tipo)` passou a exigir `EmailTemplateChave`: um tipo sem template agora **não compila**, em vez de explodir em runtime e derrubar o scan proativo. Lookups por chave externa (CRUD de templates do admin, coluna do banco) usam o helper `templateDe(chave: string)`, que continua validando em runtime.
 4. **Os 5 bugs do Financeiro do PR #72 ganharam teste.** Tinham sido corrigidos sem cobertura nenhuma — qualquer refactor os traria de volta. `financeiro-recorrencia.test.ts` trava o clamp de fim de mês, o ano bissexto, a virada de ano e a âncora.
 
-**Não feito de propósito:** a constraint `@@unique([recorrenteId, vencimento])` segue **fora**. A causa-raiz já é tratada na aplicação (guarda de transição em `marcarPaga`); adicionar o índice exigiria ler/limpar duplicatas no banco de produção, e uma migration que falha no meio do `migrate deploy` é pior que o problema que resolve. Reavaliar só se aparecer duplicata real.
+**Sobre a constraint `@@unique([recorrenteId, vencimento])`:** ver ADR-92 — a investigação encontrou um impedimento real, e a correção dele veio antes.
 
 **Verificado:** lint 0 erros · typecheck 6/6 · vitest 124 (92 api + 32 web) · e2e isolado.
 
@@ -1178,6 +1178,21 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 6. **E2E:** `scripts/e2e-senha-ja-trocada.mjs` marca as contas de teste logo após o seed (senão o `auth.setup` quebra — ele valida o login checando que o campo de senha some, e a página nova tem campos de senha). O fluxo em si tem spec própria, que cria a conta **dentro** do teste.
 
 **Efeito colateral desejado:** conta criada pelo ADMIN na tela Equipe & acessos também cai na regra — o ADMIN escolhe uma senha para entregar, e a pessoa troca ao entrar. Saiu de graça, sem código extra.
+
+## ADR-92 — Reversão de recorrência ressuscita a ocorrência, em vez de duplicar a data ✅
+
+**Contexto:** investigando se dava para adicionar `@@unique([recorrenteId, vencimento])` em `Conta` (pendência aberta desde o PR #72), a consulta em produção deu **0 grupos duplicados entre as linhas vivas** — o que parecia liberar a migration. Não liberava: o índice único vale para **todas** as linhas da tabela, inclusive as apagadas por soft-delete, e a primeira consulta filtrava `deletedAt: null`.
+
+**O impedimento real (comprovado por teste):** desmarcar uma conta paga faz `reverterSucessora` apagar a sucessora por **soft-delete** — a linha continua na tabela. O dedup de `gerarProximaOcorrencia` procurava com `deletedAt: null`, não enxergava essa linha, e **criava outra** para a mesma data. Resultado do ciclo marcar → desmarcar → marcar: 3 linhas onde deviam existir 2, sendo duas com o mesmo `(recorrenteId, vencimento)`. Exatamente a duplicata que o índice único recusaria — o banco explodiria num fluxo trivial de UI.
+
+Verificado empiricamente: revertendo a correção, o teste de integração acusa `expected [...3 itens] to have a length of 2` e o `groupBy` devolve um grupo com `_count: 2`.
+
+**Decisões:**
+1. **A geração procura INCLUSIVE as apagadas.** Achando uma sucessora soft-deletada para a data alvo, **ressuscita** (`deletedAt: null, pago: false, pagoEm: null`) em vez de criar outra linha. Vale por si só, independente da constraint: antes, cada ciclo desmarcar/marcar deixava uma órfã apagada acumulando na tabela.
+2. **A correção vai ao ar ANTES da constraint**, em PR separado. Invertendo a ordem, o próprio ciclo marcar/desmarcar continuaria gerando duplicatas entre um deploy e outro — e a migration falharia no meio do `migrate deploy`.
+3. **A constraint só entra depois de contar as duplicatas SEM filtrar `deletedAt`.** O `0` da primeira consulta não vale como aval; a pergunta certa é outra.
+
+**Lição:** a pendência estava classificada como "só falta rodar a migration". Não estava — faltava um bug. Constraint de banco não é enfeite: ela obriga o código a ser coerente com o que se afirma sobre os dados, e foi tentando adicioná-la que o defeito apareceu.
 
 ## Pendências (viram ADR quando decididas)
 

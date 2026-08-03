@@ -192,11 +192,23 @@ async function gerarProximaOcorrencia(conta: ContaSerie): Promise<boolean> {
   const serie = conta.recorrenteId ?? conta.id;
   const prox = proximo(conta.vencimento, conta.recorrencia, await diaAncoraDaSerie(conta));
   if (conta.recorrenciaAte && prox > conta.recorrenciaAte) return false;
-  const existe = await prisma.conta.findFirst({
-    where: { deletedAt: null, vencimento: prox, OR: [{ id: serie }, { recorrenteId: serie }] },
-    select: { id: true },
+  // Procura INCLUSIVE as apagadas: uma reversão (desmarcar pago) faz soft-delete da
+  // sucessora, e a linha continua na tabela. Se ignorássemos isso, remarcar como pago
+  // criaria uma SEGUNDA linha para a mesma data — a apagada viraria órfã, e um índice
+  // único em (recorrenteId, vencimento) recusaria o insert.
+  const existente = await prisma.conta.findFirst({
+    where: { vencimento: prox, OR: [{ id: serie }, { recorrenteId: serie }] },
+    select: { id: true, deletedAt: true },
   });
-  if (existe) return false;
+  if (existente?.deletedAt) {
+    // Ressuscita a ocorrência que a reversão tinha apagado, em vez de duplicar a data.
+    await prisma.conta.update({
+      where: { id: existente.id },
+      data: { deletedAt: null, pago: false, pagoEm: null },
+    });
+    return true;
+  }
+  if (existente) return false;
   await prisma.conta.create({
     data: {
       tipo: conta.tipo,
