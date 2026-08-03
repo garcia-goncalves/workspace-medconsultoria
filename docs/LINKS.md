@@ -1,0 +1,159 @@
+# 🔗 LINKS E ACESSOS — Workspace MedConsultoria
+
+> **Para que serve este arquivo:** saber, sem precisar perguntar a ninguém, **onde clicar** para
+> ver a aplicação funcionando, o que é cada porta e o que fazer quando algo não abre.
+> Escrito para ser entendido sem conhecimento técnico.
+>
+> Última verificação: **03/08/2026** (tudo abaixo foi testado, não é suposição).
+
+---
+
+## 1. O que abrir agora (os 3 links do dia a dia)
+
+| Clique aqui | O que é |
+| ----------- | ------- |
+| **http://localhost:4310** | 🖥️ **A aplicação na sua máquina.** É aqui que você testa antes de subir para o ar. Mudanças no código aparecem sozinhas, sem recarregar. |
+| **https://workspace.medconsultoria.com.br** | 🌐 **A aplicação de verdade**, que a Thaís e os clientes usam. |
+| **http://localhost:4319/health** | 🩺 **Sinal de vida do motor local.** Se aparecer `{"status":"ok"}`, o servidor está de pé. Se não abrir, a aplicação local está fora. |
+
+**Regra simples:** `localhost` = sua máquina, só você vê. `workspace.medconsultoria.com.br` = o ar,
+todo mundo vê. Nunca teste coisa arriscada no segundo.
+
+---
+
+## 2. Todas as portas deste projeto
+
+Uma "porta" é como um número de sala: o mesmo computador atende várias coisas ao mesmo tempo,
+cada uma na sua sala.
+
+| Porta | Serviço | Endereço | Precisa estar ligada? |
+| ----- | ------- | -------- | --------------------- |
+| **4310** | Tela da aplicação (front-end) | http://localhost:4310 | ✅ Sim, é o que você abre |
+| **4319** | Motor da aplicação (API/back-end) | http://localhost:4319 | ✅ Sim, a tela não funciona sem ele |
+| **3307** | Banco de dados MySQL (Docker) | `localhost:3307` | ✅ Sim, é onde ficam os dados |
+
+> **Por que 3307 e não 3306?** 3306 é a porta padrão do MySQL e já estava ocupada por outro
+> programa na sua máquina. Mudamos para 3307 para não brigarem.
+
+### Endereços úteis do motor (porta 4319)
+
+| Endereço | O que faz |
+| -------- | --------- |
+| http://localhost:4319/health | Diz se o motor está vivo |
+| `http://localhost:4319/trpc/…` | Por onde a tela conversa com o motor (não é para abrir no navegador) |
+
+---
+
+## 3. ❓ "Cadê o Swagger?"
+
+**Este projeto não tem Swagger — e isso é de propósito, não é falta.**
+
+Swagger é uma tela que lista os endereços de uma API para quem for programar contra ela. Ele
+existe porque, numa API tradicional (REST), o programador do front precisa **descobrir** o que o
+back-end aceita.
+
+Aqui a API é **tRPC**: o front e o back compartilham o mesmo código de tipos. Se alguém escrever
+uma chamada errada, **o projeto não compila** — o erro aparece na hora de escrever, não depois de
+publicar. Swagger seria um documento a mais para manter desatualizado.
+
+Se um dia um sistema **de fora** (outra empresa, um app) precisar conversar com esta aplicação,
+aí sim vale criar endereços REST com Swagger. Hoje ninguém de fora consome esta API.
+
+---
+
+## 4. Páginas públicas (abrem sem login)
+
+Servem para o cliente/prospect, e funcionam nos dois ambientes.
+
+| Página | Local | No ar |
+| ------ | ----- | ----- |
+| Captação de lead | http://localhost:4310/comecar | https://workspace.medconsultoria.com.br/comecar |
+| Aceite de proposta | `/proposta/{token}` | idem |
+| Assinatura de documento | `/assinar/{token}` | idem |
+
+O `{token}` é gerado pela aplicação e vai no link enviado ao cliente — não dá para adivinhar.
+
+---
+
+## 5. Como ligar e desligar a aplicação local
+
+**Para ligar** (é o que eu faço automaticamente na primeira tarefa do dia):
+
+```
+pnpm db:up                    # sobe o banco (Docker) — só se estiver desligado
+node scripts/keep-alive.mjs   # sobe a aplicação e a RE-SOBE sozinha se cair
+```
+
+O `keep-alive` é um vigia: se a aplicação travar, ele reinicia em segundos. O registro do que
+aconteceu fica em `scripts/.keepalive.log`.
+
+**Para pausar** (necessário só quando se mexe na estrutura do banco):
+
+```
+touch scripts/.keepalive-pause    # o vigia para e espera
+rm scripts/.keepalive-pause       # o vigia volta a subir
+```
+
+> ⚠️ **Nunca feche o Node "na força"** (matar processo) para mexer no banco — use a pausa acima.
+> Fechar na força deixa o banco travado pela metade.
+
+**Se não abrir:** confira nesta ordem — (1) `http://localhost:4319/health` responde? (2) o Docker
+está aberto? (3) veja as últimas linhas de `scripts/.keepalive.log`.
+
+---
+
+## 6. Outros projetos ocupando portas nesta máquina
+
+Você tem vários projetos e o Docker mantém os containers ligados mesmo quando você não está
+trabalhando neles. **Nada abaixo pertence ao Workspace MedConsultoria** — está aqui só para você
+não confundir uma tela de outro projeto com esta.
+
+| Porta | De quem é |
+| ----- | --------- |
+| 8080 | `sophia-web` (projeto Sophia Camargo) |
+| 8025 / 1025 | Mailpit do **Sophia Camargo** |
+| 8039 / 1039 | Mailpit do **Grimoire** |
+| 5433 | Postgres do **Inkflow** |
+| 5435 | Postgres do **Grimoire** |
+| 3306 | Outro MySQL da máquina |
+
+> ⚠️ **Cuidado com o Mailpit.** Mailpit é uma caixa de entrada falsa, para ver e-mails de teste
+> sem enviar de verdade. A da porta 8025 é do **Sophia Camargo**. Se um e-mail deste projeto cair
+> lá, é porque a configuração local está apontando para ela — não é a caixa "oficial" daqui.
+> **Em produção os e-mails são reais** e só devem ser testados com `tibamooca@gmail.com` ou
+> `contato@medconsultoria.com.br`.
+
+---
+
+## 7. Gráfico do código (CBM)
+
+O **Codebase Memory** é o mapa do código que eu uso para achar as coisas sem ler o projeto
+inteiro toda vez. Hoje ele **não tem uma tela para você abrir** — vive dentro da minha ferramenta
+e não ocupa porta nenhuma.
+
+Estado atual do índice deste projeto: **4.314 partes de código mapeadas, 10.385 ligações entre elas.**
+
+Se você quiser **ver** esse mapa numa tela, dá para gerar um painel visual navegável. É um pedido
+separado — me avise que eu monto.
+
+---
+
+## 8. Contas de acesso
+
+As contas e os papéis de cada uma estão em **[`ACESSOS.md`](./ACESSOS.md)**.
+
+**Senha não é escrita em documento nenhum** — nem aqui, nem lá. Ao entrar pela primeira vez, a
+própria aplicação obriga cada pessoa da equipe a definir uma senha só dela (ADR-91). Se esquecer,
+use **"Esqueci minha senha"** na tela de login.
+
+---
+
+## 9. Onde está o resto
+
+| Assunto | Arquivo |
+| ------- | ------- |
+| Contas, papéis e todas as telas | [`ACESSOS.md`](./ACESSOS.md) |
+| Como subir para o ar (deploy) | [`DEPLOY.md`](./DEPLOY.md) |
+| Visão geral do projeto | [`CLAUDE.md`](./CLAUDE.md) |
+| Por que cada decisão foi tomada | [`DECISIONS.md`](./DECISIONS.md) |
+| Estrutura do banco de dados | [`DATABASE.md`](./DATABASE.md) |
