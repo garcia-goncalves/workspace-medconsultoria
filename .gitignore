@@ -56,3 +56,6 @@ backups/
 
 # Pacote temporario de deploy (gerado por build:deploy + tar)
 apps/api/bundle-*.tar.gz
+
+# Claude Code - configurações locais
+.claude/settings.local.json
