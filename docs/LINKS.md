@@ -31,6 +31,7 @@ cada uma na sua sala.
 | **4310** | Tela da aplicação (front-end) | http://localhost:4310 | ✅ Sim, é o que você abre |
 | **4319** | Motor da aplicação (API/back-end) | http://localhost:4319 | ✅ Sim, a tela não funciona sem ele |
 | **3307** | Banco de dados MySQL (Docker) | `localhost:3307` | ✅ Sim, é onde ficam os dados |
+| **4330** | Mapa do código (painel do CBM) | http://localhost:4330/painel.html | ⬜ Não, só quando quiser ver |
 
 > **Por que 3307 e não 3306?** 3306 é a porta padrão do MySQL e já estava ocupada por outro
 > programa na sua máquina. Mudamos para 3307 para não brigarem.
@@ -125,16 +126,29 @@ não confundir uma tela de outro projeto com esta.
 
 ---
 
-## 7. Gráfico do código (CBM)
+## 7. Mapa do código (painel do CBM)
+
+**http://localhost:4330/painel.html**
 
 O **Codebase Memory** é o mapa do código que eu uso para achar as coisas sem ler o projeto
-inteiro toda vez. Hoje ele **não tem uma tela para você abrir** — vive dentro da minha ferramenta
-e não ocupa porta nenhuma.
+inteiro toda vez: **4.314 partes mapeadas, 10.385 ligações entre elas.** O painel mostra isso em
+tela — tamanho de cada área do sistema, as peças mais reutilizadas, onde o código é mais difícil
+e como as partes dependem umas das outras. Cada gráfico vem com a explicação do que significa.
 
-Estado atual do índice deste projeto: **4.314 partes de código mapeadas, 10.385 ligações entre elas.**
+**Para abrir** (ele não sobe junto com a aplicação, é um servidor separado e leve):
 
-Se você quiser **ver** esse mapa numa tela, dá para gerar um painel visual navegável. É um pedido
-separado — me avise que eu monto.
+```
+cd docs/cbm && python -m http.server 4330 --bind 127.0.0.1
+```
+
+Depois é só abrir o link acima. Para fechar, `Ctrl+C` na janela onde rodou.
+
+> O painel é **estático**: mostra o retrato do código no dia em que foi gerado (a data está no
+> topo da página). Depois de mudanças grandes, peça para eu reindexar o CBM e regerar — os
+> números não se atualizam sozinhos.
+>
+> Também dá para abrir o arquivo direto, sem servidor: `docs/cbm/painel.html` no navegador.
+> A porta existe porque assim você tem um link igual aos outros.
 
 ---
 
