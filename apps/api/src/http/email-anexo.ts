@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
-import { pipeline } from "node:stream/promises";
+import { pipeline, finished } from "node:stream/promises";
 import { join, resolve, sep } from "node:path";
 import { prisma } from "@app/db";
 import { usuarioDaRequest } from "./uploads.js";
@@ -93,10 +93,24 @@ export function registrarRotaAnexoEmail(app: FastifyInstance): void {
           );
           const conteudo = r.content;
           reply.send(conteudo);
-          await new Promise<void>((ok, falhou) => {
-            conteudo.once("end", () => ok());
-            conteudo.once("error", falhou);
-          });
+          try {
+            // `finished` cobre "end" (terminou de escoar) E "close" (destruído antes de
+            // terminar — é o que o Fastify faz quando quem baixa cancela: fecha a aba, aperta
+            // Cancelar, dá F5 no meio). Sem isto, um download cancelado nunca resolveria esta
+            // promise, o callback do `comCaixa` nunca retornaria, e a conexão IMAP (com o lock
+            // da caixa) ficaria pendurada até o processo reiniciar.
+            await finished(conteudo);
+          } catch (e) {
+            const erro = e as NodeJS.ErrnoException;
+            // Cancelamento vira ERR_STREAM_PREMATURE_CLOSE aqui — não é falha de verdade.
+            // Qualquer OUTRO erro (ex.: a conexão IMAP caiu no meio do download) também fica
+            // contido AQUI DENTRO: falha ao ENTREGAR um anexo não é falha da CAIXA — se
+            // deixássemos subir, o catch do `comCaixa` marcaria a caixa inteira como ERRO por
+            // causa de um anexo que não baixou, sem nenhuma relação com a sincronização dela.
+            if (erro.code !== "ERR_STREAM_PREMATURE_CLOSE") {
+              req.log.warn({ err: erro }, "Anexo: o download terminou com erro depois de a resposta já ter começado.");
+            }
+          }
           return true;
         } finally {
           lock.release();

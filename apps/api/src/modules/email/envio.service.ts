@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import MailComposer from "nodemailer/lib/mail-composer/index.js";
 import { createReadStream } from "node:fs";
-import { rm } from "node:fs/promises";
+import { rm, stat } from "node:fs/promises";
 import { prisma } from "@app/db";
 import { DESTINOS_TESTE_PERMITIDOS, type EnviarEmailInput } from "@app/shared";
 import { isProd } from "../../config.js";
@@ -9,6 +9,15 @@ import { comSmtp } from "./smtp.js";
 import { comCaixa } from "./imap.js";
 import { montarCitacao, destinatariosResposta, assuntoResposta, assuntoEncaminhar } from "./citacao.js";
 import { caminhoTemp } from "../../http/email-anexo.js";
+
+/**
+ * Teto do CONJUNTO de anexos de um envio — não o de cada arquivo (`TAMANHO_MAX`, 20 MB, em
+ * `lib/storage.ts`). É o que os servidores de e-mail aceitam de qualquer forma, então uma
+ * mensagem acima disso não sairia mesmo. E compor o MIME materializa a mensagem inteira (anexos
+ * em base64 incluídos) num Buffer só, no mesmo processo que serve a tela — no pior caso (20
+ * anexos de 20 MB) seriam ~530 MB de base64 sem este teto.
+ */
+const LIMITE_ANEXOS_BYTES = 25 * 1024 * 1024;
 
 /**
  * Fora de produção, só é permitido enviar para os endereços de teste do dono.
@@ -25,6 +34,38 @@ export function conferirDestinoPermitido(destinos: string[]): void {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: `Em desenvolvimento só é permitido enviar para ${DESTINOS_TESTE_PERMITIDOS.join(" ou ")}. Recusei enviar para ${proibido}.`,
+    });
+  }
+}
+
+/**
+ * Confere os anexos temporários ANTES de compor o e-mail: existem de verdade, e a soma não
+ * passa do teto do CONJUNTO. Chamada antes de `compile().build()`, que materializa a mensagem
+ * inteira (anexos em base64 incluídos) num Buffer só — no mesmo processo que serve a tela.
+ *
+ * Também é a defesa contra reenviar depois de uma falha do SMTP: o `finally` do PASSO 1 já
+ * apagou os temporários da tentativa anterior, e sem esta checagem o `createReadStream` do
+ * `MailComposer` cairia num ENOENT cru — que, sem `errorFormatter` no tRPC, vazaria o caminho de
+ * disco do servidor pro cliente e pro ErrorLog.
+ */
+export async function conferirAnexos(userId: string, anexos: EnviarEmailInput["anexos"]): Promise<void> {
+  let total = 0;
+  for (const a of anexos) {
+    let tamanho: number;
+    try {
+      tamanho = (await stat(caminhoTemp(userId, a.id))).size;
+    } catch {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Um dos anexos não está mais disponível. Anexe o arquivo de novo e tente enviar.",
+      });
+    }
+    total += tamanho;
+  }
+  if (total > LIMITE_ANEXOS_BYTES) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Os anexos somam ${(total / 1024 / 1024).toFixed(1)} MB — o limite total é ${LIMITE_ANEXOS_BYTES / 1024 / 1024} MB.`,
     });
   }
 }
@@ -62,6 +103,8 @@ export async function enviarMensagem(
   const caixa = await caixaDoUsuario(userId, input.caixaId);
   const todos = [...input.para, ...input.cc, ...input.cco];
   conferirDestinoPermitido(todos);
+
+  await conferirAnexos(userId, input.anexos);
 
   // `emRespostaA` e `encaminhando` são mutuamente exclusivos na prática; se vierem os dois,
   // `emRespostaA` manda (é o caso mais forte) — não estoura erro por isso.
