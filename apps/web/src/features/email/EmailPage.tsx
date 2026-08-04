@@ -76,8 +76,14 @@ export function EmailPage() {
   useEffect(() => {
     if (!caixaAtual || !pastaAtual) return;
     const alvo = { caixaId: caixaAtual.id, pastaId: pastaAtual.id };
+    // A lista de pastas é redescoberta ao ABRIR a caixa, não a cada ciclo: LIST custa uma
+    // conexão IMAP e a lista muda raramente. Sem isto, pasta criada ou desinscrita no webmail
+    // nunca chegava aqui — a lista congelava no dia em que a caixa foi plugada.
+    let primeira = true;
     const puxar = () => {
-      if (!document.hidden) sincronizar.mutate(alvo);
+      if (document.hidden) return;
+      sincronizar.mutate({ ...alvo, descobrirPastas: primeira });
+      primeira = false;
     };
     puxar();
     const t = setInterval(puxar, POLL.emailLista);

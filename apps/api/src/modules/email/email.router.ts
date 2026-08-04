@@ -53,11 +53,31 @@ export const emailRouter = router({
 
   /** Chamado ao abrir a página e pelo polling. Devolve o que mudou para o front decidir avisar. */
   sincronizar: funcionarioProcedure
-    .input(z.object({ caixaId: z.string().min(1), pastaId: z.string().min(1) }))
+    .input(
+      z.object({
+        caixaId: z.string().min(1),
+        pastaId: z.string().min(1),
+        // Redescobrir a lista de pastas custa uma conexão IMAP a mais, então o front pede isso
+        // só ao abrir a caixa — nunca a cada ciclo do polling. Sem isso, a lista de pastas
+        // congelava no dia em que a caixa foi plugada: pasta criada, renomeada ou desinscrita
+        // no webmail nunca aparecia (nem sumia) aqui.
+        descobrirPastas: z.boolean().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // A checagem de posse acontece aqui, antes de tocar no IMAP: `listarPastas` estoura
       // NOT_FOUND se a caixa não for desta pessoa.
       await pastas.listarPastas(ctx.user.id, input.caixaId);
+
+      if (input.descobrirPastas) {
+        // Servidor fora do ar não pode derrubar a sincronização — a próxima abertura tenta de novo.
+        await pastas.sincronizarPastas(input.caixaId).catch(() => {});
+        // A pasta aberta pode ter acabado de sumir (apagada ou desinscrita no webmail). Sair
+        // aqui evita estourar; o front relê as pastas e cai na Caixa de entrada.
+        const aindaExiste = await pastas.pastaExiste(input.caixaId, input.pastaId);
+        if (!aindaExiste) return { ok: true };
+      }
+
       await sync.sincronizarPasta(input.caixaId, input.pastaId);
       return { ok: true };
     }),

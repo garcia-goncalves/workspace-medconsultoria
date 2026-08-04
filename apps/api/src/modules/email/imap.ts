@@ -79,11 +79,26 @@ export async function comCaixa<T>(caixaId: string, fn: (c: ImapFlow) => Promise<
     throw new Error("Esta caixa precisa ser reconectada: a senha guardada foi recusada pelo servidor.");
   }
 
+  // Se o segredo não abre (EMAIL_CRYPTO_KEY rotacionada, por exemplo), o remédio é o mesmo da
+  // senha recusada: a pessoa reconecta a caixa. Marcar o estado faz a tela oferecer isso — sem
+  // este trecho, o erro subia cru e virava um 500 sem instrução nenhuma, e a caixa continuava
+  // parecendo "OK" na lista.
+  let senha: string;
+  try {
+    senha = decifrar(caixa.segredo);
+  } catch (e) {
+    await prisma.caixaEmail.update({
+      where: { id: caixa.id },
+      data: { estado: "AUTENTICACAO_FALHOU", ultimoErro: (e as Error).message.slice(0, 500) },
+    });
+    throw e;
+  }
+
   const c = novoCliente({
     imapHost: caixa.imapHost,
     imapPorta: caixa.imapPorta,
     usuario: caixa.usuario,
-    senha: decifrar(caixa.segredo),
+    senha,
   });
 
   try {
