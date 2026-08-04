@@ -76,9 +76,9 @@ Fonte: `apps/web/src/lib/paginas.ts` (campo `grupo` → `MENU_GRUPOS`; o `AppLay
 
 **Menu (sidebar)** — 4 grupos + Início solto no topo (ADR-94):
 - **(sem cabeçalho):** Início `/`
-- **Comunicação:** E-mail `/email` · Mensagens `/mensagens`
 - **Meu trabalho:** Tarefas `/tarefas` · Agenda `/agenda` · Projetos `/projetos`
 - **Negócio:** Vendas `/leads` · Clientes `/clientes` · Documentos `/documentos` · Financeiro `/financeiro` (ADMIN)
+- **Comunicação:** E-mail `/email` · Mensagens `/mensagens`
 - **Configuração:** Ajustes `/ajustes` (ADMIN) · Sistema `/sistema` (ROOT)
 - **Ocultas do menu** (acessíveis via Ajustes/fichas, "iluminam" Ajustes): `/servicos`, `/modelos`, `/emails`, `/emails-enviados`, `/usuarios`, `/configuracoes`.
 - Header: busca global/Command Palette (Ctrl/⌘K, com IA quando disponível), sino de notificações, Guia (`?`), menu do usuário, recolher sidebar, breadcrumbs.

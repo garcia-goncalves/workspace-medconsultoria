@@ -35,21 +35,22 @@ import type { Role } from "@app/shared";
  * `grupo`: em que grupo do menu lateral o item aparece. Sem `grupo` = fora do menu (abre por
  * Ajustes, pela ficha ou pelo menu do usuário).
  */
-export type GrupoMenu = "Comunicação" | "Meu trabalho" | "Negócio" | "Configuração";
+export type GrupoMenu = "Meu trabalho" | "Negócio" | "Comunicação" | "Configuração";
 
 /**
  * Ordem dos grupos no menu lateral. O primeiro é `null`: grupo SEM cabeçalho, no topo — o
  * Início não pertence a tema nenhum (é o resumo de todos) e um título sobre um item só é ruído.
  *
- * Cada cabeçalho responde a uma pergunta que a pessoa faz de verdade: "alguém me chamou?"
- * (Comunicação), "o que é meu hoje?" (Meu trabalho), "como está o negócio?" (Negócio). Nenhum
- * grupo passa de 4 itens — dá para varrer sem ler. Ver ADR-94 (revisa o ADR-46).
+ * A ordem vai **de dentro para fora**: eu ("o que é meu hoje?" — Meu trabalho) → a empresa
+ * ("como está o negócio?" — Negócio) → o que chega de fora ("alguém me chamou?" — Comunicação)
+ * → o que se ajusta uma vez (Configuração). Início já é pessoal, então Meu trabalho é o que
+ * continua a frase. Nenhum grupo passa de 4 itens — dá para varrer sem ler. Ver ADR-94.
  */
 export const GRUPOS_MENU: readonly (GrupoMenu | null)[] = [
   null,
-  "Comunicação",
   "Meu trabalho",
   "Negócio",
+  "Comunicação",
   "Configuração",
 ];
 
@@ -65,9 +66,6 @@ export interface Pagina {
 
 export const PAGINAS: Pagina[] = [
   { label: "Início", icon: LayoutDashboard, to: "/", minRole: "FUNCIONARIO", grupo: null, keywords: ["dashboard", "home", "painel", "resumo"] },
-  // ── Comunicação: o que chega de fora primeiro (cliente e operadora escrevem por e-mail) ──
-  { label: "E-mail", icon: Inbox, to: "/email", minRole: "FUNCIONARIO", grupo: "Comunicação", keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"] },
-  { label: "Mensagens", icon: MessageSquare, to: "/mensagens", minRole: "FUNCIONARIO", grupo: "Comunicação", keywords: ["chat", "conversas", "suporte", "chamados"] },
   // ── Meu trabalho: o que fazer, quando fazer, onde isso vive ──
   { label: "Tarefas", icon: ListTodo, to: "/tarefas", minRole: "FUNCIONARIO", grupo: "Meu trabalho", keywords: ["delegar", "pedidos", "comigo", "deleguei", "afazeres", "to-do", "solicitacoes"] },
   { label: "Agenda", icon: Calendar, to: "/agenda", minRole: "FUNCIONARIO", grupo: "Meu trabalho", keywords: ["calendario", "eventos", "compromissos", "reunioes"] },
@@ -77,6 +75,9 @@ export const PAGINAS: Pagina[] = [
   { label: "Clientes", icon: Users, to: "/clientes", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["contatos", "empresas"] },
   { label: "Documentos", icon: FileText, to: "/documentos", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["propostas", "contratos", "atas", "recibos"] },
   { label: "Financeiro", icon: Wallet, to: "/financeiro", minRole: "ADMIN", grupo: "Negócio", keywords: ["contas", "pagar", "receber", "carteira", "dinheiro"] },
+  // ── Comunicação: o que chega de fora (o e-mail é o canal do cliente; Mensagens é interno) ──
+  { label: "E-mail", icon: Inbox, to: "/email", minRole: "FUNCIONARIO", grupo: "Comunicação", keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"] },
+  { label: "Mensagens", icon: MessageSquare, to: "/mensagens", minRole: "FUNCIONARIO", grupo: "Comunicação", keywords: ["chat", "conversas", "suporte", "chamados"] },
   // ── Configuração ──
   { label: "Ajustes", icon: SlidersHorizontal, to: "/ajustes", minRole: "ADMIN", grupo: "Configuração", keywords: ["configuracao", "catalogos"] },
   { label: "Serviços", icon: Briefcase, to: "/servicos", minRole: "ADMIN", keywords: ["catalogo", "exigencias", "passos"] },

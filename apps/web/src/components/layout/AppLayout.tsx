@@ -170,6 +170,17 @@ function UserMenu({ colapsada, onNavigate }: { colapsada: boolean; onNavigate?: 
   );
 }
 
+/**
+ * O menu NUNCA deve rolar — rolar esconde item de navegação, que é o oposto do trabalho do menu.
+ * Como a altura varia (1080 em casa, 768 num notebook), a barra ENCOLHE sozinha em três degraus
+ * de altura de VIEWPORT em vez de ganhar barra de rolagem. Os degraus são medidos, não chutados:
+ * `e2e/menu-sem-scroll.spec.ts` reprova se em qualquer tela comum o menu precisar de mais espaço
+ * do que tem. (Antes disto o menu exigia 912px de viewport — no 1080 passava raspando.)
+ * O `overflow-y-auto` do `<nav>` fica só como rede de segurança para telas absurdamente baixas.
+ */
+const ALTURA_ITEM = "py-2.5 alt:py-2 alt-sm:py-1.5 alt-xs:py-1";
+const ESPACO_GRUPOS = "space-y-4 alt:space-y-3 alt-sm:space-y-2 alt-xs:space-y-1.5";
+
 /** Conteúdo da barra lateral — reutilizado no desktop (recolhível) e no drawer mobile. */
 function SidebarConteudo({
   colapsada,
@@ -196,7 +207,12 @@ function SidebarConteudo({
 
   return (
     <>
-      <div className={cn("flex h-16 items-center gap-3", colapsada ? "justify-center px-2" : "px-5")}>
+      <div
+        className={cn(
+          "flex h-16 shrink-0 items-center gap-3 alt-sm:h-14",
+          colapsada ? "justify-center px-2" : "px-5",
+        )}
+      >
         {colapsada ? (
           <button
             onClick={onToggle}
@@ -228,7 +244,13 @@ function SidebarConteudo({
         )}
       </div>
 
-      <nav className={cn("flex-1 space-y-4 overflow-y-auto py-4", colapsada ? "px-2" : "px-3")}>
+      <nav
+        className={cn(
+          "flex-1 overflow-y-auto py-4 alt-sm:py-2 alt-xs:py-1",
+          ESPACO_GRUPOS,
+          colapsada ? "px-2" : "px-3",
+        )}
+      >
         {grupos.map((grupo, iGrupo) => (
           <div key={grupo.titulo ?? "topo"} className="space-y-1">
             {/* Grupo sem título (o Início) não ganha cabeçalho nem divisor — é o topo da lista.
@@ -238,7 +260,7 @@ function SidebarConteudo({
               (colapsada ? (
                 iGrupo > 0 && <div className="mx-2 mb-1 border-t border-white/10" />
               ) : (
-                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/70 alt-sm:pb-0 alt-sm:leading-none">
                   {grupo.titulo}
                 </p>
               ))}
@@ -258,7 +280,8 @@ function SidebarConteudo({
                   aria-current={ativo ? "page" : undefined}
                   className={cn(
                     "group relative flex items-center rounded-lg text-[0.9rem] text-white/70 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand-blueLight",
-                    colapsada ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
+                    ALTURA_ITEM,
+                    colapsada ? "justify-center px-0" : "gap-3 px-3",
                     ativo &&
                       "bg-white/10 font-semibold !text-white before:absolute before:left-0 before:top-1/2 before:h-6 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-brand-blueLight",
                   )}
@@ -272,7 +295,12 @@ function SidebarConteudo({
         ))}
       </nav>
 
-      <div className={cn("border-t border-white/10", colapsada ? "p-2" : "p-3")}>
+      <div
+        className={cn(
+          "shrink-0 border-t border-white/10 alt-sm:p-2",
+          colapsada ? "p-2" : "p-3",
+        )}
+      >
         <UserMenu colapsada={colapsada} onNavigate={onNavigate} />
       </div>
 
