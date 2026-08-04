@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { PAGINAS, paginaCasa, normalizar } from "./paginas";
+import { PAGINAS, MENU_GRUPOS, GRUPOS_MENU, paginaCasa, normalizar } from "./paginas";
+import { trailFor } from "../components/layout/Breadcrumbs";
 
 /**
  * Guarda do catálogo de busca. A dor que originou isto: Sistema e Modelos existiam no app mas
@@ -57,5 +58,67 @@ describe("catálogo de páginas (busca do Ctrl+K)", () => {
 
   it("normalizar remove acento e caixa", () => {
     expect(normalizar("Saúde Ações")).toBe("saude acoes");
+  });
+});
+
+/**
+ * Guarda do MENU LATERAL. A dor que originou isto: a página "E-mail" foi registrada no catálogo
+ * (busca do Ctrl+K) mas o `AppLayout` tinha um `NAV_GROUPS` à mão, paralelo — e o item não
+ * apareceu no menu para ninguém. Agora o menu é derivado daqui, e este teste obriga toda rota
+ * nova a TOMAR UMA DECISÃO: ou entra num grupo do menu, ou entra na lista de exceções abaixo.
+ */
+// Páginas que existem de propósito FORA do menu — cada uma com o caminho por onde se chega.
+const FORA_DO_MENU: Record<string, string> = {
+  "/servicos": "abre por Ajustes",
+  "/modelos": "abre por Ajustes",
+  "/emails": "abre por Ajustes (mensagens automáticas)",
+  "/emails-enviados": "abre por Ajustes (monitor de envios)",
+  "/usuarios": "abre por Ajustes (equipe e acessos)",
+  "/configuracoes": "abre pelo menu do usuário, no rodapé da barra",
+};
+
+describe("menu lateral (barra da esquerda)", () => {
+  const noMenu = MENU_GRUPOS.flatMap((g) => g.itens);
+
+  it("toda rota de página ou está no menu ou está declarada como exceção", () => {
+    const cobertas = new Set([...noMenu.map((i) => i.to), ...Object.keys(FORA_DO_MENU)]);
+    const orfas = [...rotasDoRouter()].filter((r) => !cobertas.has(r));
+    expect(
+      orfas,
+      `rotas sem lugar no menu: ${orfas.join(", ")} — dê um \`grupo\` em paginas.ts ou declare em FORA_DO_MENU`,
+    ).toEqual([]);
+  });
+
+  it("E-mail está no menu (o item que sumiu por causa da lista paralela)", () => {
+    expect(noMenu.map((i) => i.to)).toContain("/email");
+  });
+
+  it("o menu não inventa rota: todo item veio do catálogo e existe no router", () => {
+    const doRouter = rotasDoRouter();
+    expect(noMenu.every((i) => PAGINAS.includes(i))).toBe(true);
+    expect(noMenu.filter((i) => !doRouter.has(i.to)).map((i) => i.to)).toEqual([]);
+  });
+
+  it("todo grupo declarado tem item, e nenhum item fica num grupo inexistente", () => {
+    expect(MENU_GRUPOS.filter((g) => g.itens.length === 0).map((g) => g.titulo)).toEqual([]);
+    const grupos = new Set<string>(GRUPOS_MENU);
+    expect(PAGINAS.filter((p) => p.grupo && !grupos.has(p.grupo)).map((p) => p.to)).toEqual([]);
+  });
+
+  it("a trilha do topo chama a página pelo mesmo nome do menu", () => {
+    // O `SECTION_LABEL` do Breadcrumbs é outra lista à mão: sem entrada, ele capitaliza o
+    // segmento da rota — foi assim que `/email` virou "Email" (sem hífen) no cabeçalho.
+    const divergentes = noMenu
+      .filter((i) => i.to !== "/")
+      .map((i) => ({ to: i.to, menu: i.label, trilha: trailFor(i.to, null).at(-1)?.label }))
+      .filter((x) => x.trilha !== x.menu);
+    expect(divergentes).toEqual([]);
+  });
+
+  it("nenhuma exceção declarada está obsoleta (rota morta ou já no menu)", () => {
+    const doRouter = rotasDoRouter();
+    const noMenuTo = new Set(noMenu.map((i) => i.to));
+    const obsoletas = Object.keys(FORA_DO_MENU).filter((r) => !doRouter.has(r) || noMenuTo.has(r));
+    expect(obsoletas, `exceções obsoletas: ${obsoletas.join(", ")}`).toEqual([]);
   });
 });

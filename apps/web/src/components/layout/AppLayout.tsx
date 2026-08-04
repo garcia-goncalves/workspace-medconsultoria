@@ -2,15 +2,6 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 
 import { createPortal } from "react-dom";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
-  LayoutDashboard,
-  Users,
-  Filter,
-  FolderKanban,
-  Calendar,
-  Wallet,
-  MessageSquare,
-  FileText,
-  ListTodo,
   Search,
   Sparkles,
   HelpCircle,
@@ -19,14 +10,12 @@ import {
   X,
   ChevronsUpDown,
   Settings,
-  SlidersHorizontal,
-  ServerCog,
   PanelLeftClose,
   PanelLeftOpen,
-  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@app/ui";
-import { ROLE_LABEL, hasRoleLevel, type Role } from "@app/shared";
+import { ROLE_LABEL, hasRoleLevel } from "@app/shared";
+import { MENU_GRUPOS, type Pagina } from "../../lib/paginas";
 import { useAuth } from "../../lib/auth-context";
 import { trpc } from "../../lib/trpc";
 import { Avatar } from "../ui/avatar";
@@ -35,41 +24,15 @@ import { NotificationBell } from "./NotificationBell";
 import { GuiaTour } from "../GuiaTour";
 import { Breadcrumbs, BreadcrumbProvider } from "./Breadcrumbs";
 
-interface NavItem {
-  label: string;
-  icon: LucideIcon;
-  to: string;
-  exact?: boolean;
-  minRole: Role;
-}
-
 /**
  * Navegação agrupada por USO: "Dia a dia" (o que a equipe usa sempre) e "Configuração"
  * (o que se ajusta uma vez — Ajustes junta os painéis administrativos; Sistema é dos devs).
+ *
+ * A lista vem do catálogo `lib/paginas.ts` (campo `grupo`), que também alimenta a busca do
+ * Ctrl+K. Antes esta era uma lista à mão, PARALELA ao catálogo — e a página "E-mail" foi
+ * registrada só lá, sumindo do menu. Uma fonte só; `paginas.test.ts` guarda o cruzamento.
  */
-const NAV_GROUPS: { titulo: string; itens: NavItem[] }[] = [
-  {
-    titulo: "Dia a dia",
-    itens: [
-      { label: "Início", icon: LayoutDashboard, to: "/", exact: true, minRole: "FUNCIONARIO" },
-      { label: "Vendas", icon: Filter, to: "/leads", minRole: "FUNCIONARIO" },
-      { label: "Clientes", icon: Users, to: "/clientes", minRole: "FUNCIONARIO" },
-      { label: "Projetos", icon: FolderKanban, to: "/projetos", minRole: "FUNCIONARIO" },
-      { label: "Tarefas", icon: ListTodo, to: "/tarefas", minRole: "FUNCIONARIO" },
-      { label: "Agenda", icon: Calendar, to: "/agenda", minRole: "FUNCIONARIO" },
-      { label: "Mensagens", icon: MessageSquare, to: "/mensagens", minRole: "FUNCIONARIO" },
-      { label: "Documentos", icon: FileText, to: "/documentos", minRole: "FUNCIONARIO" },
-      { label: "Financeiro", icon: Wallet, to: "/financeiro", minRole: "ADMIN" },
-    ],
-  },
-  {
-    titulo: "Configuração",
-    itens: [
-      { label: "Ajustes", icon: SlidersHorizontal, to: "/ajustes", minRole: "ADMIN" },
-      { label: "Sistema", icon: ServerCog, to: "/sistema", minRole: "ROOT" },
-    ],
-  },
-];
+const NAV_GROUPS = MENU_GRUPOS;
 
 /** Títulos de páginas fora da navegação principal (acessadas via Ajustes, ficha ou menu do usuário). */
 const EXTRA_TITLES: Record<string, string> = {
@@ -100,17 +63,23 @@ function itemAtivo(pathname: string, to: string): boolean {
 const ATALHO_BUSCA =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "⌘K" : "Ctrl K";
 
-/** Deriva o título da página atual a partir da rota, para o cabeçalho. */
+/**
+ * Deriva o título da página atual a partir da rota, para o cabeçalho.
+ *
+ * Casa por SEGMENTO (`/x` ou `/x/…`), nunca por prefixo cru: `/emails-enviados` começa com
+ * `/email`, e o prefixo cru daria a essa página o título "E-mail".
+ */
 function usePageTitle(): string {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   if (pathname === "/") return "Início";
+  const casa = (p: string) => pathname === p || pathname.startsWith(p + "/");
   const match = ALL_ITEMS.filter((i) => i.to !== "/")
-    .filter((i) => pathname.startsWith(i.to))
+    .filter((i) => casa(i.to))
     .sort((a, b) => b.to.length - a.to.length)[0];
   if (match) return match.label;
-  // Páginas fora do menu (via Ajustes/ficha): casa por prefixo — cobre detalhes como /documentos/$id.
+  // Páginas fora do menu (via Ajustes/ficha): cobre detalhes como /documentos/$id.
   const extra = Object.keys(EXTRA_TITLES)
-    .filter((k) => pathname.startsWith(k))
+    .filter(casa)
     .sort((a, b) => b.length - a.length)[0];
   return (extra ? EXTRA_TITLES[extra] : undefined) ?? "MedConsultoria";
 }
@@ -209,7 +178,7 @@ function SidebarConteudo({
   onToggle,
 }: {
   colapsada: boolean;
-  grupos: { titulo: string; itens: NavItem[] }[];
+  grupos: { titulo: string; itens: Pagina[] }[];
   pathname: string;
   onNavigate?: () => void;
   onToggle?: () => void;
