@@ -37,8 +37,10 @@ export function montarCitacao(original: {
   corpoHtml: string | null;
   corpoTexto: string | null;
 }): string {
-  const quem = original.deNome ? `${original.deNome} &lt;${original.deEmail}&gt;` : original.deEmail;
-  const cabecalho = `Em ${dataCitacao(original.dataEm)}, ${escapar(quem)} escreveu:`;
+  const quem = original.deNome
+    ? `${escapar(original.deNome)} &lt;${escapar(original.deEmail)}&gt;`
+    : escapar(original.deEmail);
+  const cabecalho = `Em ${dataCitacao(original.dataEm)}, ${quem} escreveu:`;
 
   let corpo: string;
   if (original.corpoHtml) {

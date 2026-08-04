@@ -82,4 +82,25 @@ describe("montarCitacao", () => {
     const c = montarCitacao({ ...original, corpoHtml: null, corpoTexto: null });
     expect(c).toBe("");
   });
+
+  it("formata corretamente e-mail entre entidades sem duplo-escape", () => {
+    const c = montarCitacao(original);
+    // O e-mail deve aparecer entre &lt; e &gt; de VERDADE
+    expect(c).toContain("&lt;jose@exemplo.com&gt;");
+    // Nunca duplo-escape (&amp;lt;)
+    expect(c).not.toContain("&amp;lt;");
+    expect(c).not.toContain("&amp;gt;");
+  });
+
+  it("escapa nome hostil no cabeçalho mantendo a segurança", () => {
+    const c = montarCitacao({
+      ...original,
+      deNome: '<script>alert(1)</script>',
+      corpoTexto: "teste",
+    });
+    // Nome hostil deve aparecer escapado
+    expect(c).toContain("&lt;script&gt;");
+    // Nunca o script cru
+    expect(c.toLowerCase()).not.toContain("<script");
+  });
 });
