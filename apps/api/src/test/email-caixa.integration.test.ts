@@ -71,4 +71,50 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
     // A INBOX aparece primeiro (ordem 0).
     expect(pastas[0]!.papel).toBe("INBOX");
   });
+
+  it("sincroniza a INBOX e indexa uma mensagem que acabou de chegar", async () => {
+    const { ImapFlow } = await import("imapflow");
+    const { sincronizarPasta } = await import("../modules/email/sync.service.js");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    const inbox = await prisma.caixaPasta.findFirstOrThrow({ where: { caixaId: caixa.id, papel: "INBOX" } });
+
+    const marca = `sync-${Date.now()}`;
+    const c = new ImapFlow({
+      host: "mail.medconsultoria.com.br",
+      port: 993,
+      secure: true,
+      auth: { user: USER!, pass: PASS! },
+      logger: false,
+    });
+    await c.connect();
+    await c.append(
+      "INBOX",
+      Buffer.from(
+        [
+          `From: Cliente Teste <cliente@exemplo.com>`,
+          `To: ${USER}`,
+          `Subject: ${marca}`,
+          `Message-ID: <${marca}@exemplo.com>`,
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          "corpo",
+        ].join("\r\n"),
+        "utf8",
+      ),
+    );
+    await c.logout();
+
+    const r = await sincronizarPasta(caixa.id, inbox.id);
+    expect(r.novas).toBeGreaterThanOrEqual(1);
+
+    const msg = await prisma.emailMensagem.findFirst({
+      where: { pastaId: inbox.id, assunto: marca },
+      include: { enderecos: true },
+    });
+    expect(msg).toBeTruthy();
+    expect(msg!.deEmail).toBe("cliente@exemplo.com");
+    expect(msg!.corpoHtml).toBeNull(); // índice não baixa corpo — é o ponto da opção "C"
+    expect(msg!.enderecos.map((e) => e.papel)).toContain("DE");
+    expect(msg!.enderecos.map((e) => e.endereco)).toContain("cliente@exemplo.com");
+  });
 });
