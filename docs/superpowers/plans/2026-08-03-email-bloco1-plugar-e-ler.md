@@ -1372,14 +1372,14 @@ export async function sincronizarPasta(caixaId: string, pastaId: string): Promis
         }
 
         // ── 1. o que mudou (marcações) e o que sumiu, desde a última vez ──
-        if (pasta.highestModseq > 0n) {
-          const conhecidos = new Set<string>();
+        if (pasta.highestModseq > 0n && pasta.ultimoUid > 0n) {
+          // ATENÇÃO: `changedSince` é opção do fetch (3º argumento, `FetchOptions`) — NÃO faz
+          // parte do range (1º argumento, `SearchObject`). Pôr lá não compila.
           for await (const m of c.fetch(
-            { uid: `1:${pasta.ultimoUid}`, changedSince: pasta.highestModseq },
+            { uid: `1:${pasta.ultimoUid}` },
             { uid: true, flags: true },
-            { uid: true },
+            { uid: true, changedSince: pasta.highestModseq },
           )) {
-            conhecidos.add(String(m.uid));
             await prisma.emailMensagem.updateMany({
               where: { pastaId: pasta.id, uid: BigInt(m.uid) },
               data: {
@@ -1421,7 +1421,10 @@ export async function sincronizarPasta(caixaId: string, pastaId: string): Promis
             const de = env.from?.[0];
             const enderecos = extrairEnderecos(env);
             const anexos = coletarAnexos(m.bodyStructure);
-            const referencias = Array.isArray(env.references) ? env.references.join(" ") : (env.references ?? null);
+            // `env.references` NÃO EXISTE: o ENVELOPE do IMAP não traz o References. É preciso
+            // pedir a linha no fetch (`headers: ["references"]`) e lê-la de `m.headers` (Buffer),
+            // desdobrando as continuações. Ver `lerReferences` no arquivo implementado.
+            const referencias = lerReferences(m.headers);
 
             await prisma.emailMensagem.upsert({
               where: { pastaId_uid: { pastaId: pasta.id, uid: BigInt(m.uid) } },
