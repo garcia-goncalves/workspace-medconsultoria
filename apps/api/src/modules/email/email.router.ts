@@ -140,4 +140,12 @@ export const emailRouter = router({
       exigirModuloLigado();
       return rascunhos.salvarRascunho(ctx.user.id, input);
     }),
+
+  /** Apaga um rascunho específico da pasta Drafts — chamado depois de um envio bem-sucedido. */
+  descartarRascunho: funcionarioProcedure
+    .input(z.object({ caixaId: z.string().min(1), uid: z.number().int().positive() }))
+    .mutation(({ ctx, input }) => {
+      exigirModuloLigado();
+      return rascunhos.descartarRascunho(ctx.user.id, input);
+    }),
 });

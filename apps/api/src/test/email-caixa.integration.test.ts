@@ -503,4 +503,60 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
       await sincronizarPastas(caixa.id);
     }
   });
+
+  it("descartarRascunho apaga o rascunho por UID (usado pelo front depois de um envio bem-sucedido)", async () => {
+    // Rodada de correção 1 — achado 2: o rascunho da composição que acabou de ser enviada não
+    // pode sobrar para sempre em Rascunhos. Este é o teste ao vivo da procedure que o front chama
+    // no `onSuccess` do envio.
+    const { salvarRascunho, descartarRascunho } = await import("../modules/email/rascunhos.service.js");
+    const { ImapFlow } = await import("imapflow");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    const drafts = await prisma.caixaPasta.findFirstOrThrow({ where: { caixaId: caixa.id, papel: "DRAFTS" } });
+
+    const salvo = await salvarRascunho(userId, {
+      caixaId: caixa.id,
+      para: ["contato@medconsultoria.com.br"],
+      cc: [],
+      cco: [],
+      assunto: `rascunho-a-descartar-${Date.now()}`,
+      corpoHtml: "<p>vai ser descartado</p>",
+    });
+    expect(salvo.uid).not.toBeNull();
+
+    await descartarRascunho(userId, { caixaId: caixa.id, uid: salvo.uid! });
+
+    const c = new ImapFlow({
+      host: "mail.medconsultoria.com.br",
+      port: 993,
+      secure: true,
+      auth: { user: USER!, pass: PASS! },
+      logger: false,
+    });
+    await c.connect();
+    try {
+      const lock = await c.getMailboxLock(drafts.caminho);
+      try {
+        const ainda = await c.fetchOne(String(salvo.uid), { uid: true }, { uid: true });
+        expect(ainda, "o rascunho tem de ter sumido do servidor, não só do índice local").toBeFalsy();
+      } finally {
+        lock.release();
+      }
+    } finally {
+      await c.logout().catch(() => {});
+    }
+  });
+
+  it("descartarRascunho não estoura se a caixa não tiver pasta Drafts (mesma defesa do salvar)", async () => {
+    const { descartarRascunho } = await import("../modules/email/rascunhos.service.js");
+    const { sincronizarPastas } = await import("../modules/email/pastas.service.js");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    const drafts = await prisma.caixaPasta.findFirstOrThrow({ where: { caixaId: caixa.id, papel: "DRAFTS" } });
+
+    await prisma.caixaPasta.delete({ where: { id: drafts.id } });
+    try {
+      await expect(descartarRascunho(userId, { caixaId: caixa.id, uid: 999999 })).resolves.toBeUndefined();
+    } finally {
+      await sincronizarPastas(caixa.id);
+    }
+  });
 });

@@ -8,6 +8,7 @@ import { Textarea } from "../../components/ui/textarea";
 import { Label } from "../../components/ui/label";
 import { toast } from "../../components/ui/toast";
 import { dividirEmails, emailValido, montarCorpoEnvio, temConteudoParaRascunho } from "./compor";
+import { useRascunhoAutomatico } from "./useRascunhoAutomatico";
 
 export type ModoEscrever = "novo" | "responder" | "responderTodos" | "encaminhar";
 
@@ -104,6 +105,44 @@ export function Escrever({
     if (encaminhamento.error) toast(encaminhamento.error.message);
   }, [encaminhamento.error]);
 
+  // Rascunho automático na pasta Drafts do servidor — lógica isolada em `useRascunhoAutomatico`
+  // (testável com timers falsos, sem montar tRPC) para cobrir 3 defeitos: timer disparando NO
+  // MEIO do envio, rascunho órfão depois de enviar, e duas gravações em voo ao mesmo tempo.
+  const salvarRascunhoMutation = trpc.email.salvarRascunho.useMutation();
+  const descartarRascunhoMutation = trpc.email.descartarRascunho.useMutation();
+  const rascunho = useRascunhoAutomatico({
+    temConteudo: () =>
+      temConteudoParaRascunho({
+        para: paraTexto,
+        cc: ccTexto,
+        cco: ccoTexto,
+        assunto,
+        corpo: corpoDigitado,
+        citacao: citacaoEnvio,
+      }),
+    compor: () => ({
+      caixaId,
+      para: dividirEmails(paraTexto),
+      cc: dividirEmails(ccTexto),
+      cco: dividirEmails(ccoTexto),
+      assunto,
+      // O MESMO corpo que seria enviado (citação de envio, não a de preview) — ver comentário
+      // de `citacaoPreview`/`citacaoEnvio` acima: nunca trocar uma pela outra.
+      corpoHtml: montarCorpoEnvio(corpoDigitado, citacaoEnvio),
+    }),
+    salvar: (input) => salvarRascunhoMutation.mutateAsync(input),
+    descartar: (uid) => descartarRascunhoMutation.mutateAsync({ caixaId, uid }),
+  });
+
+  // Salva 5s depois da ÚLTIMA tecla — nunca a cada tecla (seria uma conexão IMAP por tecla). O
+  // timer reinicia a cada mudança de campo; o cleanup cancela um save pendente se a pessoa
+  // continuar digitando, ou some sozinho quando o componente desmonta.
+  useEffect(() => {
+    rascunho.agendar();
+    return rascunho.cancelarPendente;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paraTexto, ccTexto, ccoTexto, assunto, corpoDigitado, citacaoEnvio]);
+
   const enviar = trpc.email.enviar.useMutation({
     onSuccess: (r) => {
       utils.email.mensagens.invalidate();
@@ -113,74 +152,18 @@ export function Escrever({
           : "E-mail enviado, mas não consegui guardar a cópia em Enviados.",
         "success",
       );
+      // Apaga no servidor o rascunho da composição que acabou de sair — sem isto, todo e-mail
+      // que passou 5s parado antes de enviar deixava uma cópia desatualizada em Rascunhos.
+      rascunho.descartarAposEnvio();
       onFechar();
     },
     // A mensagem vem pronta do servidor — inclusive a trava de destino de teste fora de produção.
     onError: (e) => toast(e.message),
   });
 
-  // UID (no servidor) do rascunho já gravado, para a próxima gravação regravar POR CIMA dele em
-  // vez de duplicar. Fica em `ref` (não `state`) de propósito: não precisa causar re-render, e
-  // `aoFechar` pode gravar depois do componente já ter desmontado (ver abaixo) sem o aviso de
-  // "setState num componente desmontado" que uma `state` daria.
-  const uidRascunhoRef = useRef<number | null>(null);
-  const salvarRascunho = trpc.email.salvarRascunho.useMutation({
-    onSuccess: (r) => {
-      uidRascunhoRef.current = r.uid;
-    },
-    // Sem `onError`: rascunho é um detalhe — se esta gravação falhar (servidor fora, sem pasta
-    // Drafts etc.), a próxima tentativa (5s depois, ou ao fechar de novo) resolve sozinha. Um
-    // toast aqui só atrapalharia quem está no meio de escrever.
-  });
-
-  /**
-   * Grava o que está na tela na pasta Drafts do servidor — só quando há conteúdo de verdade
-   * (`temConteudoParaRascunho`), senão nasceria rascunho em branco a cada "Escrever" aberto e
-   * fechado sem uma letra digitada.
-   *
-   * NUNCA é chamada pelo `onSuccess` do envio (`enviar`, acima): ali o fechamento continua
-   * chamando `onFechar` puro. Se esta função rodasse depois de um envio bem-sucedido, todo
-   * e-mail enviado geraria TAMBÉM um rascunho fantasma da mesma composição, parado para sempre
-   * em Rascunhos — só esta função (via `aoFechar`) nunca aparece no caminho do envio.
-   */
-  const salvarRascunhoAgora = () => {
-    if (
-      !temConteudoParaRascunho({
-        para: paraTexto,
-        cc: ccTexto,
-        cco: ccoTexto,
-        assunto,
-        corpo: corpoDigitado,
-        citacao: citacaoEnvio,
-      })
-    ) {
-      return;
-    }
-    salvarRascunho.mutate({
-      caixaId,
-      para: dividirEmails(paraTexto),
-      cc: dividirEmails(ccTexto),
-      cco: dividirEmails(ccoTexto),
-      assunto,
-      // O MESMO corpo que seria enviado (citação de envio, não a de preview) — ver comentário
-      // de `citacaoPreview`/`citacaoEnvio` acima: nunca trocar uma pela outra.
-      corpoHtml: montarCorpoEnvio(corpoDigitado, citacaoEnvio),
-      uidAnterior: uidRascunhoRef.current ?? undefined,
-    });
-  };
-
-  // Salva 5s depois da ÚLTIMA tecla — nunca a cada tecla (seria uma conexão IMAP por tecla). O
-  // timer reinicia a cada mudança de campo; o cleanup cancela um save pendente se a pessoa
-  // continuar digitando, ou some sozinho quando o componente desmonta.
-  useEffect(() => {
-    const id = window.setTimeout(salvarRascunhoAgora, 5000);
-    return () => window.clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paraTexto, ccTexto, ccoTexto, assunto, corpoDigitado, citacaoEnvio]);
-
   /** Fecha a tela salvando o rascunho pendente antes — Cancelar, X do modal, Esc e clique fora. */
   const aoFechar = () => {
-    salvarRascunhoAgora();
+    rascunho.aoFechar();
     onFechar();
   };
 
@@ -240,6 +223,10 @@ export function Escrever({
       return;
     }
 
+    // Cancela o timer de 5s ANTES de mandar (achado 1): sem isto, um envio lento (SMTP + cópia em
+    // Enviados + marcar respondida) deixa o timer disparar NO MEIO do envio e gravar um rascunho
+    // que ninguém mais remove.
+    rascunho.aoComecarEnvio();
     enviar.mutate({
       caixaId,
       para,

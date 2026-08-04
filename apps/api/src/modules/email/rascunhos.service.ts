@@ -81,3 +81,34 @@ export async function salvarRascunho(userId: string, input: SalvarRascunhoInput)
     return { uid: uidNovo };
   });
 }
+
+/**
+ * Apaga um rascunho específico da pasta Drafts do servidor, por UID — chamado depois de um envio
+ * bem-sucedido, para não deixar em Rascunhos uma cópia desatualizada da composição que acabou de
+ * sair (achado da revisão da Tarefa 8: sem isto, quase todo e-mail respondido/encaminhado deixava
+ * um rascunho órfão para sempre, que dava pra reabrir e reenviar pela metade).
+ *
+ * Mesma trava de posse (`caixaDoUsuario`) e mesmo cuidado de expurgo do `salvarRascunho`: por UID
+ * (`messageDelete` com `uid: true`), nunca um `EXPUNGE` cego que mexeria em outra mensagem
+ * `\Deleted` da pasta.
+ */
+export async function descartarRascunho(userId: string, input: { caixaId: string; uid: number }): Promise<void> {
+  const caixa = await caixaDoUsuario(userId, input.caixaId);
+
+  const drafts = await prisma.caixaPasta.findFirst({
+    where: { caixaId: caixa.id, papel: "DRAFTS" },
+    select: { caminho: true },
+  });
+  // A pasta pode ter sumido entre a gravação e o descarte (desinscrita/apagada no webmail) — não
+  // há mais o que apagar.
+  if (!drafts) return;
+
+  await comCaixa(caixa.id, async (c) => {
+    const lock = await c.getMailboxLock(drafts.caminho);
+    try {
+      await c.messageDelete(String(input.uid), { uid: true });
+    } finally {
+      lock.release();
+    }
+  });
+}
