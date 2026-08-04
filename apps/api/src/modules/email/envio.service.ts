@@ -1,11 +1,14 @@
 import { TRPCError } from "@trpc/server";
 import MailComposer from "nodemailer/lib/mail-composer/index.js";
+import { createReadStream } from "node:fs";
+import { rm } from "node:fs/promises";
 import { prisma } from "@app/db";
 import { DESTINOS_TESTE_PERMITIDOS, type EnviarEmailInput } from "@app/shared";
 import { isProd } from "../../config.js";
 import { comSmtp } from "./smtp.js";
 import { comCaixa } from "./imap.js";
 import { montarCitacao, destinatariosResposta, assuntoResposta, assuntoEncaminhar } from "./citacao.js";
+import { caminhoTemp } from "../../http/email-anexo.js";
 
 /**
  * Fora de produção, só é permitido enviar para os endereços de teste do dono.
@@ -94,6 +97,12 @@ export async function enviarMensagem(
     html: corpo,
     inReplyTo: modo === "resposta" ? (citada?.messageId ?? undefined) : undefined,
     references: referencias || undefined,
+    // `input.anexos` traz { id, nome }: o id é o do upload temporário (POST /email-anexo), o
+    // nome é o original informado por quem escreveu o e-mail.
+    attachments: input.anexos.map((a) => ({
+      filename: a.nome,
+      content: createReadStream(caminhoTemp(userId, a.id)),
+    })),
   });
 
   // Compor UMA vez: o mesmo MIME vai para o SMTP e para a cópia em Enviados, então o que está
@@ -102,10 +111,17 @@ export async function enviarMensagem(
     composer.compile().build((erro, buffer) => (erro ? falhou(erro) : ok(buffer)));
   });
 
-  // PASSO 1 — enviar.
-  await comSmtp(caixa.id, async (t) => {
-    await t.sendMail({ envelope: { from: caixa.email, to: todos }, raw: mime });
-  });
+  // PASSO 1 — enviar. Os anexos temporários são de uso único: limpa dê certo ou não o envio
+  // (`finally` — se o envio falhar e a limpeza ficasse só depois, o arquivo vazaria no disco).
+  try {
+    await comSmtp(caixa.id, async (t) => {
+      await t.sendMail({ envelope: { from: caixa.email, to: todos }, raw: mime });
+    });
+  } finally {
+    await Promise.all(
+      input.anexos.map((a) => rm(caminhoTemp(userId, a.id), { force: true }).catch(() => {})),
+    );
+  }
 
   // PASSO 2 — guardar a cópia em Enviados. SMTP não guarda cópia: sem isto, a pessoa responde
   // aqui e no celular dela o e-mail não existe.
