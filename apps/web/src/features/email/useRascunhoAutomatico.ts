@@ -19,23 +19,32 @@ const ATRASO_MS = 5000;
  * testar isolado (funções `salvar`/`descartar` dubladas + timers falsos), sem precisar montar
  * tRPC/react-query no teste — foi o que faltou na primeira rodada e escondeu os 3 achados abaixo.
  *
- * 1. `aoComecarEnvio` cancela o timer de 5s ANTES do e-mail sair — sem isto, um envio lento (SMTP
- *    + cópia em Enviados + marcar respondida, medido em 6-7s contra o servidor real) deixa o
- *    timer disparar NO MEIO do envio e gravar um rascunho que ninguém mais remove.
- * 2. `descartarAposEnvio` apaga, no servidor, o rascunho da composição que acabou de sair — sem
- *    isto, todo e-mail que passou 5s parado antes de enviar (inclusive só de pré-preenchimento de
- *    Responder/Encaminhar, ou a pessoa pausando pra pensar) deixa uma cópia desatualizada para
- *    sempre em Rascunhos — que dá pra reabrir no webmail e reenviar pela metade.
- * 3. `emVoo` garante que NUNCA duas gravações rodam ao mesmo tempo — sem isto, fechar a tela
- *    enquanto a gravação do timer ainda está em voo (6-7s contra IMAP real) dispara uma segunda
- *    gravação com `uidAnterior` desatualizado (ou ainda `null`), duplicando o rascunho no servidor.
+ * 1. `emVoo` garante que NUNCA duas gravações rodam ao mesmo tempo (achado da rodada 1) — sem
+ *    isto, fechar a tela enquanto a gravação do timer ainda está em voo (6-7s medidos contra IMAP
+ *    real) dispara uma segunda gravação com `uidAnterior` desatualizado, duplicando o rascunho.
+ * 2. Se `emVoo` for true quando alguém pede uma gravação (`aoFechar`, ou o timer disparando de
+ *    novo), ela não é descartada — fica marcada em `pendente` e é REFEITA assim que a gravação em
+ *    voo termina (`.finally`). Sem isto, digitar durante os ~6s de uma gravação e fechar em
+ *    seguida perderia essas últimas edições: o rascunho no servidor ficaria na versão anterior,
+ *    contra a prioridade do brief (perder texto é pior que não salvar).
+ * 3. `enviando` (ligado em `aoComecarEnvio`, antes de `enviar.mutate`) cobre o envio inteiro, não
+ *    só o clique: enquanto ele estiver true, nenhuma gravação NOVA começa (`salvarAgora` retorna
+ *    cedo), e qualquer gravação que JÁ estivesse em voo quando o envio começou tem o UID
+ *    DESCARTADO assim que resolve, em vez de guardado. Isto fecha o buraco real da rodada 2: uma
+ *    gravação de ~6s que já estava em voo quando a pessoa clicou Enviar — cenário comum, não raro,
+ *    já que reler o e-mail por alguns segundos antes de mandar é o padrão — não deixa mais um
+ *    rascunho quase idêntico ao e-mail enviado sobrevivendo, reabrível e reenviável, em Rascunhos.
+ *    Os campos do formulário não ficam desabilitados durante o envio (só o botão Enviar), então
+ *    digitar durante o "Enviando…" também é coberto: o efeito de debounce re-agenda, mas
+ *    `enviando` barra a NOVA gravação de sequer começar.
+ *    `aoEnvioFalhou` desliga `enviando` de novo se o envio falhar — a pessoa continua na tela e os
+ *    rascunhos precisam voltar a gravar normalmente.
  *
- * Limitação aceita, não resolvida aqui (fora do que a revisão pediu): se uma gravação já estava
- * em voo no exato instante do clique em "Enviar" — a única forma de isso acontecer é o debounce
- * disparar nos ~5s finais antes do clique —, ela pode terminar DEPOIS do `descartarAposEnvio` já
- * ter rodado, deixando o rascunho dela órfão. Resolver isso por completo pediria um token de
- * geração (marcar toda gravação em voo como "obsoleta" assim que o envio começa) — engenharia a
- * mais para uma janela de milissegundos que a revisão não apontou.
+ * `opts` fica numa `ref` atualizada a cada render (`optsRef`) — não só o valor inicial —, porque
+ * a gravação "refeita" do item 2 pode rodar depois que várias renderizações já aconteceram (a
+ * pessoa continuou digitando enquanto a gravação original estava em voo): sem isto, a gravação
+ * adiada usaria `compor()`/`temConteudo()` presos no render em que a gravação ORIGINAL começou,
+ * não o conteúdo mais recente.
  */
 export function useRascunhoAutomatico(opts: {
   /** Há conteúdo de verdade para justificar uma gravação (ver `temConteudoParaRascunho`). */
@@ -45,25 +54,46 @@ export function useRascunhoAutomatico(opts: {
   salvar: SalvarRascunhoFn;
   descartar: DescartarRascunhoFn;
 }) {
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
+
   const uidRef = useRef<number | null>(null);
   const emVooRef = useRef(false);
+  const pendenteRef = useRef(false);
+  const enviandoRef = useRef(false);
   const timerRef = useRef<number | null>(null);
 
   const salvarAgora = () => {
     timerRef.current = null;
-    if (emVooRef.current) return; // já tem gravação em voo — nunca sobrepõe (achado 3)
-    if (!opts.temConteudo()) return; // nada digitado — não cria rascunho em branco
+    if (emVooRef.current) {
+      pendenteRef.current = true; // adia — a versão mais nova ainda chega ao servidor (achado 2)
+      return;
+    }
+    if (enviandoRef.current) return; // e-mail saindo (ou já saiu) — nenhuma gravação nova (achado 3)
+    if (!optsRef.current.temConteudo()) return; // nada digitado — não cria rascunho em branco
     emVooRef.current = true;
-    opts
-      .salvar({ ...opts.compor(), uidAnterior: uidRef.current ?? undefined })
+    optsRef.current
+      .salvar({ ...optsRef.current.compor(), uidAnterior: uidRef.current ?? undefined })
       .then((r) => {
-        uidRef.current = r.uid;
+        if (enviandoRef.current) {
+          // Esta gravação já estava em voo quando o envio começou — terminou só agora. O
+          // rascunho que acabou de nascer é quase idêntico ao e-mail que já saiu; descarta na
+          // hora, não guarda (achado 1 da rodada 2).
+          if (r.uid !== null) optsRef.current.descartar(r.uid).catch(() => {});
+          uidRef.current = null;
+        } else {
+          uidRef.current = r.uid;
+        }
       })
       .catch(() => {
         /* rascunho é detalhe: a próxima tentativa (5s depois, ou ao fechar) resolve sozinha */
       })
       .finally(() => {
         emVooRef.current = false;
+        if (pendenteRef.current) {
+          pendenteRef.current = false;
+          salvarAgora(); // refaz com o conteúdo mais recente — nunca perde o que ficou pendente
+        }
       });
   };
 
@@ -86,22 +116,32 @@ export function useRascunhoAutomatico(opts: {
     salvarAgora();
   };
 
-  /** Chamar ANTES de mandar o e-mail (achado 1): nenhuma gravação nova pode nascer após o clique. */
+  /**
+   * Chamar ANTES de mandar o e-mail (achados 1 e 3 da rodada 2): cancela o timer pendente e liga
+   * `enviando` — nenhuma gravação nova nasce daqui em diante, e a que já estiver em voo tem o UID
+   * descartado assim que resolver, em vez de guardado.
+   */
   const aoComecarEnvio = () => {
     cancelarPendente();
+    enviandoRef.current = true;
   };
 
-  /** Chamar no `onSuccess` do envio (achado 2): apaga o rascunho da composição que acabou de sair. */
+  /** Chamar no `onError` do envio: ele falhou, a pessoa continua na tela — rascunhos voltam ao normal. */
+  const aoEnvioFalhou = () => {
+    enviandoRef.current = false;
+  };
+
+  /** Chamar no `onSuccess` do envio (achado 2 da rodada 1): apaga o rascunho já gravado, se houver. */
   const descartarAposEnvio = () => {
     cancelarPendente();
     const uid = uidRef.current;
     uidRef.current = null;
     if (uid !== null) {
-      opts.descartar(uid).catch(() => {
+      optsRef.current.descartar(uid).catch(() => {
         /* órfão cosmético — não vale falhar um envio que já saiu por causa disso */
       });
     }
   };
 
-  return { agendar, cancelarPendente, aoFechar, aoComecarEnvio, descartarAposEnvio };
+  return { agendar, cancelarPendente, aoFechar, aoComecarEnvio, aoEnvioFalhou, descartarAposEnvio };
 }

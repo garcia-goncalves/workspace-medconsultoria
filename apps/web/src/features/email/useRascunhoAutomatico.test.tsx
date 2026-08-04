@@ -20,12 +20,17 @@ const COMPOSICAO: RascunhoComposicao = {
   corpoHtml: "<p>corpo</p>",
 };
 
+const COMPOSICAO_2: RascunhoComposicao = {
+  ...COMPOSICAO,
+  corpoHtml: "<p>corpo, editado enquanto a gravação anterior ainda estava em voo</p>",
+};
+
 /**
  * Reproduz, num componente mínimo, exatamente como `Escrever.tsx` liga o hook: um `useEffect`
  * (dependência = `versao`, o equivalente aos campos do e-mail) chama `agendar()` e o cleanup
  * chama `cancelarPendente()`. `apiRef` expõe as funções do hook para o teste chamar diretamente
- * (`aoFechar`, `aoComecarEnvio`, `descartarAposEnvio`), simulando os pontos onde a tela real
- * chama cada uma.
+ * (`aoFechar`, `aoComecarEnvio`, `aoEnvioFalhou`, `descartarAposEnvio`), simulando os pontos onde
+ * a tela real chama cada uma.
  */
 function Harness({ apiRef, versao, opts }: { apiRef: { current: Api | null }; versao: number; opts: Opts }) {
   const api = useRascunhoAutomatico(opts);
@@ -53,6 +58,18 @@ function desmontar(root: Root, container: HTMLDivElement) {
     root.unmount();
   });
   container.remove();
+}
+
+/** Promessa controlável de fora — simula uma gravação IMAP que demora (6-7s medidos contra o servidor real). */
+function salvarControlavel() {
+  let resolver: ((r: { uid: number | null }) => void) | undefined;
+  const salvar = vi.fn().mockImplementation(
+    () =>
+      new Promise<{ uid: number | null }>((resolve) => {
+        resolver = resolve;
+      }),
+  );
+  return { salvar, resolver: () => resolver! };
 }
 
 describe("useRascunhoAutomatico", () => {
@@ -96,7 +113,7 @@ describe("useRascunhoAutomatico", () => {
     desmontar(root, container);
   });
 
-  it("achado 1 — aoComecarEnvio cancela o timer pendente: envio não deixa gravação disparar durante ele", async () => {
+  it("rodada 1 — aoComecarEnvio cancela o timer AGENDADO: envio não deixa uma gravação nova disparar", async () => {
     const apiRef: { current: Api | null } = { current: null };
     const salvar = vi.fn().mockResolvedValue({ uid: 1 });
     const { root, container } = montar(apiRef, { temConteudo: () => true, compor: () => COMPOSICAO, salvar, descartar: vi.fn() });
@@ -118,47 +135,136 @@ describe("useRascunhoAutomatico", () => {
     desmontar(root, container);
   });
 
-  it("achado 3 — nunca duas gravações em voo ao mesmo tempo (aoFechar durante um save pendente)", async () => {
-    let resolverPrimeira: ((r: { uid: number | null }) => void) | undefined;
-    const salvar = vi.fn().mockImplementation(
-      () =>
-        new Promise<{ uid: number | null }>((resolve) => {
-          resolverPrimeira = resolve;
-        }),
-    );
+  it("rodada 2, item 2 — digitar durante uma gravação em voo e fechar NÃO perde as últimas edições", async () => {
+    // Composição "viva": o teste troca o valor devolvido por `compor()` para simular a pessoa
+    // digitando MAIS enquanto a 1ª gravação (que já saiu com a versão antiga) ainda está em voo.
+    let composicaoAtual: RascunhoComposicao = COMPOSICAO;
+    const { salvar, resolver } = salvarControlavel();
+    const descartar = vi.fn().mockResolvedValue(undefined);
+    const apiRef: { current: Api | null } = { current: null };
+    const { root, container } = montar(apiRef, {
+      temConteudo: () => true,
+      compor: () => composicaoAtual,
+      salvar,
+      descartar,
+    });
+
+    // Dispara a 1ª gravação (a versão ANTIGA) — fica pendurada, nunca resolvida ainda.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(salvar).toHaveBeenCalledTimes(1);
+    expect(salvar).toHaveBeenCalledWith({ ...COMPOSICAO, uidAnterior: undefined });
+
+    // A pessoa digita mais (a tela mudaria `compor()`) e fecha ENQUANTO a 1ª ainda está em voo.
+    composicaoAtual = COMPOSICAO_2;
+    act(() => {
+      apiRef.current!.aoFechar();
+    });
+    // Não pode duplicar: nenhuma 2ª gravação começa AGORA, enquanto a 1ª ainda está em voo.
+    expect(salvar, "nunca duas gravações em voo ao mesmo tempo").toHaveBeenCalledTimes(1);
+
+    // A 1ª gravação termina — a versão MAIS RECENTE (que ficou pendente) tem de ser refeita
+    // sozinha, sem precisar de outro `aoFechar()` — é o que garante que o texto não se perde.
+    await act(async () => {
+      resolver()({ uid: 10 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(salvar, "a versão mais recente tem de chegar ao servidor sozinha, sem novo aoFechar()").toHaveBeenCalledTimes(2);
+    expect(salvar).toHaveBeenLastCalledWith({ ...COMPOSICAO_2, uidAnterior: 10 });
+
+    desmontar(root, container);
+  });
+
+  it("rodada 2, item 1 — gravação já em voo quando o envio começa: o UID é DESCARTADO, não guardado", async () => {
+    const { salvar, resolver } = salvarControlavel();
     const descartar = vi.fn().mockResolvedValue(undefined);
     const apiRef: { current: Api | null } = { current: null };
     const { root, container } = montar(apiRef, { temConteudo: () => true, compor: () => COMPOSICAO, salvar, descartar });
 
-    // Dispara a 1ª gravação (o debounce de 5s) — fica pendurada (nunca resolvida ainda).
+    // t=5s: o debounce dispara e a gravação começa — leva ~6-7s contra IMAP real, então ainda
+    // está em voo quando a pessoa relê o e-mail por alguns segundos e clica em Enviar.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(salvar).toHaveBeenCalledTimes(1);
 
-    // Fecha a tela ENQUANTO a 1ª gravação ainda está em voo (o cenário real: 6-7s de IMAP,
-    // pessoa fecha em ~6s). Não pode iniciar uma 2ª gravação por cima.
+    // t≈7s: clique em Enviar — a gravação de t=5s ainda não voltou do servidor.
     act(() => {
-      apiRef.current!.aoFechar();
+      apiRef.current!.aoComecarEnvio();
     });
-    expect(salvar, "nunca duas gravações em voo ao mesmo tempo").toHaveBeenCalledTimes(1);
 
-    // A 1ª gravação termina — só agora uma gravação nova pode começar, com o UID certo.
+    // t≈11s: a gravação que já estava em voo finalmente resolve — não pode ser guardada como o
+    // rascunho "vigente": o e-mail já está saindo (ou já saiu), guardar geraria uma cópia quase
+    // idêntica ao que foi enviado, reabrível e reenviável.
     await act(async () => {
-      resolverPrimeira!({ uid: 42 });
+      resolver()({ uid: 99 });
       await Promise.resolve();
       await Promise.resolve();
     });
+    expect(descartar, "o UID que chegou depois do clique em Enviar tem de ser descartado na hora").toHaveBeenCalledWith(99);
+
+    // E se a pessoa ainda mexer na tela antes do envio terminar de verdade (onSuccess/onError),
+    // nenhuma gravação nova pode nascer nesse meio-tempo — ver o teste do item 3, a seguir.
+    desmontar(root, container);
+  });
+
+  it("rodada 2, item 3 — digitar durante o envio (enviando=true) não inicia gravação nenhuma", async () => {
+    const salvar = vi.fn().mockResolvedValue({ uid: 1 });
+    const apiRef: { current: Api | null } = { current: null };
+    const { root, container } = montar(apiRef, { temConteudo: () => true, compor: () => COMPOSICAO, salvar, descartar: vi.fn() });
+
+    // Consome o timer inicial sem deixar nada em voo, para isolar o que o teste quer provar.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    salvar.mockClear();
+
     act(() => {
-      apiRef.current!.aoFechar();
+      apiRef.current!.aoComecarEnvio(); // clique em Enviar — envio começou
     });
-    expect(salvar).toHaveBeenCalledTimes(2);
-    expect(salvar).toHaveBeenLastCalledWith({ ...COMPOSICAO, uidAnterior: 42 });
+
+    // Os campos do formulário NÃO ficam desabilitados durante o envio (só o botão Enviar), então
+    // uma tecla digitada aqui re-agenda o debounce normalmente (`agendar()`, como o `useEffect`
+    // de `Escrever.tsx` faria a cada mudança de campo).
+    act(() => {
+      apiRef.current!.agendar();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(salvar, "nenhuma gravação nova nasce enquanto o envio está em andamento").not.toHaveBeenCalled();
 
     desmontar(root, container);
   });
 
-  it("achado 2 — descartarAposEnvio apaga o rascunho salvo e zera o UID rastreado", async () => {
+  it("aoEnvioFalhou desliga `enviando` — depois de um envio que falha, o rascunho volta a gravar normalmente", async () => {
+    const salvar = vi.fn().mockResolvedValue({ uid: 5 });
+    const apiRef: { current: Api | null } = { current: null };
+    const { root, container } = montar(apiRef, { temConteudo: () => true, compor: () => COMPOSICAO, salvar, descartar: vi.fn() });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    salvar.mockClear();
+
+    act(() => {
+      apiRef.current!.aoComecarEnvio(); // clique em Enviar
+      apiRef.current!.aoEnvioFalhou(); // ... e o envio falhou (SMTP fora, por exemplo)
+      apiRef.current!.agendar(); // a pessoa continua editando
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(salvar, "depois de uma falha, os rascunhos precisam voltar a gravar normalmente").toHaveBeenCalledTimes(1);
+
+    desmontar(root, container);
+  });
+
+  it("rodada 1, achado 2 — descartarAposEnvio apaga o rascunho salvo e zera o UID rastreado", async () => {
     const salvar = vi.fn().mockResolvedValue({ uid: 77 });
     const descartar = vi.fn().mockResolvedValue(undefined);
     const apiRef: { current: Api | null } = { current: null };

@@ -157,8 +157,13 @@ export function Escrever({
       rascunho.descartarAposEnvio();
       onFechar();
     },
-    // A mensagem vem pronta do servidor — inclusive a trava de destino de teste fora de produção.
-    onError: (e) => toast(e.message),
+    onError: (e) => {
+      // A mensagem vem pronta do servidor — inclusive a trava de destino de teste fora de produção.
+      toast(e.message);
+      // O envio falhou: a pessoa continua na tela, então os rascunhos precisam voltar a gravar
+      // normalmente (sem isto, `enviando` ficaria ligado para sempre e nenhum rascunho novo salvaria).
+      rascunho.aoEnvioFalhou();
+    },
   });
 
   /** Fecha a tela salvando o rascunho pendente antes — Cancelar, X do modal, Esc e clique fora. */
