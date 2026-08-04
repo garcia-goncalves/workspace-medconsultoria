@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Mail, Plus, Search, X, AlertTriangle, Paperclip } from "lucide-react";
+import { Mail, Plus, Search, X, AlertTriangle, Paperclip, Pencil, Reply, ReplyAll, Forward } from "lucide-react";
 import { cn } from "@app/ui";
 import { trpc } from "../../lib/trpc";
 import { POLL } from "../../lib/socket";
@@ -10,6 +10,7 @@ import { Avatar } from "../../components/ui/avatar";
 import { AdicionarCaixaDialog } from "./AdicionarCaixaDialog";
 import { ReconectarCaixaDialog } from "./ReconectarCaixaDialog";
 import { CorpoEmail } from "./CorpoEmail";
+import { Escrever, type ModoEscrever } from "./Escrever";
 
 export function EmailPage() {
   const utils = trpc.useUtils();
@@ -20,6 +21,7 @@ export function EmailPage() {
   const [reconectar, setReconectar] = useState<{ id: string; email: string } | null>(null);
   const [busca, setBusca] = useState("");
   const [buscaAtiva, setBuscaAtiva] = useState("");
+  const [escrevendo, setEscrevendo] = useState<{ modo: ModoEscrever; mensagemId?: string } | null>(null);
 
   // Divisor arrastável, no mesmo padrão das Mensagens (ADR-83).
   const [larguraLista, setLarguraLista] = useState(() => {
@@ -108,6 +110,9 @@ export function EmailPage() {
   );
 
   const aberta = trpc.email.abrir.useQuery({ mensagemId: msgId ?? "" }, { enabled: !!msgId });
+  // Const local para o TS manter a narrowing de "não é null" dentro dos onClick abaixo
+  // (acesso via `aberta.data` direto perde a narrowing dentro de closures).
+  const msgAberta = aberta.data ?? null;
 
   // Abrir marca a mensagem como lida no servidor. Sem avisar a lista e o contador de não lidos,
   // o e-mail continuaria em negrito até o próximo polling.
@@ -144,15 +149,26 @@ export function EmailPage() {
       <aside className="hidden w-56 shrink-0 flex-col border-r md:flex">
         <div className="flex items-center justify-between gap-2 border-b p-3">
           <h1 className="text-sm font-semibold text-primary">E-mail</h1>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => setAdicionando(true)}
-            aria-label="Adicionar caixa"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setEscrevendo({ modo: "novo" })}
+              disabled={!caixaAtual}
+            >
+              <Pencil className="mr-1.5 h-3.5 w-3.5" /> Escrever
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setAdicionando(true)}
+              aria-label="Adicionar caixa"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -300,34 +316,60 @@ export function EmailPage() {
 
         {msgId && aberta.isLoading && <p className="p-4 text-sm text-muted-foreground">Abrindo…</p>}
 
-        {msgId && aberta.data && (
+        {msgId && msgAberta && (
           <>
             <header className="shrink-0 border-b p-4">
               <Button type="button" variant="ghost" size="sm" className="mb-2 md:hidden" onClick={() => setMsgId(null)}>
                 Voltar
               </Button>
-              <h2 className="text-base font-semibold">{aberta.data.assunto || "(sem assunto)"}</h2>
+              <h2 className="text-base font-semibold">{msgAberta.assunto || "(sem assunto)"}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{aberta.data.deNome || aberta.data.deEmail}</span>{" "}
-                &lt;{aberta.data.deEmail}&gt; · {data(aberta.data.dataEm)} às {hora(aberta.data.dataEm)}
+                <span className="font-medium text-foreground">{msgAberta.deNome || msgAberta.deEmail}</span>{" "}
+                &lt;{msgAberta.deEmail}&gt; · {data(msgAberta.dataEm)} às {hora(msgAberta.dataEm)}
               </p>
-              {aberta.data.anexos.length > 0 && (
+              {msgAberta.anexos.length > 0 && (
                 <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                   <Paperclip className="h-3.5 w-3.5" />
-                  {aberta.data.anexos.map((a) => (
+                  {msgAberta.anexos.map((a) => (
                     <span key={a.id} className="rounded border px-1.5 py-0.5">
                       {a.nome}
                     </span>
                   ))}
                 </p>
               )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEscrevendo({ modo: "responder", mensagemId: msgAberta.id })}
+                >
+                  <Reply className="mr-1.5 h-3.5 w-3.5" /> Responder
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEscrevendo({ modo: "responderTodos", mensagemId: msgAberta.id })}
+                >
+                  <ReplyAll className="mr-1.5 h-3.5 w-3.5" /> Responder a todos
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEscrevendo({ modo: "encaminhar", mensagemId: msgAberta.id })}
+                >
+                  <Forward className="mr-1.5 h-3.5 w-3.5" /> Encaminhar
+                </Button>
+              </div>
             </header>
 
             <CorpoEmail
-              mensagemId={aberta.data.id}
-              temHtml={!!aberta.data.corpoHtml}
-              texto={aberta.data.corpoTexto}
-              imagensBloqueadas={aberta.data.imagensBloqueadas}
+              mensagemId={msgAberta.id}
+              temHtml={!!msgAberta.corpoHtml}
+              texto={msgAberta.corpoTexto}
+              imagensBloqueadas={msgAberta.imagensBloqueadas}
             />
           </>
         )}
@@ -339,6 +381,14 @@ export function EmailPage() {
         email={reconectar?.email ?? ""}
         onClose={() => setReconectar(null)}
       />
+      {escrevendo && caixaAtual && (
+        <Escrever
+          modo={escrevendo.modo}
+          caixaId={caixaAtual.id}
+          mensagemId={escrevendo.mensagemId}
+          onFechar={() => setEscrevendo(null)}
+        />
+      )}
     </div>
   );
 }
