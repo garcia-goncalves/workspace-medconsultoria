@@ -184,6 +184,7 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 77. **"Defina sua senha" no 1º acesso**: `User.senhaTrocadaEm` (nulo = nunca definiu a própria); conta INTERNA cai numa página obrigatória antes de usar a app (cliente do Portal fica de fora, já escolhe no convite); `precisaTrocarSenha()` no `shared` é a fonte única — ADR-91.
 78. **Reversão de recorrência ressuscita a ocorrência**: desmarcar pago faz soft-delete da sucessora; a geração agora procura INCLUSIVE as apagadas e revive a linha, em vez de criar outra para a mesma data (marcar→desmarcar→marcar deixava 3 linhas e uma órfã). Pré-requisito do índice único — ADR-92.
 79. **Índice único `(recorrenteId, vencimento)` em Conta**: uma série não tem duas parcelas no mesmo vencimento (vale para linhas apagadas também); `updateConta` traduz o P2002 em mensagem explicável, citando que a irmã pode estar excluída e invisível — ADR-93.
+80. **Menu em 4 grupos, derivado do catálogo**: `lib/paginas.ts` (campo `grupo`) é a fonte única do menu **e** da busca — o `AppLayout` só filtra por papel e desenha; `paginas.test.ts` obriga toda rota nova a entrar num grupo ou a se declarar exceção. Grupos: **Comunicação** (E-mail · Mensagens) · **Meu trabalho** (Tarefas · Agenda · Projetos) · **Negócio** (Vendas · Clientes · Documentos · Financeiro) · **Configuração** (Ajustes · Sistema), com **Início solto no topo** — ADR-94 (revisa o ADR-46).
 
 ---
 

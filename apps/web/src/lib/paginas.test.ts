@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { PAGINAS, MENU_GRUPOS, GRUPOS_MENU, paginaCasa, normalizar } from "./paginas";
+import { PAGINAS, MENU_GRUPOS, GRUPOS_MENU, paginaCasa, normalizar, type GrupoMenu } from "./paginas";
 import { trailFor } from "../components/layout/Breadcrumbs";
 
 /**
@@ -101,7 +101,7 @@ describe("menu lateral (barra da esquerda)", () => {
 
   it("todo grupo declarado tem item, e nenhum item fica num grupo inexistente", () => {
     expect(MENU_GRUPOS.filter((g) => g.itens.length === 0).map((g) => g.titulo)).toEqual([]);
-    const grupos = new Set<string>(GRUPOS_MENU);
+    const grupos = new Set<GrupoMenu | null>(GRUPOS_MENU);
     expect(PAGINAS.filter((p) => p.grupo && !grupos.has(p.grupo)).map((p) => p.to)).toEqual([]);
   });
 

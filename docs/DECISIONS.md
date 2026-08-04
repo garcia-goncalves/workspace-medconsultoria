@@ -1209,6 +1209,26 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 
 **Por que valeu a pena mesmo com a causa-raiz já corrigida:** a constraint não conserta bug, ela **impede que a próxima versão do código reintroduza um**. Foi tentando aplicá-la que apareceram os itens 2 e 3 acima — nenhum deles estava no radar.
 
+## ADR-94 — Menu em 4 grupos + menu derivado do catálogo de páginas ✅ (revisa o ADR-46)
+
+**Contexto:** o gatilho foi um bug. A página **E-mail** foi registrada em `lib/paginas.ts` e **não apareceu no menu** — porque o `AppLayout` mantinha um `NAV_GROUPS` **à mão, paralelo** ao catálogo, e o `paginas.test.ts` só guardava o catálogo da busca. Nenhum teste cruzava menu × rotas. Revisando o menu para consertar, ficou claro o segundo problema: o grupo "Dia a dia" do ADR-46 tinha chegado a **10 itens** — um grupo com 10 itens não separa nada, o cabeçalho só diz "tudo" — e a ordem era **histórica** (a ordem em que as fases foram construídas), não a ordem de uso.
+
+**Decisões:**
+
+1. **Uma fonte só.** `lib/paginas.ts` ganhou o campo `grupo` e exporta `MENU_GRUPOS`; o `AppLayout` apenas filtra por papel e desenha. Sem `grupo` = página fora do menu (abre por Ajustes, pela ficha ou pelo menu do usuário).
+2. **Guarda no `paginas.test.ts`:** toda rota do router **ou** está num grupo do menu **ou** está declarada em `FORA_DO_MENU` com o caminho por onde se chega. Página nova é obrigada a **tomar uma decisão** — não some mais em silêncio. Há guarda também contra exceção obsoleta (rota morta ou já no menu).
+3. **Quatro grupos, cada cabeçalho respondendo a uma pergunta real:** **Comunicação** (E-mail · Mensagens — "alguém me chamou?"), **Meu trabalho** (Tarefas · Agenda · Projetos — "o que é meu hoje?"), **Negócio** (Vendas · Clientes · Documentos · Financeiro — "como está o negócio?") e **Configuração** (Ajustes · Sistema). **Início fica solto no topo, sem cabeçalho** — é o resumo de todos, não pertence a tema nenhum, e título sobre um item só é ruído. Nenhum grupo passa de 4 itens: dá para varrer sem ler. **E-mail vem antes de Mensagens** porque o e-mail é o canal do cliente e da operadora (o que trava o dia); Mensagens é interno.
+
+**Três defeitos irmãos apareceram na mesma revisão** — todos por listas paralelas de rótulo, e `/email` ser **prefixo** de `/emails` e `/emails-enviados`:
+
+- `usePageTitle` casava por **prefixo cru**: com `/email` no menu, a página `/emails-enviados` passaria a se chamar "E-mail" no cabeçalho. Agora casa por **segmento** (`/x` ou `/x/…`).
+- `Breadcrumbs.SECTION_LABEL` é uma **terceira** lista à mão; sem entrada, capitaliza o segmento — a trilha dizia **"Email"**, sem hífen. Corrigido, e há teste exigindo que trilha e menu usem o mesmo rótulo.
+- No modo recolhido, o divisor entre grupos usava `first:border-0`, mas o divisor é o **primeiro filho do próprio grupo** — a regra casava em todos e **nenhum traço aparecia**. Agora o divisor sai do índice do grupo.
+
+**Verificado:** guarda **provada falhando** (removido o `grupo` do E-mail, o teste reprova com `rotas sem lugar no menu: /email`); web 38/38; typecheck 6/6; lint 0 erros; conferido em tela (expandido e recolhido) com o DOM lido — 5 grupos, 4 divisores, nenhum acima do Início.
+
+**Lição:** o teste que faltava não era do menu, era do **cruzamento**. Toda vez que duas listas descrevem a mesma verdade, ou se derivam uma da outra, ou existe um teste que as cruza — senão elas divergem, e a divergência é silenciosa.
+
 ## Pendências (viram ADR quando decididas)
 
 - ~~Passenger vs Nginx Unit na TineHost (mecanismo de restart / proxy WS).~~ **Restart** = `touch tmp/restart.txt` (LiteSpeed/lsnode). **WS resolvido no ADR-84** (tempo real por polling; não precisa de proxy WS).

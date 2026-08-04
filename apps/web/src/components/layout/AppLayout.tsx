@@ -25,8 +25,9 @@ import { GuiaTour } from "../GuiaTour";
 import { Breadcrumbs, BreadcrumbProvider } from "./Breadcrumbs";
 
 /**
- * Navegação agrupada por USO: "Dia a dia" (o que a equipe usa sempre) e "Configuração"
- * (o que se ajusta uma vez — Ajustes junta os painéis administrativos; Sistema é dos devs).
+ * Navegação agrupada por PERGUNTA que a pessoa faz: Comunicação ("alguém me chamou?"),
+ * Meu trabalho ("o que é meu hoje?"), Negócio ("como está o negócio?") e Configuração
+ * (o que se ajusta uma vez). Início fica solto no topo. Ver ADR-94.
  *
  * A lista vem do catálogo `lib/paginas.ts` (campo `grupo`), que também alimenta a busca do
  * Ctrl+K. Antes esta era uma lista à mão, PARALELA ao catálogo — e a página "E-mail" foi
@@ -178,7 +179,7 @@ function SidebarConteudo({
   onToggle,
 }: {
   colapsada: boolean;
-  grupos: { titulo: string; itens: Pagina[] }[];
+  grupos: { titulo: string | null; itens: Pagina[] }[];
   pathname: string;
   onNavigate?: () => void;
   onToggle?: () => void;
@@ -228,15 +229,19 @@ function SidebarConteudo({
       </div>
 
       <nav className={cn("flex-1 space-y-4 overflow-y-auto py-4", colapsada ? "px-2" : "px-3")}>
-        {grupos.map((grupo) => (
-          <div key={grupo.titulo} className="space-y-1">
-            {colapsada ? (
-              <div className="mx-2 mb-1 border-t border-white/10 first:border-0" />
-            ) : (
-              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/70">
-                {grupo.titulo}
-              </p>
-            )}
+        {grupos.map((grupo, iGrupo) => (
+          <div key={grupo.titulo ?? "topo"} className="space-y-1">
+            {/* Grupo sem título (o Início) não ganha cabeçalho nem divisor — é o topo da lista.
+                No modo recolhido o traço separa os grupos; `first:border-0` não servia, porque
+                o divisor é o PRIMEIRO filho do próprio grupo (a regra casava em todos). */}
+            {grupo.titulo &&
+              (colapsada ? (
+                iGrupo > 0 && <div className="mx-2 mb-1 border-t border-white/10" />
+              ) : (
+                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                  {grupo.titulo}
+                </p>
+              ))}
             {grupo.itens.map((item) => {
               const ativo = itemAtivo(pathname, item.to);
               return (

@@ -35,10 +35,23 @@ import type { Role } from "@app/shared";
  * `grupo`: em que grupo do menu lateral o item aparece. Sem `grupo` = fora do menu (abre por
  * Ajustes, pela ficha ou pelo menu do usuário).
  */
-export type GrupoMenu = "Dia a dia" | "Configuração";
+export type GrupoMenu = "Comunicação" | "Meu trabalho" | "Negócio" | "Configuração";
 
-/** Ordem dos grupos no menu lateral. */
-export const GRUPOS_MENU: readonly GrupoMenu[] = ["Dia a dia", "Configuração"];
+/**
+ * Ordem dos grupos no menu lateral. O primeiro é `null`: grupo SEM cabeçalho, no topo — o
+ * Início não pertence a tema nenhum (é o resumo de todos) e um título sobre um item só é ruído.
+ *
+ * Cada cabeçalho responde a uma pergunta que a pessoa faz de verdade: "alguém me chamou?"
+ * (Comunicação), "o que é meu hoje?" (Meu trabalho), "como está o negócio?" (Negócio). Nenhum
+ * grupo passa de 4 itens — dá para varrer sem ler. Ver ADR-94 (revisa o ADR-46).
+ */
+export const GRUPOS_MENU: readonly (GrupoMenu | null)[] = [
+  null,
+  "Comunicação",
+  "Meu trabalho",
+  "Negócio",
+  "Configuração",
+];
 
 export interface Pagina {
   label: string;
@@ -46,20 +59,24 @@ export interface Pagina {
   to: string;
   minRole: Role;
   keywords?: string[];
-  grupo?: GrupoMenu;
+  /** `null` = aparece no menu, no topo, sem cabeçalho. Ausente = fora do menu. */
+  grupo?: GrupoMenu | null;
 }
 
 export const PAGINAS: Pagina[] = [
-  { label: "Início", icon: LayoutDashboard, to: "/", minRole: "FUNCIONARIO", grupo: "Dia a dia", keywords: ["dashboard", "home", "painel", "resumo"] },
-  { label: "Vendas", icon: Filter, to: "/leads", minRole: "FUNCIONARIO", grupo: "Dia a dia", keywords: ["funil", "leads", "oportunidades", "pipeline", "negocios"] },
-  { label: "Clientes", icon: Users, to: "/clientes", minRole: "FUNCIONARIO", grupo: "Dia a dia", keywords: ["contatos", "empresas"] },
-  { label: "Projetos", icon: FolderKanban, to: "/projetos", minRole: "FUNCIONARIO", grupo: "Dia a dia", keywords: ["kanban", "quadro"] },
-  { label: "Tarefas", icon: ListTodo, to: "/tarefas", minRole: "FUNCIONARIO", grupo: "Dia a dia", keywords: ["delegar", "pedidos", "comigo", "deleguei", "afazeres", "to-do", "solicitacoes"] },
-  { label: "Agenda", icon: Calendar, to: "/agenda", minRole: "FUNCIONARIO", grupo: "Dia a dia", keywords: ["calendario", "eventos", "compromissos", "reunioes"] },
-  { label: "Mensagens", icon: MessageSquare, to: "/mensagens", minRole: "FUNCIONARIO", grupo: "Dia a dia", keywords: ["chat", "conversas", "suporte", "chamados"] },
-  { label: "E-mail", icon: Inbox, to: "/email", minRole: "FUNCIONARIO", grupo: "Dia a dia", keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"] },
-  { label: "Documentos", icon: FileText, to: "/documentos", minRole: "FUNCIONARIO", grupo: "Dia a dia", keywords: ["propostas", "contratos", "atas", "recibos"] },
-  { label: "Financeiro", icon: Wallet, to: "/financeiro", minRole: "ADMIN", grupo: "Dia a dia", keywords: ["contas", "pagar", "receber", "carteira", "dinheiro"] },
+  { label: "Início", icon: LayoutDashboard, to: "/", minRole: "FUNCIONARIO", grupo: null, keywords: ["dashboard", "home", "painel", "resumo"] },
+  // ── Comunicação: o que chega de fora primeiro (cliente e operadora escrevem por e-mail) ──
+  { label: "E-mail", icon: Inbox, to: "/email", minRole: "FUNCIONARIO", grupo: "Comunicação", keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"] },
+  { label: "Mensagens", icon: MessageSquare, to: "/mensagens", minRole: "FUNCIONARIO", grupo: "Comunicação", keywords: ["chat", "conversas", "suporte", "chamados"] },
+  // ── Meu trabalho: o que fazer, quando fazer, onde isso vive ──
+  { label: "Tarefas", icon: ListTodo, to: "/tarefas", minRole: "FUNCIONARIO", grupo: "Meu trabalho", keywords: ["delegar", "pedidos", "comigo", "deleguei", "afazeres", "to-do", "solicitacoes"] },
+  { label: "Agenda", icon: Calendar, to: "/agenda", minRole: "FUNCIONARIO", grupo: "Meu trabalho", keywords: ["calendario", "eventos", "compromissos", "reunioes"] },
+  { label: "Projetos", icon: FolderKanban, to: "/projetos", minRole: "FUNCIONARIO", grupo: "Meu trabalho", keywords: ["kanban", "quadro"] },
+  // ── Negócio: quem pode virar cliente, quem já é, o papel que formaliza, o que entra ──
+  { label: "Vendas", icon: Filter, to: "/leads", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["funil", "leads", "oportunidades", "pipeline", "negocios"] },
+  { label: "Clientes", icon: Users, to: "/clientes", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["contatos", "empresas"] },
+  { label: "Documentos", icon: FileText, to: "/documentos", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["propostas", "contratos", "atas", "recibos"] },
+  { label: "Financeiro", icon: Wallet, to: "/financeiro", minRole: "ADMIN", grupo: "Negócio", keywords: ["contas", "pagar", "receber", "carteira", "dinheiro"] },
   // ── Configuração ──
   { label: "Ajustes", icon: SlidersHorizontal, to: "/ajustes", minRole: "ADMIN", grupo: "Configuração", keywords: ["configuracao", "catalogos"] },
   { label: "Serviços", icon: Briefcase, to: "/servicos", minRole: "ADMIN", keywords: ["catalogo", "exigencias", "passos"] },
@@ -75,7 +92,7 @@ export const PAGINAS: Pagina[] = [
  * Menu lateral, DERIVADO do catálogo acima (o `AppLayout` só filtra por papel e desenha).
  * A ordem dentro do grupo é a ordem de `PAGINAS`.
  */
-export const MENU_GRUPOS: { titulo: GrupoMenu; itens: Pagina[] }[] = GRUPOS_MENU.map((titulo) => ({
+export const MENU_GRUPOS: { titulo: GrupoMenu | null; itens: Pagina[] }[] = GRUPOS_MENU.map((titulo) => ({
   titulo,
   itens: PAGINAS.filter((p) => p.grupo === titulo),
 }));
