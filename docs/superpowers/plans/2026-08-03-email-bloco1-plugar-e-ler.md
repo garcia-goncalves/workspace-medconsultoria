@@ -1759,13 +1759,40 @@ git commit -m "feat(email): listar com busca no servidor e abrir mensagem com co
 ## Tarefa 10 — Router tRPC do módulo
 
 **Arquivos**
-- Criar: `apps/api/src/modules/email/email.router.ts`
-- Modificar: `apps/api/src/trpc/router.ts`
+- Criar: `packages/shared/src/schemas/email.ts` · `apps/api/src/modules/email/email.router.ts`
+- Modificar: `packages/shared/src/index.ts` · `apps/api/src/trpc/router.ts`
 
 **Interfaces**
-- Produz: `emailRouter`, plugado no `appRouter` como `email`. Procedures:
-  `caixas` · `plugarCaixa` · `reconectarCaixa` · `removerCaixa` · `pastas` · `sincronizar` ·
-  `mensagens` · `abrir`
+- Produz: `plugarCaixaSchema` / `PlugarCaixaInput`; `emailRouter`, plugado no `appRouter` como
+  `email`. Procedures: `caixas` · `plugarCaixa` · `reconectarCaixa` · `removerCaixa` · `pastas` ·
+  `sincronizar` · `mensagens` · `abrir`
+
+- [ ] **Passo 0 — schema compartilhado do input**
+
+O input do `plugarCaixa` é o MESMO do formulário da Tarefa 11 — a convenção do projeto é um
+schema Zod único em `packages/shared` (não repetir o objeto inline no router).
+
+`packages/shared/src/schemas/email.ts`:
+
+```ts
+import { z } from "zod";
+
+/** Plugar uma caixa. O MESMO schema valida o formulário no front e a procedure no back. */
+export const plugarCaixaSchema = z.object({
+  email: z.string().email("Informe um e-mail válido"),
+  senha: z.string().min(1, "Informe a senha da caixa"),
+  nomeExibicao: z.string().min(1, "Informe o nome que aparece para quem recebe"),
+  rotulo: z.string().optional(),
+  importarMeses: z.coerce.number().int().min(1).max(60).default(3),
+});
+export type PlugarCaixaInput = z.infer<typeof plugarCaixaSchema>;
+```
+
+Em `packages/shared/src/index.ts`, junto dos outros reexports:
+
+```ts
+export * from "./schemas/email.js";
+```
 
 - [ ] **Passo 1 — implementar o router**
 
@@ -1773,6 +1800,7 @@ git commit -m "feat(email): listar com busca no servidor e abrir mensagem com co
 
 ```ts
 import { z } from "zod";
+import { plugarCaixaSchema } from "@app/shared";
 import { router, funcionarioProcedure } from "../../trpc/trpc.js";
 import * as caixas from "./caixas.service.js";
 import * as pastas from "./pastas.service.js";
@@ -1787,15 +1815,7 @@ export const emailRouter = router({
   caixas: funcionarioProcedure.query(({ ctx }) => caixas.listarCaixas(ctx.user.id)),
 
   plugarCaixa: funcionarioProcedure
-    .input(
-      z.object({
-        email: z.string().email("Informe um e-mail válido"),
-        senha: z.string().min(1, "Informe a senha da caixa"),
-        nomeExibicao: z.string().min(1, "Informe o nome que aparece para quem recebe"),
-        rotulo: z.string().optional(),
-        importarMeses: z.number().int().min(1).max(60).optional(),
-      }),
-    )
+    .input(plugarCaixaSchema)
     .mutation(({ ctx, input }) => caixas.plugarCaixa(ctx.user.id, input)),
 
   reconectarCaixa: funcionarioProcedure
@@ -1814,7 +1834,8 @@ export const emailRouter = router({
   sincronizar: funcionarioProcedure
     .input(z.object({ caixaId: z.string().min(1), pastaId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      // A checagem de posse acontece aqui, antes de tocar no IMAP.
+      // A checagem de posse acontece aqui, antes de tocar no IMAP: `listarPastas` estoura
+      // NOT_FOUND se a caixa não for desta pessoa.
       await pastas.listarPastas(ctx.user.id, input.caixaId);
       await sync.sincronizarPasta(input.caixaId, input.pastaId);
       return { ok: true };
@@ -1868,37 +1889,16 @@ git commit -m "feat(email): router tRPC do módulo e registro no appRouter"
 ## Tarefa 11 — Diálogo "Adicionar caixa"
 
 **Arquivos**
-- Criar: `packages/shared/src/schemas/email.ts`
-- Modificar: `packages/shared/src/index.ts`
 - Criar: `apps/web/src/features/email/AdicionarCaixaDialog.tsx`
 
 **Interfaces**
-- Consome: `trpc.email.plugarCaixa` (Tarefa 10)
-- Produz: `<AdicionarCaixaDialog open onClose />` · `plugarCaixaSchema` / `PlugarCaixaInput`
+- Consome: `trpc.email.plugarCaixa` + `plugarCaixaSchema`/`PlugarCaixaInput` (Tarefa 10)
+- Produz: `<AdicionarCaixaDialog open onClose />`
 
-- [ ] **Passo 1 — schema compartilhado**
+- [ ] **Passo 1 — schema compartilhado: JÁ FEITO na Tarefa 10 (Passo 0)**
 
-`packages/shared/src/schemas/email.ts`:
-
-```ts
-import { z } from "zod";
-
-/** Plugar uma caixa. O MESMO schema valida o formulário no front e a procedure no back. */
-export const plugarCaixaSchema = z.object({
-  email: z.string().email("Informe um e-mail válido"),
-  senha: z.string().min(1, "Informe a senha da caixa"),
-  nomeExibicao: z.string().min(1, "Informe o nome que aparece para quem recebe"),
-  rotulo: z.string().optional(),
-  importarMeses: z.coerce.number().int().min(1).max(60).default(3),
-});
-export type PlugarCaixaInput = z.infer<typeof plugarCaixaSchema>;
-```
-
-Em `packages/shared/src/index.ts`, junto dos outros reexports:
-
-```ts
-export * from "./schemas/email.js";
-```
+O `plugarCaixaSchema` é a fonte única de verdade do formulário e da procedure — foi criado
+junto do router para não existir a mesma validação escrita duas vezes. Nada a fazer aqui.
 
 - [ ] **Passo 2 — o diálogo**
 
