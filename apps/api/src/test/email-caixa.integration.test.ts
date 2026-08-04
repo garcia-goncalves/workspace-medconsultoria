@@ -199,4 +199,49 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
     expect(depois.lido).toBe(true);
     expect(depois.trecho).toContain("ola"); // prévia da lista nasce aqui, não no índice
   });
+
+  it("envia de verdade, guarda cópia em Enviados e marca a original como respondida", async () => {
+    const { enviarMensagem } = await import("../modules/email/envio.service.js");
+    const { sincronizarPastas } = await import("../modules/email/pastas.service.js");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    await sincronizarPastas(caixa.id);
+
+    const marca = `envio-${Date.now()}`;
+    const r = await enviarMensagem(userId, {
+      caixaId: caixa.id,
+      // Destino de teste: a trava do `conferirDestinoPermitido` recusaria qualquer outro.
+      para: ["contato@medconsultoria.com.br"],
+      cc: [],
+      cco: [],
+      assunto: marca,
+      corpoHtml: "<p>corpo de teste</p>",
+      anexos: [],
+    });
+
+    expect(r.enviado).toBe(true);
+    expect(r.copiaEmEnviados, "a cópia em Enviados é o passo que todo mundo esquece").toBe(true);
+
+    // A cópia tem de estar VISÍVEL na pasta de enviados do servidor, não só no nosso índice.
+    const { sincronizarPasta } = await import("../modules/email/sync.service.js");
+    const enviados = await prisma.caixaPasta.findFirstOrThrow({ where: { caixaId: caixa.id, papel: "SENT" } });
+    await sincronizarPasta(caixa.id, enviados.id);
+    const copia = await prisma.emailMensagem.findFirst({ where: { pastaId: enviados.id, assunto: marca } });
+    expect(copia).toBeTruthy();
+  });
+
+  it("recusa enviar para endereço fora da lista de teste", async () => {
+    const { enviarMensagem } = await import("../modules/email/envio.service.js");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    await expect(
+      enviarMensagem(userId, {
+        caixaId: caixa.id,
+        para: ["cliente.de.verdade@exemplo.com"],
+        cc: [],
+        cco: [],
+        assunto: "não deve sair",
+        corpoHtml: "<p>x</p>",
+        anexos: [],
+      }),
+    ).rejects.toThrow(/desenvolvimento/i);
+  });
 });
