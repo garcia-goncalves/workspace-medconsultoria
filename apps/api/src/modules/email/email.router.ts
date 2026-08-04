@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { plugarCaixaSchema } from "@app/shared";
+import { plugarCaixaSchema, enviarEmailSchema } from "@app/shared";
 import { router, funcionarioProcedure } from "../../trpc/trpc.js";
 import { isEmailAppEnabled } from "../../config.js";
 import * as caixas from "./caixas.service.js";
 import * as pastas from "./pastas.service.js";
 import * as sync from "./sync.service.js";
 import * as leitura from "./leitura.service.js";
+import * as envio from "./envio.service.js";
 
 /**
  * E-mail dentro da aplicação. TODO procedure é `funcionarioProcedure` (equipe; o Portal do
@@ -97,4 +98,23 @@ export const emailRouter = router({
   abrir: funcionarioProcedure
     .input(z.object({ mensagemId: z.string().min(1) }))
     .query(({ ctx, input }) => leitura.abrirMensagem(ctx.user.id, input.mensagemId)),
+
+  enviar: funcionarioProcedure.input(enviarEmailSchema).mutation(({ ctx, input }) => {
+    exigirModuloLigado();
+    return envio.enviarMensagem(ctx.user.id, input);
+  }),
+
+  prepararResposta: funcionarioProcedure
+    .input(z.object({ mensagemId: z.string().min(1), aTodos: z.boolean().default(false) }))
+    .query(({ ctx, input }) => {
+      exigirModuloLigado();
+      return envio.prepararResposta(ctx.user.id, input.mensagemId, input.aTodos);
+    }),
+
+  prepararEncaminhamento: funcionarioProcedure
+    .input(z.object({ mensagemId: z.string().min(1) }))
+    .query(({ ctx, input }) => {
+      exigirModuloLigado();
+      return envio.prepararEncaminhamento(ctx.user.id, input.mensagemId);
+    }),
 });
