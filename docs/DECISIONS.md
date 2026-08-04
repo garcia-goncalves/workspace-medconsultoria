@@ -1229,11 +1229,34 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 
 **Lição:** o teste que faltava não era do menu, era do **cruzamento**. Toda vez que duas listas descrevem a mesma verdade, ou se derivam uma da outra, ou existe um teste que as cruza — senão elas divergem, e a divergência é silenciosa.
 
+## ADR-95 — E-mail dentro da aplicação: caixa IMAP/SMTP por usuário (Bloco 1: plugar e ler) ✅
+
+**Contexto:** a correspondência com cliente e operadora vivia no webmail, fora do Workspace — a equipe saía da app para ler, e o que foi combinado por e-mail não aparecia na ficha de ninguém. Desenho em `docs/superpowers/specs/2026-08-03-email-na-aplicacao-design.md`; plano em `docs/superpowers/plans/2026-08-03-email-bloco1-plugar-e-ler.md`.
+
+**A regra que resolve o conflito privacidade × CRM** (escolhida pelo dono): **a caixa é privada, a correspondência com o cliente é da empresa.** Ninguém abre a caixa de ninguém — todo procedure filtra por `userId`. Mas e-mail trocado com cliente/lead **cadastrado** aparece na ficha dele, para quem já pode abrir aquela ficha. Sustentam a regra o **"marcar como particular"** (um clique tira da ficha) e a importação de histórico **opt-in**, com aviso de visibilidade.
+
+**Não existe caixa compartilhada gerida pela app.** Cada pessoa pluga as caixas cuja senha tem (André e Thaís plugam cada um o `contato@`). Quem manda no acesso é o servidor de e-mail: cortar alguém = trocar a senha no painel da hospedagem. Isso evita construir — e ter de auditar — um segundo sistema de permissão sobre a caixa alheia.
+
+**Fatos do servidor, sondados ao vivo (não presumir outra coisa):** MX = `mail.medconsultoria.com.br` (TineHost, **não** é Google/Microsoft) · Dovecot · separador de pasta é **ponto** (`INBOX.spam`) · `SPECIAL-USE`, `QRESYNC`, `CONDSTORE`, `MOVE`, `UIDPLUS`, `ESEARCH`, `PREVIEW`, `THREAD` disponíveis · SMTP 465, `SIZE` 75 MB, `RCPTMAX=200`. **Sem `IDLE` utilizável:** o lsnode derruba o Node ocioso (mesma causa do ADR-84), então conexão IMAP é sempre curta e o e-mail chega por sincronização, não por push.
+
+**Decisões:**
+
+1. **Índice + cache, nunca espelho.** `EmailMensagem` guarda cabeçalho; o corpo só é baixado quando alguém abre. Busca dentro do texto usa o **`ESEARCH` do servidor** — acha sem baixar corpo nenhum. O banco não vira uma segunda caixa postal (custo, backup e, principalmente, superfície de vazamento).
+2. **Vínculo com cliente/lead por JOIN em `EmailEndereco`, resolvido na consulta** — nunca gravado fixo na mensagem. Cliente que troca de e-mail, ou e-mail que chega antes de o cadastro existir, passam a aparecer sozinhos, sem migração nem reprocessamento.
+3. **Senha da caixa cifrada** (AES-256-GCM, `EMAIL_CRYPTO_KEY`), nunca de volta à tela, nunca em log — o `logger` do `imapflow` fica **desligado de propósito**, porque ele imprime o diálogo de autenticação. Sem a chave, o módulo fica desligado e o resto da app segue normal (mesma degradação do SMTP).
+4. **Testar antes de gravar.** `plugarCaixa` só grava depois de o servidor aceitar a credencial, e a mensagem **distingue senha errada de servidor fora do ar** — a primeira é culpa de quem digitou, a segunda não. Caixa quebrada gravada no banco falharia depois, em silêncio, longe da tela onde deu para consertar.
+5. **Três camadas contra HTML hostil** (e-mail é conteúdo de terceiro, hostil até prova em contrário): higienização no servidor (`sanitizar-html.ts`) → corpo renderizado em **`<iframe sandbox="">`** → **imagem remota bloqueada** por padrão, com faixa para liberar caso a caso (imagem remota é rastreador de leitura). Uma camada só seria aposta; três é defesa em profundidade.
+6. **Fase 1 é SÓ `@medconsultoria.com.br`**, de propósito: Gmail exige Senha de app com 2FA e o Outlook.com desligou senha em IMAP em set/2024 (só OAuth2). Cada provedor externo é uma integração à parte — entra depois, se valer a pena.
+
+**Verificado:** API 122 testes (6 de integração contra o servidor real — sem `EMAIL_TESTE_USER`/`PASS` eles **pulam**, e pular não é passar); web 38/38; `e2e/email.spec.ts` 3/3; typecheck 6/6; lint 0 erros. Confirmado em tela com a caixa real do dono.
+
+**Pendências do dono:** gerar `EMAIL_CRYPTO_KEY` no `.env` do servidor no deploy (ver DEPLOY.md) e trocar a senha da caixa `teste@medconsultoria.com.br` ao fim do desenvolvimento — ela trafegou por conversa em 03/08/2026 (não está em arquivo nenhum do repositório).
+
 ## Pendências (viram ADR quando decididas)
 
 - ~~Passenger vs Nginx Unit na TineHost (mecanismo de restart / proxy WS).~~ **Restart** = `touch tmp/restart.txt` (LiteSpeed/lsnode). **WS resolvido no ADR-84** (tempo real por polling; não precisa de proxy WS).
 - ~~Engine de exportação de PDF em hospedagem compartilhada.~~ **Resolvido no ADR-47** (PDF = `window.print()` da moldura branded = WYSIWYG, sem servidor).
 - Estratégia de polimorfismo (`entidadeTipo+entidadeId` vs tabelas de junção) se a performance exigir.
-- **Caixa de e-mail dentro do app** (ver/enviar/receber sem sair, estilo Mensagens) — 2ª ideia do dono, **adiada**. Direção definida: TineHost/cPanel → **IMAP (ler) + SMTP (enviar)**; modelo **por usuário com múltiplas contas** (e-mail do cadastro como padrão + contas extras, inclusive externas). Alerta: Gmail/Hotmail **não** aceitam senha simples (exigem OAuth próprio) — cada provedor externo é uma integração à parte. Construir em fases (MVP: caixa ler+responder) quando priorizado.
+- ~~**Caixa de e-mail dentro do app** (ver/enviar/receber sem sair, estilo Mensagens).~~ **Resolvido no ADR-95** (Bloco 1: plugar e ler — IMAP por usuário, índice+cache, caixa privada). O alerta se confirmou: Gmail/Hotmail exigem OAuth próprio e ficaram **fora da fase 1**. **Falta o Bloco 2** (responder/escrever por SMTP e o bloco de e-mails na ficha do cliente).
 - Zustand vs Context para o estado global mínimo do front.
 - Política de backup do MySQL.

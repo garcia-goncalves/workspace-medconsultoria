@@ -2447,15 +2447,30 @@ E `emailRoute` dentro do array de `rootRoute.addChildren([...])`.
 
 - [ ] **Passo 5 — menu**
 
-Em `apps/web/src/lib/paginas.ts`, no grupo "Dia a dia", logo depois do item de Mensagens:
+> **DEFEITO 15 (corrigido em 04/08).** Este passo dizia que registrar em `paginas.ts` colocava
+> a página no menu. **Não colocava.** Até o ADR-94, `paginas.ts` alimentava só a busca do Ctrl+K,
+> e o menu lateral era um `NAV_GROUPS` à mão dentro do `AppLayout` — a página foi registrada e
+> **não apareceu no menu para ninguém**. O ADR-94 unificou (o menu passou a ser derivado do
+> catálogo, com teste cruzando os dois). O texto abaixo já está corrigido.
+
+Em `apps/web/src/lib/paginas.ts`, no grupo **"Comunicação"**, antes do item de Mensagens
+(o e-mail é o canal do cliente; Mensagens é interno):
 
 ```ts
-{ label: "E-mail", icon: Inbox, to: "/email", minRole: "FUNCIONARIO", keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"] },
+{ label: "E-mail", icon: Inbox, to: "/email", minRole: "FUNCIONARIO", grupo: "Comunicação", keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"] },
 ```
 
 Acrescentar `Inbox` ao import de `lucide-react` do arquivo. O ícone é `Inbox`, e não `Mail`,
 porque `Mail` já é o ícone de "Mensagens automáticas" — dois itens de menu com o mesmo desenho
 confundem quem é leigo, que é o público desta app.
+
+**O campo `grupo` é obrigatório para aparecer no menu** — sem ele o `paginas.test.ts` reprova
+("rotas sem lugar no menu"), que é exatamente a guarda criada para este bug não se repetir.
+
+**Cuidado com os outros dois lugares que casam rota por prefixo** (`/email` é prefixo de
+`/emails` e `/emails-enviados`): `usePageTitle` (casa por SEGMENTO, não por prefixo cru) e
+`Breadcrumbs.SECTION_LABEL` (sem entrada, ele capitaliza o segmento e escreve "Email", sem
+hífen). Ambos corrigidos no ADR-94, com teste.
 
 - [ ] **Passo 6 — guia "?" da página**
 
@@ -2505,8 +2520,14 @@ git commit -m "feat(email): página /email em três colunas com corpo isolado e 
 - Criar: `e2e/email.spec.ts`
 - Modificar: `docs/DATABASE.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, `docs/CLAUDE.md`,
   `docs/DEPLOY.md`, `CLAUDE.md` (raiz)
+- **DEFEITO 16 (corrigido em 04/08) — faltavam nesta lista:** `docs/ACESSOS.md` e `docs/LINKS.md`
+  (os dois mapas que o dono usa para achar as telas; nenhum citava `/email`) e `docs/ROADMAP.md`.
+- **DEFEITO 17 (corrigido em 04/08) — o `.env.example` não documenta as variáveis novas**
+  (`EMAIL_CRYPTO_KEY`, `EMAIL_TESTE_USER`, `EMAIL_TESTE_PASS`). Quem montar o ambiente do zero
+  não descobre que elas existem — e sem as duas de teste os testes de integração **pulam em
+  silêncio**. O assistente **não tem permissão de editar `.env*`**: este passo é do dono.
 
-- [ ] **Passo 1 — E2E do estado vazio**
+- [x] **Passo 1 — E2E do estado vazio**
 
 `e2e/email.spec.ts` — autenticação por `storageState`, que é o padrão real deste repositório
 (não existe helper de login; ver `e2e/auth.setup.ts` e qualquer `flows-*.spec.ts`):
@@ -2551,12 +2572,12 @@ test.describe("E-mail dentro da aplicação", () => {
 > **O caminho de senha errada já é coberto** — uma vez só, no teste de integração da Tarefa 6,
 > que roda localmente com a credencial no `.env`. Não se repete no E2E de propósito.
 
-- [ ] **Passo 2 — rodar o E2E isolado**
+- [x] **Passo 2 — rodar o E2E isolado**
 
 Rodar: `pnpm test:e2e:isolado -- email`
 Esperado: 2 testes PASSAM. (Usar o isolado — o `test:e2e` cru suja o banco de desenvolvimento.)
 
-- [ ] **Passo 3 — verificação manual na tela**
+- [~] **Passo 3 — verificação manual na tela** (o dono plugou a caixa real e leu; os passos 3–6 desta lista são dele, não do assistente)
 
 1. Abrir http://localhost:4310/email
 2. Plugar `teste@medconsultoria.com.br` com a senha correta → a caixa aparece conectada
@@ -2565,7 +2586,7 @@ Esperado: 2 testes PASSAM. (Usar o isolado — o `test:e2e` cru suja o banco de 
 5. Abrir o e-mail → o corpo aparece; se tiver imagem, a faixa de bloqueio aparece
 6. Conferir no webmail que a mensagem ficou marcada como lida
 
-- [ ] **Passo 4 — atualizar a documentação**
+- [x] **Passo 4 — atualizar a documentação**
 
 | Arquivo | O que escrever |
 |---|---|
@@ -2573,10 +2594,13 @@ Esperado: 2 testes PASSAM. (Usar o isolado — o `test:e2e` cru suja o banco de 
 | `docs/ARCHITECTURE.md` | O módulo `email` e a regra da conexão IMAP curta (sem `IDLE`, por causa do lsnode) |
 | `docs/DECISIONS.md` | ADR novo: e-mail dentro da aplicação — índice+cache, caixa privada por usuário, as três camadas contra HTML hostil |
 | `docs/CLAUDE.md` | Regra de negócio do e-mail + o ADR no índice da seção 6 |
-| `docs/DEPLOY.md` | `EMAIL_CRYPTO_KEY` no `.env` do servidor, com o comando de geração |
+| `docs/DEPLOY.md` | `EMAIL_CRYPTO_KEY` no `.env` do servidor, com o comando de geração **e o que acontece se ela for perdida/trocada** (toda senha guardada fica ilegível → replugar a caixa) |
 | `CLAUDE.md` (raiz) | Estado atual: e-mail dentro da app (Bloco 1) |
+| `docs/ACESSOS.md` | `/email` nas DUAS tabelas (mapa de rotas + links da área interna) |
+| `docs/LINKS.md` | Seção própria de `/email`, com a tabela que separa `/email` × `/emails` × `/emails-enviados` (os três nomes se parecem e confundem) |
+| `docs/ROADMAP.md` | O Bloco 1 na evolução pós-MVP, dizendo o que **falta** (Bloco 2) |
 
-- [ ] **Passo 5 — commitar**
+- [x] **Passo 5 — commitar**
 
 ```bash
 git add e2e/email.spec.ts docs CLAUDE.md

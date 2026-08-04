@@ -153,6 +153,30 @@ Histórico de todo e-mail disparado (log, sem FK). `id`, `para`, `assunto`, `tem
 
 ---
 
+## 7-A. E-mail dentro da aplicação (caixa IMAP por usuário — ADR-95)
+
+> **Não confunda com a §7.** `EmailEnviado` é o e-mail que a **aplicação dispara** (transacional).
+> Esta seção é a **caixa pessoal** que a pessoa pluga para ler e responder a correspondência real.
+
+### CaixaEmail
+A caixa que **um** usuário plugou na própria conta — a privacidade nasce do `userId`, e toda consulta filtra por ele. `id`, `userId`, `email`, `rotulo?`, `nomeExibicao`, `assinatura? @Text`, `imapHost`/`imapPorta` (993), `smtpHost`/`smtpPorta` (465), `usuario`, **`segredo @Text`** (a senha **cifrada** com `EMAIL_CRYPTO_KEY` — AES-256-GCM; nunca volta para a tela), `padrao`, `ativa`, `estado (CaixaEstado: OK|AUTENTICACAO_FALHOU|ERRO)`, `ultimoErro? @Text`, `ultimaSyncEm?`, `importarDesde?`, `createdAt`, `deletedAt?`. `@@unique([userId, email])` — a mesma caixa pode ser plugada por duas pessoas (o `contato@` é de todo mundo que tem a senha), cada uma com o seu registro.
+
+### CaixaPasta
+Uma pasta da caixa **com os ponteiros de sincronização do IMAP**: `caixaId`, `caminho` (separador **ponto** no Dovecot: `INBOX.spam`), `nome`, `papel? (PastaPapel)`, `uidValidity`, `ultimoUid`, `highestModseq` (todos `BigInt`), `naoLidos`, `total`, `ordem`, `sincronizando?`. `@@unique([caixaId, caminho])`. Guardar os três ponteiros é o que permite sincronizar **só o que mudou** (QRESYNC/CONDSTORE, disponíveis no servidor).
+
+### EmailMensagem
+**Índice** da mensagem — o corpo é **cache**, nulo até alguém abrir. `caixaId`, `pastaId`, `uid`, `messageId?`, `inReplyTo?`, `referencias? @Text`, `threadKey?`, `deNome?`/`deEmail`, `assunto? @Text`, `trecho? @Text`, `dataEm`, `lido`, `respondido`, `temAnexo`, `tamanho?`, `corpoHtml?`/`corpoTexto? @LongText`, `corpoEm?`, **`particular`** (um clique tira a mensagem da ficha do cliente), `createdAt`. `@@unique([pastaId, uid])` + índices `[caixaId, dataEm]` e `[threadKey]`. **Não espelhamos a caixa inteira**: busca em corpo usa o `ESEARCH` do servidor, sem baixar corpo nenhum.
+
+### EmailEndereco
+**Todos** os endereços de uma mensagem, um por linha: `mensagemId`, `papel (EnderecoPapel: DE|PARA|CC|CCO|RESPONDER_A)`, `nome?`, `endereco`. Índice em `[endereco]`.
+
+> **Por que uma tabela só para endereço:** é ela que resolve "este e-mail é de qual cliente?" **por JOIN, na hora da consulta** — nunca gravado fixo. Cliente que troca de e-mail, ou e-mail que chega antes de o cliente existir no cadastro, passam a aparecer na ficha **sozinhos**, sem migração nem reprocessamento. Guardar um `clienteId` na mensagem congelaria a resposta no dia em que ela chegou.
+
+### EmailAnexo
+`mensagemId`, `nome`, `tipo`, `tamanho`, `parte` (a parte MIME, para buscar sob demanda), `cid?` (imagem embutida), `arquivoId?` (quando a pessoa salva o anexo nos arquivos do cliente).
+
+---
+
 ## 8. Mensagens Internas (Fase 6)
 
 ### Conversa

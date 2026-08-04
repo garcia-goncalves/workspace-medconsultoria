@@ -76,6 +76,28 @@ O `{token}` é gerado pela aplicação e vai no link enviado ao cliente — não
 
 ---
 
+## 4-A. 📬 A página de e-mail (`/email`)
+
+| Clique aqui | O que é |
+| ----------- | ------- |
+| http://localhost:4310/email | **Sua caixa de e-mail dentro do Workspace** — ler e responder sem abrir o webmail. |
+
+**Cuidado para não confundir**, porque os três nomes se parecem e as três páginas são coisas diferentes:
+
+| Endereço | O que é | Quem vê |
+| -------- | ------- | ------- |
+| `/email` (singular) | **A sua caixa de verdade** (a que você pluga com a senha do webmail) | Toda a equipe — e **só você enxerga a sua** |
+| `/emails` | **Mensagens automáticas**: os modelos de e-mail que o sistema dispara sozinho | ADMIN |
+| `/emails-enviados` | **Monitor de envios**: o que a aplicação mandou, o que falhou e por quê | ADMIN |
+
+**Como plugar a sua caixa:** abra `/email` → botão **Adicionar caixa** → e-mail `@medconsultoria.com.br` + **a mesma senha que você usa no webmail** + seu nome. A aplicação **testa a conexão antes de gravar**: se a senha estiver errada, ela diz isso e não guarda nada. A senha fica **cifrada** no banco e nunca reaparece na tela.
+
+**Não funciona ainda com Gmail nem Hotmail** (de propósito): esses exigem login próprio do Google/Microsoft. Fase 1 é só o domínio da Med.
+
+**Se aparecer "não consegui falar com…"**: o problema é rede/servidor, não a sua senha — a mensagem distingue os dois casos. Em produção, se a página não deixar plugar caixa nenhuma, falta a variável `EMAIL_CRYPTO_KEY` no `.env` do servidor (ver `DEPLOY.md`).
+
+---
+
 ## 5. Como ligar e desligar a aplicação local
 
 **Para ligar** (é o que eu faço automaticamente na primeira tarefa do dia):

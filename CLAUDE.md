@@ -13,7 +13,10 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-03)
+## Estado atual (2026-08-04)
+
+- **E-mail dentro da app (Bloco 1 pronto, branch `feat/email-na-aplicacao`):** cada pessoa pluga a própria caixa IMAP em **`/email`** e lê sem sair do Workspace. Regra: **a caixa é privada, a correspondência com o cliente é da empresa**. Senha cifrada por `EMAIL_CRYPTO_KEY` (gerar no `.env` do servidor **antes** do deploy — sem ela o módulo fica desligado e o resto segue normal). Falta o Bloco 2 (responder/escrever + e-mails na ficha do cliente) — ADR-95.
+- **Menu lateral em 4 grupos** (Comunicação · Meu trabalho · Negócio · Configuração, com Início solto no topo) e **derivado de `apps/web/src/lib/paginas.ts`** — nunca crie uma segunda lista de navegação: o teste `paginas.test.ts` reprova página nova que não escolha um grupo — ADR-94.
 
 - **NO AR em produção:** https://workspace.medconsultoria.com.br (TineHost, **LiteSpeed/lsnode** — não Passenger).
   SSH porta **1992**; startup `app.cjs`; restart = `touch tmp/restart.txt`. Deploy: `pnpm build:deploy` → `tar | ssh` → `prisma migrate deploy` + `generate` → restart. Chave SSH em `~/.ssh/medconsultoria_deploy`.

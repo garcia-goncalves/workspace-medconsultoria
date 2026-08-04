@@ -61,11 +61,14 @@ API_PORT="3000"                 # a porta que o Passenger/Unit espera (confirmar
 DATABASE_URL="mysql://USUARIO:SENHA@localhost:3306/BANCO"
 SESSION_SECRET="<gere um aleatório de 32+ bytes>"   # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 WEB_ORIGIN="https://workspace.medconsultoria.com.br"
+EMAIL_CRYPTO_KEY="<32 bytes em base64>"   # node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 # Opcional — liga a IA (assistente de busca + geração de documentos):
 # OPENAI_API_KEY="sk-..."
 ```
 
 > **SESSION_SECRET** deve ser forte e único (não reutilize o de dev). **Nunca** comite este arquivo.
+>
+> **EMAIL_CRYPTO_KEY** (ADR-95) cifra a senha das caixas de e-mail que cada pessoa pluga em `/email` (AES-256-GCM). Gere **32 bytes em base64** com o comando acima. Duas consequências que precisam estar claras antes de o dono mexer: **(a) perder ou trocar a chave torna ilegível toda senha já guardada** — as caixas passam a pedir reconexão (é só replugar, nada mais se perde); **(b) a chave é de produção e não se reaproveita de dev.** Sem a variável, a página `/email` não pluga caixa nenhuma — o resto da aplicação segue normal.
 
 ---
 

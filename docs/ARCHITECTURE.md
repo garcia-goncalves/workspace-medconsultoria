@@ -223,6 +223,18 @@ O funil de vendas é automatizado. Mecânica em `leads.service.ts`:
 - **Notificação = e-mail:** `notificar()` é o ponto único — cria a `Notificacao` in-app (o cliente busca por polling em produção; Socket.IO faz push só em dev/testes — ADR-84) **e** dispara o e-mail da mesma categoria se ela for "emailável" e o usuário não tiver desativado (`PreferenciaEmail`, opt-out). Suporta dedup (`unico`) para o scan proativo.
 - **Templates editáveis:** `EMAIL_TEMPLATES` (registry) semeia `EmailTemplate` (assunto/título/corpo/CTA com `{{variaveis}}`), editáveis em Comunicações (`emails` router, admin). Grupos: Transacionais (sempre), Notificações (respeitam preferência), Sistema (só ROOT).
 
+## 14-A. E-mail dentro da aplicação (IMAP/SMTP por usuário) [ADR-95]
+
+Módulo `apps/api/src/modules/email/` — `imap.ts` (conexão), `caixas.service.ts` (plugar/remover), `pastas.service.ts`, `sync.service.ts`, `leitura.service.ts`, `enderecos.ts` (normalização + chave de conversa), `email.router.ts`. Front em `apps/web/src/features/email/`, rota `/email`.
+
+- **A conexão IMAP é sempre CURTA — abre, faz, fecha.** O servidor tem `IDLE`, mas o lsnode derruba o Node ocioso (mesma causa do ADR-84): não dá para manter conexão viva esperando o servidor avisar. O e-mail chega por **sincronização**, não por push — coerente com o resto da app, que já é polling.
+- **Índice + cache, nunca espelho.** Sincronizar traz só o cabeçalho (`EmailMensagem`); o corpo só é baixado quando alguém abre, e fica em cache. Busca dentro do texto usa o **`ESEARCH` do servidor** — acha sem baixar corpo nenhum. O banco não vira uma segunda caixa postal.
+- **Sincronização incremental** pelos ponteiros por pasta (`uidValidity`/`ultimoUid`/`highestModseq`): `QRESYNC`/`CONDSTORE` estão disponíveis, então cada rodada pede só o que mudou. `uidValidity` diferente do guardado = a pasta foi recriada no servidor → ressincroniza do zero.
+- **A senha da caixa fica cifrada** (`lib/cripto-caixa.ts`, AES-256-GCM com `EMAIL_CRYPTO_KEY`), nunca volta para a tela e nunca entra em log — o `logger` do `imapflow` fica **desligado de propósito**, porque ele imprime o diálogo de autenticação.
+- **Testar antes de gravar:** `plugarCaixa` só grava depois de o servidor aceitar a credencial, e a mensagem de erro **distingue senha errada de servidor fora do ar** — a primeira é culpa de quem digitou, a segunda não.
+- **Três camadas contra HTML hostil**, porque e-mail é conteúdo de terceiro não confiável: (1) o HTML é higienizado no servidor (script/iframe/handler/`javascript:` fora); (2) o corpo é renderizado num **`<iframe sandbox="">`** — sem script, sem formulário, sem navegação, sem acesso à página; (3) **imagem remota bloqueada** por padrão, com faixa para liberar caso a caso (imagem remota é rastreador de leitura).
+- **Privacidade (regra de negócio):** *a caixa é privada, a correspondência com o cliente é da empresa*. Todo procedure filtra por `userId` — ninguém abre a caixa de ninguém. O que aparece na ficha do cliente é a **mensagem trocada com aquele cliente**, resolvida por JOIN em `EmailEndereco`, e o dono pode marcar qualquer mensagem como `particular` para tirá-la de lá.
+
 ## 15. Assinatura eletrônica de documentos [ADR-17]
 
 - Assinatura eletrônica **avançada** (Lei 14.063/2020). `assinaturas.solicitar` cria uma `Assinatura` por signatário (papel CLIENTE/MEDCONSULTORIA) com um `token @unique` e guarda o **hash sha256 do conteúdo** no envio (prova de integridade). O e-mail leva ao link público `/assinar/:token` (`assinaturas.porToken`/`assinar`, `publicProcedure`).
