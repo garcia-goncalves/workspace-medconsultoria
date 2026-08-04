@@ -20,6 +20,7 @@ import { portalRouter } from "../modules/portal/portal.router.js";
 import { usuariosRouter } from "../modules/usuarios/usuarios.router.js";
 import { emailsRouter } from "../modules/emails/emails.router.js";
 import { emailsEnviadosRouter } from "../modules/emails/enviados.router.js";
+import { emailRouter } from "../modules/email/email.router.js";
 import { buscaRouter } from "../modules/busca/busca.router.js";
 import { formulariosRouter } from "../modules/formularios/formularios.router.js";
 import { iaRouter } from "../modules/ia/ia.router.js";
@@ -49,6 +50,7 @@ export const appRouter = router({
   usuarios: usuariosRouter,
   emails: emailsRouter,
   emailsEnviados: emailsEnviadosRouter,
+  email: emailRouter,
   busca: buscaRouter,
   formularios: formulariosRouter,
   ia: iaRouter,

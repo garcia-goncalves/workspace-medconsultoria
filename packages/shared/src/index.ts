@@ -12,4 +12,5 @@ export * from "./schemas/conversa.js";
 export * from "./schemas/tarefa.js";
 export * from "./schemas/documento.js";
 export * from "./schemas/formulario.js";
+export * from "./schemas/email.js";
 export * from "./types.js";
