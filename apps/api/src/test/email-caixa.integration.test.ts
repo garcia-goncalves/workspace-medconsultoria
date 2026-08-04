@@ -117,4 +117,50 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
     expect(msg!.enderecos.map((e) => e.papel)).toContain("DE");
     expect(msg!.enderecos.map((e) => e.endereco)).toContain("cliente@exemplo.com");
   });
+
+  it("abre a mensagem, higieniza o corpo e guarda em cache", async () => {
+    const { ImapFlow } = await import("imapflow");
+    const { sincronizarPasta } = await import("../modules/email/sync.service.js");
+    const { abrirMensagem } = await import("../modules/email/leitura.service.js");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    const inbox = await prisma.caixaPasta.findFirstOrThrow({ where: { caixaId: caixa.id, papel: "INBOX" } });
+
+    const marca = `corpo-${Date.now()}`;
+    const c = new ImapFlow({
+      host: "mail.medconsultoria.com.br",
+      port: 993,
+      secure: true,
+      auth: { user: USER!, pass: PASS! },
+      logger: false,
+    });
+    await c.connect();
+    await c.append(
+      "INBOX",
+      Buffer.from(
+        [
+          `From: Hostil <mau@exemplo.com>`,
+          `To: ${USER}`,
+          `Subject: ${marca}`,
+          "Content-Type: text/html; charset=utf-8",
+          "",
+          '<p>ola</p><script>alert(1)</script><img src="https://rastreio/p.gif">',
+        ].join("\r\n"),
+        "utf8",
+      ),
+    );
+    await c.logout();
+
+    await sincronizarPasta(caixa.id, inbox.id);
+    const msg = await prisma.emailMensagem.findFirstOrThrow({ where: { pastaId: inbox.id, assunto: marca } });
+
+    const aberta = await abrirMensagem(userId, msg.id);
+    expect(aberta.corpoHtml).toContain("ola");
+    expect(aberta.corpoHtml!.toLowerCase()).not.toContain("script");
+    expect(aberta.imagensBloqueadas).toBe(1);
+
+    const depois = await prisma.emailMensagem.findFirstOrThrow({ where: { id: msg.id } });
+    expect(depois.corpoEm).not.toBeNull(); // cache preenchido
+    expect(depois.lido).toBe(true);
+    expect(depois.trecho).toContain("ola"); // prévia da lista nasce aqui, não no índice
+  });
 });
