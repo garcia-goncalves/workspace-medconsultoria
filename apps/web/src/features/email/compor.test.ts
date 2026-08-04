@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dividirEmails, emailValido, montarCorpoEnvio, textoParaHtml } from "./compor";
+import { dividirEmails, emailValido, montarCorpoEnvio, temConteudoParaRascunho, textoParaHtml } from "./compor";
 
 describe("dividirEmails", () => {
   it("separa por vírgula, ponto-e-vírgula e espaço", () => {
@@ -78,5 +78,41 @@ describe("montarCorpoEnvio", () => {
   it("NUNCA reescapa a citação — ela já vem como HTML pronto do servidor", () => {
     const citacao = '<blockquote>&lt;já escapado&gt; e <a href="x">link</a></blockquote>';
     expect(montarCorpoEnvio("", citacao)).toBe(citacao);
+  });
+});
+
+describe("temConteudoParaRascunho", () => {
+  const VAZIO = { para: "", cc: "", cco: "", assunto: "", corpo: "", citacao: "" };
+
+  it("tudo vazio não tem conteúdo — abrir e desistir não pode criar rascunho em branco", () => {
+    expect(temConteudoParaRascunho(VAZIO)).toBe(false);
+  });
+
+  it("só espaços em branco também não conta como conteúdo", () => {
+    expect(temConteudoParaRascunho({ ...VAZIO, corpo: "   ", assunto: "\n\t " })).toBe(false);
+  });
+
+  it("destinatário digitado já conta, mesmo sem assunto/corpo", () => {
+    expect(temConteudoParaRascunho({ ...VAZIO, para: "alguem@exemplo.com" })).toBe(true);
+  });
+
+  it("cc digitado conta", () => {
+    expect(temConteudoParaRascunho({ ...VAZIO, cc: "copia@exemplo.com" })).toBe(true);
+  });
+
+  it("cco digitado conta", () => {
+    expect(temConteudoParaRascunho({ ...VAZIO, cco: "oculto@exemplo.com" })).toBe(true);
+  });
+
+  it("assunto digitado conta", () => {
+    expect(temConteudoParaRascunho({ ...VAZIO, assunto: "Dúvida sobre contrato" })).toBe(true);
+  });
+
+  it("corpo digitado conta", () => {
+    expect(temConteudoParaRascunho({ ...VAZIO, corpo: "Olá, tudo bem?" })).toBe(true);
+  });
+
+  it("só a citação (responder/encaminhar aberto e fechado sem comentar) também conta", () => {
+    expect(temConteudoParaRascunho({ ...VAZIO, citacao: "<blockquote>oi</blockquote>" })).toBe(true);
   });
 });

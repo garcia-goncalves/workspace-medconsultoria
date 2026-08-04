@@ -7,7 +7,7 @@ import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { Label } from "../../components/ui/label";
 import { toast } from "../../components/ui/toast";
-import { dividirEmails, emailValido, montarCorpoEnvio } from "./compor";
+import { dividirEmails, emailValido, montarCorpoEnvio, temConteudoParaRascunho } from "./compor";
 
 export type ModoEscrever = "novo" | "responder" | "responderTodos" | "encaminhar";
 
@@ -119,6 +119,71 @@ export function Escrever({
     onError: (e) => toast(e.message),
   });
 
+  // UID (no servidor) do rascunho já gravado, para a próxima gravação regravar POR CIMA dele em
+  // vez de duplicar. Fica em `ref` (não `state`) de propósito: não precisa causar re-render, e
+  // `aoFechar` pode gravar depois do componente já ter desmontado (ver abaixo) sem o aviso de
+  // "setState num componente desmontado" que uma `state` daria.
+  const uidRascunhoRef = useRef<number | null>(null);
+  const salvarRascunho = trpc.email.salvarRascunho.useMutation({
+    onSuccess: (r) => {
+      uidRascunhoRef.current = r.uid;
+    },
+    // Sem `onError`: rascunho é um detalhe — se esta gravação falhar (servidor fora, sem pasta
+    // Drafts etc.), a próxima tentativa (5s depois, ou ao fechar de novo) resolve sozinha. Um
+    // toast aqui só atrapalharia quem está no meio de escrever.
+  });
+
+  /**
+   * Grava o que está na tela na pasta Drafts do servidor — só quando há conteúdo de verdade
+   * (`temConteudoParaRascunho`), senão nasceria rascunho em branco a cada "Escrever" aberto e
+   * fechado sem uma letra digitada.
+   *
+   * NUNCA é chamada pelo `onSuccess` do envio (`enviar`, acima): ali o fechamento continua
+   * chamando `onFechar` puro. Se esta função rodasse depois de um envio bem-sucedido, todo
+   * e-mail enviado geraria TAMBÉM um rascunho fantasma da mesma composição, parado para sempre
+   * em Rascunhos — só esta função (via `aoFechar`) nunca aparece no caminho do envio.
+   */
+  const salvarRascunhoAgora = () => {
+    if (
+      !temConteudoParaRascunho({
+        para: paraTexto,
+        cc: ccTexto,
+        cco: ccoTexto,
+        assunto,
+        corpo: corpoDigitado,
+        citacao: citacaoEnvio,
+      })
+    ) {
+      return;
+    }
+    salvarRascunho.mutate({
+      caixaId,
+      para: dividirEmails(paraTexto),
+      cc: dividirEmails(ccTexto),
+      cco: dividirEmails(ccoTexto),
+      assunto,
+      // O MESMO corpo que seria enviado (citação de envio, não a de preview) — ver comentário
+      // de `citacaoPreview`/`citacaoEnvio` acima: nunca trocar uma pela outra.
+      corpoHtml: montarCorpoEnvio(corpoDigitado, citacaoEnvio),
+      uidAnterior: uidRascunhoRef.current ?? undefined,
+    });
+  };
+
+  // Salva 5s depois da ÚLTIMA tecla — nunca a cada tecla (seria uma conexão IMAP por tecla). O
+  // timer reinicia a cada mudança de campo; o cleanup cancela um save pendente se a pessoa
+  // continuar digitando, ou some sozinho quando o componente desmonta.
+  useEffect(() => {
+    const id = window.setTimeout(salvarRascunhoAgora, 5000);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paraTexto, ccTexto, ccoTexto, assunto, corpoDigitado, citacaoEnvio]);
+
+  /** Fecha a tela salvando o rascunho pendente antes — Cancelar, X do modal, Esc e clique fora. */
+  const aoFechar = () => {
+    salvarRascunhoAgora();
+    onFechar();
+  };
+
   const subirAnexo = async (arquivo: File): Promise<AnexoEnviado> => {
     const fd = new FormData();
     fd.append("arquivo", arquivo);
@@ -202,12 +267,12 @@ export function Escrever({
   return (
     <Modal
       open
-      onClose={onFechar}
+      onClose={aoFechar}
       title={titulo}
       size="xl"
       footer={
         <>
-          <Button type="button" variant="outline" onClick={onFechar}>
+          <Button type="button" variant="outline" onClick={aoFechar}>
             Cancelar
           </Button>
           <Button type="submit" form="escrever-form" disabled={enviar.isPending || carregandoPreparo}>

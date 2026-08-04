@@ -40,3 +40,30 @@ export function montarCorpoEnvio(corpoDigitado: string, citacaoHtml: string): st
   if (digitadoHtml && citacaoHtml) return `${digitadoHtml}<br><br>${citacaoHtml}`;
   return digitadoHtml || citacaoHtml;
 }
+
+/**
+ * Decide se há conteúdo de verdade para justificar gravar um rascunho no servidor. Sem isto,
+ * abrir "Escrever" e desistir sem digitar nada criaria um rascunho em branco na pasta Rascunhos
+ * da pessoa, para sempre (ninguém apaga rascunho vazio manualmente).
+ *
+ * `corpo` é o texto DIGITADO (não o corpo final com citação): a citação sozinha, sem nada
+ * digitado por cima, ainda conta como conteúdo — é o caso normal de abrir "Responder"/"Encaminhar"
+ * e fechar sem comentar nada, que também merece salvar.
+ */
+export function temConteudoParaRascunho(input: {
+  para: string;
+  cc: string;
+  cco: string;
+  assunto: string;
+  corpo: string;
+  citacao: string;
+}): boolean {
+  return (
+    input.para.trim() !== "" ||
+    input.cc.trim() !== "" ||
+    input.cco.trim() !== "" ||
+    input.assunto.trim() !== "" ||
+    input.corpo.trim() !== "" ||
+    input.citacao.trim() !== ""
+  );
+}

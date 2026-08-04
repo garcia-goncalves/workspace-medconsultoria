@@ -329,4 +329,178 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
       }),
     ).rejects.toThrow(/desenvolvimento/i);
   });
+
+  it("grava rascunho na pasta Drafts do servidor e regravar por cima (uidAnterior) não duplica", async () => {
+    // Prova ao vivo do defeito clássico da Tarefa 8 (0.3 do brief): se a remoção da versão
+    // anterior não rodasse, a segunda gravação deixaria DUAS mensagens na pasta Drafts.
+    //
+    // Confere por UID (não por SEARCH SUBJECT): `SEARCH SUBJECT` do IMAP é por SUBSTRING, então
+    // um assunto "X-v2" bate na busca por "X" — não serve para provar unicidade.
+    const { salvarRascunho } = await import("../modules/email/rascunhos.service.js");
+    const { ImapFlow } = await import("imapflow");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    const drafts = await prisma.caixaPasta.findFirstOrThrow({ where: { caixaId: caixa.id, papel: "DRAFTS" } });
+
+    const r1 = await salvarRascunho(userId, {
+      caixaId: caixa.id,
+      para: ["contato@medconsultoria.com.br"],
+      cc: [],
+      cco: [],
+      assunto: `rascunho-${Date.now()}`,
+      corpoHtml: "<p>primeira versão</p>",
+    });
+    expect(r1.uid, "UIDPLUS deste servidor devolve o uid da mensagem recém-gravada").not.toBeNull();
+
+    const r2 = await salvarRascunho(userId, {
+      caixaId: caixa.id,
+      para: ["contato@medconsultoria.com.br"],
+      cc: [],
+      cco: [],
+      assunto: `rascunho-${Date.now()}-outro-assunto-independente`,
+      corpoHtml: "<p>segunda versão, por cima da primeira</p>",
+      uidAnterior: r1.uid!,
+    });
+    expect(r2.uid).not.toBeNull();
+    expect(r2.uid).not.toBe(r1.uid);
+
+    const c = new ImapFlow({
+      host: "mail.medconsultoria.com.br",
+      port: 993,
+      secure: true,
+      auth: { user: USER!, pass: PASS! },
+      logger: false,
+    });
+    await c.connect();
+    try {
+      const lock = await c.getMailboxLock(drafts.caminho);
+      try {
+        const antigo = await c.fetchOne(String(r1.uid), { uid: true }, { uid: true });
+        expect(antigo, "a versão antiga tem de ter sumido — é ela que a regravação removeu").toBeFalsy();
+
+        const novo = await c.fetchOne(String(r2.uid), { flags: true }, { uid: true });
+        expect(novo, "a versão nova tem de estar lá").toBeTruthy();
+        expect(novo && novo.flags?.has("\\Draft"), "gravado com a flag \\Draft").toBe(true);
+      } finally {
+        lock.release();
+      }
+      // Limpa o artefato de teste — não deixar rascunho de teste morando na caixa real.
+      const lock2 = await c.getMailboxLock(drafts.caminho);
+      try {
+        await c.messageDelete(String(r2.uid!), { uid: true });
+      } finally {
+        lock2.release();
+      }
+    } finally {
+      await c.logout().catch(() => {});
+    }
+  });
+
+  it("expurgo é por UID — não mexe em outro rascunho marcado \\Deleted por fora (webmail)", async () => {
+    // Prova ao vivo da armadilha 2 do brief: um EXPUNGE cego apagaria TODAS as mensagens
+    // \Deleted da pasta. `messageDelete(uid, { uid: true })` tem de mexer só na apontada.
+    const { salvarRascunho } = await import("../modules/email/rascunhos.service.js");
+    const { ImapFlow } = await import("imapflow");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    const drafts = await prisma.caixaPasta.findFirstOrThrow({ where: { caixaId: caixa.id, papel: "DRAFTS" } });
+
+    const marcaBase = `rascunho-base-${Date.now()}`;
+    const base = await salvarRascunho(userId, {
+      caixaId: caixa.id,
+      para: ["contato@medconsultoria.com.br"],
+      cc: [],
+      cco: [],
+      assunto: marcaBase,
+      corpoHtml: "<p>base</p>",
+    });
+    expect(base.uid).not.toBeNull();
+
+    const c = new ImapFlow({
+      host: "mail.medconsultoria.com.br",
+      port: 993,
+      secure: true,
+      auth: { user: USER!, pass: PASS! },
+      logger: false,
+    });
+    await c.connect();
+    let uidAlheio: number | undefined;
+    try {
+      // Simula um rascunho de OUTRA composição que a pessoa marcou \Deleted no webmail, mas
+      // ainda não expurgou — o cenário exato em que um EXPUNGE cego apagaria o que não devia.
+      const alheio = await c.append(
+        drafts.caminho,
+        Buffer.from(
+          [`From: ${USER}`, `Subject: alheio-${Date.now()}`, "Content-Type: text/plain; charset=utf-8", "", "rascunho alheio"].join(
+            "\r\n",
+          ),
+          "utf8",
+        ),
+        ["\\Draft"],
+      );
+      uidAlheio = alheio && typeof alheio.uid === "number" ? alheio.uid : undefined;
+      expect(uidAlheio, "precisa do UID para marcar \\Deleted por fora do nosso serviço").not.toBeUndefined();
+
+      const lockMarcar = await c.getMailboxLock(drafts.caminho);
+      try {
+        await c.messageFlagsAdd(String(uidAlheio), ["\\Deleted"], { uid: true });
+      } finally {
+        lockMarcar.release();
+      }
+
+      // Regrava o rascunho BASE por cima — dispara `messageDelete(base.uid, { uid: true })`.
+      const marcaNova = `${marcaBase}-v2`;
+      const novo = await salvarRascunho(userId, {
+        caixaId: caixa.id,
+        para: ["contato@medconsultoria.com.br"],
+        cc: [],
+        cco: [],
+        assunto: marcaNova,
+        corpoHtml: "<p>por cima</p>",
+        uidAnterior: base.uid!,
+      });
+
+      const lockConferir = await c.getMailboxLock(drafts.caminho);
+      try {
+        const aindaExiste = await c.fetchOne(String(uidAlheio), { flags: true }, { uid: true });
+        expect(aindaExiste, "a mensagem alheia \\Deleted NÃO pode ter sido expurgada").toBeTruthy();
+      } finally {
+        lockConferir.release();
+      }
+
+      // Limpa os dois artefatos de teste.
+      const lockLimpar = await c.getMailboxLock(drafts.caminho);
+      try {
+        if (novo.uid !== null) await c.messageDelete(String(novo.uid), { uid: true });
+        if (uidAlheio !== undefined) await c.messageDelete(String(uidAlheio), { uid: true });
+      } finally {
+        lockLimpar.release();
+      }
+    } finally {
+      await c.logout().catch(() => {});
+    }
+  });
+
+  it("caixa sem pasta Drafts devolve uid null sem estourar (não perde o texto por causa de pasta ausente)", async () => {
+    const { salvarRascunho } = await import("../modules/email/rascunhos.service.js");
+    const { sincronizarPastas } = await import("../modules/email/pastas.service.js");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    const drafts = await prisma.caixaPasta.findFirstOrThrow({ where: { caixaId: caixa.id, papel: "DRAFTS" } });
+
+    // Remove só o CACHE local da pasta (o que `salvarRascunho` consulta) — a pasta continua
+    // existindo de verdade no servidor. `sincronizarPastas`, no `finally`, recria a linha.
+    await prisma.caixaPasta.delete({ where: { id: drafts.id } });
+    try {
+      await expect(
+        salvarRascunho(userId, {
+          caixaId: caixa.id,
+          para: ["contato@medconsultoria.com.br"],
+          cc: [],
+          cco: [],
+          assunto: "não pode estourar",
+          corpoHtml: "<p>x</p>",
+        }),
+      ).resolves.toEqual({ uid: null });
+    } finally {
+      await sincronizarPastas(caixa.id);
+    }
+  });
 });

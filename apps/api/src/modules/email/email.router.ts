@@ -8,6 +8,7 @@ import * as pastas from "./pastas.service.js";
 import * as sync from "./sync.service.js";
 import * as leitura from "./leitura.service.js";
 import * as envio from "./envio.service.js";
+import * as rascunhos from "./rascunhos.service.js";
 
 /**
  * E-mail dentro da aplicação. TODO procedure é `funcionarioProcedure` (equipe; o Portal do
@@ -116,5 +117,27 @@ export const emailRouter = router({
     .query(({ ctx, input }) => {
       exigirModuloLigado();
       return envio.prepararEncaminhamento(ctx.user.id, input.mensagemId);
+    }),
+
+  /**
+   * Grava o que a pessoa está escrevendo na pasta Drafts do SERVIDOR (não só no navegador dela).
+   * Sem `.email()` nos destinatários de propósito: a pessoa pode estar no meio de digitar um
+   * endereço, e um rascunho não pode falhar em salvar por causa disso.
+   */
+  salvarRascunho: funcionarioProcedure
+    .input(
+      z.object({
+        caixaId: z.string().min(1),
+        para: z.array(z.string()).default([]),
+        cc: z.array(z.string()).default([]),
+        cco: z.array(z.string()).default([]),
+        assunto: z.string().max(500).default(""),
+        corpoHtml: z.string().max(500_000).default(""),
+        uidAnterior: z.number().int().positive().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => {
+      exigirModuloLigado();
+      return rascunhos.salvarRascunho(ctx.user.id, input);
     }),
 });
