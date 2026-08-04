@@ -1559,6 +1559,9 @@ import { prisma } from "@app/db";
 import { comCaixa } from "./imap.js";
 import { sanitizarEmailHtml } from "../../lib/sanitizar-html.js";
 
+/** Teto de UIDs vindos da busca do servidor: um `IN (...)` com milhares de valores derruba a query. */
+const MAX_UIDS_BUSCA = 500;
+
 /** Garante que a pasta é de uma caixa DESTE usuário. Base da privacidade — sempre chamar. */
 async function pastaDoUsuario(userId: string, pastaId: string) {
   const pasta = await prisma.caixaPasta.findFirst({
@@ -1589,7 +1592,12 @@ export async function listarMensagens(
         lock.release();
       }
     });
-    uidsDaBusca = achados.map((u) => BigInt(u));
+    // Só os mais recentes: UID maior = chegou depois na pasta, então cortar por UID decrescente
+    // é a mesma ordem que a tela mostra (data decrescente).
+    uidsDaBusca = achados
+      .sort((a, b) => b - a)
+      .slice(0, MAX_UIDS_BUSCA)
+      .map((u) => BigInt(u));
     if (uidsDaBusca.length === 0) return [];
   }
 
@@ -1630,8 +1638,10 @@ export async function abrirMensagem(userId: string, mensagemId: string) {
   let corpoTexto = msg.corpoTexto;
   let imagensBloqueadas = 0;
 
-  // Cache frio: busca o corpo AGORA. É o "sob demanda" da opção "C".
-  if (corpoHtml === null && corpoTexto === null) {
+  // Cache frio: busca o corpo AGORA. É o "sob demanda" da opção "C". Quem responde se já
+  // buscamos é o `corpoEm` — não os corpos: mensagem vazia (ou só com script/imagem remota,
+  // que a higienização descarta) deixaria os dois nulos e voltaria ao IMAP a cada abertura.
+  if (msg.corpoEm === null) {
     const bruto = await comCaixa(msg.pasta.caixaId, async (c) => {
       const lock = await c.getMailboxLock(msg.pasta.caminho);
       try {
@@ -1651,10 +1661,12 @@ export async function abrirMensagem(userId: string, mensagemId: string) {
       corpoHtml = limpo.html || null;
       imagensBloqueadas = limpo.imagensRemotasBloqueadas;
       corpoTexto = parsed.text ?? null;
+      // A prévia da lista só existe a partir daqui: o índice não baixa corpo (opção "C").
+      const trecho = corpoTexto?.replace(/\s+/g, " ").trim().slice(0, 200) || null;
 
       await prisma.emailMensagem.update({
         where: { id: msg.id },
-        data: { corpoHtml, corpoTexto, corpoEm: new Date() },
+        data: { corpoHtml, corpoTexto, trecho, corpoEm: new Date() },
       });
     }
   } else if (corpoHtml) {
@@ -1726,6 +1738,7 @@ Ao fim do `describe` em `apps/api/src/test/email-caixa.integration.test.ts`:
     const depois = await prisma.emailMensagem.findFirstOrThrow({ where: { id: msg.id } });
     expect(depois.corpoEm).not.toBeNull(); // cache preenchido
     expect(depois.lido).toBe(true);
+    expect(depois.trecho).toContain("ola"); // prévia da lista nasce aqui, não no índice
   });
 ```
 
