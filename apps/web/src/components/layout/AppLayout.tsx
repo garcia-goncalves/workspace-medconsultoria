@@ -371,7 +371,13 @@ export function AppLayout() {
 
   // Telas "app" com painéis de altura fixa + scroll interno (não usam o scroll de janela): o chat
   // das Mensagens rola por dentro e a grade da Agenda cabe na tela. Ver ADR-83.
-  const telaCheia = pathname.startsWith("/mensagens") || pathname.startsWith("/agenda");
+  // `/email` exato (e filhas): `startsWith("/email")` pegaria junto `/emails` e
+  // `/emails-enviados`, que são páginas normais e não podem virar tela cheia.
+  const telaCheia =
+    pathname.startsWith("/mensagens") ||
+    pathname.startsWith("/agenda") ||
+    pathname === "/email" ||
+    pathname.startsWith("/email/");
 
   return (
     <BreadcrumbProvider>

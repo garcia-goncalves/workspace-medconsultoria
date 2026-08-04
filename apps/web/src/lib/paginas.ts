@@ -7,6 +7,7 @@ import {
   ListTodo,
   Calendar,
   MessageSquare,
+  Inbox,
   FileText,
   Wallet,
   SlidersHorizontal,
@@ -47,6 +48,7 @@ export const PAGINAS: Pagina[] = [
   { label: "Tarefas", icon: ListTodo, to: "/tarefas", minRole: "FUNCIONARIO", keywords: ["delegar", "pedidos", "comigo", "deleguei", "afazeres", "to-do", "solicitacoes"] },
   { label: "Agenda", icon: Calendar, to: "/agenda", minRole: "FUNCIONARIO", keywords: ["calendario", "eventos", "compromissos", "reunioes"] },
   { label: "Mensagens", icon: MessageSquare, to: "/mensagens", minRole: "FUNCIONARIO", keywords: ["chat", "conversas", "suporte", "chamados"] },
+  { label: "E-mail", icon: Inbox, to: "/email", minRole: "FUNCIONARIO", keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"] },
   { label: "Documentos", icon: FileText, to: "/documentos", minRole: "FUNCIONARIO", keywords: ["propostas", "contratos", "atas", "recibos"] },
   { label: "Financeiro", icon: Wallet, to: "/financeiro", minRole: "ADMIN", keywords: ["contas", "pagar", "receber", "carteira", "dinheiro"] },
   // ── Configuração ──
