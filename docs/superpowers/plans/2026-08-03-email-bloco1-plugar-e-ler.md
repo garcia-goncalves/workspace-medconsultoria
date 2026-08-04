@@ -1909,6 +1909,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { plugarCaixaSchema, type PlugarCaixaInput } from "@app/shared";
 import { trpc } from "../../lib/trpc";
+import { sincronizarAutofill } from "../../lib/form-autofill";
 import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -1920,6 +1921,7 @@ export function AdicionarCaixaDialog({ open, onClose }: { open: boolean; onClose
   const {
     register,
     handleSubmit,
+    setValue,
     reset,
     formState: { errors },
   } = useForm<PlugarCaixaInput>({
@@ -1954,7 +1956,18 @@ export function AdicionarCaixaDialog({ open, onClose }: { open: boolean; onClose
         </>
       }
     >
-      <form id="caixa-form" onSubmit={handleSubmit((v) => plugar.mutate(v))} className="space-y-3" noValidate>
+      <form
+        id="caixa-form"
+        onSubmit={(e) => {
+          // O autofill do Chrome escreve no DOM sem disparar o evento que o react-hook-form
+          // escuta — e este formulário é e-mail + senha, o alvo preferido do autofill. Sem
+          // isto, "Conectar" manda o que o React lembrava (vazio) em vez do que está na tela.
+          sincronizarAutofill(e, setValue, ["email", "senha", "nomeExibicao"]);
+          void handleSubmit((v) => plugar.mutate(v))(e);
+        }}
+        className="space-y-3"
+        noValidate
+      >
         <div className="space-y-1">
           <Label htmlFor="cx-email" hint="O endereço completo, igual ao que você usa no webmail.">
             E-mail *
