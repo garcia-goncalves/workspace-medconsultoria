@@ -200,7 +200,10 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
     expect(depois.trecho).toContain("ola"); // prévia da lista nasce aqui, não no índice
   });
 
-  it("envia de verdade, guarda cópia em Enviados e marca a original como respondida", async () => {
+  it("envia de verdade e guarda cópia em Enviados", async () => {
+    // NOTA: este teste NÃO cobre o PASSO 3 (marcar a original como respondida) — o input não
+    // tem `emRespostaA`, então `modo` fica `null` e o passo nem roda. A cobertura do PASSO 3
+    // está no teste seguinte, que responde de verdade a uma mensagem existente.
     const { enviarMensagem } = await import("../modules/email/envio.service.js");
     const { sincronizarPastas } = await import("../modules/email/pastas.service.js");
     const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
@@ -227,6 +230,88 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
     await sincronizarPasta(caixa.id, enviados.id);
     const copia = await prisma.emailMensagem.findFirst({ where: { pastaId: enviados.id, assunto: marca } });
     expect(copia).toBeTruthy();
+  });
+
+  it("responde a uma mensagem existente e marca a original como respondida (banco e servidor)", async () => {
+    // Cobre o PASSO 3 de `enviarMensagem` (envio.service.ts): só roda quando `emRespostaA` vem
+    // preenchido. Cria a mensagem original AQUI (não depende de estado prévio da caixa), com
+    // `From` já autorizado — é para ele que a resposta vai, e `conferirDestinoPermitido`
+    // recusaria qualquer outro destino fora dos dois endereços de teste.
+    const { ImapFlow } = await import("imapflow");
+    const { sincronizarPasta } = await import("../modules/email/sync.service.js");
+    const { enviarMensagem } = await import("../modules/email/envio.service.js");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    const inbox = await prisma.caixaPasta.findFirstOrThrow({ where: { caixaId: caixa.id, papel: "INBOX" } });
+
+    const marca = `resposta-${Date.now()}`;
+    const c1 = new ImapFlow({
+      host: "mail.medconsultoria.com.br",
+      port: 993,
+      secure: true,
+      auth: { user: USER!, pass: PASS! },
+      logger: false,
+    });
+    await c1.connect();
+    await c1.append(
+      "INBOX",
+      Buffer.from(
+        [
+          `From: Contato MedConsultoria <contato@medconsultoria.com.br>`,
+          `To: ${USER}`,
+          `Subject: ${marca}`,
+          `Message-ID: <${marca}@medconsultoria.com.br>`,
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          "corpo original",
+        ].join("\r\n"),
+        "utf8",
+      ),
+    );
+    await c1.logout();
+
+    await sincronizarPasta(caixa.id, inbox.id);
+    const original = await prisma.emailMensagem.findFirstOrThrow({ where: { pastaId: inbox.id, assunto: marca } });
+    expect(original.respondido, "a mensagem recém-criada ainda não foi respondida").toBe(false);
+
+    const r = await enviarMensagem(userId, {
+      caixaId: caixa.id,
+      para: ["contato@medconsultoria.com.br"],
+      cc: [],
+      cco: [],
+      assunto: `Re: ${marca}`,
+      corpoHtml: "<p>resposta de teste</p>",
+      anexos: [],
+      emRespostaA: original.id,
+    });
+    expect(r.enviado).toBe(true);
+
+    // Ponta 1 — banco: o PASSO 3 grava `respondido: true` na mensagem original.
+    const depois = await prisma.emailMensagem.findFirstOrThrow({ where: { id: original.id } });
+    expect(depois.respondido, "PASSO 3 tem de gravar respondido=true no banco").toBe(true);
+
+    // Ponta 2 — servidor: a flag \Answered tem de estar de fato na mensagem, por UID, numa
+    // conexão IMAP nova. Esta é a asserção que importa: `messageFlagsAdd` do imapflow devolve
+    // `false` sem lançar quando não consegue marcar, e o PASSO 3 engole qualquer erro num
+    // `catch {}` vazio — sem conferir o servidor, o banco podia dizer "respondido" com o
+    // servidor nunca tendo marcado nada.
+    const c2 = new ImapFlow({
+      host: "mail.medconsultoria.com.br",
+      port: 993,
+      secure: true,
+      auth: { user: USER!, pass: PASS! },
+      logger: false,
+    });
+    await c2.connect();
+    const lock = await c2.getMailboxLock("INBOX");
+    let flags: Set<string> | undefined;
+    try {
+      const msg = await c2.fetchOne(String(original.uid), { flags: true }, { uid: true });
+      flags = msg ? msg.flags : undefined;
+    } finally {
+      lock.release();
+    }
+    await c2.logout();
+    expect(flags?.has("\\Answered"), "a flag \\Answered tem de estar de fato marcada no servidor").toBe(true);
   });
 
   it("recusa enviar para endereço fora da lista de teste", async () => {
