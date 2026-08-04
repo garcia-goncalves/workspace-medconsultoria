@@ -24,3 +24,48 @@ export const plugarCaixaSchema = z.object({
   importarMeses: z.coerce.number().int().min(1).max(60).default(3),
 });
 export type PlugarCaixaInput = z.infer<typeof plugarCaixaSchema>;
+
+/**
+ * Endereços para os quais é permitido enviar de verdade fora de produção. Existe porque o envio
+ * da Fase 2A usa o SMTP REAL da caixa da pessoa: sem esta trava, um teste de desenvolvimento
+ * manda e-mail de verdade para um cliente de verdade.
+ */
+export const DESTINOS_TESTE_PERMITIDOS = [
+  "tibamooca@gmail.com",
+  "contato@medconsultoria.com.br",
+] as const;
+
+/** Teto do servidor de e-mail (SMTP anuncia RCPTMAX=200). */
+export const MAX_DESTINATARIOS = 200;
+
+const listaDeEmails = z
+  .array(z.string().email("Endereço de e-mail inválido"))
+  .max(MAX_DESTINATARIOS, `São no máximo ${MAX_DESTINATARIOS} destinatários por e-mail.`)
+  .default([]);
+
+export const enviarEmailSchema = z
+  .object({
+    caixaId: z.string().min(1),
+    para: listaDeEmails,
+    cc: listaDeEmails,
+    cco: listaDeEmails,
+    assunto: z.string().max(500).default(""),
+    corpoHtml: z.string().max(500_000, "O texto do e-mail ficou grande demais.").default(""),
+    /** Mensagem sendo respondida ou encaminhada — define os cabeçalhos de conversa. */
+    emRespostaA: z.string().optional(),
+    encaminhando: z.string().optional(),
+    /** Anexos já enviados pela rota multipart: `id` do temporário + nome original do arquivo. */
+    anexos: z
+      .array(z.object({ id: z.string().uuid(), nome: z.string().min(1).max(255) }))
+      .max(20)
+      .default([]),
+  })
+  .refine((v) => v.para.length + v.cc.length + v.cco.length > 0, {
+    message: "Informe pelo menos um destinatário.",
+    path: ["para"],
+  })
+  .refine((v) => v.para.length + v.cc.length + v.cco.length <= MAX_DESTINATARIOS, {
+    message: `São no máximo ${MAX_DESTINATARIOS} destinatários por e-mail.`,
+    path: ["para"],
+  });
+export type EnviarEmailInput = z.infer<typeof enviarEmailSchema>;
