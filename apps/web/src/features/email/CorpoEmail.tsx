@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "../../components/ui/button";
 
 /**
@@ -7,28 +7,30 @@ import { Button } from "../../components/ui/button";
  *    não alcança a sessão da aplicação.
  *  - imagem remota fica bloqueada até a pessoa pedir (o pixel invisível é como quem manda spam
  *    confirma que o endereço existe e foi lido).
+ *
+ * O corpo vem de uma ROTA (`/email-corpo/:id`), não de `srcdoc`: documento `srcdoc` herda a CSP
+ * da página que o embute, e a CSP da app (`img-src 'self' data: blob:`) bloquearia a imagem
+ * remota mesmo depois do clique em "Mostrar imagens" — o botão seria uma promessa não cumprida
+ * em produção. Pela rota, o documento tem CSP própria: `default-src 'none'`, e `https:` em
+ * `img-src` só quando as imagens foram pedidas.
+ *
  * NUNCA usar `dangerouslySetInnerHTML` aqui.
  */
 export function CorpoEmail({
-  html,
+  mensagemId,
+  temHtml,
   texto,
   imagensBloqueadas,
 }: {
-  html: string | null;
+  mensagemId: string;
+  temHtml: boolean;
   texto: string | null;
   imagensBloqueadas: number;
 }) {
   const [mostrarImagens, setMostrarImagens] = useState(false);
 
-  const documento = useMemo(() => {
-    if (!html) return null;
-    const corpo = mostrarImagens ? html.replace(/data-src-bloqueada=/g, "src=") : html;
-    return `<!doctype html><meta charset="utf-8"><base target="_blank">
-<style>body{margin:0;padding:12px;font:14px/1.5 Montserrat,system-ui,sans-serif;color:#111;word-break:break-word}img{max-width:100%;height:auto}table{max-width:100%}</style>
-${corpo}`;
-  }, [html, mostrarImagens]);
-
-  if (!documento) {
+  // Sem corpo HTML não vale abrir iframe nenhum — texto puro é mais legível e mais seguro.
+  if (!temHtml) {
     return <pre className="whitespace-pre-wrap p-3 text-sm">{texto ?? "(sem conteúdo)"}</pre>;
   }
 
@@ -46,9 +48,11 @@ ${corpo}`;
         </div>
       )}
       <iframe
+        // A `key` força recarregar quando as imagens são liberadas: é outra URL, outra CSP.
+        key={mostrarImagens ? "com-imagens" : "sem-imagens"}
         title="Conteúdo do e-mail"
         sandbox=""
-        srcDoc={documento}
+        src={`/email-corpo/${mensagemId}${mostrarImagens ? "?imagens=1" : ""}`}
         className="min-h-0 w-full flex-1 border-0 bg-white"
       />
     </div>

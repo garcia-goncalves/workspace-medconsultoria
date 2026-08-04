@@ -307,7 +307,8 @@ export function EmailPage() {
             </header>
 
             <CorpoEmail
-              html={aberta.data.corpoHtml}
+              mensagemId={aberta.data.id}
+              temHtml={!!aberta.data.corpoHtml}
               texto={aberta.data.corpoTexto}
               imagensBloqueadas={aberta.data.imagensBloqueadas}
             />

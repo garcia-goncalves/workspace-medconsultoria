@@ -15,6 +15,7 @@ import { appRouter } from "./trpc/router.js";
 import { createContext } from "./trpc/context.js";
 import { initRealtime } from "./realtime/socket.js";
 import { registrarRotasArquivos } from "./http/uploads.js";
+import { registrarRotaCorpoEmail } from "./http/email-corpo.js";
 import { validarPastaUploads } from "./lib/storage.js";
 import { startReminderLoop } from "./realtime/reminders.js";
 import { startMonitor } from "./observability/monitor.js";
@@ -101,6 +102,10 @@ app.get("/health", async () => ({ status: "ok", ts: new Date().toISOString() }))
 const upl = await validarPastaUploads();
 app.log.info({ uploads: upl }, `[uploads] base=${upl.base} escrita=${upl.escrita}`);
 await registrarRotasArquivos(app);
+
+// Corpo do e-mail em documento próprio, com CSP própria (o `srcdoc` herdaria a CSP da app e
+// bloquearia a imagem remota mesmo depois de a pessoa clicar em "Mostrar imagens").
+registrarRotaCorpoEmail(app);
 
 // Em produção, o mesmo processo serve o SPA buildado (copiado para dist/public no build).
 const here = dirname(fileURLToPath(import.meta.url));
