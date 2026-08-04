@@ -80,7 +80,7 @@ O `{token}` é gerado pela aplicação e vai no link enviado ao cliente — não
 
 | Clique aqui | O que é |
 | ----------- | ------- |
-| http://localhost:4310/email | **Sua caixa de e-mail dentro do Workspace** — ler e responder sem abrir o webmail. |
+| http://localhost:4310/email | **Sua caixa de e-mail dentro do Workspace** — ler, escrever, responder e encaminhar sem abrir o webmail. |
 
 **Cuidado para não confundir**, porque os três nomes se parecem e as três páginas são coisas diferentes:
 
@@ -91,6 +91,16 @@ O `{token}` é gerado pela aplicação e vai no link enviado ao cliente — não
 | `/emails-enviados` | **Monitor de envios**: o que a aplicação mandou, o que falhou e por quê | ADMIN |
 
 **Como plugar a sua caixa:** abra `/email` → botão **Adicionar caixa** → e-mail `@medconsultoria.com.br` + **a mesma senha que você usa no webmail** + seu nome. A aplicação **testa a conexão antes de gravar**: se a senha estiver errada, ela diz isso e não guarda nada. A senha fica **cifrada** no banco e nunca reaparece na tela.
+
+**O que a tela faz hoje:**
+
+- **Escrever um e-mail novo** — botão "Escrever", preenche Para/Cc/Cco, assunto e o texto, e pode **anexar arquivo** (até 20 MB cada, 25 MB somados no e-mail inteiro).
+- **Responder** ou **Responder a todos** um e-mail recebido — abre já com o destinatário certo, o assunto com "Re:" e o texto original citado abaixo. Quando você responde, o e-mail original ganha uma marca de "respondido" (aparece também para quem olhar do outro lado, no celular ou no webmail).
+- **Encaminhar** — manda o e-mail para outra pessoa, com "Fwd:" no assunto. Encaminhar **não** marca o original como respondido (faz sentido: você não respondeu a quem escreveu, só repassou).
+- **Baixar um anexo** que alguém te mandou — clique e o navegador baixa o arquivo (nunca abre/executa direto, mesmo que seja uma página).
+- **Rascunho automático:** enquanto você escreve, a aplicação salva sozinha na pasta **Rascunhos do seu e-mail de verdade** (a cada ~5 segundos de pausa) — se fechar sem terminar, o texto está lá, inclusive se você abrir o webmail de outro computador. Ao enviar, o rascunho correspondente é apagado sozinho.
+
+**Só para desenvolvimento/teste:** fora do site em produção, o envio só é aceito para `tibamooca@gmail.com` ou `contato@medconsultoria.com.br` — é uma trava da própria aplicação (não dá para "esquecer" e mandar e-mail de teste para um cliente de verdade).
 
 **Não funciona ainda com Gmail nem Hotmail** (de propósito): esses exigem login próprio do Google/Microsoft. Fase 1 é só o domínio da Med.
 
