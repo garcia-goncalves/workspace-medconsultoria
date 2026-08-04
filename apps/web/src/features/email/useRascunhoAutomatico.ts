@@ -45,6 +45,19 @@ const ATRASO_MS = 5000;
  * pessoa continuou digitando enquanto a gravação original estava em voo): sem isto, a gravação
  * adiada usaria `compor()`/`temConteudo()` presos no render em que a gravação ORIGINAL começou,
  * não o conteúdo mais recente.
+ *
+ * RODADA 3 (mais 2 defeitos que as correções acima abriram do lado, mais 1 invariante sem teste —
+ * a máquina de estados completa está no relatório da Tarefa 8, seção "Rodada de correção 3"):
+ * 4. `aoEnvioFalhou` (achado 1) SÓ desligava `enviando`, nunca regravava — se o envio falhava
+ *    depois de descartar uma gravação em voo (achado 1 da rodada 2), o servidor ficava SEM
+ *    rascunho nenhum até a próxima tecla ou fechamento. Corrigido: `aoEnvioFalhou` agora chama
+ *    `salvarAgora()` na hora, que lê o conteúdo ATUAL (via `optsRef`) e grava de novo.
+ * 5. `salvarAgora` zerava `timerRef.current` direto (`= null`) em vez de `cancelarPendente()` —
+ *    inofensivo nas duas entradas antigas (timer que acabou de disparar; `aoFechar`, que já
+ *    cancela antes), mas a reentrada nova do item 2 (`.finally` → `salvarAgora()`) podia rodar
+ *    com um timer de verdade ARMADO (tecla digitada enquanto a gravação anterior ainda estava em
+ *    voo) — zerar a `ref` sem `clearTimeout` deixava esse timer vivo e órfão, imune a qualquer
+ *    `cancelarPendente()` futuro.
  */
 export function useRascunhoAutomatico(opts: {
   /** Há conteúdo de verdade para justificar uma gravação (ver `temConteudoParaRascunho`). */
@@ -64,7 +77,13 @@ export function useRascunhoAutomatico(opts: {
   const timerRef = useRef<number | null>(null);
 
   const salvarAgora = () => {
-    timerRef.current = null;
+    // NUNCA `timerRef.current = null` direto aqui: esta função também é chamada de dentro do
+    // `.finally` (reentrada, achado 2 da rodada 3) — nesse ponto pode existir um timer ARMADO de
+    // verdade (a pessoa digitou de novo enquanto a gravação anterior ainda estava em voo). Só
+    // `cancelarPendente()` de fato cancela o timer do JS; zerar a `ref` sem isso deixa esse timer
+    // vivo e órfão — nenhuma chamada futura a `cancelarPendente()` (nem a do `useEffect` de
+    // `Escrever.tsx`, nem a de `aoComecarEnvio`) consegue mais cancelá-lo.
+    cancelarPendente();
     if (emVooRef.current) {
       pendenteRef.current = true; // adia — a versão mais nova ainda chega ao servidor (achado 2)
       return;
@@ -126,12 +145,31 @@ export function useRascunhoAutomatico(opts: {
     enviandoRef.current = true;
   };
 
-  /** Chamar no `onError` do envio: ele falhou, a pessoa continua na tela — rascunhos voltam ao normal. */
+  /**
+   * Chamar no `onError` do envio (achado 1 da rodada 3): ele falhou, a pessoa continua na tela
+   * com o texto — desligar `enviando` NÃO basta. Uma gravação em voo no clique pode ter sido
+   * DESCARTADA (achado 1 da rodada 2) quando resolveu durante o envio; sem regravar agora, o
+   * servidor fica sem rascunho nenhum até a próxima tecla ou fechamento — exatamente o que o
+   * brief 0.3 pede para nunca acontecer. `salvarAgora()` lê o conteúdo ATUAL da tela (via
+   * `optsRef`), então grava de novo do zero se houver o quê — e se ainda houver uma gravação em
+   * voo (caso raro: o envio falhou rápido, antes dela terminar), só marca `pendente` e ela mesma
+   * se resolve quando essa gravação terminar.
+   */
   const aoEnvioFalhou = () => {
     enviandoRef.current = false;
+    salvarAgora();
   };
 
-  /** Chamar no `onSuccess` do envio (achado 2 da rodada 1): apaga o rascunho já gravado, se houver. */
+  /**
+   * Chamar no `onSuccess` do envio (achado 2 da rodada 1): apaga o rascunho já gravado, se houver.
+   *
+   * Propositalmente NÃO desliga `enviando`: é o que faz uma gravação que AINDA estivesse em voo
+   * (começou antes do clique, ainda não voltou) cair no ramo de descarte de `salvarAgora` quando
+   * finalmente resolver (achado 1 da rodada 2) — em vez de ser guardada como se fosse o rascunho
+   * vigente de um e-mail que já saiu. Depois de um envio bem-sucedido o componente desmonta (o
+   * `onFechar()` que vem logo em seguida em `Escrever.tsx`), então não há mais gravação nova para
+   * `enviando` bloquear — deixá-lo ligado para sempre aqui é inofensivo.
+   */
   const descartarAposEnvio = () => {
     cancelarPendente();
     const uid = uidRef.current;
