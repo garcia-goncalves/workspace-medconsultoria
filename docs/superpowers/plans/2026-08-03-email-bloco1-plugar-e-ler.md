@@ -2037,9 +2037,10 @@ git commit -m "feat(email): diálogo de adicionar caixa com teste de conexão an
 **Arquivos**
 - Criar: `apps/web/src/features/email/EmailPage.tsx`
 - Criar: `apps/web/src/features/email/CorpoEmail.tsx`
-- Modificar: `apps/web/src/lib/socket.ts` (chaves de polling)
+- Modificar: `apps/web/src/lib/socket.ts` (chaves de polling) e `apps/web/src/lib/socket.test.ts`
 - Modificar: `apps/web/src/app/router.tsx`
 - Modificar: `apps/web/src/lib/paginas.ts`
+- Modificar: `apps/web/src/components/GuiaTour.tsx` (guia "?" da página)
 - Modificar: `apps/web/src/components/layout/AppLayout.tsx:374`
 
 **Interfaces**
@@ -2058,8 +2059,13 @@ Em `apps/web/src/lib/socket.ts`, dentro do objeto `POLL` já existente, acrescen
   emailPastas: 60_000,
 ```
 
-> Não é opcional: existe teste (`socket.test.ts`) que falha quando uma tela de dado vivo não
-> declara `refetchInterval`.
+O teste `socket.test.ts` guarda isso — mas por uma lista FIXA de arquivos. A página nova não
+entra sozinha; acrescentar em `CONSUMIDORES`:
+
+```ts
+  // O IMAP desta hospedagem não faz IDLE: sem polling, e-mail novo só apareceria ao recarregar.
+  "features/email/EmailPage.tsx",
+```
 
 - [ ] **Passo 2 — o corpo isolado (camadas 2 e 3 da defesa)**
 
@@ -2205,6 +2211,15 @@ export function EmailPage() {
   );
 
   const aberta = trpc.email.abrir.useQuery({ mensagemId: msgId ?? "" }, { enabled: !!msgId });
+
+  // Abrir marca a mensagem como lida no servidor. Sem avisar a lista e o contador de não lidos,
+  // o e-mail continuaria em negrito até o próximo polling.
+  useEffect(() => {
+    if (!aberta.data) return;
+    utils.email.mensagens.invalidate();
+    utils.email.pastas.invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberta.data?.id]);
 
   if (caixas.isLoading) return <div className="p-6 text-sm text-muted-foreground">Carregando…</div>;
 
@@ -2435,29 +2450,50 @@ E `emailRoute` dentro do array de `rootRoute.addChildren([...])`.
 Em `apps/web/src/lib/paginas.ts`, no grupo "Dia a dia", logo depois do item de Mensagens:
 
 ```ts
-{ label: "E-mail", icon: Mail, to: "/email", minRole: "FUNCIONARIO", keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"] },
+{ label: "E-mail", icon: Inbox, to: "/email", minRole: "FUNCIONARIO", keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"] },
 ```
 
-Acrescentar `Mail` ao import de `lucide-react` do arquivo, se ainda não estiver lá.
+Acrescentar `Inbox` ao import de `lucide-react` do arquivo. O ícone é `Inbox`, e não `Mail`,
+porque `Mail` já é o ícone de "Mensagens automáticas" — dois itens de menu com o mesmo desenho
+confundem quem é leigo, que é o público desta app.
 
-- [ ] **Passo 6 — tela cheia no layout**
+- [ ] **Passo 6 — guia "?" da página**
 
-Em `apps/web/src/components/layout/AppLayout.tsx:374`:
+Existe teste-guarda (`GuiaTour.test.ts`) que reprova qualquer rota sem guia próprio. Em
+`apps/web/src/components/GuiaTour.tsx`, criar um `GUIA_EMAIL` com **≥ 2 passos** (título e
+descrição de verdade — o teste exige descrição > 30 caracteres) e registrá-lo em `OUTRAS`
+**depois** de `/emails-enviados` e `/emails`:
 
 ```ts
-const telaCheia = pathname.startsWith("/mensagens") || pathname.startsWith("/agenda") || pathname.startsWith("/email");
+  // `/email` (a caixa da pessoa) vem DEPOIS de `/emails*` — é prefixo dos dois.
+  { prefixo: "/email", guia: { titulo: "E-mail", passos: GUIA_EMAIL } },
 ```
 
-- [ ] **Passo 7 — conferir que compila e que o menu bate com a rota**
+- [ ] **Passo 7 — tela cheia no layout**
+
+Em `apps/web/src/components/layout/AppLayout.tsx:374` — atenção: `startsWith("/email")` casaria
+também com `/emails` e `/emails-enviados`, que são páginas normais.
+
+```ts
+  // `/email` exato (e filhas): `startsWith("/email")` pegaria junto `/emails` e
+  // `/emails-enviados`, que são páginas normais e não podem virar tela cheia.
+  const telaCheia =
+    pathname.startsWith("/mensagens") ||
+    pathname.startsWith("/agenda") ||
+    pathname === "/email" ||
+    pathname.startsWith("/email/");
+```
+
+- [ ] **Passo 8 — conferir que compila e que o menu bate com a rota**
 
 Rodar: `pnpm typecheck && pnpm --filter @app/web test`
-Esperado: sem erro. Há teste que cruza `paginas.ts` com as rotas reais e teste que exige
-`refetchInterval` — os dois precisam passar.
+Esperado: sem erro. Os testes-guarda que precisam passar: `paginas.test.ts` (rota × catálogo da
+busca), `socket.test.ts` (polling) e `GuiaTour.test.ts` (guia próprio por página).
 
-- [ ] **Passo 8 — commitar**
+- [ ] **Passo 9 — commitar**
 
 ```bash
-git add apps/web/src/features/email apps/web/src/app/router.tsx apps/web/src/lib/paginas.ts apps/web/src/lib/socket.ts apps/web/src/components/layout/AppLayout.tsx
+git add apps/web/src/features/email apps/web/src/app/router.tsx apps/web/src/lib/paginas.ts apps/web/src/lib/socket.ts apps/web/src/lib/socket.test.ts apps/web/src/components/GuiaTour.tsx apps/web/src/components/layout/AppLayout.tsx
 git commit -m "feat(email): página /email em três colunas com corpo isolado e imagem remota bloqueada"
 ```
 
