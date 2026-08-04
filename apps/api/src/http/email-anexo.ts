@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
+import type { Dirent } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, readdir, stat } from "node:fs/promises";
 import { pipeline, finished } from "node:stream/promises";
 import { join, resolve, sep } from "node:path";
 import { prisma } from "@app/db";
@@ -27,6 +28,92 @@ export function caminhoTemp(userId: string, id: string): string {
   const alvo = resolve(join(pastaTemp(userId), id));
   if (alvo !== raiz && !alvo.startsWith(raiz + sep)) throw new Error("Anexo inválido.");
   return alvo;
+}
+
+/**
+ * Prazo de vida de um anexo temporário de saída (`POST /email-anexo`) antes de a varredura
+ * (`limparAnexosTempOrfaos`) tratá-lo como órfão e apagar. Generoso de propósito: quem escreve
+ * pode deixar a tela de compose aberta um bom tempo antes de enviar — 24h cobre isso sem risco
+ * de apagar o anexo de um envio ainda em curso.
+ */
+export const PRAZO_ANEXO_TEMP_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Função pura: decide se um anexo temporário venceu, dado o mtime do arquivo e o instante atual
+ * (ambos em ms desde a época). Separada da varredura em si para dar para testar sem relógio real.
+ */
+export function anexoTempVencido(mtimeMs: number, agoraMs: number, prazoMs: number = PRAZO_ANEXO_TEMP_MS): boolean {
+  return agoraMs - mtimeMs > prazoMs;
+}
+
+/**
+ * Varredura por mtime dos temporários de anexo de e-mail. Cobre os três jeitos de um anexo ficar
+ * órfão que o envio (`envio.service.ts:enviarMensagem`) NÃO cobre — porque só limpa o que foi
+ * efetivamente enviado: anexo REMOVIDO da lista antes de enviar, compose CANCELADO, ou aba
+ * FECHADA no meio. Sem isto o arquivo fica no disco para sempre.
+ *
+ * Não mexe em caminho de disco cru: cada arquivo passa por `caminhoTemp` (o mesmo guardião
+ * contra travessia de caminho usado no upload) antes de ser tocado — um nome que não bate com o
+ * formato de UUID esperado é ignorado, não apagado.
+ *
+ * Nunca derruba o processo: falha ao listar ou apagar é registrada no log (nunca engolida em
+ * silêncio) e a varredura segue em frente para o próximo usuário/arquivo.
+ */
+export async function limparAnexosTempOrfaos(): Promise<void> {
+  const raizTemp = join(BASE, "email-tmp");
+  let usuarios: Dirent[];
+  try {
+    usuarios = await readdir(raizTemp, { withFileTypes: true });
+  } catch (e) {
+    const erro = e as NodeJS.ErrnoException;
+    if (erro.code === "ENOENT") return; // nenhum anexo foi criado ainda nesta instalação
+    console.error("[email] limpeza de anexos temporários: não consegui listar a pasta.", erro);
+    return;
+  }
+
+  const agora = Date.now();
+  for (const usuario of usuarios) {
+    if (!usuario.isDirectory()) continue;
+    let arquivos: Dirent[];
+    try {
+      arquivos = await readdir(pastaTemp(usuario.name), { withFileTypes: true });
+    } catch (e) {
+      console.error(`[email] limpeza de anexos temporários: não consegui listar a pasta do usuário ${usuario.name}.`, e);
+      continue;
+    }
+    for (const arquivo of arquivos) {
+      if (!arquivo.isFile()) continue;
+      let caminho: string;
+      try {
+        caminho = caminhoTemp(usuario.name, arquivo.name);
+      } catch {
+        continue; // nome fora do formato de anexo temporário (uuid) — não é nosso, não mexe
+      }
+      try {
+        const info = await stat(caminho);
+        if (anexoTempVencido(info.mtimeMs, agora)) {
+          await rm(caminho, { force: true });
+        }
+      } catch (e) {
+        console.error(`[email] limpeza de anexos temporários: falha ao processar ${arquivo.name}.`, e);
+      }
+    }
+  }
+}
+
+let intervaloLimpeza: NodeJS.Timeout | null = null;
+
+/**
+ * Liga a varredura periódica de temporários órfãos. A hospedagem não tem cron externo, então
+ * isto substitui um: roda uma vez de imediato e depois a cada hora (o prazo de 24h dá folga de
+ * sobra para essa cadência). `unref()` para o timer nunca impedir o processo de encerrar.
+ */
+export function iniciarLimpezaAnexosTemp(): void {
+  if (intervaloLimpeza) return;
+  const rodar = () => void limparAnexosTempOrfaos().catch((e) => console.error("[email] limpeza de anexos temporários falhou.", e));
+  rodar();
+  intervaloLimpeza = setInterval(rodar, 60 * 60 * 1000);
+  intervaloLimpeza.unref();
 }
 
 /**

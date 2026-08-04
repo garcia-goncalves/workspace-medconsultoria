@@ -7,10 +7,20 @@ import sanitizeHtml from "sanitize-html";
  *
  * Imagem remota vira `data-src-bloqueada`: o front decide mostrar. O "pixel invisível" é como
  * quem manda spam confirma que o endereço existe e que foi lido.
+ *
+ * `bloquearImagensRemotas` (padrão `true`) existe só para a citação que sai dentro de uma
+ * resposta/encaminhamento (`citacao.ts`): lá o e-mail de fato SAI com o nosso domínio no
+ * remetente, e o destinatário original espera ver a própria logo/assinatura, não uma imagem
+ * quebrada. Desligar isto NÃO afrouxa a sanitização — script, iframe e handler `on*` continuam
+ * removidos sempre; só o `src` da imagem deixa de ser trocado por `data-src-bloqueada`.
  */
-export function sanitizarEmailHtml(html: string): { html: string; imagensRemotasBloqueadas: number } {
+export function sanitizarEmailHtml(
+  html: string,
+  opcoes: { bloquearImagensRemotas?: boolean } = {},
+): { html: string; imagensRemotasBloqueadas: number } {
   if (!html) return { html: "", imagensRemotasBloqueadas: 0 };
 
+  const bloquearImagensRemotas = opcoes.bloquearImagensRemotas ?? true;
   let bloqueadas = 0;
 
   const limpo = sanitizeHtml(html, {
@@ -44,7 +54,9 @@ export function sanitizarEmailHtml(html: string): { html: string; imagensRemotas
         // a faixa afirmava que nada tinha sido bloqueado. Era a promessa de privacidade da tela
         // sendo quebrada em silêncio, que é pior do que não ter a proteção.
         const src = (atributos.src ?? "").trim();
-        if (!src || /^cid:/i.test(src)) return { tagName: "img", attribs: atributos };
+        if (!bloquearImagensRemotas || !src || /^cid:/i.test(src)) {
+          return { tagName: "img", attribs: atributos };
+        }
         bloqueadas += 1;
         const { src: _fora, ...resto } = atributos;
         return { tagName: "img", attribs: { ...resto, "data-src-bloqueada": src } };

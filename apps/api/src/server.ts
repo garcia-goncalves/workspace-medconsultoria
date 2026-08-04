@@ -16,7 +16,7 @@ import { createContext } from "./trpc/context.js";
 import { initRealtime } from "./realtime/socket.js";
 import { registrarRotasArquivos } from "./http/uploads.js";
 import { registrarRotaCorpoEmail } from "./http/email-corpo.js";
-import { registrarRotaAnexoEmail } from "./http/email-anexo.js";
+import { registrarRotaAnexoEmail, iniciarLimpezaAnexosTemp } from "./http/email-anexo.js";
 import { validarPastaUploads } from "./lib/storage.js";
 import { startReminderLoop } from "./realtime/reminders.js";
 import { startMonitor } from "./observability/monitor.js";
@@ -129,6 +129,7 @@ initRealtime(app);
 startReminderLoop();
 startMonitor();
 startAlertas();
+iniciarLimpezaAnexosTemp();
 
 await app.listen({ port: config.API_PORT, host: "0.0.0.0" });
 app.log.info(`API ouvindo na porta ${config.API_PORT}`);

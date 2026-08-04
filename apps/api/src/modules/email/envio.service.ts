@@ -217,7 +217,7 @@ export async function prepararResposta(
   userId: string,
   mensagemId: string,
   aTodos: boolean,
-): Promise<{ para: string[]; cc: string[]; assunto: string; citacao: string }> {
+): Promise<{ para: string[]; cc: string[]; assunto: string; citacaoPreview: string; citacaoEnvio: string }> {
   const msg = await prisma.emailMensagem.findFirst({
     where: { id: mensagemId, pasta: { caixa: { userId, deletedAt: null } } },
     select: {
@@ -241,11 +241,13 @@ export async function prepararResposta(
     aTodos,
   });
 
+  const citacao = montarCitacao(msg);
   return {
     para,
     cc,
     assunto: assuntoResposta(msg.assunto),
-    citacao: montarCitacao(msg),
+    citacaoPreview: citacao.preview,
+    citacaoEnvio: citacao.envio,
   };
 }
 
@@ -253,11 +255,12 @@ export async function prepararResposta(
 export async function prepararEncaminhamento(
   userId: string,
   mensagemId: string,
-): Promise<{ assunto: string; citacao: string }> {
+): Promise<{ assunto: string; citacaoPreview: string; citacaoEnvio: string }> {
   const msg = await prisma.emailMensagem.findFirst({
     where: { id: mensagemId, pasta: { caixa: { userId, deletedAt: null } } },
     select: { deNome: true, deEmail: true, dataEm: true, assunto: true, corpoHtml: true, corpoTexto: true },
   });
   if (!msg) throw new TRPCError({ code: "NOT_FOUND", message: "Mensagem não encontrada." });
-  return { assunto: assuntoEncaminhar(msg.assunto), citacao: montarCitacao(msg) };
+  const citacao = montarCitacao(msg);
+  return { assunto: assuntoEncaminhar(msg.assunto), citacaoPreview: citacao.preview, citacaoEnvio: citacao.envio };
 }

@@ -57,7 +57,11 @@ export function Escrever({
   const [mostrarCcCco, setMostrarCcCco] = useState(false);
   const [assunto, setAssunto] = useState("");
   const [corpoDigitado, setCorpoDigitado] = useState("");
-  const [citacaoHtml, setCitacaoHtml] = useState("");
+  // Duas versões da citação (ADR — ver `citacao.ts`): `citacaoPreview` tem imagem remota
+  // bloqueada e é a única que aparece na tela; `citacaoEnvio` tem a imagem restaurada e é a
+  // única que entra no `corpoHtml` mandado para `email.enviar`. NUNCA trocar uma pela outra.
+  const [citacaoPreview, setCitacaoPreview] = useState("");
+  const [citacaoEnvio, setCitacaoEnvio] = useState("");
   const [anexos, setAnexos] = useState<AnexoEnviado[]>([]);
   const [anexando, setAnexando] = useState(false);
   const [preenchido, setPreenchido] = useState(modo === "novo");
@@ -82,11 +86,13 @@ export function Escrever({
       setCcTexto(resposta.data.cc.join(", "));
       if (resposta.data.cc.length > 0) setMostrarCcCco(true);
       setAssunto(resposta.data.assunto);
-      setCitacaoHtml(resposta.data.citacao);
+      setCitacaoPreview(resposta.data.citacaoPreview);
+      setCitacaoEnvio(resposta.data.citacaoEnvio);
       setPreenchido(true);
     } else if (modo === "encaminhar" && encaminhamento.data) {
       setAssunto(encaminhamento.data.assunto);
-      setCitacaoHtml(encaminhamento.data.citacao);
+      setCitacaoPreview(encaminhamento.data.citacaoPreview);
+      setCitacaoEnvio(encaminhamento.data.citacaoEnvio);
       setPreenchido(true);
     }
   }, [preenchido, ehResposta, modo, resposta.data, encaminhamento.data]);
@@ -175,7 +181,7 @@ export function Escrever({
       cc,
       cco,
       assunto,
-      corpoHtml: montarCorpoEnvio(corpoDigitado, citacaoHtml),
+      corpoHtml: montarCorpoEnvio(corpoDigitado, citacaoEnvio),
       emRespostaA: ehResposta ? mensagemId : undefined,
       encaminhando: modo === "encaminhar" ? mensagemId : undefined,
       anexos,
@@ -282,13 +288,13 @@ export function Escrever({
           />
         </div>
 
-        {citacaoHtml && (
+        {citacaoPreview && (
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Mensagem citada (vai junto, sem edição):</p>
             <iframe
               title="Mensagem citada"
               sandbox=""
-              srcDoc={ESTILO_CITACAO + citacaoHtml}
+              srcDoc={ESTILO_CITACAO + citacaoPreview}
               className="h-40 w-full rounded-md border bg-white"
             />
           </div>

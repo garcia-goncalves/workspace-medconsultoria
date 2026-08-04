@@ -59,48 +59,76 @@ describe("montarCitacao", () => {
     corpoTexto: "linha um\nlinha dois",
   };
 
-  it("traz cabeçalho de citação em pt-BR com quem escreveu", () => {
-    const c = montarCitacao(original);
-    expect(c).toContain("José Cliente");
-    expect(c).toContain("escreveu");
-    expect(c).toContain("04/08/2026");
+  it("traz cabeçalho de citação em pt-BR com quem escreveu, nas duas versões", () => {
+    const { preview, envio } = montarCitacao(original);
+    for (const c of [preview, envio]) {
+      expect(c).toContain("José Cliente");
+      expect(c).toContain("escreveu");
+      expect(c).toContain("04/08/2026");
+    }
   });
 
-  it("cita o texto dentro de blockquote", () => {
-    const c = montarCitacao(original);
-    expect(c).toContain("<blockquote");
-    expect(c).toContain("linha um");
+  it("cita o texto dentro de blockquote, nas duas versões", () => {
+    const { preview, envio } = montarCitacao(original);
+    for (const c of [preview, envio]) {
+      expect(c).toContain("<blockquote");
+      expect(c).toContain("linha um");
+    }
   });
 
-  it("HIGIENIZA o HTML original — citar HTML cru reintroduz o XSS e ainda o manda para fora", () => {
-    const c = montarCitacao({ ...original, corpoHtml: '<p>oi</p><script>alert(1)</script>' });
-    expect(c).toContain("oi");
-    expect(c.toLowerCase()).not.toContain("<script");
+  it("HIGIENIZA o HTML original nas duas versões — citar HTML cru reintroduz o XSS e ainda o manda para fora", () => {
+    const { preview, envio } = montarCitacao({ ...original, corpoHtml: '<p>oi</p><script>alert(1)</script>' });
+    for (const c of [preview, envio]) {
+      expect(c).toContain("oi");
+      expect(c.toLowerCase()).not.toContain("<script");
+    }
   });
 
-  it("sem corpo nenhum, não inventa citação vazia", () => {
+  it("sem corpo nenhum, não inventa citação vazia em nenhuma das duas versões", () => {
     const c = montarCitacao({ ...original, corpoHtml: null, corpoTexto: null });
-    expect(c).toBe("");
+    expect(c).toEqual({ preview: "", envio: "" });
   });
 
   it("formata corretamente e-mail entre entidades sem duplo-escape", () => {
-    const c = montarCitacao(original);
+    const { preview } = montarCitacao(original);
     // O e-mail deve aparecer entre &lt; e &gt; de VERDADE
-    expect(c).toContain("&lt;jose@exemplo.com&gt;");
+    expect(preview).toContain("&lt;jose@exemplo.com&gt;");
     // Nunca duplo-escape (&amp;lt;)
-    expect(c).not.toContain("&amp;lt;");
-    expect(c).not.toContain("&amp;gt;");
+    expect(preview).not.toContain("&amp;lt;");
+    expect(preview).not.toContain("&amp;gt;");
   });
 
   it("escapa nome hostil no cabeçalho mantendo a segurança", () => {
-    const c = montarCitacao({
+    const { preview } = montarCitacao({
       ...original,
       deNome: '<script>alert(1)</script>',
       corpoTexto: "teste",
     });
     // Nome hostil deve aparecer escapado
-    expect(c).toContain("&lt;script&gt;");
+    expect(preview).toContain("&lt;script&gt;");
     // Nunca o script cru
-    expect(c.toLowerCase()).not.toContain("<script");
+    expect(preview.toLowerCase()).not.toContain("<script");
+  });
+
+  describe("Achado B — preview bloqueia imagem, envio restaura o src", () => {
+    const comImagemRemota = {
+      ...original,
+      corpoHtml: '<p>Logo:</p><img src="https://terceiro.exemplo/logo.png"><script>alert(1)</script>',
+      corpoTexto: null,
+    };
+
+    it("preview: imagem remota continua bloqueada (data-src-bloqueada), sem <script>", () => {
+      const { preview } = montarCitacao(comImagemRemota);
+      expect(preview).toContain('data-src-bloqueada="https://terceiro.exemplo/logo.png"');
+      expect(preview).not.toMatch(/<img[^>]*\ssrc=/);
+      expect(preview.toLowerCase()).not.toContain("<script");
+    });
+
+    it("envio: mantém o src da imagem (senão o e-mail sai com a figura quebrada) E continua sem <script>", () => {
+      const { envio } = montarCitacao(comImagemRemota);
+      expect(envio).toContain('src="https://terceiro.exemplo/logo.png"');
+      expect(envio).not.toContain("data-src-bloqueada");
+      expect(envio.toLowerCase()).not.toContain("<script");
+    });
   });
 });

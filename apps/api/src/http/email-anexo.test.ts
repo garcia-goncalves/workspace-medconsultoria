@@ -1,6 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { sep } from "node:path";
-import { pastaTemp, caminhoTemp } from "./email-anexo.js";
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile, utimes, rm, readdir } from "node:fs/promises";
+import {
+  pastaTemp,
+  caminhoTemp,
+  anexoTempVencido,
+  limparAnexosTempOrfaos,
+  PRAZO_ANEXO_TEMP_MS,
+} from "./email-anexo.js";
 
 describe("caminhoTemp (defesa contra travessia de caminho)", () => {
   const userId = "cku1abc123xyz";
@@ -43,5 +51,64 @@ describe("caminhoTemp (defesa contra travessia de caminho)", () => {
     const caminho = caminhoTemp(userId, uuid);
     const raiz = pastaTemp(userId);
     expect(caminho === raiz || caminho.startsWith(raiz + sep)).toBe(true);
+  });
+});
+
+// Achado A da rodada de correção 1: anexo removido da lista / compose cancelado / aba fechada
+// não passam pelo `finally` de `enviarMensagem` — só a varredura por mtime limpa esses casos.
+describe("anexoTempVencido (decide sem relógio real)", () => {
+  it("arquivo mais novo que o prazo não venceu", () => {
+    const agora = 10_000_000;
+    expect(anexoTempVencido(agora - 1_000, agora, PRAZO_ANEXO_TEMP_MS)).toBe(false);
+  });
+
+  it("arquivo mais velho que o prazo venceu", () => {
+    const agora = 10_000_000;
+    expect(anexoTempVencido(agora - PRAZO_ANEXO_TEMP_MS - 1, agora, PRAZO_ANEXO_TEMP_MS)).toBe(true);
+  });
+
+  it("arquivo exatamente no limite do prazo ainda não venceu (limite exclusivo)", () => {
+    const agora = 10_000_000;
+    expect(anexoTempVencido(agora - PRAZO_ANEXO_TEMP_MS, agora, PRAZO_ANEXO_TEMP_MS)).toBe(false);
+  });
+
+  it("usa 24h como prazo padrão quando não informado", () => {
+    expect(PRAZO_ANEXO_TEMP_MS).toBe(24 * 60 * 60 * 1000);
+    const agora = 10_000_000;
+    expect(anexoTempVencido(agora - 1_000, agora)).toBe(false);
+    expect(anexoTempVencido(agora - PRAZO_ANEXO_TEMP_MS - 1_000, agora)).toBe(true);
+  });
+});
+
+describe("limparAnexosTempOrfaos (varredura real em disco, por mtime)", () => {
+  const userId = `teste-limpeza-anexos-${randomUUID()}`;
+
+  afterAll(async () => {
+    await rm(pastaTemp(userId), { recursive: true, force: true });
+  });
+
+  it("não lança quando a pasta email-tmp ainda não existe (instalação sem nenhum anexo)", async () => {
+    await expect(limparAnexosTempOrfaos()).resolves.toBeUndefined();
+  });
+
+  it("apaga só o anexo mais velho que o prazo, mantendo o recente e ignorando nome fora do formato", async () => {
+    const velhoId = randomUUID();
+    const novoId = randomUUID();
+    await mkdir(pastaTemp(userId), { recursive: true });
+    await writeFile(caminhoTemp(userId, velhoId), "conteudo velho");
+    await writeFile(caminhoTemp(userId, novoId), "conteudo novo");
+    // Nome que não é UUID: a varredura tem de ignorar (não é um anexo temporário nosso).
+    await writeFile(`${pastaTemp(userId)}${sep}nao-e-um-anexo.txt`, "estranho");
+
+    // Backdata o mtime do "velho" para além do prazo, sem precisar mockar o relógio.
+    const passado = new Date(Date.now() - PRAZO_ANEXO_TEMP_MS - 60_000);
+    await utimes(caminhoTemp(userId, velhoId), passado, passado);
+
+    await limparAnexosTempOrfaos();
+
+    const restantes = await readdir(pastaTemp(userId));
+    expect(restantes).toContain(novoId);
+    expect(restantes).toContain("nao-e-um-anexo.txt");
+    expect(restantes).not.toContain(velhoId);
   });
 });

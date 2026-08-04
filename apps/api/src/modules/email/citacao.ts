@@ -24,11 +24,20 @@ function escapar(t: string): string {
 }
 
 /**
- * Citação da mensagem original, para ir dentro da resposta.
+ * Citação da mensagem original, para ir dentro da resposta. Duas versões, porque o mesmo HTML
+ * serve a dois lugares com regras diferentes:
  *
- * O corpo original é HIGIENIZADO aqui mesmo. Citar o HTML cru de um terceiro reintroduziria o
- * XSS que as três camadas do Bloco 1 barram — e, pior, mandaria o conteúdo hostil para fora com
- * a nossa assinatura.
+ *  - `preview`: para a TELA, enquanto a pessoa ainda está escrevendo — imagem remota continua
+ *    bloqueada (`data-src-bloqueada`), senão o pixel de rastreio do e-mail original dispararia
+ *    sozinho ao abrir o "Responder".
+ *  - `envio`: para o E-MAIL QUE SAI — a imagem remota é restaurada (logo, assinatura com
+ *    figura), senão quem recebe a resposta vê a citação com imagem quebrada. Isto NÃO reabre a
+ *    sanitização: script, iframe e handler `on*` continuam removidos nas duas versões, é só o
+ *    `src` da imagem que muda entre elas.
+ *
+ * O corpo original é HIGIENIZADO aqui mesmo, nas duas versões. Citar o HTML cru de um terceiro
+ * reintroduziria o XSS que as três camadas do Bloco 1 barram — e, pior, mandaria o conteúdo
+ * hostil para fora com a nossa assinatura.
  */
 export function montarCitacao(original: {
   deNome: string | null;
@@ -36,31 +45,36 @@ export function montarCitacao(original: {
   dataEm: Date;
   corpoHtml: string | null;
   corpoTexto: string | null;
-}): string {
+}): { preview: string; envio: string } {
   const quem = original.deNome
     ? `${escapar(original.deNome)} &lt;${escapar(original.deEmail)}&gt;`
     : escapar(original.deEmail);
   const cabecalho = `Em ${dataCitacao(original.dataEm)}, ${quem} escreveu:`;
 
-  let corpo: string;
+  const montar = (corpo: string): string =>
+    [
+      `<p>${cabecalho}</p>`,
+      `<blockquote style="margin:0 0 0 .8em;padding-left:.8em;border-left:2px solid #ccc">`,
+      corpo,
+      `</blockquote>`,
+    ].join("\n");
+
   if (original.corpoHtml) {
-    corpo = sanitizarEmailHtml(original.corpoHtml).html;
-  } else if (original.corpoTexto) {
-    corpo = original.corpoTexto
+    const preview = sanitizarEmailHtml(original.corpoHtml).html;
+    const envio = sanitizarEmailHtml(original.corpoHtml, { bloquearImagensRemotas: false }).html;
+    return { preview: montar(preview), envio: montar(envio) };
+  }
+  if (original.corpoTexto) {
+    // Texto puro não tem imagem — não há o que restaurar; as duas versões saem iguais.
+    const corpo = original.corpoTexto
       .split("\n")
       .map((l) => escapar(l))
       .join("<br>");
-  } else {
-    // Mensagem sem corpo nenhum: citação vazia seria só um traço solto na resposta.
-    return "";
+    const html = montar(corpo);
+    return { preview: html, envio: html };
   }
-
-  return [
-    `<p>${cabecalho}</p>`,
-    `<blockquote style="margin:0 0 0 .8em;padding-left:.8em;border-left:2px solid #ccc">`,
-    corpo,
-    `</blockquote>`,
-  ].join("\n");
+  // Mensagem sem corpo nenhum: citação vazia seria só um traço solto na resposta.
+  return { preview: "", envio: "" };
 }
 
 /**
