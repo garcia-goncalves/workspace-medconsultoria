@@ -36,16 +36,25 @@ export function sanitizarEmailHtml(html: string): { html: string; imagensRemotas
         attribs: { ...atributos, target: "_blank", rel: "noopener noreferrer nofollow" },
       }),
       img: (_tag, atributos) => {
-        const src = atributos.src ?? "";
-        if (/^https?:/i.test(src)) {
-          bloqueadas += 1;
-          const { src: _fora, ...resto } = atributos;
-          return { tagName: "img", attribs: { ...resto, "data-src-bloqueada": src } };
-        }
-        return { tagName: "img", attribs: atributos };
+        // ALLOWLIST, não lista negra: só `cid:` (imagem embutida na própria mensagem) passa.
+        // O teste anterior era `/^https?:/`, e DUAS coisas triviais escapavam dele — ambas
+        // confirmadas rodando o sanitizador: `//rastreio.mau/pixel.gif` (protocolo-relativo,
+        // que o navegador resolve normalmente) e `" HTTPS://…"` com espaço na frente. O pixel
+        // carregava sem ninguém clicar em "Mostrar imagens" E o contador ficava em 0 — ou seja,
+        // a faixa afirmava que nada tinha sido bloqueado. Era a promessa de privacidade da tela
+        // sendo quebrada em silêncio, que é pior do que não ter a proteção.
+        const src = (atributos.src ?? "").trim();
+        if (!src || /^cid:/i.test(src)) return { tagName: "img", attribs: atributos };
+        bloqueadas += 1;
+        const { src: _fora, ...resto } = atributos;
+        return { tagName: "img", attribs: { ...resto, "data-src-bloqueada": src } };
       },
     },
-    // `style` sobrevive, mas sem `position`/`url()` — que servem para sobrepor a interface.
+    // `style` sobrevive só nas propriedades desta lista — `position` fica de fora (serve para
+    // sobrepor a interface). Atenção ao ler: os regex são `/^.*$/`, então `url(…)` PASSA dentro
+    // das propriedades permitidas (ex.: `background-color:url(//x)`). Não é explorável — a
+    // declaração é CSS inválido e o navegador a descarta, e o corpo roda em iframe sem rede
+    // própria —, mas não confie neste bloco para barrar `url()`; quem barra imagem é o `img`.
     allowedStyles: {
       "*": {
         color: [/^.*$/],

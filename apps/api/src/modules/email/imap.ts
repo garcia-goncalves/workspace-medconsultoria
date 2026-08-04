@@ -42,7 +42,9 @@ export async function testarConexao(
   const c = novoCliente(d);
   try {
     await c.connect();
-    await c.logout();
+    // A credencial já foi aceita aqui. Um LOGOUT que falhe não pode virar "senha recusada" —
+    // seria recusar senha CERTA por causa de um socket que caiu meio segundo depois.
+    await c.logout().catch(() => {});
     return { ok: true };
   } catch (e) {
     const err = e as { authenticationFailed?: boolean; responseText?: string; message?: string };
@@ -87,7 +89,11 @@ export async function comCaixa<T>(caixaId: string, fn: (c: ImapFlow) => Promise<
   try {
     await c.connect();
     const r = await fn(c);
-    await c.logout();
+    // O LOGOUT não pode derrubar um trabalho que já deu certo: se o servidor fecha o socket
+    // logo depois do último comando, `logout()` lança — e, dentro do `try`, isso marcaria a
+    // caixa como ERRO e devolveria falha ao usuário com a sincronização INTEIRA já gravada.
+    // O `finally` abaixo fecha o socket de qualquer jeito.
+    await c.logout().catch(() => {});
     return r;
   } catch (e) {
     const err = e as { authenticationFailed?: boolean; message?: string };

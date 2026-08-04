@@ -36,6 +36,23 @@ describe("sanitizarEmailHtml", () => {
     expect(r.html).toContain('data-src-bloqueada="http://outro/a.png"');
   });
 
+  it("bloqueia os disfarces que escapavam da lista negra (protocolo-relativo e espaço)", () => {
+    // Os dois furos reais achados na revisão de segurança: `//host/x` o navegador resolve
+    // normalmente, e o espaço antes do esquema derrubava o `/^https?:/`. Nos dois casos o
+    // pixel carregava sozinho E o contador ficava em 0 — a faixa dizia que nada foi bloqueado.
+    const r = sanitizarEmailHtml('<img src="//rastreio.mau/pixel.gif"><img src=" HTTPS://rastreio.mau/p.gif">');
+    expect(r.imagensRemotasBloqueadas).toBe(2);
+    expect(r.html).not.toMatch(/<img[^>]*\ssrc=/);
+  });
+
+  it("deixa passar a imagem embutida na própria mensagem (cid:)", () => {
+    // `cid:` não vai à rede: é uma parte da mensagem que já está no servidor de e-mail.
+    // Bloquear isso quebraria assinatura com logotipo em quase todo e-mail corporativo.
+    const r = sanitizarEmailHtml('<img src="cid:logo@empresa">');
+    expect(r.imagensRemotasBloqueadas).toBe(0);
+    expect(r.html).toContain('src="cid:logo@empresa"');
+  });
+
   it("preserva formatação legítima de e-mail (tabela, negrito, link http)", () => {
     const { html } = sanitizarEmailHtml('<table><tr><td><b>Total</b> <a href="https://medconsultoria.com.br">site</a></td></tr></table>');
     expect(html).toContain("<table");

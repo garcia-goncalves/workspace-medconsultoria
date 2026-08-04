@@ -7,6 +7,13 @@ import { sanitizarEmailHtml } from "../../lib/sanitizar-html.js";
 /** Teto de UIDs vindos da busca do servidor: um `IN (...)` com milhares de valores derruba a query. */
 const MAX_UIDS_BUSCA = 500;
 
+/**
+ * Teto para baixar o corpo. O servidor aceita mensagem de até 75 MB (SIZE do SMTP), e trazer
+ * uma dessas para a memória do processo que serve a aplicação inteira é como um estranho
+ * derruba tudo sem ter conta nenhuma. 10 MB cobre com folga e-mail real com anexo.
+ */
+const LIMITE_CORPO_BYTES = 10 * 1024 * 1024;
+
 /** Garante que a pasta é de uma caixa DESTE usuário. Base da privacidade — sempre chamar. */
 async function pastaDoUsuario(userId: string, pastaId: string) {
   const pasta = await prisma.caixaPasta.findFirst({
@@ -86,7 +93,16 @@ export async function abrirMensagem(userId: string, mensagemId: string) {
   // Cache frio: busca o corpo AGORA. É o "sob demanda" da opção "C". Quem responde se já
   // buscamos é o `corpoEm` — não os corpos: mensagem vazia (ou só com script/imagem remota,
   // que a higienização descarta) deixaria os dois nulos e voltaria ao IMAP a cada abertura.
-  if (msg.corpoEm === null) {
+  // Teto de tamanho ANTES de tocar na rede. Sem isto, qualquer pessoa do mundo derruba o
+  // Workspace inteiro mandando um e-mail grande: o `download` traz a mensagem RFC822 completa
+  // (anexos inclusive) para a memória do ÚNICO processo Node que serve API + SPA + tempo real,
+  // e o mailparser multiplica esse pico. Acima do teto, mostramos o que já se sabe e explicamos.
+  const grandeDemais = (msg.tamanho ?? 0) > LIMITE_CORPO_BYTES;
+  if (msg.corpoEm === null && grandeDemais) {
+    corpoTexto =
+      "Esta mensagem é grande demais para abrir aqui " +
+      `(${Math.round((msg.tamanho ?? 0) / 1024 / 1024)} MB). Abra pelo webmail.`;
+  } else if (msg.corpoEm === null) {
     const bruto = await comCaixa(msg.pasta.caixaId, async (c) => {
       const lock = await c.getMailboxLock(msg.pasta.caminho);
       try {

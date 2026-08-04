@@ -56,6 +56,26 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
     ).rejects.toThrow(/já/i);
   });
 
+  it("remover e plugar de novo o MESMO endereço funciona (ressuscita a linha)", async () => {
+    // Armadilha real: `removerCaixa` é soft-delete, mas o `@@unique([userId, email])` não
+    // enxerga o `deletedAt`. Recriando com `create`, a pessoa batia num P2002 cru — e ficava
+    // travada, porque `reconectarCaixa` também só acha caixa não-removida. Mesmo remédio do
+    // ADR-92 nas contas: procurar a apagada e ressuscitar.
+    const { plugarCaixa, removerCaixa, listarCaixas } = await import("../modules/email/caixas.service.js");
+    const antes = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+
+    await removerCaixa(userId, antes.id);
+    expect(await listarCaixas(userId)).toHaveLength(0);
+    const removida = await prisma.caixaEmail.findFirstOrThrow({ where: { id: antes.id }, select: { segredo: true } });
+    expect(removida.segredo, "a senha não fica guardada depois de remover").toBe("");
+
+    const denovo = await plugarCaixa(userId, { email: USER!, senha: PASS!, nomeExibicao: "Caixa de teste" });
+    expect(denovo.id, "é a MESMA linha, ressuscitada").toBe(antes.id);
+    const caixas = await listarCaixas(userId);
+    expect(caixas).toHaveLength(1);
+    expect(caixas[0]!.estado).toBe("OK");
+  });
+
   it("descobre as pastas do servidor com os papéis certos", async () => {
     const { sincronizarPastas, listarPastas } = await import("../modules/email/pastas.service.js");
     const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });

@@ -77,11 +77,19 @@ export async function sincronizarPasta(
     },
   });
 
-  const agora = Date.now();
-  if (pasta.sincronizando && agora - pasta.sincronizando.getTime() < TRAVA_MS) {
-    return { novas: 0, removidas: 0 };
-  }
-  await prisma.caixaPasta.update({ where: { id: pasta.id }, data: { sincronizando: new Date() } });
+  // Pegar a trava é UMA operação no banco (compare-and-set), não ler-decidir-gravar. Com três
+  // passos separados, duas chamadas quase simultâneas — o efeito do StrictMode em dev, ou trocar
+  // de pasta e voltar antes de a primeira sincronização terminar (elas levam dezenas de segundos)
+  // — passavam as DUAS pela guarda, abriam duas conexões IMAP na mesma pasta e gravavam os
+  // ponteiros de sync uma por cima da outra: a que terminasse por último podia REGREDIR o
+  // `ultimoUid`/`highestModseq` com dados mais velhos.
+  const inicio = new Date();
+  const expirada = new Date(inicio.getTime() - TRAVA_MS);
+  const travou = await prisma.caixaPasta.updateMany({
+    where: { id: pasta.id, OR: [{ sincronizando: null }, { sincronizando: { lt: expirada } }] },
+    data: { sincronizando: inicio },
+  });
+  if (travou.count !== 1) return { novas: 0, removidas: 0 };
 
   const caixa = await prisma.caixaEmail.findFirstOrThrow({
     where: { id: caixaId },

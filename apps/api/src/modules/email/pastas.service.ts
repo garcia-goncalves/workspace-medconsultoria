@@ -73,6 +73,18 @@ export async function listarPastas(userId: string, caixaId: string) {
   });
   if (!caixa) throw new TRPCError({ code: "NOT_FOUND", message: "Caixa não encontrada." });
 
+  // Caixa sem NENHUMA pasta = a descoberta ainda não rodou (ou falhou ao plugar). Roda agora:
+  // sem isto, a pessoa vê a caixa conectada e nenhuma Caixa de entrada — que foi exatamente o
+  // que aconteceu com a primeira caixa plugada de verdade. Só acontece quando está vazio, então
+  // não pesa no uso normal; se o servidor estiver fora, a lista volta vazia em vez de estourar.
+  if ((await prisma.caixaPasta.count({ where: { caixaId } })) === 0) {
+    try {
+      await sincronizarPastas(caixaId);
+    } catch {
+      /* servidor fora do ar: devolve o que houver e a próxima abertura tenta de novo */
+    }
+  }
+
   return prisma.caixaPasta.findMany({
     where: { caixaId },
     select: { id: true, caminho: true, nome: true, papel: true, naoLidos: true, total: true },

@@ -1368,6 +1368,10 @@ model EmailMensagem {
   anexos    EmailAnexo[]
 
   @@unique([pastaId, uid])
+  // A consulta que a tela faz o tempo todo: mensagens DA PASTA, mais recentes primeiro.
+  // `(pastaId, uid)` casa a pasta mas não ordena por data, e `(caixaId, dataEm)` não filtra
+  // por pasta — sem este índice, cada abertura e cada polling faziam filesort.
+  @@index([pastaId, dataEm])
   @@index([caixaId, dataEm])
   @@index([threadKey])
 }

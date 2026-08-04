@@ -29,25 +29,23 @@ test.describe("E-mail dentro da aplicação", () => {
     await expect(dialogo.locator("#cx-senha")).toHaveAttribute("type", "password");
   });
 
-  test("explica quando não consegue falar com o servidor, sem deixar a caixa gravada", async ({ page }) => {
-    test.setTimeout(60_000);
+  test("recusa caixa de fora do domínio da empresa, sem tocar na rede", async ({ page }) => {
     await page.goto("/email");
     await page.getByRole("button", { name: "Adicionar caixa" }).click();
 
     const dialogo = page.getByRole("dialog", { name: "Adicionar caixa de e-mail" });
-    // Domínio que não existe DE PROPÓSITO (`.invalid` nunca resolve, por RFC): exercita o
-    // caminho de erro sem mandar uma única tentativa de senha a um servidor de verdade.
-    await dialogo.locator("#cx-email").fill("ninguem@dominio-que-nao-existe-mc.invalid");
+    // Trava de fase 1 — e também contenção: o servidor IMAP é deduzido do domínio digitado
+    // (`mail.<domínio>`), então sem esta recusa dá para apontar a conexão da API para um host
+    // interno. O teste não chega a abrir conexão nenhuma: a recusa acontece na validação.
+    await dialogo.locator("#cx-email").fill("alguem@gmail.com");
     await dialogo.locator("#cx-senha").fill("irrelevante");
     await dialogo.locator("#cx-nome").fill("Teste E2E");
     await page.getByRole("button", { name: "Conectar" }).click();
 
-    await expect(page.getByText(/não consegui falar com/i)).toBeVisible({ timeout: 40_000 });
-    // O diálogo continua aberto: nada foi gravado pela metade.
-    await expect(dialogo).toBeVisible();
+    await expect(page.getByText(/só dá para plugar caixas @medconsultoria\.com\.br/i)).toBeVisible();
+    await expect(dialogo, "o diálogo continua aberto — nada foi gravado pela metade").toBeVisible();
 
-    // E, recarregando, a página segue convidando a plugar a PRIMEIRA caixa — a regra é
-    // "testar antes de gravar", então a tentativa falha não pode ter deixado caixa no banco.
+    // Recarregando, a página segue convidando a plugar a PRIMEIRA caixa.
     await page.goto("/email");
     await expect(page.getByRole("heading", { name: "Seu e-mail, aqui dentro" })).toBeVisible();
   });

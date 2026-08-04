@@ -62,15 +62,41 @@ export function EmailPage() {
     },
   });
 
-  // Sincroniza ao abrir a pasta: com a tela aberta, o e-mail chega quase na hora.
+  /**
+   * Sincroniza ao abrir a pasta E a cada intervalo do polling.
+   *
+   * O intervalo é a parte que faltava: quem busca e-mail NOVO no servidor é esta mutation — as
+   * queries de `mensagens`/`pastas` só releem o cache do banco. Com só o disparo de abertura, a
+   * tela ficava parada: chegava e-mail, o polling rodava a cada 30s relendo o mesmo cache, e o
+   * e-mail só aparecia se a pessoa trocasse de pasta ou recarregasse a página.
+   *
+   * `document.hidden` evita bater no IMAP com a aba em segundo plano — o servidor de e-mail é
+   * de terceiro e conexão custa; volta a sincronizar quando a aba volta ao primeiro plano.
+   */
   useEffect(() => {
-    if (caixaAtual && pastaAtual) sincronizar.mutate({ caixaId: caixaAtual.id, pastaId: pastaAtual.id });
+    if (!caixaAtual || !pastaAtual) return;
+    const alvo = { caixaId: caixaAtual.id, pastaId: pastaAtual.id };
+    const puxar = () => {
+      if (!document.hidden) sincronizar.mutate(alvo);
+    };
+    puxar();
+    const t = setInterval(puxar, POLL.emailLista);
+    document.addEventListener("visibilitychange", puxar);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", puxar);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caixaAtual?.id, pastaAtual?.id]);
 
   const mensagens = trpc.email.mensagens.useQuery(
     { pastaId: pastaAtual?.id ?? "", busca: buscaAtiva || undefined },
-    { enabled: !!pastaAtual, refetchInterval: POLL.emailLista },
+    {
+      enabled: !!pastaAtual,
+      // Busca ativa NÃO entra no polling: cada refetch com termo vira varredura de corpo
+      // (ESEARCH) na caixa inteira, a cada 30 segundos, por aba aberta.
+      refetchInterval: buscaAtiva ? false : POLL.emailLista,
+    },
   );
 
   const aberta = trpc.email.abrir.useQuery({ mensagemId: msgId ?? "" }, { enabled: !!msgId });
