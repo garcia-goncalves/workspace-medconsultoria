@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Avatar } from "../../components/ui/avatar";
 import { AdicionarCaixaDialog } from "./AdicionarCaixaDialog";
+import { ReconectarCaixaDialog } from "./ReconectarCaixaDialog";
 import { CorpoEmail } from "./CorpoEmail";
 
 export function EmailPage() {
@@ -16,6 +17,7 @@ export function EmailPage() {
   const [caixaId, setCaixaId] = useState<string | null>(null);
   const [pastaId, setPastaId] = useState<string | null>(null);
   const [msgId, setMsgId] = useState<string | null>(null);
+  const [reconectar, setReconectar] = useState<{ id: string; email: string } | null>(null);
   const [busca, setBusca] = useState("");
   const [buscaAtiva, setBuscaAtiva] = useState("");
 
@@ -173,10 +175,19 @@ export function EmailPage() {
               </button>
 
               {c.estado === "AUTENTICACAO_FALHOU" && (
-                <p className="mt-1 flex items-start gap-1 px-2 text-[11px] text-destructive">
-                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                  Precisa reconectar: a senha foi recusada.
-                </p>
+                <div className="mt-1 px-2">
+                  <p className="flex items-start gap-1 text-[11px] text-destructive">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                    Parada: a senha guardada não funciona mais.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setReconectar({ id: c.id, email: c.email })}
+                    className="mt-1 rounded-md px-1 text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
+                  >
+                    Reconectar
+                  </button>
+                </div>
               )}
 
               {c.id === caixaAtual?.id &&
@@ -323,6 +334,11 @@ export function EmailPage() {
       </section>
 
       <AdicionarCaixaDialog open={adicionando} onClose={() => setAdicionando(false)} />
+      <ReconectarCaixaDialog
+        caixaId={reconectar?.id ?? null}
+        email={reconectar?.email ?? ""}
+        onClose={() => setReconectar(null)}
+      />
     </div>
   );
 }
