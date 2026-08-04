@@ -92,6 +92,22 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
     expect(pastas[0]!.papel).toBe("INBOX");
   });
 
+  it("mostra UMA pasta de spam, e é a que o servidor tem inscrita", async () => {
+    // Este servidor devolve duas candidatas: `Junk` (com selo `\Junk`, mas NÃO inscrita — o
+    // webmail não mostra) e `INBOX.spam` (sem selo, inscrita, é onde o filtro entrega). A
+    // coluna mostrava as duas, "Spam" e "spam". Só entra pasta inscrita; o papel de quem não
+    // tem selo sai do nome. Se a hospedagem mudar essa configuração, este teste avisa.
+    const { listarPastas } = await import("../modules/email/pastas.service.js");
+    const caixa = await prisma.caixaEmail.findFirstOrThrow({ where: { userId }, select: { id: true } });
+
+    const pastas = await listarPastas(userId, caixa.id);
+
+    expect(pastas.filter((p) => p.papel === "JUNK")).toHaveLength(1);
+    expect(pastas.filter((p) => p.nome === "Spam")).toHaveLength(1);
+    expect(pastas.map((p) => p.caminho)).not.toContain("Junk");
+    expect(pastas.find((p) => p.papel === "JUNK")!.caminho).toBe("INBOX.spam");
+  });
+
   it("sincroniza a INBOX e indexa uma mensagem que acabou de chegar", async () => {
     const { ImapFlow } = await import("imapflow");
     const { sincronizarPasta } = await import("../modules/email/sync.service.js");

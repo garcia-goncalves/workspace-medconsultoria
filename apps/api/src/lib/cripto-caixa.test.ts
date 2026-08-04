@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { randomBytes } from "node:crypto";
+import { createCipheriv, randomBytes } from "node:crypto";
 
 // A chave precisa existir ANTES de o config.ts ser importado (ele valida no boot).
 beforeAll(() => {
@@ -30,5 +30,25 @@ describe("cripto-caixa", () => {
   it("recusa formato de versão desconhecida", async () => {
     const { decifrar } = await import("./cripto-caixa.js");
     expect(() => decifrar("v9:a:b:c")).toThrow(/desconhecid/i);
+  });
+
+  it("chave trocada pede reconexão, em vez de vazar o erro cru do GCM", async () => {
+    // Acontece de verdade: rotacionar EMAIL_CRYPTO_KEY (ou plugar a caixa com uma chave e
+    // subir o servidor com outra) deixa todo segredo guardado ilegível. O erro do Node é
+    // "Unsupported state or unable to authenticate data" — que chegava à tela como um 500
+    // com stack, sem dizer à pessoa a única coisa que resolve: reconectar a caixa.
+    const { decifrar } = await import("./cripto-caixa.js");
+    // Segredo gravado com OUTRA chave, no mesmo formato v1 (a chave em uso já foi congelada
+    // pelo config no boot, então não adianta mexer no process.env aqui).
+    const outraChave = randomBytes(32);
+    const iv = randomBytes(12);
+    const c = createCipheriv("aes-256-gcm", outraChave, iv);
+    const cifrado = Buffer.concat([c.update("senha-antiga", "utf8"), c.final()]);
+    const guardado = ["v1", iv.toString("base64"), c.getAuthTag().toString("base64"), cifrado.toString("base64")].join(
+      ":",
+    );
+
+    expect(() => decifrar(guardado)).toThrow(/reconect/i);
+    expect(() => decifrar(guardado)).not.toThrow(/Unsupported state/i);
   });
 });

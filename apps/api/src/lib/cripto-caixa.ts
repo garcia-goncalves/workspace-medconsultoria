@@ -32,5 +32,12 @@ export function decifrar(guardado: string): string {
   }
   const d = createDecipheriv("aes-256-gcm", chave(), Buffer.from(ivB64, "base64"));
   d.setAuthTag(Buffer.from(tagB64, "base64"));
-  return Buffer.concat([d.update(Buffer.from(cifradoB64, "base64")), d.final()]).toString("utf8");
+  try {
+    return Buffer.concat([d.update(Buffer.from(cifradoB64, "base64")), d.final()]).toString("utf8");
+  } catch {
+    // Chave trocada (rotação da EMAIL_CRYPTO_KEY) ou conteúdo adulterado. O erro do Node aqui
+    // é "Unsupported state or unable to authenticate data" — inútil para quem está na tela e,
+    // pior, chegava lá como 500 com stack. A única saída é reconectar a caixa: dizer isso.
+    throw new Error("A senha guardada desta caixa não pôde ser aberta — a caixa precisa ser reconectada.");
+  }
 }
