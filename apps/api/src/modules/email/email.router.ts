@@ -123,6 +123,11 @@ export const emailRouter = router({
    * Grava o que a pessoa está escrevendo na pasta Drafts do SERVIDOR (não só no navegador dela).
    * Sem `.email()` nos destinatários de propósito: a pessoa pode estar no meio de digitar um
    * endereço, e um rascunho não pode falhar em salvar por causa disso.
+   *
+   * Devolve `{ uid, gravacaoDesligada }` (`SalvarRascunhoResultado`, em `rascunhos.service.ts`):
+   * `gravacaoDesligada: true` significa "pare de reagendar a gravação automática nesta composição"
+   * — insistir a cada 5 s ali é inútil ou vai enchendo a pasta Rascunhos sem teto. Falha comum de
+   * rede NÃO liga esse sinal: essa é transitória e tentar de novo é o certo.
    */
   salvarRascunho: funcionarioProcedure
     .input(

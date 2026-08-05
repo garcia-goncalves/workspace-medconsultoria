@@ -1,7 +1,10 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, vi } from "vitest";
 import { sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, utimes, rm, readdir } from "node:fs/promises";
+import { Readable } from "node:stream";
+import Fastify from "fastify";
+import multipart from "@fastify/multipart";
 import { TAMANHO_MAX } from "../lib/storage.js";
 import {
   pastaTemp,
@@ -130,6 +133,213 @@ describe("cota de disco dos anexos temporários, por pessoa", () => {
     expect(usados).toBe(4_000);
     expect(cabeMaisUmAnexoTemp(usados, 1_000, 4_000)).toBe(false);
     expect(cabeMaisUmAnexoTemp(usados, 1_000, 8_000)).toBe(true);
+  });
+});
+
+/**
+ * Os testes acima cobrem as duas PEÇAS da cota (a decisão pura e a soma em disco) e não provam nada
+ * sobre o HANDLER: apagando as linhas de `POST /email-anexo` que consultam `usoPastaTemp` e
+ * recusam com 413, todos eles continuavam verdes — a correção da cota não tinha regressão nenhuma.
+ * Isto aqui exercita a rota de verdade (`app.inject`), que é a única forma de travar o defeito.
+ *
+ * `app.inject` em vez de extrair a decisão para uma função: extrair só moveria o buraco de lugar —
+ * apagar a CHAMADA da função dentro do handler continuaria passando. O custo do inject é uma
+ * instância de Fastify por teste, medida em milissegundos.
+ *
+ * O que é dublado, e por quê:
+ *  - `usuarioDaRequest`: a rota exige sessão por cookie assinado; não é o que está sob teste.
+ *  - `TAMANHO_MAX` (o teto POR ARQUIVO que o multipart aplica): a decisão é `usados + TAMANHO_MAX
+ *    <= COTA`, então provar a recusa com os valores reais exigiria 181 MB em disco. Baixar o teto
+ *    por arquivo até a cota inteira faz um único byte já gravado estourar a conta — é o mesmo
+ *    recurso que os testes puros acima usam ao passar limites por parâmetro. A COTA em si e a soma
+ *    em disco continuam as de verdade.
+ */
+describe("rotas de anexo de e-mail (app de verdade, via app.inject)", () => {
+  const usuarios: { pasta: string }[] = [];
+
+  afterAll(async () => {
+    for (const u of usuarios) await rm(u.pasta, { recursive: true, force: true });
+    for (const m of ["../lib/storage.js", "./uploads.js", "@app/db", "../modules/email/imap.js"]) vi.doUnmock(m);
+    vi.resetModules();
+  });
+
+  /** Espião do efeito colateral do `comCaixa` real: marcar a caixa como ERRO (`imap.ts`). */
+  const marcouCaixaComoErro = vi.fn();
+
+  /**
+   * Repete o contrato do `comCaixa` real, inclusive as duas coisas que importam aqui: ele marca a
+   * caixa como ERRO ANTES de relançar (então um `try` de fora não desfaz nada), e ele só NÃO marca
+   * quando quem chamou passou `marcarErro: false`. `falhaAoConectar` dubla o `c.connect()` que
+   * estoura — o callback nem chega a rodar, que é justamente o buraco que nenhum `try` interno pega.
+   */
+  function comCaixaFalso(opcoes: { cliente?: unknown; falhaAoConectar?: Error }) {
+    return vi.fn(
+      async (_caixaId: string, fn: (c: never) => Promise<unknown>, cfg?: { marcarErro?: boolean }) => {
+        try {
+          if (opcoes.falhaAoConectar) throw opcoes.falhaAoConectar;
+          return await fn(opcoes.cliente as never);
+        } catch (e) {
+          if (cfg?.marcarErro !== false) marcouCaixaComoErro(e);
+          throw e;
+        }
+      },
+    );
+  }
+
+  const ANEXO_NO_BANCO = {
+    nome: "contrato.pdf",
+    parte: "2",
+    mensagem: { uid: 77, pasta: { caminho: "INBOX", caixaId: "caixa-1" } },
+  };
+
+  /** Sobe uma app Fastify com só esta rota, sobre uma cópia fresca do módulo. */
+  async function montarApp(opcoes: {
+    userId: string;
+    role?: string;
+    tamanhoMaxPorArquivo: number;
+    /** O que `prisma.emailAnexo.findFirst` devolve — só o GET usa. */
+    anexo?: unknown;
+    /** Dublagem do `comCaixa` — só o GET usa (ver `comCaixaFalso`). */
+    comCaixa?: unknown;
+  }) {
+    vi.resetModules();
+    marcouCaixaComoErro.mockClear();
+    const storageReal = await vi.importActual<typeof import("../lib/storage.js")>("../lib/storage.js");
+    vi.doMock("../lib/storage.js", () => ({ ...storageReal, TAMANHO_MAX: opcoes.tamanhoMaxPorArquivo }));
+    vi.doMock("./uploads.js", () => ({
+      usuarioDaRequest: async () => ({ id: opcoes.userId, role: opcoes.role ?? "ADMIN" }),
+    }));
+    vi.doMock("@app/db", () => ({
+      prisma: { emailAnexo: { findFirst: async () => opcoes.anexo ?? null } },
+    }));
+    vi.doMock("../modules/email/imap.js", () => ({ comCaixa: opcoes.comCaixa ?? vi.fn() }));
+    const mod = await import("./email-anexo.js");
+
+    const app = Fastify();
+    await app.register(multipart, { limits: { fileSize: opcoes.tamanhoMaxPorArquivo, files: 1 } });
+    mod.registrarRotaAnexoEmail(app);
+    await app.ready();
+
+    usuarios.push({ pasta: mod.pastaTemp(opcoes.userId) });
+    return { app, mod };
+  }
+
+  function corpoMultipart(conteudo: string) {
+    const boundary = "----limiteDeTesteDoAnexo";
+    return {
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.from(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="file"; filename="anexo.txt"\r\n` +
+          `Content-Type: text/plain\r\n\r\n${conteudo}\r\n--${boundary}--\r\n`,
+      ),
+    };
+  }
+
+  it("recusa com 413 quando o que a pessoa já tem em disco não deixa espaço para mais um arquivo", async () => {
+    const userId = `teste-handler-cota-${randomUUID()}`;
+    const { app, mod } = await montarApp({ userId, tamanhoMaxPorArquivo: COTA_ANEXO_TEMP_BYTES });
+    await mkdir(mod.pastaTemp(userId), { recursive: true });
+    await writeFile(mod.caminhoTemp(userId, randomUUID()), Buffer.alloc(1_000));
+
+    const r = await app.inject({ method: "POST", url: "/email-anexo", ...corpoMultipart("nao pode entrar") });
+
+    expect(r.statusCode).toBe(413);
+    expect(r.json().error).toMatch(/limite de 200 MB por pessoa/i);
+    // E, sobretudo, NÃO gravou: a cota existe para nada tocar o disco depois de a conta estourar.
+    expect(await readdir(mod.pastaTemp(userId))).toHaveLength(1);
+    await app.close();
+  });
+
+  it("deixa passar e grava o anexo quando ainda cabe", async () => {
+    const userId = `teste-handler-cabe-${randomUUID()}`;
+    const { app, mod } = await montarApp({ userId, tamanhoMaxPorArquivo: 4_000 });
+
+    const r = await app.inject({ method: "POST", url: "/email-anexo", ...corpoMultipart("conteudo do anexo") });
+
+    expect(r.statusCode).toBe(200);
+    expect(r.json().nome).toBe("anexo.txt");
+    expect(await readdir(mod.pastaTemp(userId))).toEqual([r.json().id]);
+    await app.close();
+  });
+
+  it("CLIENTE (Portal) não anexa e-mail nenhum, nem chega a gastar disco", async () => {
+    const userId = `teste-handler-cliente-${randomUUID()}`;
+    const { app } = await montarApp({ userId, role: "CLIENTE", tamanhoMaxPorArquivo: 4_000 });
+
+    const r = await app.inject({ method: "POST", url: "/email-anexo", ...corpoMultipart("nao deveria passar") });
+
+    expect(r.statusCode).toBe(403);
+    await app.close();
+  });
+
+  // Achado da revisão da onda B2: o GET tinha o MESMO buraco do descarte de rascunho, com o mesmo
+  // comentário afirmando cobertura que não existia. O `try` interno protege o corpo do callback,
+  // mas a CONEXÃO é aberta antes dele — e aqui a recusa por limite de conexões simultâneas do
+  // Dovecot é o caso normal, não o raro: o download segura o lock da pasta durante a entrega
+  // inteira. Regra da fase: falha em operação ACESSÓRIA não marca a caixa.
+  describe("GET /email-anexo/:mensagemId/:anexoId — baixar anexo não pode declarar a caixa quebrada", () => {
+    function clienteQueBaixa() {
+      return {
+        getMailboxLock: async () => ({ release: () => {} }),
+        download: async () => ({ content: Readable.from([Buffer.from("conteudo do anexo")]) }),
+      };
+    }
+
+    it("entrega o anexo pedindo ao comCaixa para NÃO marcar a caixa", async () => {
+      const comCaixa = comCaixaFalso({ cliente: clienteQueBaixa() });
+      const { app } = await montarApp({
+        userId: `teste-get-ok-${randomUUID()}`,
+        tamanhoMaxPorArquivo: 4_000,
+        anexo: ANEXO_NO_BANCO,
+        comCaixa,
+      });
+
+      const r = await app.inject({ method: "GET", url: "/email-anexo/msg-1/anexo-1" });
+
+      expect(r.statusCode).toBe(200);
+      expect(r.headers["x-content-type-options"]).toBe("nosniff");
+      expect(r.headers["content-type"]).toBe("application/octet-stream");
+      expect(comCaixa).toHaveBeenCalledWith("caixa-1", expect.any(Function), { marcarErro: false });
+      await app.close();
+    });
+
+    it("falha ao CONECTAR não marca a caixa como ERRO — e quem clicou continua vendo o erro", async () => {
+      const comCaixa = comCaixaFalso({
+        cliente: clienteQueBaixa(),
+        falhaAoConectar: new Error("Maximum number of connections from user+IP exceeded"),
+      });
+      const { app } = await montarApp({
+        userId: `teste-get-conexao-${randomUUID()}`,
+        tamanhoMaxPorArquivo: 4_000,
+        anexo: ANEXO_NO_BANCO,
+        comCaixa,
+      });
+
+      const r = await app.inject({ method: "GET", url: "/email-anexo/msg-1/anexo-1" });
+
+      // As duas metades: a requisição falha (o erro continua visível para quem apertou Baixar)…
+      expect(r.statusCode).toBe(500);
+      // …e mesmo assim a caixa da pessoa NÃO passa a aparecer quebrada na tela.
+      expect(marcouCaixaComoErro).not.toHaveBeenCalled();
+      await app.close();
+    });
+
+    it("anexo que não é da caixa desta pessoa dá 404 e nem chega a abrir conexão", async () => {
+      const comCaixa = comCaixaFalso({ cliente: clienteQueBaixa() });
+      const { app } = await montarApp({
+        userId: `teste-get-404-${randomUUID()}`,
+        tamanhoMaxPorArquivo: 4_000,
+        anexo: null, // o `findFirst` já filtra por `caixa: { userId }` — não achou = não é dela
+        comCaixa,
+      });
+
+      const r = await app.inject({ method: "GET", url: "/email-anexo/msg-1/anexo-1" });
+
+      expect(r.statusCode).toBe(404);
+      expect(comCaixa).not.toHaveBeenCalled();
+      await app.close();
+    });
   });
 });
 

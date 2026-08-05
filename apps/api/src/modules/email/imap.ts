@@ -68,8 +68,21 @@ export async function testarConexao(
  * Falha de autenticação marca a caixa como `AUTENTICACAO_FALHOU` e a app PARA de tentar — tentar
  * em laço faz o servidor de e-mail bloquear o IP por suspeita de invasão, e aí ninguém mais
  * recebe e-mail, nem os automáticos.
+ *
+ * `marcarErro: false` desliga APENAS a marcação genérica `estado: "ERRO"`, para quem chama numa
+ * operação ACESSÓRIA (descartar rascunho depois de um envio, gravação automática de rascunho).
+ * Nesses casos a conexão IMAP é NOVA e o modo de falha mais provável não é a caixa estar quebrada:
+ * é o servidor recusar mais uma conexão simultânea logo depois de o envio já ter gastado duas
+ * (a do SMTP e a da cópia em Enviados), ou um timeout de 15 s. Marcar ali só produz falso positivo
+ * — "sua caixa está com erro" logo depois de o e-mail ter saído —, e não acrescenta informação:
+ * se o servidor estiver mesmo fora, a próxima sincronização marca a caixa de qualquer jeito.
+ * Senha recusada continua marcando SEMPRE (é informação real e o remédio é reconectar).
  */
-export async function comCaixa<T>(caixaId: string, fn: (c: ImapFlow) => Promise<T>): Promise<T> {
+export async function comCaixa<T>(
+  caixaId: string,
+  fn: (c: ImapFlow) => Promise<T>,
+  opcoes?: { marcarErro?: boolean },
+): Promise<T> {
   const caixa = await prisma.caixaEmail.findFirst({
     where: { id: caixaId, deletedAt: null },
     select: { id: true, imapHost: true, imapPorta: true, usuario: true, segredo: true, estado: true },
@@ -117,7 +130,7 @@ export async function comCaixa<T>(caixaId: string, fn: (c: ImapFlow) => Promise<
         where: { id: caixa.id },
         data: { estado: "AUTENTICACAO_FALHOU", ultimoErro: "Senha recusada pelo servidor de e-mail." },
       });
-    } else {
+    } else if (opcoes?.marcarErro !== false) {
       await prisma.caixaEmail.update({
         where: { id: caixa.id },
         data: { estado: "ERRO", ultimoErro: (err.message ?? "Falha ao falar com o servidor.").slice(0, 500) },

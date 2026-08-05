@@ -225,44 +225,59 @@ export function registrarRotaAnexoEmail(app: FastifyInstance): void {
       // em segundo plano. Se devolvêssemos o stream para fora e respondêssemos depois, a conexão
       // fecharia no meio da leitura e o anexo chegaria cortado. Por isso esperamos aqui dentro o
       // stream terminar de escoar antes de deixar o `comCaixa` fechar a conexão.
-      const entregue = await comCaixa(anexo.mensagem.pasta.caixaId, async (c) => {
-        const lock = await c.getMailboxLock(anexo.mensagem.pasta.caminho);
-        try {
-          const r = await c.download(String(anexo.mensagem.uid), anexo.parte, { uid: true });
-          if (!r?.content) return false;
-
-          reply.header("Content-Type", "application/octet-stream");
-          reply.header("X-Content-Type-Options", "nosniff");
-          reply.header("Cache-Control", "private, no-store");
-          reply.header(
-            "Content-Disposition",
-            `attachment; filename*=UTF-8''${encodeURIComponent(anexo.nome)}`,
-          );
-          const conteudo = r.content;
-          reply.send(conteudo);
+      //
+      // `marcarErro: false`: baixar um anexo é operação ACESSÓRIA, e falha aqui não é prova de que
+      // a CAIXA está quebrada. O modo de falha esperado é o mesmo do descarte de rascunho — conexão
+      // IMAP nova recusada pelo limite de conexões simultâneas por IP (o próprio `imap.ts` documenta
+      // esse bloqueio), e aqui a concorrência é o caso NORMAL, não o raro: o download segura o lock
+      // da pasta durante a entrega inteira. Quem clicou continua vendo o erro (a exceção sobe e a
+      // requisição falha) — o que não pode é a caixa da pessoa passar a aparecer quebrada na tela
+      // por causa de um anexo que não baixou. Senha recusada segue marcando (o `comCaixa` trata
+      // `AUTENTICACAO_FALHOU` à parte, e ali a informação é real).
+      const entregue = await comCaixa(
+        anexo.mensagem.pasta.caixaId,
+        async (c) => {
+          const lock = await c.getMailboxLock(anexo.mensagem.pasta.caminho);
           try {
-            // `finished` cobre "end" (terminou de escoar) E "close" (destruído antes de
-            // terminar — é o que o Fastify faz quando quem baixa cancela: fecha a aba, aperta
-            // Cancelar, dá F5 no meio). Sem isto, um download cancelado nunca resolveria esta
-            // promise, o callback do `comCaixa` nunca retornaria, e a conexão IMAP (com o lock
-            // da caixa) ficaria pendurada até o processo reiniciar.
-            await finished(conteudo);
-          } catch (e) {
-            const erro = e as NodeJS.ErrnoException;
-            // Cancelamento vira ERR_STREAM_PREMATURE_CLOSE aqui — não é falha de verdade.
-            // Qualquer OUTRO erro (ex.: a conexão IMAP caiu no meio do download) também fica
-            // contido AQUI DENTRO: falha ao ENTREGAR um anexo não é falha da CAIXA — se
-            // deixássemos subir, o catch do `comCaixa` marcaria a caixa inteira como ERRO por
-            // causa de um anexo que não baixou, sem nenhuma relação com a sincronização dela.
-            if (erro.code !== "ERR_STREAM_PREMATURE_CLOSE") {
-              req.log.warn({ err: erro }, "Anexo: o download terminou com erro depois de a resposta já ter começado.");
+            const r = await c.download(String(anexo.mensagem.uid), anexo.parte, { uid: true });
+            if (!r?.content) return false;
+
+            reply.header("Content-Type", "application/octet-stream");
+            reply.header("X-Content-Type-Options", "nosniff");
+            reply.header("Cache-Control", "private, no-store");
+            reply.header(
+              "Content-Disposition",
+              `attachment; filename*=UTF-8''${encodeURIComponent(anexo.nome)}`,
+            );
+            const conteudo = r.content;
+            reply.send(conteudo);
+            try {
+              // `finished` cobre "end" (terminou de escoar) E "close" (destruído antes de
+              // terminar — é o que o Fastify faz quando quem baixa cancela: fecha a aba, aperta
+              // Cancelar, dá F5 no meio). Sem isto, um download cancelado nunca resolveria esta
+              // promise, o callback do `comCaixa` nunca retornaria, e a conexão IMAP (com o lock
+              // da caixa) ficaria pendurada até o processo reiniciar.
+              await finished(conteudo);
+            } catch (e) {
+              const erro = e as NodeJS.ErrnoException;
+              // Cancelamento vira ERR_STREAM_PREMATURE_CLOSE aqui — não é falha de verdade.
+              // Qualquer OUTRO erro (ex.: a conexão IMAP caiu no meio do download) fica contido
+              // AQUI DENTRO porque a resposta JÁ COMEÇOU a ser enviada: deixar subir agora só
+              // trocaria um download truncado por um erro que ninguém consegue mais mostrar.
+              // (Não marcar a caixa não depende mais deste `catch` — quem garante isso é o
+              // `marcarErro: false` lá embaixo, que cobre inclusive a falha de CONEXÃO, que
+              // acontece ANTES deste callback rodar e que nenhum `try` daqui de dentro alcança.)
+              if (erro.code !== "ERR_STREAM_PREMATURE_CLOSE") {
+                req.log.warn({ err: erro }, "Anexo: o download terminou com erro depois de a resposta já ter começado.");
+              }
             }
+            return true;
+          } finally {
+            lock.release();
           }
-          return true;
-        } finally {
-          lock.release();
-        }
-      });
+        },
+        { marcarErro: false },
+      );
       if (!entregue) return reply.code(404).send({ error: "O servidor de e-mail não devolveu este anexo." });
       return;
     },
@@ -275,6 +290,15 @@ export function registrarRotaAnexoEmail(app: FastifyInstance): void {
 
     const parte = await req.file();
     if (!parte) return reply.code(400).send({ error: "Nenhum arquivo recebido." });
+
+    // SEM allowlist de MIME, DE PROPÓSITO — divergência consciente em relação a `/upload`, que tem
+    // `MIMETYPES_ACEITOS`. Anexo de e-mail é o que a pessoa precisa mandar para o cliente (.zip,
+    // .dwg, .p7s, o que for): uma allowlist aqui recusaria anexo legítimo todo dia, e não é ela que
+    // fecha o risco. O risco — anexo virar execução no NOSSO domínio — está fechado na ponta em que
+    // o arquivo é SERVIDO: a rota de download acima manda sempre `application/octet-stream` +
+    // `X-Content-Type-Options: nosniff` + `Content-Disposition: attachment`, nunca o Content-Type do
+    // e-mail (provado em tela em 05/08: um `.html` com `<script>` aberto direto numa aba BAIXA, não
+    // renderiza). Não "conserte" isto adicionando restrição de tipo.
 
     // Cota por pessoa ANTES de gravar um byte (ver `COTA_ANEXO_TEMP_BYTES`). O stream é drenado
     // (`resume()`) antes de responder — mesmo padrão das recusas de `/upload`: sem isso o cliente
