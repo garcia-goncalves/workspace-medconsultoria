@@ -4,7 +4,7 @@
 > ver a aplicação funcionando, o que é cada porta e o que fazer quando algo não abre.
 > Escrito para ser entendido sem conhecimento técnico.
 >
-> Última verificação: **03/08/2026** (tudo abaixo foi testado, não é suposição).
+> Última verificação: **05/08/2026** (tudo abaixo foi testado, não é suposição).
 
 ---
 
@@ -133,6 +133,13 @@ rm scripts/.keepalive-pause       # o vigia volta a subir
 **Se não abrir:** confira nesta ordem — (1) `http://localhost:4319/health` responde? (2) o Docker
 está aberto? (3) veja as últimas linhas de `scripts/.keepalive.log`.
 
+> ⚠️ **Se a aplicação aparecer na porta 4311 em vez da 4310:** é sinal de que o vigia
+> (`keep-alive`) foi ligado **duas vezes** — o segundo não conseguiu a porta 4310 (já ocupada
+> pelo primeiro) e caiu para a 4311. Não é bug da aplicação, mas confunde: você acaba testando
+> numa tela e conferindo na outra. **Aconteceu em 05/08/2026.** A correção é deixar **um** vigia:
+> pausar (`touch scripts/.keepalive-pause`), fechar os dois, apagar a pausa e ligar de novo.
+> Peça isso ao Claude — ele resolve em um minuto.
+
 ---
 
 ## 6. Outros projetos ocupando portas nesta máquina
@@ -143,12 +150,18 @@ não confundir uma tela de outro projeto com esta.
 
 | Porta | De quem é |
 | ----- | --------- |
+| 3939 | Tela do **Grimoire** (Next.js em desenvolvimento) |
+| 5435 | Postgres do **Grimoire** |
+| 8039 / 1039 | Mailpit do **Grimoire** |
 | 8080 | `sophia-web` (projeto Sophia Camargo) |
 | 8025 / 1025 | Mailpit do **Sophia Camargo** |
-| 8039 / 1039 | Mailpit do **Grimoire** |
+| 8090 | `medcrm-nginx` — a tela do **MedCRM** (5432 é o banco dele) |
+| 5432 | Postgres do **MedCRM** |
 | 5433 | Postgres do **Inkflow** |
-| 5435 | Postgres do **Grimoire** |
-| 3306 | Outro MySQL da máquina |
+| 6379 | Redis do **Inkflow** |
+| 9000 / 9001 | MinIO (armazenamento de arquivos) do **Inkflow** |
+| 3306 | MySQL do **Cadastro de Anestesistas** (por isso este projeto usa 3307) |
+| 9749 | Codebase Memory (o mapa de código que o Claude consulta) |
 
 > ⚠️ **Cuidado com o Mailpit.** Mailpit é uma caixa de entrada falsa, para ver e-mails de teste
 > sem enviar de verdade. A da porta 8025 é do **Sophia Camargo**. Se um e-mail deste projeto cair
