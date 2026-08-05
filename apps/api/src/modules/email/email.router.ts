@@ -9,6 +9,7 @@ import * as sync from "./sync.service.js";
 import * as leitura from "./leitura.service.js";
 import * as envio from "./envio.service.js";
 import * as rascunhos from "./rascunhos.service.js";
+import * as vinculo from "./vinculo.service.js";
 
 /**
  * E-mail dentro da aplicação. TODO procedure é `funcionarioProcedure` (equipe; o Portal do
@@ -153,4 +154,39 @@ export const emailRouter = router({
       exigirModuloLigado();
       return rascunhos.descartarRascunho(ctx.user.id, input);
     }),
+
+  // ── A ficha do cliente/lead (ADR-95: "a caixa é privada, a correspondência é da empresa") ──
+  //
+  // Estas quatro são as ÚNICAS procedures do módulo que não filtram por `ctx.user.id`: elas
+  // mostram o que a equipe trocou com um cliente, e o filtro é o CLIENTE, não o dono da caixa.
+  // O que as torna aceitáveis é o que elas NÃO devolvem — corpo nenhum, só metadado e o trecho
+  // — mais a válvula do `marcarParticular` logo abaixo. Ver `vinculo.service.ts`.
+
+  doCliente: funcionarioProcedure
+    .input(z.object({ clienteId: z.string().min(1), limite: z.number().int().min(1).max(200).optional() }))
+    .query(({ input }) => vinculo.mensagensDoCliente(input.clienteId, input.limite)),
+
+  doLead: funcionarioProcedure
+    .input(z.object({ leadId: z.string().min(1), limite: z.number().int().min(1).max(200).optional() }))
+    .query(({ input }) => vinculo.mensagensDoLead(input.leadId, input.limite)),
+
+  /** Linha do tempo unificada: o log dos e-mails automáticos + o que saiu/entrou pelas caixas. */
+  conversaDoCliente: funcionarioProcedure
+    .input(z.object({ clienteId: z.string().min(1), limite: z.number().int().min(1).max(200).optional() }))
+    .query(({ input }) => vinculo.conversaDoCliente(input.clienteId, input.limite)),
+
+  conversaDoLead: funcionarioProcedure
+    .input(z.object({ leadId: z.string().min(1), limite: z.number().int().min(1).max(200).optional() }))
+    .query(({ input }) => vinculo.conversaDoLead(input.leadId, input.limite)),
+
+  /**
+   * A válvula: tira da ficha um e-mail que é da vida particular de quem o recebeu. Só o dono da
+   * caixa — a posse é conferida dentro do próprio `UPDATE` (não numa leitura antes dele), então
+   * para quem não é dono não existe caminho em que algo seja gravado.
+   */
+  marcarParticular: funcionarioProcedure
+    .input(z.object({ mensagemId: z.string().min(1), particular: z.boolean() }))
+    .mutation(({ ctx, input }) =>
+      vinculo.marcarParticular(ctx.user.id, input.mensagemId, input.particular),
+    ),
 });
