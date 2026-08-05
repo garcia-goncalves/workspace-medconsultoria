@@ -70,6 +70,29 @@ EMAIL_CRYPTO_KEY="<32 bytes em base64>"   # node -e "console.log(require('crypto
 >
 > **EMAIL_CRYPTO_KEY** (ADR-95) cifra a senha das caixas de e-mail que cada pessoa pluga em `/email` (AES-256-GCM). Gere **32 bytes em base64** com o comando acima. Duas consequências que precisam estar claras antes de o dono mexer: **(a) perder ou trocar a chave torna ilegível toda senha já guardada** — as caixas passam a pedir reconexão (é só replugar, nada mais se perde); **(b) a chave é de produção e não se reaproveita de dev.** Sem a variável, a página `/email` não pluga caixa nenhuma — o resto da aplicação segue normal.
 
+### 3.1 Criar a `EMAIL_CRYPTO_KEY` sem que ninguém veja o segredo
+
+Há um script para isso — **rode uma vez, antes do primeiro deploy do módulo de e-mail**, na pasta do projeto:
+
+```bash
+bash set-email-crypto-key.sh
+```
+
+O que deve aparecer:
+
+```
+==> Conferindo a chave no servidor (nenhum segredo é impresso)
+RESULTADO: chave CRIADA (backup do .env salvo ao lado, com data no nome).
+CONFERÊNCIA: 32 bytes — OK
+==> Pronto. Agora um deploy (./deploy.sh) e a página /email liga em produção.
+```
+
+Se aparecer `RESULTADO: a chave JÁ EXISTIA`, está tudo certo — o script não sobrescreve (sobrescrever obrigaria todo mundo a plugar a caixa de novo).
+
+Por que um script e não "gere aqui e cole lá": **a chave é gerada dentro do servidor**, então o valor nunca passa por conversa, log, histórico de terminal ou transcript de IA. As credenciais de acesso saem do `.env.deploy` lidas pelo próprio shell, como no `deploy.sh`. Ele também faz backup do `.env` antes de tocar nele.
+
+**Se der errado:** `não achei o .env.deploy` → você não está na pasta do projeto. `Permission denied (publickey)` → a chave SSH não está no lugar esperado (`~/.ssh/medconsultoria_deploy`). `não existe .env em …` → o `.env` de produção ainda não foi criado (volte ao §3).
+
 ---
 
 ## 4. Configurar o app Node no painel DirectAdmin
