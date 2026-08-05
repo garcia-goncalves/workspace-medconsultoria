@@ -21,6 +21,10 @@ function urlDeTeste(): string {
 export default defineConfig({
   test: {
     environment: "node",
+    // ⚠️ Este `include` varre TAMBÉM `src/test/*.integration.test.ts` — ou seja, `pnpm test` daqui
+    // MANDA E-MAIL REAL e grava/apaga rascunho numa caixa real (é assim de propósito: o CI roda a
+    // suíte inteira). Para rodar só unidade, use `pnpm --filter @app/api test:unit`. A armadilha já
+    // mordeu em 05/08/2026: um agente rodou `test` achando que era só unidade, e e-mail saiu.
     include: ["src/**/*.test.ts"],
     testTimeout: 20000,
     // Injeta a DATABASE_URL de teste no processo dos testes ANTES de qualquer import de @app/db.
