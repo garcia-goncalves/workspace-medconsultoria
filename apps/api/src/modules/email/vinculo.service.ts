@@ -15,16 +15,24 @@ import { listPorCliente, listPorLead } from "../emails/enviados.service.js";
  *    mais; estreitar depois de alguém ter lido a correspondência alheia é impossível.
  * 2. **O vínculo não é gravado** — é resolvido na consulta, por JOIN no endereço. Cliente que
  *    troca de e-mail passa a refletir a verdade nova sem migração nenhuma.
+ * 3. **A chave do JOIN nunca é um endereço da casa** (`enderecosDaCasa`). Como o cadastro do
+ *    cliente é editável por qualquer funcionário, sem isso quem escolhe a chave da consulta é
+ *    quem edita o cadastro — e leria a caixa de um colega pondo o e-mail dele num cliente.
  */
 
-/** Nunca entram na ficha: o que foi jogado fora (ou marcado como lixo) não é histórico. */
-const PASTAS_FORA: PastaPapel[] = ["TRASH", "JUNK"];
+/**
+ * Nunca entram na ficha: o que foi jogado fora (ou marcado como lixo) não é histórico — e
+ * RASCUNHO menos ainda. O rascunho grava sozinho na pasta `Drafts` do servidor a cada pausa da
+ * digitação, então sem `DRAFTS` aqui vazaria e-mail meio escrito, inclusive o que a pessoa
+ * pensou melhor e decidiu não mandar.
+ */
+const PASTAS_FORA: PastaPapel[] = ["TRASH", "JUNK", "DRAFTS"];
 
 const LIMITE_PADRAO = 50;
 const LIMITE_MAXIMO = 200;
 
-/** Tamanho do trecho — o mesmo que `abrirMensagem` grava em `EmailMensagem.trecho`. */
-const TAMANHO_TRECHO = 200;
+/** Teto de endereços por consulta — um cadastro com 300 contatos não vira um `IN (...)` gigante. */
+const MAXIMO_ENDERECOS = 50;
 
 export type ItemDaCaixa = {
   origem: "caixa";
@@ -64,6 +72,36 @@ function limpar(enderecos: Array<string | null | undefined>): string[] {
   return [...vistos];
 }
 
+/**
+ * Endereços que pertencem à CASA: e-mail de usuário, endereço de caixa plugada e o usuário de
+ * login dessa caixa. Nenhum deles pode virar chave do JOIN.
+ *
+ * O motivo é que a chave é escolhida por quem edita o cadastro — e `Cliente.email`/`Contato.email`
+ * são graváveis por qualquer FUNCIONARIO. Sem esta trava, basta pôr o endereço de um colega no
+ * cadastro de um cliente descartável para ler, pela ficha, metadado e trecho da caixa dele.
+ *
+ * Caixa desplugada e usuário desativado continuam na lista de propósito: endereço que um dia foi
+ * da casa não deve poder ser reciclado como chave.
+ *
+ * `role: { not: CLIENTE }` NÃO é detalhe: o cliente do Portal também tem `User`, e sem esse filtro
+ * a ficha de todo cliente com acesso ao Portal ficaria vazia. Ninguém consegue se esconder aqui
+ * criando um `User` CLIENTE com o e-mail de um colega — `User.email` é único.
+ */
+async function enderecosDaCasa(): Promise<Set<string>> {
+  const [users, caixas] = await Promise.all([
+    prisma.user.findMany({ where: { role: { not: "CLIENTE" } }, select: { email: true } }),
+    prisma.caixaEmail.findMany({ select: { email: true, usuario: true } }),
+  ]);
+  return new Set(limpar([...users.map((u) => u.email), ...caixas.flatMap((c) => [c.email, c.usuario])]));
+}
+
+/** Tira os endereços da casa e aplica o teto. Lista vazia aqui = nenhuma consulta lá na frente. */
+async function soDeFora(enderecos: string[]): Promise<string[]> {
+  if (enderecos.length === 0) return [];
+  const casa = await enderecosDaCasa();
+  return enderecos.filter((e) => !casa.has(e)).slice(0, MAXIMO_ENDERECOS);
+}
+
 /** `Cliente.email` MAIS o e-mail de cada contato — é assim que uma PJ aparece na ficha. */
 export async function enderecosDoCliente(clienteId: string): Promise<string[]> {
   const cliente = await prisma.cliente.findFirst({
@@ -71,7 +109,7 @@ export async function enderecosDoCliente(clienteId: string): Promise<string[]> {
     select: { email: true, contatos: { select: { email: true } } },
   });
   if (!cliente) return [];
-  return limpar([cliente.email, ...cliente.contatos.map((c) => c.email)]);
+  return soDeFora(limpar([cliente.email, ...cliente.contatos.map((c) => c.email)]));
 }
 
 /** Lead não tem contatos — só o próprio e-mail. */
@@ -81,7 +119,7 @@ export async function enderecosDoLead(leadId: string): Promise<string[]> {
     select: { email: true },
   });
   if (!lead) return [];
-  return limpar([lead.email]);
+  return soDeFora(limpar([lead.email]));
 }
 
 /**
@@ -108,14 +146,32 @@ export async function listarPorEnderecos(enderecos: string[], limite = LIMITE_PA
   if (enderecos.length === 0) return [];
   const teto = Math.min(Math.max(limite, 1), LIMITE_MAXIMO);
 
+  // A MESMA mensagem existe na caixa de quem mandou e na de cada colega que recebeu. Filtrar só
+  // por `particular: false` esconderia a cópia de quem marcou e deixaria a do colega na ficha,
+  // com o mesmo assunto e o mesmo trecho — ou seja, a válvula não valvularia nada. Marcar uma
+  // cópia esconde TODAS as cópias daquele `messageId`.
+  const marcadas = await prisma.emailMensagem.findMany({
+    where: { particular: true, enderecos: { some: { endereco: { in: enderecos } } } },
+    select: { messageId: true },
+  });
+  const escondidos = [...new Set(marcadas.map((m) => m.messageId).filter((m): m is string => !!m))];
+
   const linhas = await prisma.emailMensagem.findMany({
     where: {
       particular: false,
+      ...(escondidos.length > 0 ? { messageId: { notIn: escondidos } } : {}),
       enderecos: { some: { endereco: { in: enderecos } } },
       // `notIn` sozinho descartaria a pasta SEM papel (a que a pessoa criou), porque em SQL
       // `NULL NOT IN (...)` não é verdadeiro. O `OR` com `papel: null` é o que mantém a pasta
-      // comum dentro e só tira Lixeira e Spam.
-      pasta: { OR: [{ papel: null }, { papel: { notIn: PASTAS_FORA } }] },
+      // comum dentro e só tira Lixeira, Spam e Rascunhos.
+      //
+      // `caixa.deletedAt: null` alinha a listagem com o `marcarParticular`: sem isso, quem
+      // desplugou a caixa continuava com a correspondência na ficha E recebia FORBIDDEN ao
+      // tentar marcá-la como particular — perdia a válvula justamente quem já tinha saído.
+      pasta: {
+        caixa: { deletedAt: null },
+        OR: [{ papel: null }, { papel: { notIn: PASTAS_FORA } }],
+      },
     },
     select: {
       id: true,
@@ -176,13 +232,18 @@ export async function mensagensDoLead(leadId: string, limite = LIMITE_PADRAO): P
 
 type RowEnviado = Awaited<ReturnType<typeof listPorCliente>>[number];
 
+/**
+ * `trecho` fica `null` para o e-mail automático: o corpo dele carrega o link de ação COM TOKEN, e
+ * é por isso que `listPorCliente`/`listPorLead` pararam de devolver corpo. Assunto, tipo, data e
+ * entrega já dizem o que aconteceu; o texto integral vive no monitor de e-mails (ADMIN).
+ */
 function doLogAutomatico(r: RowEnviado): ItemAutomatico {
   return {
     origem: "automatico",
     id: r.id,
     dataEm: r.createdAt,
     assunto: r.assunto,
-    trecho: r.corpo.replace(/\s+/g, " ").trim().slice(0, TAMANHO_TRECHO) || null,
+    trecho: null,
     para: r.para,
     status: r.status,
     erro: r.erro,

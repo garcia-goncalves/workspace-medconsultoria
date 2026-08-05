@@ -6,6 +6,24 @@ import { renderTemplate } from "./emails.service.js";
 import { templateDe } from "./emails.registry.js";
 
 /**
+ * O corpo dos e-mails transacionais carrega o link de ação COM TOKEN (redefinir senha, convite,
+ * boas-vindas do Portal). Um link desses no histórico é uma senha em texto puro: quem lê, entra.
+ * E o e-mail do destinatário é gravável por qualquer funcionário, então dá para escolher de quem
+ * é a conta. O log guarda o que aconteceu — não a chave para refazer.
+ *
+ * Redige duas formas, que são as duas que a app produz (`grep "WEB_ORIGIN}/"`):
+ *   - parâmetro de consulta `token`, `code`, `secret` ou `key` — nome exato, para a regra ser
+ *     óbvia de ler. Se um dia aparecer um `access_token`, some ao regex;
+ *   - token NO CAMINHO de `/assinar/{token}` e `/proposta/{token}` — quem tem esse link assina o
+ *     contrato ou aceita a proposta no lugar do cliente.
+ */
+export function redigirSegredos(texto: string): string {
+  return texto
+    .replace(/([?&])(token|code|secret|key)=[^\s&]*/gi, "$1$2=[removido]")
+    .replace(/\/(assinar|proposta)\/[^\s/?#]+/gi, "/$1/[removido]");
+}
+
+/**
  * Registra no histórico um e-mail enviado, vinculando-o (pelo e-mail do destinatário)
  * ao usuário, cliente e/ou lead correspondentes. Best-effort: nunca lança nem bloqueia
  * o envio. É um LOG — guarda os ids sem FK, então sobrevive à exclusão das entidades.
@@ -28,7 +46,7 @@ export async function registrarEmailEnviado(
       data: {
         para,
         assunto,
-        corpo,
+        corpo: redigirSegredos(corpo),
         template,
         status: enviado ? "ENVIADO" : "FALHOU",
         erro: enviado ? null : erro ?? null,
@@ -57,36 +75,36 @@ export async function enviarEmailTemplate(
   return { enviado };
 }
 
+/**
+ * O que toda lista devolve. **Sem `corpo`** — ver `selecaoComCorpo`: o corpo só sai para quem é o
+ * destinatário (`listMeus`) ou para o monitor de ADMIN, nunca para a ficha do cliente/lead, que
+ * qualquer funcionário abre.
+ */
 const selecao = {
   id: true,
   para: true,
   assunto: true,
   template: true,
-  corpo: true,
   status: true,
   erro: true,
   createdAt: true,
 } as const;
 
-type Row = {
-  id: string;
-  para: string;
-  assunto: string;
-  template: string | null;
-  corpo: string;
-  status: "ENVIADO" | "FALHOU";
-  erro: string | null;
-  createdAt: Date;
-};
+const selecaoComCorpo = { ...selecao, corpo: true } as const;
 
 /** Acrescenta o nome amigável do template (para exibir na lista). */
-function comRotulo(rows: Row[]) {
+function comRotulo<T extends { template: string | null }>(rows: T[]) {
   return rows.map((r) => {
     const meta = r.template ? templateDe(r.template) : undefined;
     return { ...r, templateLabel: meta ? meta.label : "E-mail" };
   });
 }
 
+/**
+ * Histórico na ficha do lead/cliente. Quem chama é a equipe inteira (`funcionarioProcedure`) e,
+ * no caso do cliente, também o Portal dele. Assunto, tipo, data e entrega — o corpo fica de fora
+ * de propósito: era por ele que vazava o link com token de quem quer que o cadastro apontasse.
+ */
 export async function listPorLead(leadId: string) {
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { email: true } });
   const rows = await prisma.emailEnviado.findMany({
@@ -114,7 +132,7 @@ export async function listMeus(userId: string, email: string) {
     where: { OR: [{ userId }, { para: email }] },
     orderBy: { createdAt: "desc" },
     take: 100,
-    select: selecao,
+    select: selecaoComCorpo,
   });
   return comRotulo(rows);
 }
@@ -175,7 +193,7 @@ export async function listTodos(f: FiltroEnviados) {
     where,
     orderBy: { createdAt: "desc" },
     take: limite + 1,
-    select: selecao,
+    select: selecaoComCorpo,
   });
   const temMais = rows.length > limite;
   return { itens: comRotulo(temMais ? rows.slice(0, limite) : rows), temMais };

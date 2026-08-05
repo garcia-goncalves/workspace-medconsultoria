@@ -8,13 +8,18 @@ export interface EmailEnviadoItem {
   para: string;
   assunto: string;
   templateLabel: string;
-  corpo: string;
+  /**
+   * Texto do e-mail. **Opcional de propósito**: na ficha do cliente/lead e no Portal a API não
+   * devolve o corpo (era por ele que vazava o link com token de redefinição de senha). Sem corpo,
+   * o item não abre — mostra assunto, tipo, data e entrega.
+   */
+  corpo?: string | null;
   status: "ENVIADO" | "FALHOU";
   erro?: string | null;
   createdAt: string | Date;
 }
 
-/** Lista de e-mails enviados (histórico). Cada item abre para ler o conteúdo. */
+/** Lista de e-mails enviados (histórico). Onde há corpo, cada item abre para ler o conteúdo. */
 export function EmailsEnviadosList({
   emails,
   mostrarPara = false,
@@ -34,13 +39,18 @@ export function EmailsEnviadosList({
   return (
     <div className="space-y-1.5">
       {emails.map((e) => {
-        const open = aberto === e.id;
+        const abre = !!e.corpo;
+        const open = abre && aberto === e.id;
         return (
           <div key={e.id} className="overflow-hidden rounded-lg border">
             <button
               type="button"
+              disabled={!abre}
               onClick={() => setAberto(open ? null : e.id)}
-              className="flex w-full items-center gap-2.5 p-2.5 text-left transition-colors hover:bg-accent/40"
+              className={cn(
+                "flex w-full items-center gap-2.5 p-2.5 text-left transition-colors",
+                abre ? "hover:bg-accent/40" : "cursor-default",
+              )}
             >
               <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
@@ -77,7 +87,9 @@ export function EmailsEnviadosList({
                     <CheckCircle2 className="h-3 w-3" /> enviado
                   </span>
                 ))}
-              <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+              {abre && (
+                <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+              )}
             </button>
             {open && (
               <div className="border-t bg-muted/30 p-3">
