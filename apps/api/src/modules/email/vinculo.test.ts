@@ -40,6 +40,8 @@ const mocks = vi.hoisted(() => ({
   leadFindFirst: vi.fn(),
   mensagemFindMany: vi.fn(),
   mensagemUpdateMany: vi.fn(),
+  mensagemFindFirst: vi.fn(),
+  activityLogCreate: vi.fn(),
   userFindMany: vi.fn(),
   caixaFindMany: vi.fn(),
   listPorCliente: vi.fn(),
@@ -51,8 +53,13 @@ vi.mock("@app/db", () => ({
     cliente: { findFirst: mocks.clienteFindFirst },
     lead: { findFirst: mocks.leadFindFirst },
     user: { findMany: mocks.userFindMany },
+    activityLog: { create: mocks.activityLogCreate },
     caixaEmail: { findMany: mocks.caixaFindMany },
-    emailMensagem: { findMany: mocks.mensagemFindMany, updateMany: mocks.mensagemUpdateMany },
+    emailMensagem: {
+      findMany: mocks.mensagemFindMany,
+      updateMany: mocks.mensagemUpdateMany,
+      findFirst: mocks.mensagemFindFirst,
+    },
   },
 }));
 
@@ -186,6 +193,8 @@ beforeEach(() => {
   mocks.listPorLead.mockResolvedValue([]);
   enderecosDaCasa([]);
   bancoDeMensagens([]);
+  mocks.mensagemFindFirst.mockResolvedValue(null);
+  mocks.activityLogCreate.mockResolvedValue({});
 });
 
 // ── Fatia 1 — o vínculo ───────────────────────────────────────────────────────────────────
@@ -552,8 +561,25 @@ describe("marcarParticular só é do dono da caixa", () => {
           (caixa.userId === undefined || l.dono.id === caixa.userId) &&
           (caixa.deletedAt !== null || !l.caixaRemovidaEm),
       );
+      // O MySQL conta linhas ALTERADAS, não casadas: regravar o mesmo valor devolve 0. O dublê
+      // imita isso de propósito — é o que fazia o dono da caixa levar "você não é dono" no
+      // segundo clique.
+      const mudadas = alvo.filter((l) => Object.entries(args.data).some(([k, v]) => (l as any)[k] !== v));
       for (const l of alvo) Object.assign(l, args.data);
-      return { count: alvo.length };
+      return { count: mudadas.length };
+    });
+    // A conferência de posse do caminho idempotente lê pelo mesmo critério do `updateMany`.
+    mocks.mensagemFindFirst.mockImplementation(async (args: any) => {
+      const caixa = args?.where?.pasta?.caixa ?? {};
+      return (
+        linhas.find(
+          (l) =>
+            l.id === args?.where?.id &&
+            (args?.where?.particular === undefined || l.particular === args.where.particular) &&
+            (caixa.userId === undefined || l.dono.id === caixa.userId) &&
+            (caixa.deletedAt !== null || !l.caixaRemovidaEm),
+        ) ?? null
+      );
     });
     return linhas;
   }
@@ -574,6 +600,43 @@ describe("marcarParticular só é do dono da caixa", () => {
     const erro = await marcarParticular(DONA.id, "msg-1", true).catch((e: unknown) => e);
     expect((erro as TRPCError).code).toBe("FORBIDDEN");
     expect(dados[0]!.particular).toBe(false);
+  });
+
+  /**
+   * Dois cliques, duas abas, ou o botão de `/email` fora de sincronia com a ficha: o segundo
+   * `UPDATE` não altera linha nenhuma e o MySQL devolve 0. Sem o caminho idempotente, o DONO da
+   * caixa levava "só quem é dono pode marcar" — mentira sobre a própria mensagem dele.
+   */
+  it("marcar de novo o mesmo valor é idempotente para o dono, não FORBIDDEN", async () => {
+    const dados = bancoGravavel([linha({ id: "msg-1", particular: true })]);
+    const r = await marcarParticular(DONA.id, "msg-1", true);
+    expect(r).toEqual({ id: "msg-1", particular: true });
+    expect(dados[0]!.particular).toBe(true);
+  });
+
+  /**
+   * A válvula esconde a mensagem da empresa inteira: sem rastro, ela vira alavanca de
+   * encobrimento. O log guarda quem e para qual lado — nunca assunto nem trecho, senão o painel
+   * do ROOT viraria outra porta para o conteúdo.
+   */
+  it("registra quem tirou (e quem devolveu), sem levar assunto nem trecho para o log", async () => {
+    bancoGravavel([linha({ id: "msg-1" })]);
+    await marcarParticular(DONA.id, "msg-1", true);
+
+    const registro = mocks.activityLogCreate.mock.calls.at(-1)![0].data;
+    expect(registro).toEqual({
+      userId: DONA.id,
+      acao: "email_tirado_da_ficha",
+      entidadeTipo: "EmailMensagem",
+      entidadeId: "msg-1",
+    });
+    expect(JSON.stringify(registro)).not.toContain("Assunto");
+  });
+
+  it("intruso não deixa registro nenhum — o FORBIDDEN vem antes do log", async () => {
+    bancoGravavel([linha({ id: "msg-1" })]);
+    await marcarParticular("user-intruso", "msg-1", true).catch(() => {});
+    expect(mocks.activityLogCreate).not.toHaveBeenCalled();
   });
 
   it("quem NÃO é dono recebe FORBIDDEN e nada é gravado", async () => {

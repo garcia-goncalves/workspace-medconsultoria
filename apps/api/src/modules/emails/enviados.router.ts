@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure, funcionarioProcedure, adminProcedure } from "../../trpc/trpc.js";
+import { router, protectedProcedure, adminProcedure } from "../../trpc/trpc.js";
 import * as service from "./enviados.service.js";
 
 /** Histórico de e-mails por destinatário + monitor global (ROOT/ADMIN). */
@@ -7,13 +7,9 @@ export const emailsEnviadosRouter = router({
   // Os meus (qualquer usuário logado vê os e-mails que recebeu — em Configurações).
   meus: protectedProcedure.query(({ ctx }) => service.listMeus(ctx.user.id, ctx.user.email)),
 
-  // Enviados a um lead / cliente (equipe interna, na ficha do lead/cliente).
-  doLead: funcionarioProcedure
-    .input(z.object({ leadId: z.string().min(1) }))
-    .query(({ input }) => service.listPorLead(input.leadId)),
-  doCliente: funcionarioProcedure
-    .input(z.object({ clienteId: z.string().min(1) }))
-    .query(({ input }) => service.listPorCliente(input.clienteId)),
+  // `doLead`/`doCliente` saíram no ADR-97: a ficha passou a ler `email.conversaDoCliente`, que
+  // junta este log ao que a equipe trocou pela própria caixa. `listPorLead`/`listPorCliente`
+  // continuam vivos — chamados de lá e do Portal.
 
   // ── Monitor global (só ADMIN/ROOT): indicadores + lista completa filtrável ──
   resumo: adminProcedure.query(() => service.resumoEnviados()),

@@ -1,5 +1,11 @@
 # Plano — E-mail fase 2D‑1: a conversa com o cliente aparece na ficha
 
+> **Estado (05/08/2026): as 4 fatias estão feitas.** O que a execução acrescentou ao plano:
+> a válvula ganhou **volta** (a ficha só tira; devolver é em `/email`, com `abrirMensagem`
+> devolvendo `particular`), as procedures `emailsEnviados.doCliente`/`.doLead` **saíram**
+> (ficaram sem consumidor) e o e2e ganhou fixture própria em `scripts/e2e-fixtures.mjs`
+> (caixa da ADMIN + duas mensagens, uma delas já particular). Decisões em **ADR‑97**.
+
 > Spec: `docs/superpowers/specs/2026-08-04-email-bloco2-escrever-e-agir-design.md` §7.
 > Antecessores: ADR‑95 (plugar e ler) e ADR‑96 (escrever/responder/encaminhar/anexar).
 > **A fase 2D foi fatiada.** Este plano é a fatia 1. As fatias 2 e 3 estão no fim.

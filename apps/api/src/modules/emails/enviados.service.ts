@@ -4,6 +4,7 @@ import { enviarEmail } from "../../lib/email.js";
 import { isEmailReal } from "../../config.js";
 import { renderTemplate } from "./emails.service.js";
 import { templateDe } from "./emails.registry.js";
+import { ehDaCasa } from "../email/casa.js";
 
 /**
  * O corpo dos e-mails transacionais carrega o link de ação COM TOKEN (redefinir senha, convite,
@@ -105,10 +106,24 @@ function comRotulo<T extends { template: string | null }>(rows: T[]) {
  * no caso do cliente, também o Portal dele. Assunto, tipo, data e entrega — o corpo fica de fora
  * de propósito: era por ele que vazava o link com token de quem quer que o cadastro apontasse.
  */
+
+/**
+ * O `clienteId`/`leadId` é gravado pelo servidor no envio; o `para` é o **e-mail do cadastro**, que
+ * o funcionário edita — e que o próprio cliente do Portal edita, no perfil dele. Casar por `para`
+ * sem trava deixa qualquer um escolher a chave da consulta: bastava pôr `root@…` no cadastro para
+ * listar, de dentro do Portal, os transacionais mandados a uma conta interna (assunto, tipo, data,
+ * falha). O `para` só continua valendo como chave quando o endereço **não é da casa** — é ele que
+ * mantém o histórico de quem trocou de e-mail depois de já ter recebido (ADR-97).
+ */
+async function chaveDeEndereco(email: string | null | undefined): Promise<string | null> {
+  if (!email) return null;
+  return (await ehDaCasa(email)) ? null : email;
+}
 export async function listPorLead(leadId: string) {
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { email: true } });
+  const porEndereco = await chaveDeEndereco(lead?.email);
   const rows = await prisma.emailEnviado.findMany({
-    where: lead?.email ? { OR: [{ leadId }, { para: lead.email }] } : { leadId },
+    where: porEndereco ? { OR: [{ leadId }, { para: porEndereco }] } : { leadId },
     orderBy: { createdAt: "desc" },
     take: 50,
     select: selecao,
@@ -118,8 +133,9 @@ export async function listPorLead(leadId: string) {
 
 export async function listPorCliente(clienteId: string) {
   const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { email: true } });
+  const porEndereco = await chaveDeEndereco(cliente?.email);
   const rows = await prisma.emailEnviado.findMany({
-    where: cliente?.email ? { OR: [{ clienteId }, { para: cliente.email }] } : { clienteId },
+    where: porEndereco ? { OR: [{ clienteId }, { para: porEndereco }] } : { clienteId },
     orderBy: { createdAt: "desc" },
     take: 50,
     select: selecao,

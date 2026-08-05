@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   enviarEmail: vi.fn(),
   renderTemplate: vi.fn(),
+  ehDaCasa: vi.fn(),
 }));
 
 vi.mock("@app/db", () => ({
@@ -37,6 +38,7 @@ vi.mock("@app/db", () => ({
 
 vi.mock("../../lib/email.js", () => ({ enviarEmail: mocks.enviarEmail }));
 vi.mock("./emails.service.js", () => ({ renderTemplate: mocks.renderTemplate }));
+vi.mock("../email/casa.js", () => ({ ehDaCasa: mocks.ehDaCasa }));
 
 const { redigirSegredos, registrarEmailEnviado, enviarEmailTemplate, listPorCliente, listPorLead } =
   await import("./enviados.service.js");
@@ -52,6 +54,7 @@ beforeEach(() => {
   mocks.create.mockResolvedValue({});
   mocks.findMany.mockResolvedValue([]);
   mocks.enviarEmail.mockResolvedValue({ enviado: true });
+  mocks.ehDaCasa.mockResolvedValue(false);
 });
 
 // ── Camada 1: o segredo não é gravado ─────────────────────────────────────────────────────
@@ -169,5 +172,39 @@ describe("a ficha do cliente/lead não recebe o corpo do e-mail", () => {
   it("listPorLead não PEDE corpo", async () => {
     await listPorLead("lead-1");
     expect(mocks.findMany.mock.calls[0]![0].select.corpo).toBeUndefined();
+  });
+});
+
+/**
+ * A outra metade da mesma falha: aqui o JOIN é por `EmailEnviado.para`, e o `para` vem do CADASTRO
+ * — gravável por qualquer funcionário e, no Portal, pelo próprio cliente. Sem a trava, um cliente
+ * de fora da empresa punha `root@medconsultoria.com.br` no perfil e listava, pelo Portal, os
+ * transacionais mandados ao ROOT (assunto, tipo, data, falha). Ver `casa.ts`.
+ */
+describe("endereço da casa não vira chave do histórico automático", () => {
+  it("cadastro com endereço da casa cai para o vínculo gravado pelo servidor (clienteId)", async () => {
+    mocks.clienteFindUnique.mockResolvedValue({ email: "root@medconsultoria.com.br" });
+    mocks.ehDaCasa.mockResolvedValue(true);
+
+    await listPorCliente("cli-1");
+
+    expect(mocks.findMany.mock.calls[0]![0].where).toEqual({ clienteId: "cli-1" });
+  });
+
+  it("lead com endereço da casa idem", async () => {
+    mocks.leadFindUnique.mockResolvedValue({ email: "comercial@medconsultoria.com.br" });
+    mocks.ehDaCasa.mockResolvedValue(true);
+
+    await listPorLead("lead-1");
+
+    expect(mocks.findMany.mock.calls[0]![0].where).toEqual({ leadId: "lead-1" });
+  });
+
+  it("cliente de verdade continua casando também pelo e-mail (quem trocou de endereço não perde o histórico)", async () => {
+    await listPorCliente("cli-1");
+
+    expect(mocks.findMany.mock.calls[0]![0].where).toEqual({
+      OR: [{ clienteId: "cli-1" }, { para: "cliente@exemplo.com" }],
+    });
   });
 });

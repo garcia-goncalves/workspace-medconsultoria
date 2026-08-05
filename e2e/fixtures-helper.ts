@@ -10,6 +10,8 @@ export interface Fixtures {
   outroConversaId: string;
   /** Projeto garantido pela setup — não depende de outro spec ter convertido um lead. */
   projetoId: string;
+  /** Cliente dedicado ao card de e-mails da ficha (e-mail de domínio externo — ver ADR-97). */
+  emailClienteId: string;
   resetRawValid: string;
   resetRawExpired: string;
 }

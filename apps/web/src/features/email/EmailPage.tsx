@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { Mail, Plus, Search, X, AlertTriangle, Paperclip, Pencil, Reply, ReplyAll, Forward, Download } from "lucide-react";
+import {
+  Mail,
+  Plus,
+  Search,
+  X,
+  AlertTriangle,
+  Paperclip,
+  Pencil,
+  Reply,
+  ReplyAll,
+  Forward,
+  Download,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { cn } from "@app/ui";
 import { trpc } from "../../lib/trpc";
 import { POLL } from "../../lib/socket";
@@ -17,7 +31,12 @@ export function EmailPage() {
   const [adicionando, setAdicionando] = useState(false);
   const [caixaId, setCaixaId] = useState<string | null>(null);
   const [pastaId, setPastaId] = useState<string | null>(null);
-  const [msgId, setMsgId] = useState<string | null>(null);
+  // `?mensagem=<id>` é como a ficha do cliente manda abrir um e-mail aqui ("Abrir na minha caixa",
+  // ADR-97). Lido uma vez, na montagem: depois quem manda é o clique na lista. Se o id não for da
+  // pessoa, `email.abrir` responde NOT_FOUND e a tela segue na caixa normal.
+  const [msgId, setMsgId] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get("mensagem") || null,
+  );
   const [reconectar, setReconectar] = useState<{ id: string; email: string } | null>(null);
   const [busca, setBusca] = useState("");
   const [buscaAtiva, setBuscaAtiva] = useState("");
@@ -110,6 +129,13 @@ export function EmailPage() {
   );
 
   const aberta = trpc.email.abrir.useQuery({ mensagemId: msgId ?? "" }, { enabled: !!msgId });
+  const marcarParticular = trpc.email.marcarParticular.useMutation({
+    onSuccess: () => {
+      utils.email.abrir.invalidate();
+      utils.email.conversaDoCliente.invalidate();
+      utils.email.conversaDoLead.invalidate();
+    },
+  });
   // Const local para o TS manter a narrowing de "não é null" dentro dos onClick abaixo
   // (acesso via `aberta.data` direto perde a narrowing dentro de closures).
   const msgAberta = aberta.data ?? null;
@@ -387,6 +413,35 @@ export function EmailPage() {
                   onClick={() => setEscrevendo({ modo: "encaminhar", mensagemId: msgAberta.id })}
                 >
                   <Forward className="mr-1.5 h-3.5 w-3.5" /> Encaminhar
+                </Button>
+                {/*
+                 * A válvula do ADR-97, do lado de cá: a ficha do cliente só TIRA um e-mail de lá;
+                 * devolver é aqui, na caixa de quem é dono. Sem este botão a marcação seria de mão
+                 * única na app inteira — só o banco desfaria.
+                 */}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={marcarParticular.isPending}
+                  onClick={() =>
+                    marcarParticular.mutate({ mensagemId: msgAberta.id, particular: !msgAberta.particular })
+                  }
+                  title={
+                    msgAberta.particular
+                      ? "Hoje este e-mail não aparece na ficha do cliente. Devolvê-lo mostra assunto, data e trecho para a equipe."
+                      : "Some da ficha do cliente para toda a equipe. Continua aqui, na sua caixa."
+                  }
+                >
+                  {msgAberta.particular ? (
+                    <>
+                      <Eye className="mr-1.5 h-3.5 w-3.5" /> Devolver à ficha
+                    </>
+                  ) : (
+                    <>
+                      <EyeOff className="mr-1.5 h-3.5 w-3.5" /> Tirar da ficha
+                    </>
+                  )}
                 </Button>
               </div>
             </header>

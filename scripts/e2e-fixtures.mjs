@@ -135,6 +135,86 @@ async function seedProjeto() {
   return PRJ_ID;
 }
 
+/**
+ * A conversa da caixa na ficha do cliente (ADR-97). Só linhas de banco: a ficha resolve o vínculo
+ * por JOIN no endereço e **nunca** abre o IMAP, então host inválido e `segredo` de mentira bastam
+ * (nada aqui é decifrado — se um dia for, este fixture quebra alto, e é o que se quer).
+ *
+ * A caixa é da ADMIN, não do FUNCIONARIO: `email.spec.ts` afirma que a tela de e-mail do
+ * funcionário ainda convida a "plugar a primeira caixa", e plugar uma aqui derrubaria aquele teste.
+ */
+async function seedEmailDaCaixaNaFicha() {
+  const CAIXA_ID = "e2ecaixaficha000000000000";
+  const PASTA_ID = "e2epastafichainbox0000000";
+  const CLIENTE_ID = "e2eclienteemail000000000";
+  // Cliente PRÓPRIO, com e-mail de DOMÍNIO EXTERNO: o do seed é `@medconsultoria.com.br`, e desde
+  // a trava do ADR-97 endereço do nosso domínio nunca vira chave do JOIN (era por ele que se lia a
+  // caixa de um colega). Cliente de verdade tem e-mail de fora — a fixture reflete isso.
+  const enderecoDoCliente = "contato@cliente-e2e.test";
+
+  const dona = await prisma.user.findFirst({
+    where: { email: "thais.garcia@medconsultoria.com.br" },
+    select: { id: true, nome: true, email: true },
+  });
+  if (!dona) throw new Error("ADMIN thais.garcia não encontrada — rode o seed base primeiro.");
+
+  await prisma.cliente.upsert({
+    where: { id: CLIENTE_ID },
+    update: { email: enderecoDoCliente, deletedAt: null },
+    create: { id: CLIENTE_ID, nome: "Cliente E2E (e-mail na ficha)", email: enderecoDoCliente },
+  });
+
+  // Idempotente: apagar a caixa leva pastas, mensagens e endereços em cascata.
+  await prisma.caixaEmail.deleteMany({ where: { id: CAIXA_ID } });
+  await prisma.caixaEmail.create({
+    data: {
+      id: CAIXA_ID,
+      userId: dona.id,
+      email: dona.email,
+      nomeExibicao: dona.nome,
+      imapHost: "imap.invalido.test",
+      smtpHost: "smtp.invalido.test",
+      usuario: dona.email,
+      segredo: "e2e-nunca-decifrado",
+      pastas: { create: { id: PASTA_ID, caminho: "INBOX", nome: "Caixa de entrada", papel: "INBOX" } },
+    },
+  });
+
+  const mensagem = (id, uid, assunto, trecho, particular) => ({
+    id,
+    caixaId: CAIXA_ID,
+    pastaId: PASTA_ID,
+    uid,
+    messageId: `<${id}@e2e.test>`,
+    deNome: "Cliente E2E",
+    deEmail: enderecoDoCliente,
+    assunto,
+    trecho,
+    dataEm: new Date(),
+    particular,
+    // Corpo já em cache e mensagem lida: com `corpoEm` preenchido, abrir a mensagem em `/email`
+    // é consulta de banco pura — sem isso o e2e precisaria de um servidor IMAP de verdade.
+    lido: true,
+    corpoTexto: trecho,
+    corpoEm: new Date(),
+    enderecos: {
+      create: [
+        { papel: "DE", endereco: enderecoDoCliente, nome: "Cliente E2E" },
+        { papel: "PARA", endereco: dona.email },
+      ],
+    },
+  });
+
+  await prisma.emailMensagem.create({
+    data: mensagem("e2emsgficha00000000000000", 9001n, "Contrato para revisar (E2E)", "segue o contrato para a sua revisão", false),
+  });
+  // Nasce fora da ficha: é a prova de que a válvula filtra na consulta, e não só na tela.
+  await prisma.emailMensagem.create({
+    data: mensagem("e2emsgparticular000000000", 9002n, "Conversa particular (E2E)", "assunto pessoal", true),
+  });
+  return CLIENTE_ID;
+}
+
 async function seedReset() {
   const user = await prisma.user.upsert({
     where: { email: RESET_EMAIL },
@@ -153,18 +233,19 @@ async function main() {
   const briefingReqId = await seedBriefing();
   const iso = await seedIsolamento();
   const projetoId = await seedProjeto();
+  const emailClienteId = await seedEmailDaCaixaNaFicha();
   const reset = await seedReset();
   mkdirSync("e2e/.auth", { recursive: true });
   writeFileSync(
     "e2e/.auth/fixtures.json",
     JSON.stringify(
-      { briefingReqId, ...iso, projetoId, resetRawValid: reset.rawValid, resetRawExpired: reset.rawExpired },
+      { briefingReqId, ...iso, projetoId, emailClienteId, resetRawValid: reset.rawValid, resetRawExpired: reset.rawExpired },
       null,
       2,
     ),
   );
   await prisma.$disconnect();
-  console.log("✓ fixtures E2E semeadas (briefing + isolamento + projeto + reset) → e2e/.auth/fixtures.json");
+  console.log("✓ fixtures E2E semeadas (briefing + isolamento + projeto + e-mail na ficha + reset) → e2e/.auth/fixtures.json");
 }
 
 main().catch(async (e) => {

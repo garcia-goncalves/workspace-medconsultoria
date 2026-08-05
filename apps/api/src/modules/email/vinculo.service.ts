@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import type { PastaPapel } from "@app/db";
 import { normalizarEndereco } from "./enderecos.js";
+import { soDeFora } from "./casa.js";
 import { listPorCliente, listPorLead } from "../emails/enviados.service.js";
 
 /**
@@ -15,9 +16,10 @@ import { listPorCliente, listPorLead } from "../emails/enviados.service.js";
  *    mais; estreitar depois de alguém ter lido a correspondência alheia é impossível.
  * 2. **O vínculo não é gravado** — é resolvido na consulta, por JOIN no endereço. Cliente que
  *    troca de e-mail passa a refletir a verdade nova sem migração nenhuma.
- * 3. **A chave do JOIN nunca é um endereço da casa** (`enderecosDaCasa`). Como o cadastro do
- *    cliente é editável por qualquer funcionário, sem isso quem escolhe a chave da consulta é
- *    quem edita o cadastro — e leria a caixa de um colega pondo o e-mail dele num cliente.
+ * 3. **A chave do JOIN nunca é um endereço da casa** (`casa.ts`, por endereço E por domínio).
+ *    Como o cadastro do cliente é editável por qualquer funcionário, sem isso quem escolhe a
+ *    chave da consulta é quem edita o cadastro — e leria a caixa de um colega pondo o e-mail
+ *    dele, um apelido (`thiago@`) ou uma caixa institucional (`comercial@`) num cliente.
  */
 
 /**
@@ -72,36 +74,6 @@ function limpar(enderecos: Array<string | null | undefined>): string[] {
   return [...vistos];
 }
 
-/**
- * Endereços que pertencem à CASA: e-mail de usuário, endereço de caixa plugada e o usuário de
- * login dessa caixa. Nenhum deles pode virar chave do JOIN.
- *
- * O motivo é que a chave é escolhida por quem edita o cadastro — e `Cliente.email`/`Contato.email`
- * são graváveis por qualquer FUNCIONARIO. Sem esta trava, basta pôr o endereço de um colega no
- * cadastro de um cliente descartável para ler, pela ficha, metadado e trecho da caixa dele.
- *
- * Caixa desplugada e usuário desativado continuam na lista de propósito: endereço que um dia foi
- * da casa não deve poder ser reciclado como chave.
- *
- * `role: { not: CLIENTE }` NÃO é detalhe: o cliente do Portal também tem `User`, e sem esse filtro
- * a ficha de todo cliente com acesso ao Portal ficaria vazia. Ninguém consegue se esconder aqui
- * criando um `User` CLIENTE com o e-mail de um colega — `User.email` é único.
- */
-async function enderecosDaCasa(): Promise<Set<string>> {
-  const [users, caixas] = await Promise.all([
-    prisma.user.findMany({ where: { role: { not: "CLIENTE" } }, select: { email: true } }),
-    prisma.caixaEmail.findMany({ select: { email: true, usuario: true } }),
-  ]);
-  return new Set(limpar([...users.map((u) => u.email), ...caixas.flatMap((c) => [c.email, c.usuario])]));
-}
-
-/** Tira os endereços da casa e aplica o teto. Lista vazia aqui = nenhuma consulta lá na frente. */
-async function soDeFora(enderecos: string[]): Promise<string[]> {
-  if (enderecos.length === 0) return [];
-  const casa = await enderecosDaCasa();
-  return enderecos.filter((e) => !casa.has(e)).slice(0, MAXIMO_ENDERECOS);
-}
-
 /** `Cliente.email` MAIS o e-mail de cada contato — é assim que uma PJ aparece na ficha. */
 export async function enderecosDoCliente(clienteId: string): Promise<string[]> {
   const cliente = await prisma.cliente.findFirst({
@@ -109,7 +81,7 @@ export async function enderecosDoCliente(clienteId: string): Promise<string[]> {
     select: { email: true, contatos: { select: { email: true } } },
   });
   if (!cliente) return [];
-  return soDeFora(limpar([cliente.email, ...cliente.contatos.map((c) => c.email)]));
+  return soDeFora(limpar([cliente.email, ...cliente.contatos.map((c) => c.email)]), MAXIMO_ENDERECOS);
 }
 
 /** Lead não tem contatos — só o próprio e-mail. */
@@ -119,7 +91,7 @@ export async function enderecosDoLead(leadId: string): Promise<string[]> {
     select: { email: true },
   });
   if (!lead) return [];
-  return soDeFora(limpar([lead.email]));
+  return soDeFora(limpar([lead.email]), MAXIMO_ENDERECOS);
 }
 
 /**
@@ -153,6 +125,10 @@ export async function listarPorEnderecos(enderecos: string[], limite = LIMITE_PA
   const marcadas = await prisma.emailMensagem.findMany({
     where: { particular: true, enderecos: { some: { endereco: { in: enderecos } } } },
     select: { messageId: true },
+    // Teto: este resultado vira um `notIn` de `VarChar(512)` na consulta seguinte, e esta base já
+    // apanhou de URL/consulta longa demais (o fix de `414 maxParamLength`).
+    orderBy: { dataEm: "desc" },
+    take: LIMITE_MAXIMO,
   });
   const escondidos = [...new Set(marcadas.map((m) => m.messageId).filter((m): m is string => !!m))];
 
@@ -299,11 +275,36 @@ export async function marcarParticular(userId: string, mensagemId: string, parti
     where: { id: mensagemId, pasta: { caixa: { userId, deletedAt: null } } },
     data: { particular },
   });
+  // No MySQL o driver conta linhas ALTERADAS, não casadas: regravar o mesmo valor (duas abas, dois
+  // cliques, o botão de `/email` fora de sincronia com a ficha) devolve 0 e diria ao dono da caixa
+  // que ele não é dono. A conferência de posse abaixo é a mesma do `where` acima — para quem não é
+  // dono ela também não acha nada, então o `FORBIDDEN` continua sem contar se o id existe.
   if (r.count === 0) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Só quem é dono da caixa pode marcar esta mensagem como particular.",
+    const jaEstava = await prisma.emailMensagem.findFirst({
+      where: { id: mensagemId, particular, pasta: { caixa: { userId, deletedAt: null } } },
+      select: { id: true },
     });
+    if (!jaEstava) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Só quem é dono da caixa pode marcar esta mensagem como particular.",
+      });
+    }
   }
+
+  // A válvula também é alavanca de encobrimento: marcar a PRÓPRIA cópia esconde a mensagem da
+  // ficha para a empresa inteira. Fica o rastro de quem fez e para qual lado — ids e o sinalizador,
+  // nunca assunto nem trecho (o log é lido pelo painel do ROOT, e ele não pode virar outra porta
+  // para o conteúdo). Best-effort: falhar aqui não pode impedir a pessoa de proteger o que é dela.
+  await prisma.activityLog
+    .create({
+      data: {
+        userId,
+        acao: particular ? "email_tirado_da_ficha" : "email_devolvido_a_ficha",
+        entidadeTipo: "EmailMensagem",
+        entidadeId: mensagemId,
+      },
+    })
+    .catch(() => {});
   return { id: mensagemId, particular };
 }

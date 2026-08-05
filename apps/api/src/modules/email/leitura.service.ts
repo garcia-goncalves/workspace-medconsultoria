@@ -157,6 +157,9 @@ export async function abrirMensagem(userId: string, mensagemId: string) {
     dataEm: msg.dataEm,
     enderecos: msg.enderecos,
     anexos: msg.anexos,
+    // A ficha do cliente só tira daqui; devolver é aqui dentro, na caixa de quem é dono (ADR-97).
+    // Sem este campo, "tirar da ficha" seria de mão única na app inteira.
+    particular: msg.particular,
     corpoHtml,
     corpoTexto,
     imagensBloqueadas,
