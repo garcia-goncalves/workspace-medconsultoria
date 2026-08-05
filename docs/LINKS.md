@@ -100,6 +100,12 @@ O `{token}` é gerado pela aplicação e vai no link enviado ao cliente — não
 - **Baixar um anexo** que alguém te mandou — clique e o navegador baixa o arquivo (nunca abre/executa direto, mesmo que seja uma página).
 - **Rascunho automático:** enquanto você escreve, a aplicação salva sozinha na pasta **Rascunhos do seu e-mail de verdade** (a cada ~5 segundos de pausa) — se fechar sem terminar, o texto está lá, inclusive se você abrir o webmail de outro computador. Ao enviar, o rascunho correspondente é apagado sozinho.
 
+**O e-mail do cliente aparece na ficha dele.** Abra **Clientes → o cliente** (ou o painel do lead, em Vendas) e olhe o card **"E-mails"**: ali fica, em ordem de data, tudo o que a empresa trocou com aquela pessoa — os avisos que o sistema mandou sozinho **e** os e-mails escritos por gente, de qualquer caixa da equipe. Cada linha tem um selo dizendo de onde veio ("Enviado pelo sistema" ou "Caixa de Fulano").
+
+**O que a equipe vê ali é só a "capa" do e-mail:** quem mandou, para quem, assunto, data e as primeiras linhas. **O texto inteiro ninguém lê pela ficha** — só o dono da caixa, na própria caixa (o link "Abrir na minha caixa" aparece só para ele).
+
+**E se um e-mail for pessoal?** Quem é dono da caixa clica em **"Tirar da ficha"** naquela linha: ele some da ficha para toda a equipe na hora. Para devolvê-lo, abra o e-mail em `/email` e clique em **"Devolver à ficha"** — a ficha só tira; quem devolve é a caixa. Rascunho, lixeira e spam **nunca** aparecem na ficha.
+
 **Só para desenvolvimento/teste:** fora do site em produção, o envio só é aceito para `tibamooca@gmail.com` ou `contato@medconsultoria.com.br` — é uma trava da própria aplicação (não dá para "esquecer" e mandar e-mail de teste para um cliente de verdade).
 
 **Não funciona ainda com Gmail nem Hotmail** (de propósito): esses exigem login próprio do Google/Microsoft. Fase 1 é só o domínio da Med.

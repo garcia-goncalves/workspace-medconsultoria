@@ -32,7 +32,7 @@ import { Badge } from "../../../components/ui/badge";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
 import { AssistenteIADialog } from "../../../components/ui/assistente-ia";
-import { EmailsEnviadosList } from "../../../components/EmailsEnviadosList";
+import { EmailsDoLeadLista } from "../clientes/EmailsDoClienteCard";
 
 type Detalhe = RouterOutputs["leads"]["detalhe"];
 
@@ -74,7 +74,6 @@ export function LeadDetailPanel({
   const escreverEmail = trpc.ia.escreverMensagem.useMutation();
   const [iaAberto, setIaAberto] = useState<"passo" | "email" | null>(null);
   const q = trpc.leads.detalhe.useQuery({ id: leadId ?? "" }, { enabled: !!leadId });
-  const emails = trpc.emailsEnviados.doLead.useQuery({ leadId: leadId ?? "" }, { enabled: !!leadId });
   const gerarDoc = trpc.documentos.gerarParaLead.useMutation({
     onSuccess: (r) => {
       utils.leads.detalhe.invalidate();
@@ -381,12 +380,12 @@ export function LeadDetailPanel({
                   {avancar.error && <p className="mt-2 text-xs text-destructive">{avancar.error.message}</p>}
                 </section>
 
-                {/* E-mails enviados a este lead */}
+                {/* A conversa com o lead: envios automáticos + o que a equipe trocou pela caixa (ADR-97) */}
                 <section>
                   <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    <Mail className="h-3.5 w-3.5" /> E-mails enviados
+                    <Mail className="h-3.5 w-3.5" /> E-mails
                   </h3>
-                  <EmailsEnviadosList emails={emails.data ?? []} vazio="Nenhum e-mail enviado a este lead ainda." />
+                  <EmailsDoLeadLista leadId={leadId ?? ""} />
                 </section>
 
                 {/* Linha do tempo */}

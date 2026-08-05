@@ -67,6 +67,7 @@ const HANDLERS: Record<string, Handler> = {
     corpoHtml: null,
     corpoTexto: "segue em anexo",
     imagensBloqueadas: 0,
+    particular: false,
   }),
 };
 
@@ -143,5 +144,52 @@ describe("EmailPage — anexo recebido tem de dar para BAIXAR", () => {
     expect(link!.getAttribute("aria-label")).toBe("Baixar anexo contrato assinado.pdf");
     expect(link!.hasAttribute("title")).toBe(false);
     expect(link!.querySelector("span")?.getAttribute("title")).toBe("contrato assinado.pdf");
+  });
+});
+
+describe("EmailPage — a válvula do ADR-97 tem de ter volta", () => {
+  let raiz: { root: Root; container: HTMLDivElement } | null = null;
+
+  afterEach(() => {
+    if (raiz) {
+      act(() => raiz!.root.unmount());
+      raiz.container.remove();
+    }
+    raiz = null;
+  });
+
+  async function abrirMensagem(particular: boolean) {
+    raiz = montar({
+      ...HANDLERS,
+      "email.abrir": () => ({ ...(HANDLERS["email.abrir"]!({}) as object), particular }),
+    });
+    for (let i = 0; i < 6; i += 1) await aguardar();
+    const item = [...raiz.container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Proposta assinada"),
+    );
+    act(() => {
+      item!.click();
+    });
+    await aguardar();
+    await aguardar();
+    return [...raiz.container.querySelectorAll("button")];
+  }
+
+  /**
+   * A ficha do cliente só TIRA um e-mail de lá. Sem este botão, marcar como particular seria de
+   * mão única na app inteira — desfazer exigiria mexer no banco.
+   */
+  it("mensagem visível na ficha oferece tirar; mensagem já tirada oferece devolver", async () => {
+    let botoes = await abrirMensagem(false);
+    expect(botoes.some((b) => b.textContent?.includes("Tirar da ficha"))).toBe(true);
+    expect(botoes.some((b) => b.textContent?.includes("Devolver à ficha"))).toBe(false);
+
+    act(() => raiz!.root.unmount());
+    raiz!.container.remove();
+    raiz = null;
+
+    botoes = await abrirMensagem(true);
+    expect(botoes.some((b) => b.textContent?.includes("Devolver à ficha"))).toBe(true);
+    expect(botoes.some((b) => b.textContent?.includes("Tirar da ficha"))).toBe(false);
   });
 });

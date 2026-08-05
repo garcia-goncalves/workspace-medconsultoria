@@ -57,7 +57,7 @@ import type { ConviteResultado } from "../../configuracoes/UsuarioFormDialog";
 import { situacaoVar } from "./ClientesListPage";
 import { ProjetoFormDialog } from "../../projetos/ProjetoFormDialog";
 import { TarefaFormDialog } from "../../tarefas/TarefaFormDialog";
-import { EmailsEnviadosList } from "../../../components/EmailsEnviadosList";
+import { EmailsDoClienteCard } from "./EmailsDoClienteCard";
 import { useDynamicCrumb } from "../../../components/layout/Breadcrumbs";
 
 const route = getRouteApi("/clientes/$clienteId");
@@ -87,7 +87,6 @@ export function ClienteDetailPage() {
   const cliente = trpc.clientes.get.useQuery({ id: clienteId });
   const rel = trpc.clientes.relacionados.useQuery({ id: clienteId });
   const chamados = trpc.clientes.chamados.useQuery({ clienteId }, { refetchInterval: POLL.chamadosCliente });
-  const emails = trpc.emailsEnviados.doCliente.useQuery({ clienteId }, { enabled: !!clienteId });
 
   useEffect(() => {
     if (!REALTIME_SOCKET_ENABLED) return; // polling acima entrega em produção
@@ -770,17 +769,8 @@ export function ClienteDetailPage() {
             </Card>
           )}
 
-          {/* E-mails enviados */}
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <Mail className="h-4 w-4 text-muted-foreground" /> E-mails enviados
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <EmailsEnviadosList emails={emails.data ?? []} vazio="Nenhum e-mail enviado a este cliente ainda." />
-            </CardContent>
-          </Card>
+          {/* A conversa com o cliente: envios automáticos + o que a equipe trocou pela caixa (ADR-97) */}
+          <EmailsDoClienteCard clienteId={clienteId} />
         </div>
       </div>
 
