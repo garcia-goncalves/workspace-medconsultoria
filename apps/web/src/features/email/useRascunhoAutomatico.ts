@@ -9,7 +9,18 @@ export type RascunhoComposicao = {
   corpoHtml: string;
 };
 
-export type SalvarRascunhoFn = (input: RascunhoComposicao & { uidAnterior?: number }) => Promise<{ uid: number | null }>;
+/**
+ * `gravacaoDesligada` é o sinal do servidor (`SalvarRascunhoResultado`, `rascunhos.service.ts`)
+ * de que insistir nesta composição é INÚTIL (servidor sem UIDPLUS: nada é gravado, e cada ciclo
+ * de 5 s abriria uma conexão IMAP à toa) ou DANOSO (gravou e não devolveu o identificador: cada
+ * ciclo acrescentaria uma cópia nova, sem teto, até encher a pasta Rascunhos). Falha comum de
+ * rede NÃO liga o sinal — essa é transitória e tentar de novo é o certo.
+ *
+ * Opcional no tipo porque o hook trata a ausência como `false` (o comportamento de sempre).
+ */
+export type SalvarRascunhoFn = (
+  input: RascunhoComposicao & { uidAnterior?: number },
+) => Promise<{ uid: number | null; gravacaoDesligada?: boolean }>;
 export type DescartarRascunhoFn = (uid: number) => Promise<void>;
 
 const ATRASO_MS = 5000;
@@ -77,6 +88,14 @@ export function useRascunhoAutomatico(opts: {
   const pendenteRef = useRef(false);
   const enviandoRef = useRef(false);
   const timerRef = useRef<number | null>(null);
+  /**
+   * Item 3 da onda C: o servidor pediu para PARAR de gravar nesta composição (ver
+   * `SalvarRascunhoFn`). Vale até a tela fechar — é uma propriedade do servidor de e-mail, não
+   * um soluço. Deliberadamente SEM aviso na tela: o texto continua ali, só a cópia no servidor
+   * deixa de existir, e um alerta a cada 5 s sobre um rascunho que a pessoa nem sabe que existe
+   * atrapalharia mais do que informa.
+   */
+  const desligadoRef = useRef(false);
 
   const salvarAgora = () => {
     // NUNCA `timerRef.current = null` direto aqui: esta função também é chamada de dentro do
@@ -86,6 +105,7 @@ export function useRascunhoAutomatico(opts: {
     // vivo e órfão — nenhuma chamada futura a `cancelarPendente()` (nem a do `useEffect` de
     // `Escrever.tsx`, nem a de `aoComecarEnvio`) consegue mais cancelá-lo.
     cancelarPendente();
+    if (desligadoRef.current) return; // o servidor já disse que insistir não adianta (onda C)
     if (emVooRef.current) {
       pendenteRef.current = true; // adia — a versão mais nova ainda chega ao servidor (achado 2)
       return;
@@ -96,6 +116,11 @@ export function useRascunhoAutomatico(opts: {
     optsRef.current
       .salvar({ ...optsRef.current.compor(), uidAnterior: uidRef.current ?? undefined })
       .then((r) => {
+        // Antes de qualquer coisa: se o servidor desligou a gravação, nada mais é agendado nesta
+        // composição. Os dois ramos do servidor que ligam este sinal devolvem `uid: null`
+        // (`rascunhos.service.ts`), então o `uidRef` guardado logo abaixo fica nulo do mesmo
+        // jeito — não há rascunho novo para apontar nem para descartar depois do envio.
+        if (r.gravacaoDesligada) desligadoRef.current = true;
         if (enviandoRef.current) {
           // Esta gravação já estava em voo quando o envio começou — terminou só agora. O
           // rascunho que acabou de nascer é quase idêntico ao e-mail que já saiu; descarta na
@@ -132,6 +157,9 @@ export function useRascunhoAutomatico(opts: {
   /** Reinicia o timer de 5s — chamar de um `useEffect` cujas dependências são os campos do e-mail. */
   const agendar = () => {
     cancelarPendente();
+    // Com a gravação desligada nem o timer é armado: `salvarAgora` sairia cedo de qualquer jeito,
+    // mas um timer a cada tecla, para não fazer nada, é ruído que só atrapalha quem for depurar.
+    if (desligadoRef.current) return;
     timerRef.current = window.setTimeout(salvarAgora, ATRASO_MS);
   };
 

@@ -160,7 +160,177 @@ describe("Escrever — Achado 2: preparo falhou não pode travar a tela para sem
   });
 });
 
-describe("Escrever — Achado 3: trava campos e Cancelar durante o envio", () => {
+describe("Escrever — Onda C: anexos do e-mail encaminhado", () => {
+  let raiz: { root: Root; container: HTMLDivElement } | null = null;
+
+  afterEach(() => {
+    if (raiz) desmontar(raiz.root, raiz.container);
+    raiz = null;
+  });
+
+  const PREPARO = {
+    assunto: "Enc: Proposta",
+    citacaoPreview: "<p>citação</p>",
+    citacaoEnvio: "<p>citação</p>",
+    anexos: [
+      { id: "anx-1", nome: "contrato.pdf", tamanho: 1_000 },
+      { id: "anx-2", nome: "planilha.xlsx", tamanho: 2_000 },
+    ],
+  };
+
+  /** Monta em modo encaminhar, já preenchido, e devolve o que o `email.enviar` recebeu. */
+  function montarEncaminhar() {
+    const recebido: { input: Record<string, unknown> | null } = { input: null };
+    const handlers: Record<string, Handler> = {
+      "email.prepararEncaminhamento": () => PREPARO,
+      "email.enviar": (input) => {
+        recebido.input = input as Record<string, unknown>;
+        return { enviado: true, copiaEmEnviados: true };
+      },
+    };
+    raiz = montar(handlers, { modo: "encaminhar", caixaId: "caixa-1", mensagemId: "msg-1", onFechar: vi.fn() });
+    return recebido;
+  }
+
+  async function submeter() {
+    const paraInput = raiz!.container.querySelector<HTMLInputElement>("#esc-para")!;
+    act(() => {
+      definirValor(paraInput, "cliente@exemplo.com");
+    });
+    const form = raiz!.container.querySelector<HTMLFormElement>("#escrever-form")!;
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+
+  it("lista os anexos que vieram do e-mail original — encaminhar um e-mail cujo ponto É o PDF tem de mostrar o PDF", async () => {
+    montarEncaminhar();
+    await aguardar();
+    await aguardar();
+
+    expect(raiz!.container.textContent).toContain("contrato.pdf");
+    expect(raiz!.container.textContent).toContain("planilha.xlsx");
+    // O teto real do servidor são 25 MB SOMADOS (novos + originais) — a tela tem de dizer isso.
+    expect(raiz!.container.textContent, "o total tem de estar visível, contra o teto de verdade").toMatch(/de 25 MB/);
+  });
+
+  it("manda os ids em anexosOriginais — sem isso o encaminhamento sai sem o anexo", async () => {
+    const recebido = montarEncaminhar();
+    await aguardar();
+    await aguardar();
+    await submeter();
+
+    expect(recebido.input?.anexosOriginais).toEqual(["anx-1", "anx-2"]);
+    // O conteúdo NUNCA passa pelo navegador: só os ids. O nome sai do banco, no servidor.
+    expect(recebido.input?.anexos, "anexo novo é outra lista — o do original não entra nela").toEqual([]);
+  });
+
+  it("remover um anexo do original tira só ele do envio (não apaga arquivo nenhum)", async () => {
+    const recebido = montarEncaminhar();
+    await aguardar();
+    await aguardar();
+
+    const remover = raiz!.container.querySelector<HTMLButtonElement>(
+      '[aria-label="Remover contrato.pdf, anexo do e-mail original"]',
+    );
+    expect(remover, "cada anexo do original precisa de um jeito de tirar").not.toBeNull();
+    act(() => {
+      remover!.click();
+    });
+    expect(raiz!.container.textContent).not.toContain("contrato.pdf");
+
+    await submeter();
+    expect(recebido.input?.anexosOriginais).toEqual(["anx-2"]);
+  });
+
+  it("mais de 20 anexos do original BARRA o envio — o servidor recusaria com um erro ilegível", async () => {
+    const recebido: { input: Record<string, unknown> | null } = { input: null };
+    const muitos = Array.from({ length: 21 }, (_, i) => ({ id: `a${i}`, nome: `arquivo-${i}.pdf`, tamanho: 100 }));
+    raiz = montar(
+      {
+        "email.prepararEncaminhamento": () => ({ ...PREPARO, anexos: muitos }),
+        "email.enviar": (input) => {
+          recebido.input = input as Record<string, unknown>;
+          return { enviado: true, copiaEmEnviados: true };
+        },
+      },
+      { modo: "encaminhar", caixaId: "caixa-1", mensagemId: "msg-1", onFechar: vi.fn() },
+    );
+    await aguardar();
+    await aguardar();
+    await submeter();
+
+    expect(recebido.input, "a mutação não pode sair para o servidor recusar").toBeNull();
+    expect(raiz!.container.textContent).toMatch(/no máximo 20 anexos do e-mail original/i);
+  });
+
+  it("passar de 25 MB só com os anexos do original BARRA o envio", async () => {
+    const recebido: { input: Record<string, unknown> | null } = { input: null };
+    const pesados = [
+      { id: "p1", nome: "video-1.mp4", tamanho: 15 * 1024 * 1024 },
+      { id: "p2", nome: "video-2.mp4", tamanho: 15 * 1024 * 1024 },
+    ];
+    raiz = montar(
+      {
+        "email.prepararEncaminhamento": () => ({ ...PREPARO, anexos: pesados }),
+        "email.enviar": (input) => {
+          recebido.input = input as Record<string, unknown>;
+          return { enviado: true, copiaEmEnviados: true };
+        },
+      },
+      { modo: "encaminhar", caixaId: "caixa-1", mensagemId: "msg-1", onFechar: vi.fn() },
+    );
+    await aguardar();
+    await aguardar();
+    expect(raiz!.container.textContent).toContain("30,0 MB de 25 MB");
+    await submeter();
+
+    expect(recebido.input, "acima do teto o envio não pode nem sair daqui").toBeNull();
+  });
+
+  it("arquivo acima de 20 MB nem começa a subir — o servidor só devolveria 413 depois da viagem inteira", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      raiz = montar({}, { modo: "novo", caixaId: "caixa-1", onFechar: vi.fn() });
+      await aguardar();
+
+      const input = raiz.container.querySelector<HTMLInputElement>('input[type="file"]')!;
+      // `File` de mentira: só o que `anexar()` lê (nome e tamanho). Alocar 21 MB de verdade num
+      // teste seria desperdício puro.
+      const gordo = { name: "video.mp4", size: 21 * 1024 * 1024 } as File;
+      Object.defineProperty(input, "files", { configurable: true, value: [gordo] });
+      await act(async () => {
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+
+      expect(fetchSpy, "acima do teto por arquivo, nada pode ir para a rede").not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("modo novo não manda anexo original nenhum", async () => {
+    const recebido: { input: Record<string, unknown> | null } = { input: null };
+    raiz = montar(
+      {
+        "email.enviar": (input) => {
+          recebido.input = input as Record<string, unknown>;
+          return { enviado: true, copiaEmEnviados: true };
+        },
+      },
+      { modo: "novo", caixaId: "caixa-1", onFechar: vi.fn() },
+    );
+    await aguardar();
+    await submeter();
+
+    expect(recebido.input?.anexosOriginais).toEqual([]);
+  });
+});
+
+describe("Escrever — Achado 3: trava os campos durante o envio (e as 3 portas de saída se comportam igual)", () => {
   let raiz: { root: Root; container: HTMLDivElement } | null = null;
 
   beforeEach(() => {
@@ -172,7 +342,7 @@ describe("Escrever — Achado 3: trava campos e Cancelar durante o envio", () =>
     raiz = null;
   });
 
-  it("antes de enviar, o fieldset dos campos e o Cancelar estão habilitados", async () => {
+  it("antes de enviar, o fieldset dos campos está habilitado e o botão diz Cancelar", async () => {
     raiz = montar({}, { modo: "novo", caixaId: "caixa-1", onFechar: vi.fn() });
     await aguardar();
 
@@ -181,7 +351,12 @@ describe("Escrever — Achado 3: trava campos e Cancelar durante o envio", () =>
     expect(botaoComTexto(raiz.container, "Cancelar").disabled).toBe(false);
   });
 
-  it("durante o envio (mutação em voo), o fieldset dos campos e o Cancelar ficam desabilitados", async () => {
+  it("durante o envio: campos desabilitados, e o botão vira Fechar CLICÁVEL — as 3 portas (botão, X, Esc) fecham igual", async () => {
+    // Decisão da onda C: Cancelar desabilitado enquanto X/Esc/clique-fora continuavam fechando era
+    // incoerente; e prender a pessoa no modal seria pior — o SMTP tem socketTimeout de 45s
+    // (`smtp.ts`), então um servidor lento trancaria a tela por quase um minuto sem saída. Todas
+    // as portas fecham; o rótulo vira "Fechar" para não prometer que interrompe o envio (o e-mail
+    // termina de sair em segundo plano e o toast avisa o resultado).
     let resolverEnvio: ((v: unknown) => void) | null = null;
     const handlers: Record<string, Handler> = {
       "email.enviar": () =>
@@ -189,7 +364,8 @@ describe("Escrever — Achado 3: trava campos e Cancelar durante o envio", () =>
           resolverEnvio = resolve;
         }),
     };
-    raiz = montar(handlers, { modo: "novo", caixaId: "caixa-1", onFechar: vi.fn() });
+    const onFechar = vi.fn();
+    raiz = montar(handlers, { modo: "novo", caixaId: "caixa-1", onFechar });
     await aguardar();
 
     const paraInput = raiz.container.querySelector<HTMLInputElement>("#esc-para")!;
@@ -205,12 +381,63 @@ describe("Escrever — Achado 3: trava campos e Cancelar durante o envio", () =>
 
     const fieldset = raiz.container.querySelector("fieldset");
     expect(fieldset?.disabled).toBe(true);
-    expect(botaoComTexto(raiz.container, "Cancelar").disabled).toBe(true);
+
+    const fechar = botaoComTexto(raiz.container, "Fechar");
+    expect(fechar.disabled, "a porta do rodapé tem de funcionar como o X e o Esc").toBe(false);
+    act(() => {
+      fechar.click();
+    });
+    expect(onFechar).toHaveBeenCalled();
 
     // limpa a mutação em voo para não vazar entre testes
     await act(async () => {
       resolverEnvio?.({ enviado: true, copiaEmEnviados: true });
       await new Promise((r) => setTimeout(r, 0));
     });
+  });
+
+  it("envio que conclui DEPOIS de a tela fechar não chama onFechar de novo (senão fecha a composição SEGUINTE)", async () => {
+    // `onSuccess`/`onError` do `useMutation` são chamados pela mutação do query-core, não pelo
+    // observer: rodam com o componente já desmontado. Sem guarda, o envio lento que terminava 20s
+    // depois fechava o e-mail que a pessoa já tinha começado a escrever — levando junto o texto
+    // dos últimos 5s (o cleanup do timer cancela a gravação pendente).
+    let resolverEnvio: ((v: unknown) => void) | null = null;
+    const onFechar = vi.fn();
+    raiz = montar(
+      {
+        "email.enviar": () =>
+          new Promise((resolve) => {
+            resolverEnvio = resolve;
+          }),
+      },
+      { modo: "novo", caixaId: "caixa-1", onFechar },
+    );
+    await aguardar();
+
+    act(() => {
+      definirValor(raiz!.container.querySelector<HTMLInputElement>("#esc-para")!, "cliente@exemplo.com");
+    });
+    const form = raiz.container.querySelector<HTMLFormElement>("#escrever-form")!;
+    await act(async () => {
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    // A pessoa fecha a tela com o envio em voo (as 3 portas fecham) — e a `EmailPage` desmonta o
+    // componente, que é o que o `onFechar` real faz (`setEscrevendo(null)`).
+    act(() => {
+      botaoComTexto(raiz!.container, "Fechar").click();
+    });
+    expect(onFechar).toHaveBeenCalledTimes(1);
+    const { root, container } = raiz;
+    raiz = null;
+    desmontar(root, container);
+
+    // Só AGORA o envio termina.
+    await act(async () => {
+      resolverEnvio?.({ enviado: true, copiaEmEnviados: true });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(onFechar, "a tela já fechou: fechar de novo mataria a composição seguinte").toHaveBeenCalledTimes(1);
   });
 });

@@ -2,14 +2,67 @@ import { z } from "zod";
 import { escapeHtml } from "../../lib/escape-html";
 
 /**
+ * Separa o texto em ITENS por vírgula/ponto-e-vírgula, ignorando os que estão dentro de aspas
+ * (`"Garcia, Thaís" <t@x.com>`, o formato que o Outlook copia) ou dentro de `< >`. As aspas somem
+ * no caminho: o nome é descartado de todo jeito, quem interessa é o endereço.
+ */
+function separarItens(valor: string): string[] {
+  const itens: string[] = [];
+  let atual = "";
+  let emAspas = false;
+  let emAngulo = false;
+  for (const ch of valor) {
+    if (ch === '"') {
+      emAspas = !emAspas;
+      continue;
+    }
+    if (!emAspas && ch === "<") emAngulo = true;
+    else if (!emAspas && ch === ">") emAngulo = false;
+    if ((ch === "," || ch === ";") && !emAspas && !emAngulo) {
+      itens.push(atual);
+      atual = "";
+      continue;
+    }
+    atual += ch;
+  }
+  itens.push(atual);
+  return itens;
+}
+
+/**
  * Quebra o texto digitado num campo Para/Cc/Cco em endereços — aceita vírgula, ponto-e-vírgula
  * ou espaço como separador (o jeito mais natural de colar vários e-mails de uma vez).
+ *
+ * Aceita TAMBÉM o formato com nome, `Nome <alguem@x.com>`, que é o que sai de um Ctrl+C em
+ * qualquer outro cliente de e-mail: quebrar por espaço transformava isso em dois "endereços"
+ * inválidos e o envio morria em "Endereço de e-mail inválido: Nome". Quando um item tem `< >`,
+ * só o que está DENTRO conta e o nome é descartado — o nome de exibição do destinatário não é
+ * nossa responsabilidade (o servidor manda só o endereço).
  */
 export function dividirEmails(valor: string): string[] {
-  return valor
-    .split(/[,;\s]+/)
+  return separarItens(valor)
+    .flatMap((item) => {
+      // Sem `< >` no item: cada pedaço separado por espaço é um endereço, como sempre foi.
+      if (!/<[^<>]*>/.test(item)) return item.split(/\s+/);
+      // Com `< >`: o que está DENTRO dos ângulos entra, e o que sobrou fora deles entra também
+      // se parecer endereço (tiver um `@` com texto dos dois lados) — é o que impede
+      // "cliente@x.com Fulano <fulano@y.com>" de virar só o segundo. Nada some em silêncio:
+      // só o nome de exibição, que nunca foi destinatário, fica de fora. A ORDEM é a da
+      // digitação porque a troca acontece no lugar, antes de separar.
+      return item
+        .replace(/<([^<>]*)>/g, " $1 ")
+        .split(/\s+/)
+        .filter((token) => /[^\s@]+@[^\s@]+/.test(token));
+    })
     .map((v) => v.trim())
     .filter(Boolean);
+}
+
+/** Tamanho de arquivo para gente: "832 KB", "1,4 MB". Só para mostrar na tela. */
+export function formatarTamanho(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
 }
 
 const emailSchema = z.string().email();

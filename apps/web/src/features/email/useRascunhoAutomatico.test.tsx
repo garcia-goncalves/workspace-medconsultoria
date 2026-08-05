@@ -229,9 +229,11 @@ describe("useRascunhoAutomatico", () => {
       apiRef.current!.aoComecarEnvio(); // clique em Enviar — envio começou
     });
 
-    // Os campos do formulário NÃO ficam desabilitados durante o envio (só o botão Enviar), então
-    // uma tecla digitada aqui re-agenda o debounce normalmente (`agendar()`, como o `useEffect`
-    // de `Escrever.tsx` faria a cada mudança de campo).
+    // Desde `d33d3f0` os campos ficam desabilitados durante o envio (`<fieldset disabled>` em
+    // `Escrever.tsx`), então esta chamada a `agendar()` cobre o que a UI desabilitada NÃO alcança:
+    // qualquer `agendar()` que ainda escape pelo caminho do código (uma mudança de estado que
+    // dispare o `useEffect`, ou o próprio fieldset sendo removido um dia). A trava de `enviando`
+    // é a rede de segurança, e não pode depender de a tela estar desabilitada.
     act(() => {
       apiRef.current!.agendar();
     });
@@ -434,6 +436,66 @@ describe("useRascunhoAutomatico", () => {
     });
     expect(salvar).toHaveBeenCalledTimes(2);
     expect(salvar).toHaveBeenLastCalledWith({ ...COMPOSICAO_2, uidAnterior: 7 });
+
+    desmontar(root, container);
+  });
+
+  it("onda C — gravacaoDesligada: true PARA de reagendar a gravação nesta composição", async () => {
+    // Semântica do servidor (`SalvarRascunhoResultado`, `rascunhos.service.ts`): `true` = insistir
+    // é inútil (servidor sem UIDPLUS: nada é gravado e cada ciclo de 5s abre uma conexão IMAP à
+    // toa) ou DANOSO (gravou e não devolveu o UID: cada ciclo acrescenta uma cópia nova, sem teto,
+    // até encher a pasta Rascunhos). Nos dois casos o texto continua na tela — só a cópia no
+    // servidor deixa de existir.
+    const apiRef: { current: Api | null } = { current: null };
+    const salvar = vi.fn().mockResolvedValue({ uid: null, gravacaoDesligada: true });
+    const descartar = vi.fn().mockResolvedValue(undefined);
+    const { root, container } = montar(apiRef, { temConteudo: () => true, compor: () => COMPOSICAO, salvar, descartar });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(salvar, "a primeira gravação acontece normalmente — o sinal só chega na resposta dela").toHaveBeenCalledTimes(1);
+
+    // A pessoa continua digitando: cada tecla chama `agendar()` pelo `useEffect` de `Escrever.tsx`.
+    act(() => {
+      apiRef.current!.agendar();
+    });
+    expect(vi.getTimerCount(), "com a gravação desligada nem o timer pode ser armado").toBe(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    expect(salvar, "nenhuma gravação nova depois de gravacaoDesligada").toHaveBeenCalledTimes(1);
+
+    // Fechar a tela também não insiste — é o mesmo servidor, o mesmo resultado.
+    act(() => {
+      apiRef.current!.aoFechar();
+    });
+    expect(salvar, "aoFechar não pode ressuscitar a gravação desligada").toHaveBeenCalledTimes(1);
+
+    desmontar(root, container);
+  });
+
+  it("onda C — gravacaoDesligada: false (falha transitória) NÃO desliga nada: a próxima tecla grava de novo", async () => {
+    // Controle do teste acima: sem ele, "desligar sempre depois da 1ª gravação" passaria como
+    // correção — e a gravação automática morreria no primeiro save de toda composição.
+    const apiRef: { current: Api | null } = { current: null };
+    const salvar = vi.fn().mockResolvedValue({ uid: 12, gravacaoDesligada: false });
+    const { root, container } = montar(apiRef, { temConteudo: () => true, compor: () => COMPOSICAO, salvar, descartar: vi.fn() });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(salvar).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      apiRef.current!.agendar();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(salvar, "gravação normal segue viva").toHaveBeenCalledTimes(2);
+    expect(salvar).toHaveBeenLastCalledWith({ ...COMPOSICAO, uidAnterior: 12 });
 
     desmontar(root, container);
   });

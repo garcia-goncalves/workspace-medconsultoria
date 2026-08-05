@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Mail, Plus, Search, X, AlertTriangle, Paperclip, Pencil, Reply, ReplyAll, Forward } from "lucide-react";
+import { Mail, Plus, Search, X, AlertTriangle, Paperclip, Pencil, Reply, ReplyAll, Forward, Download } from "lucide-react";
 import { cn } from "@app/ui";
 import { trpc } from "../../lib/trpc";
 import { POLL } from "../../lib/socket";
@@ -328,12 +328,38 @@ export function EmailPage() {
                 &lt;{msgAberta.deEmail}&gt; · {data(msgAberta.dataEm)} às {hora(msgAberta.dataEm)}
               </p>
               {msgAberta.anexos.length > 0 && (
+                /* Cada anexo é um LINK de verdade para `GET /email-anexo/:mensagemId/:anexoId`.
+                   `<a href>` e não `fetch`: a rota é do MESMO domínio, então o cookie httpOnly da
+                   sessão vai junto no clique — com `fetch` seria preciso montar um blob na memória
+                   do navegador só para recriar o download que o navegador já sabe fazer. A rota
+                   responde `Content-Disposition: attachment` + `octet-stream` + `nosniff`, então
+                   nada abre dentro do nosso domínio, nem um `.html` com script.
+
+                   SEM o atributo `download`, de propósito: com ele o navegador salva o corpo da
+                   resposta seja qual for o status, e um 401 (sessão expirada) ou 404 (o IMAP não
+                   devolveu a parte) vira um "contrato.pdf" com `{"error":"…"}` dentro, que o
+                   leitor de PDF abre como arquivo corrompido — a mensagem do servidor nunca
+                   chegaria a ninguém. Em aba nova, o sucesso baixa igual (é o
+                   `Content-Disposition` que manda, com o nome em UTF-8) e o erro aparece legível
+                   sem derrubar a tela do e-mail. */
                 <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                  <Paperclip className="h-3.5 w-3.5" />
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   {msgAberta.anexos.map((a) => (
-                    <span key={a.id} className="rounded border px-1.5 py-0.5">
-                      {a.nome}
-                    </span>
+                    <a
+                      key={a.id}
+                      href={`/email-anexo/${msgAberta.id}/${a.id}`}
+                      target="_blank"
+                      rel="noopener"
+                      aria-label={`Baixar anexo ${a.nome}`}
+                      className="inline-flex max-w-[16rem] items-center gap-1 rounded border px-1.5 py-0.5 hover:bg-muted hover:text-foreground"
+                    >
+                      <Download className="h-3 w-3 shrink-0" aria-hidden="true" />
+                      {/* `title` no texto (não no link): serve de balão para o mouse quando o nome
+                          é truncado, sem virar uma segunda leitura para o leitor de tela. */}
+                      <span className="truncate" title={a.nome}>
+                        {a.nome}
+                      </span>
+                    </a>
                   ))}
                 </p>
               )}

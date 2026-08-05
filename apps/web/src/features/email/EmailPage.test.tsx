@@ -1,0 +1,147 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { observable } from "@trpc/server/observable";
+import { TRPCClientError, type TRPCLink } from "@trpc/client";
+import type { AnyTRPCRouter } from "@trpc/server";
+import { trpc } from "../../lib/trpc";
+import { EmailPage } from "./EmailPage";
+
+// Mesmo arranjo de `Escrever.test.tsx`: sem Testing Library, com um link tRPC de mentira que
+// responde de um mapa por `op.path`.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+type Handler = (input: unknown) => unknown | Promise<unknown>;
+
+function linkMock(handlers: Record<string, Handler>): TRPCLink<AnyTRPCRouter> {
+  return () =>
+    ({ op }) =>
+      observable((observer) => {
+        const handler = handlers[op.path];
+        if (!handler) {
+          observer.error(TRPCClientError.from(new Error(`sem handler mockado para "${op.path}"`)));
+          return;
+        }
+        Promise.resolve()
+          .then(() => handler(op.input))
+          .then((data) => {
+            observer.next({ result: { type: "data", data } });
+            observer.complete();
+          })
+          .catch((erro) => {
+            observer.error(TRPCClientError.from(erro instanceof Error ? erro : new Error(String(erro))));
+          });
+        return () => {};
+      });
+}
+
+const DATA = new Date("2026-08-05T12:00:00Z");
+
+const HANDLERS: Record<string, Handler> = {
+  "email.caixas": () => [
+    { id: "caixa-1", email: "thais@medconsultoria.com.br", rotulo: "Thaís", estado: "OK", nomeExibicao: "Thaís" },
+  ],
+  "email.pastas": () => [{ id: "pasta-1", nome: "Caixa de entrada", papel: "INBOX", naoLidos: 0, caminho: "INBOX" }],
+  "email.sincronizar": () => ({ ok: true }),
+  "email.mensagens": () => [
+    {
+      id: "msg-1",
+      deNome: "Cliente Exemplo",
+      deEmail: "cliente@exemplo.com",
+      assunto: "Proposta assinada",
+      dataEm: DATA,
+      lido: true,
+      trecho: "segue em anexo",
+      temAnexo: true,
+    },
+  ],
+  "email.abrir": () => ({
+    id: "msg-1",
+    assunto: "Proposta assinada",
+    deNome: "Cliente Exemplo",
+    deEmail: "cliente@exemplo.com",
+    dataEm: DATA,
+    enderecos: [],
+    anexos: [{ id: "anx-1", nome: "contrato assinado.pdf", tipo: "application/pdf", tamanho: 12_345 }],
+    corpoHtml: null,
+    corpoTexto: "segue em anexo",
+    imagensBloqueadas: 0,
+  }),
+};
+
+function montar(handlers: Record<string, Handler>) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const trpcClient = trpc.createClient({ links: [linkMock(handlers) as never] });
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  act(() => {
+    root.render(
+      <trpc.Provider client={trpcClient} queryClient={queryClient}>
+        <QueryClientProvider client={queryClient}>
+          <EmailPage />
+        </QueryClientProvider>
+      </trpc.Provider>,
+    );
+  });
+  return { root, container };
+}
+
+async function aguardar() {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
+describe("EmailPage — anexo recebido tem de dar para BAIXAR", () => {
+  let raiz: { root: Root; container: HTMLDivElement } | null = null;
+
+  afterEach(() => {
+    if (raiz) {
+      act(() => raiz!.root.unmount());
+      raiz.container.remove();
+    }
+    raiz = null;
+  });
+
+  /**
+   * A rota `GET /email-anexo/:mensagemId/:anexoId` existe desde o Bloco 2 e ficou MORTA na app
+   * inteira (produção inclusive): a tela desenhava o nome do anexo num `<span>` puro e ninguém
+   * conseguia abrir o arquivo. É o defeito que este teste existe para travar — "enviar e baixar"
+   * foi entregue pela metade uma vez e ninguém percebeu.
+   */
+  it("cada anexo da mensagem aberta é um LINK para a rota de download", async () => {
+    raiz = montar(HANDLERS);
+    // Cadeia de consultas: caixas → pastas → mensagens. Cada uma só começa quando a anterior
+    // responde, então uma volta de microtasks por elo.
+    for (let i = 0; i < 6; i += 1) await aguardar();
+
+    const item = [...raiz.container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Proposta assinada"),
+    );
+    expect(item, "a mensagem tem de aparecer na lista").toBeTruthy();
+    act(() => {
+      item!.click();
+    });
+    await aguardar();
+    await aguardar();
+
+    const link = raiz.container.querySelector<HTMLAnchorElement>('a[href="/email-anexo/msg-1/anx-1"]');
+    expect(link, "o anexo tem de ser um <a> apontando para a rota de download").not.toBeNull();
+    expect(link!.textContent).toContain("contrato assinado.pdf");
+    // Mesmo domínio: o cookie httpOnly da sessão vai junto no clique — nada de `fetch` aqui.
+    // NADA de `download`: com ele o navegador salva o corpo da resposta seja qual for o status, e
+    // um 401/404 viraria um "contrato assinado.pdf" com JSON de erro dentro — arquivo corrompido
+    // na mão da pessoa e a mensagem do servidor perdida. Em aba nova, o sucesso baixa igual (quem
+    // manda é o `Content-Disposition: attachment` da rota) e o erro aparece legível.
+    expect(link!.hasAttribute("download"), "`download` transforma erro do servidor em arquivo corrompido").toBe(false);
+    expect(link!.getAttribute("target")).toBe("_blank");
+    expect(link!.getAttribute("rel")).toBe("noopener");
+    // O rótulo diz o que o link FAZ; o nome truncado guarda o `title` no texto, não no link (senão
+    // o leitor de tela anuncia o nome duas vezes).
+    expect(link!.getAttribute("aria-label")).toBe("Baixar anexo contrato assinado.pdf");
+    expect(link!.hasAttribute("title")).toBe(false);
+    expect(link!.querySelector("span")?.getAttribute("title")).toBe("contrato assinado.pdf");
+  });
+});

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { dividirEmails, emailValido, montarCorpoEnvio, temConteudoParaRascunho, textoParaHtml } from "./compor";
+import {
+  dividirEmails,
+  emailValido,
+  formatarTamanho,
+  montarCorpoEnvio,
+  temConteudoParaRascunho,
+  textoParaHtml,
+} from "./compor";
 
 describe("dividirEmails", () => {
   it("separa por vírgula, ponto-e-vírgula e espaço", () => {
@@ -18,6 +25,73 @@ describe("dividirEmails", () => {
   it("string vazia vira lista vazia", () => {
     expect(dividirEmails("")).toEqual([]);
     expect(dividirEmails("   ")).toEqual([]);
+  });
+
+  // Colar "Nome <email@x.com>" é o gesto mais natural de quem copia de outro cliente de e-mail
+  // (Gmail, Outlook, webmail). Quebrar por espaço transformava isso em dois "endereços"
+  // inválidos e o envio morria em "Endereço de e-mail inválido: Nome".
+  it("aceita o formato com nome: descarta o nome e fica com o endereço", () => {
+    expect(dividirEmails("Thaís Garcia <thais@medconsultoria.com.br>")).toEqual([
+      "thais@medconsultoria.com.br",
+    ]);
+  });
+
+  it("aceita nome ENTRE ASPAS com vírgula dentro (o jeito do Outlook)", () => {
+    expect(dividirEmails('"Garcia, Thaís" <thais@medconsultoria.com.br>, b@x.com')).toEqual([
+      "thais@medconsultoria.com.br",
+      "b@x.com",
+    ]);
+  });
+
+  it("vários com nome, separados por vírgula/ponto-e-vírgula", () => {
+    expect(dividirEmails("Ana <ana@x.com>, Bruno <bruno@x.com>; Célia <celia@x.com>")).toEqual([
+      "ana@x.com",
+      "bruno@x.com",
+      "celia@x.com",
+    ]);
+  });
+
+  it("mistura de formato com nome e e-mail solto na mesma colagem", () => {
+    expect(dividirEmails("Ana <ana@x.com>, solto@x.com")).toEqual(["ana@x.com", "solto@x.com"]);
+  });
+
+  it("dois com nome separados só por espaço (colagem sem vírgula)", () => {
+    expect(dividirEmails("Ana <ana@x.com> Bruno <bruno@x.com>")).toEqual(["ana@x.com", "bruno@x.com"]);
+  });
+
+  // O caso que a primeira versão do formato-com-nome ENGOLIA em silêncio: quem digita um
+  // endereço, dá espaço e cola um contato do Outlook mandava o e-mail só para o segundo. Endereço
+  // que some sem aviso é pior que erro na cara — e-mail enviado não tem desfazer.
+  it("endereço solto ANTES de um com nome, separados por espaço — nenhum dos dois pode sumir", () => {
+    expect(dividirEmails("cliente@exemplo.com Thaís <thais@medconsultoria.com.br>")).toEqual([
+      "cliente@exemplo.com",
+      "thais@medconsultoria.com.br",
+    ]);
+  });
+
+  it("endereço solto DEPOIS de um com nome, na mesma colagem, na ordem em que foram digitados", () => {
+    expect(dividirEmails("Thaís <thais@medconsultoria.com.br> cliente@exemplo.com")).toEqual([
+      "thais@medconsultoria.com.br",
+      "cliente@exemplo.com",
+    ]);
+  });
+
+  it("três misturados sem vírgula nenhuma", () => {
+    expect(dividirEmails("a@x.com Ana <ana@x.com> b@x.com")).toEqual(["a@x.com", "ana@x.com", "b@x.com"]);
+  });
+
+  it("endereço entre < > sem nome nenhum", () => {
+    expect(dividirEmails("<so-o-endereco@x.com>")).toEqual(["so-o-endereco@x.com"]);
+  });
+});
+
+describe("formatarTamanho", () => {
+  it("bytes, KB e MB — com vírgula decimal, como se lê em português", () => {
+    expect(formatarTamanho(0)).toBe("0 B");
+    expect(formatarTamanho(900)).toBe("900 B");
+    expect(formatarTamanho(2048)).toBe("2 KB");
+    expect(formatarTamanho(1024 * 1024)).toBe("1,0 MB");
+    expect(formatarTamanho(25 * 1024 * 1024)).toBe("25,0 MB");
   });
 });
 

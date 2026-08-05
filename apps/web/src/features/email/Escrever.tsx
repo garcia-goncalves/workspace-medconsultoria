@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Paperclip, X } from "lucide-react";
+import { cn } from "@app/ui";
 import { trpc } from "../../lib/trpc";
 import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
@@ -7,18 +8,44 @@ import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { Label } from "../../components/ui/label";
 import { toast } from "../../components/ui/toast";
-import { dividirEmails, emailValido, montarCorpoEnvio, temConteudoParaRascunho } from "./compor";
+import { dividirEmails, emailValido, formatarTamanho, montarCorpoEnvio, temConteudoParaRascunho } from "./compor";
 import { useRascunhoAutomatico } from "./useRascunhoAutomatico";
 
 export type ModoEscrever = "novo" | "responder" | "responderTodos" | "encaminhar";
 
+/** Arquivo que a pessoa acabou de subir por `POST /email-anexo` (vive num temporário nosso). */
 interface AnexoEnviado {
   id: string;
   nome: string;
+  tamanho: number;
+}
+
+/**
+ * Anexo que veio do e-mail sendo encaminhado (`prepararEncaminhamento`). NÃO é arquivo nosso:
+ * só o id viaja: o servidor rebaixa o conteúdo do IMAP na hora de enviar, e tira o nome do banco.
+ * Tirar um destes da lista não apaga nada — só deixa de levá-lo no encaminhamento.
+ */
+interface AnexoOriginal {
+  id: string;
+  nome: string;
+  tamanho: number;
 }
 
 /** Teto do schema (`enviarEmailSchema.anexos`) — não vale a pena subir o 21º pra descobrir isso no servidor. */
 const MAX_ANEXOS = 20;
+
+/**
+ * Teto REAL do servidor: `LIMITE_ANEXOS_BYTES` em `envio.service.ts` — 25 MB SOMANDO os anexos
+ * novos e os que vieram do e-mail original. Conferir aqui evita subir um arquivo de 30 MB pela
+ * rede inteira só para o envio ser recusado no fim.
+ */
+const LIMITE_TOTAL_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Teto POR ARQUIVO da rota de upload (`TAMANHO_MAX`, `lib/storage.ts`). Sem conferir aqui, um
+ * arquivo de 22 MB sobe pela rede inteira só para voltar 413 — e num link lento isso são minutos.
+ */
+const LIMITE_ARQUIVO_BYTES = 20 * 1024 * 1024;
 
 /**
  * Estilo mínimo para o preview da citação, que roda num documento isolado (`srcDoc`) e por isso
@@ -58,12 +85,17 @@ export function Escrever({
   const [mostrarCcCco, setMostrarCcCco] = useState(false);
   const [assunto, setAssunto] = useState("");
   const [corpoDigitado, setCorpoDigitado] = useState("");
-  // Duas versões da citação (ADR — ver `citacao.ts`): `citacaoPreview` tem imagem remota
-  // bloqueada e é a única que aparece na tela; `citacaoEnvio` tem a imagem restaurada e é a
-  // única que entra no `corpoHtml` mandado para `email.enviar`. NUNCA trocar uma pela outra.
+  // Duas versões da citação, montadas no servidor (`citacao.ts`): `citacaoPreview` é a única que
+  // aparece na tela; `citacaoEnvio` é a única que entra no `corpoHtml` mandado para `email.enviar`.
+  // NUNCA trocar uma pela outra: a oposição entre elas é a decisão de segurança do módulo — quem
+  // encaminha nunca repassa o pixel de rastreio do remetente ao cliente.
+  // Hoje as duas chegam iguais na prática (o corpo é gravado no banco JÁ higienizado, sem o `src`
+  // remoto original, então "restaurar a imagem no envio" é um no-op) — manter os dois campos
+  // separados é o que impede a regra de sumir quando o corpo cru voltar a ser guardado.
   const [citacaoPreview, setCitacaoPreview] = useState("");
   const [citacaoEnvio, setCitacaoEnvio] = useState("");
   const [anexos, setAnexos] = useState<AnexoEnviado[]>([]);
+  const [anexosOriginais, setAnexosOriginais] = useState<AnexoOriginal[]>([]);
   const [anexando, setAnexando] = useState(false);
   const [preenchido, setPreenchido] = useState(modo === "novo");
   const inputArquivoRef = useRef<HTMLInputElement>(null);
@@ -94,6 +126,9 @@ export function Escrever({
       setAssunto(encaminhamento.data.assunto);
       setCitacaoPreview(encaminhamento.data.citacaoPreview);
       setCitacaoEnvio(encaminhamento.data.citacaoEnvio);
+      // Já vêm marcados: encaminhar um e-mail cujo ponto inteiro É o PDF é o caso normal, não a
+      // exceção. Quem não quiser levar algum tira da lista.
+      setAnexosOriginais(encaminhamento.data.anexos);
       setPreenchido(true);
     }
   }, [preenchido, ehResposta, modo, resposta.data, encaminhamento.data]);
@@ -110,8 +145,22 @@ export function Escrever({
   // pré-preenchimento acima nunca seta `preenchido = true` — sem isto, `carregandoPreparo` fica
   // `true` PARA SEMPRE, o botão Enviar morre desabilitado, e a única pista já sumiu da tela.
   // Guardamos o erro e o `refetch` certo para mostrar um estado PERSISTENTE no corpo do modal.
-  const erroPreparo = ehResposta ? resposta.isError : modo === "encaminhar" ? encaminhamento.isError : false;
+  //
+  // O `!preenchido` no começo é o que impede a tarja de aparecer sobre um formulário já pronto:
+  // depois do pré-preenchimento, um refetch em segundo plano que falhe não tira nada da tela — o
+  // texto e os campos continuam certos ali —, e mostrar erro nesse ponto só assustaria.
+  const erroPreparo =
+    !preenchido && (ehResposta ? resposta.isError : modo === "encaminhar" ? encaminhamento.isError : false);
   const refazerPreparo = ehResposta ? resposta.refetch : encaminhamento.refetch;
+  const refazendoPreparo = ehResposta ? resposta.isFetching : modo === "encaminhar" ? encaminhamento.isFetching : false;
+
+  /**
+   * Responder/encaminhar SEM a mensagem original: as duas queries ficam desligadas (`enabled`),
+   * então nada nunca carrega e o Enviar fica desabilitado para sempre. Não deveria acontecer
+   * (`EmailPage` só abre esses modos com a mensagem aberta na mão), mas até aqui a tela precisa
+   * explicar o que houve em vez de parecer travada.
+   */
+  const faltaMensagem = modo !== "novo" && !mensagemId;
 
   // Rascunho automático na pasta Drafts do servidor — lógica isolada em `useRascunhoAutomatico`
   // (testável com timers falsos, sem montar tRPC) para cobrir 3 defeitos: timer disparando NO
@@ -151,6 +200,23 @@ export function Escrever({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paraTexto, ccTexto, ccoTexto, assunto, corpoDigitado, citacaoEnvio]);
 
+  /**
+   * `onSuccess`/`onError` de `useMutation` são chamados pela MUTAÇÃO do query-core, não pelo
+   * observer — então eles rodam mesmo com este componente já desmontado. Isso é bom para tudo que
+   * é global (o toast do resultado, invalidar a lista, apagar o rascunho no servidor) e é
+   * DESASTRE para `onFechar()`: a pessoa fecha um envio lento (o SMTP tem `socketTimeout` de 45s),
+   * começa a escrever OUTRO e-mail, e o envio antigo termina fechando a composição nova no meio da
+   * digitação — levando junto o texto dos últimos 5s, que o cleanup do timer cancela antes de
+   * gravar. Perder texto é o que este módulo inteiro existe para evitar.
+   */
+  const montadoRef = useRef(true);
+  useEffect(() => {
+    montadoRef.current = true;
+    return () => {
+      montadoRef.current = false;
+    };
+  }, []);
+
   const enviar = trpc.email.enviar.useMutation({
     onSuccess: (r) => {
       utils.email.mensagens.invalidate();
@@ -163,7 +229,8 @@ export function Escrever({
       // Apaga no servidor o rascunho da composição que acabou de sair — sem isto, todo e-mail
       // que passou 5s parado antes de enviar deixava uma cópia desatualizada em Rascunhos.
       rascunho.descartarAposEnvio();
-      onFechar();
+      // Só fecha se esta tela AINDA for esta tela (ver o comentário de `montadoRef`).
+      if (montadoRef.current) onFechar();
     },
     onError: (e) => {
       // A mensagem vem pronta do servidor — inclusive a trava de destino de teste fora de produção.
@@ -180,6 +247,10 @@ export function Escrever({
     onFechar();
   };
 
+  /** Tudo que vai pendurado no e-mail: o que a pessoa subiu + o que veio do original. */
+  const bytesAnexos =
+    anexos.reduce((s, a) => s + a.tamanho, 0) + anexosOriginais.reduce((s, a) => s + a.tamanho, 0);
+
   const subirAnexo = async (arquivo: File): Promise<AnexoEnviado> => {
     const fd = new FormData();
     fd.append("arquivo", arquivo);
@@ -193,14 +264,29 @@ export function Escrever({
     if (!resp.ok || !corpo.id || !corpo.nome) {
       throw new Error(corpo.error ?? "Falha ao anexar o arquivo.");
     }
-    return { id: corpo.id, nome: corpo.nome };
+    return { id: corpo.id, nome: corpo.nome, tamanho: arquivo.size };
   };
 
   const anexar = async (arquivos: FileList | null) => {
     if (!arquivos || arquivos.length === 0) return;
     const lista = Array.from(arquivos);
     if (anexos.length + lista.length > MAX_ANEXOS) {
-      toast(`São no máximo ${MAX_ANEXOS} anexos por e-mail.`);
+      toast(`São no máximo ${MAX_ANEXOS} arquivos anexados por e-mail.`);
+      return;
+    }
+    // Conferido ANTES de subir: o servidor recusa o envio acima de 25 MB somados, e descobrir
+    // isso só na hora de enviar significaria ter subido o arquivo inteiro à toa.
+    const grande = lista.find((f) => f.size > LIMITE_ARQUIVO_BYTES);
+    if (grande) {
+      toast(`"${grande.name}" tem ${formatarTamanho(grande.size)} — cada arquivo pode ter no máximo 20 MB.`);
+      return;
+    }
+    const novoTotal = bytesAnexos + lista.reduce((s, f) => s + f.size, 0);
+    if (novoTotal > LIMITE_TOTAL_BYTES) {
+      toast(
+        `Tudo somado daria ${formatarTamanho(novoTotal)} — o limite é 25 MB por e-mail. ` +
+          "Tire algum anexo ou mande o arquivo por link.",
+      );
       return;
     }
     setAnexando(true);
@@ -218,6 +304,8 @@ export function Escrever({
   };
 
   const removerAnexo = (id: string) => setAnexos((prev) => prev.filter((a) => a.id !== id));
+  /** Só tira da lista de envio — o anexo continua no e-mail original, intocado. */
+  const removerAnexoOriginal = (id: string) => setAnexosOriginais((prev) => prev.filter((a) => a.id !== id));
 
   const aoSubmeter = (e: React.FormEvent) => {
     e.preventDefault();
@@ -236,6 +324,20 @@ export function Escrever({
       return;
     }
 
+    // As duas travas de anexo, aqui e não só no aviso da tela: sem elas a mutação sai, o servidor
+    // recusa, e o que a pessoa lê é a mensagem de validação do zod (uma lista de `issues`) ou o
+    // erro de 25 MB depois de o envio inteiro ter viajado.
+    if (anexosOriginais.length > MAX_ANEXOS) {
+      toast(
+        `Dá para levar no máximo ${MAX_ANEXOS} anexos do e-mail original — tire ${anexosOriginais.length - MAX_ANEXOS} da lista.`,
+      );
+      return;
+    }
+    if (bytesAnexos > LIMITE_TOTAL_BYTES) {
+      toast(`Os anexos somam ${formatarTamanho(bytesAnexos)} — o limite é 25 MB por e-mail. Tire algum da lista.`);
+      return;
+    }
+
     // Cancela o timer de 5s ANTES de mandar (achado 1): sem isto, um envio lento (SMTP + cópia em
     // Enviados + marcar respondida) deixa o timer disparar NO MEIO do envio e gravar um rascunho
     // que ninguém mais remove.
@@ -250,6 +352,9 @@ export function Escrever({
       emRespostaA: ehResposta ? mensagemId : undefined,
       encaminhando: modo === "encaminhar" ? mensagemId : undefined,
       anexos,
+      // Só os ids: o conteúdo nunca passa pelo navegador — quem rebaixa do IMAP é o servidor, que
+      // também tira o nome do banco (nome vindo do cliente não seria confiável).
+      anexosOriginais: anexosOriginais.map((a) => a.id),
     });
   };
 
@@ -272,12 +377,15 @@ export function Escrever({
       size="xl"
       footer={
         <>
-          {/* Achado 3 (React) — enquanto o envio está em voo, Cancelar SÓ fecha o modal, não
-              cancela o envio (não existe desfazer um e-mail que já saiu). Deixá-lo clicável dava
-              a entender que fechar interromperia algo que, na verdade, completa em segundo plano
-              com a tela já fechada. */}
-          <Button type="button" variant="outline" onClick={aoFechar} disabled={enviar.isPending}>
-            Cancelar
+          {/* Enquanto o envio está em voo este botão SÓ fecha a tela — não cancela nada (não
+              existe desfazer um e-mail que já saiu), e por isso ele muda de nome. Desabilitá-lo,
+              como se fazia antes, era incoerente: o X, o Esc e o clique fora continuavam fechando
+              do mesmo jeito. Ou as três portas se comportam igual, ou nenhuma — e trancar as três
+              seria pior: o SMTP tem `socketTimeout` de 45s (`smtp.ts`), então um servidor lento
+              prenderia a pessoa no modal por quase um minuto. O resultado do envio chega pelo
+              toast, com a tela já fechada. */}
+          <Button type="button" variant="outline" onClick={aoFechar}>
+            {enviar.isPending ? "Fechar" : "Cancelar"}
           </Button>
           <Button type="submit" form="escrever-form" disabled={enviar.isPending || carregandoPreparo}>
             {enviar.isPending ? "Enviando…" : "Enviar"}
@@ -286,6 +394,12 @@ export function Escrever({
       }
     >
       <form id="escrever-form" onSubmit={aoSubmeter} className="space-y-3" noValidate>
+        {faltaMensagem && (
+          <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            Esta tela precisa da mensagem original e ela não veio. Feche, abra o e-mail que você
+            quer {modo === "encaminhar" ? "encaminhar" : "responder"} e tente por ali.
+          </div>
+        )}
         {erroPreparo && (
           <div
             role="alert"
@@ -295,8 +409,16 @@ export function Escrever({
               Não deu para carregar {modo === "encaminhar" ? "a mensagem que você está encaminhando" : "a mensagem original"}.
               Verifique a conexão e tente de novo.
             </p>
-            <Button type="button" variant="outline" size="sm" onClick={() => void refazerPreparo()}>
-              Tentar de novo
+            {/* Sem o `disabled`, clicar duas vezes parecia que nada tinha acontecido: a busca leva
+                alguns segundos e a tarja continuava idêntica no meio do caminho. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={refazendoPreparo}
+              onClick={() => void refazerPreparo()}
+            >
+              {refazendoPreparo ? "Tentando…" : "Tentar de novo"}
             </Button>
           </div>
         )}
@@ -390,7 +512,9 @@ export function Escrever({
 
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <Label hint="Até 20 MB por arquivo, no máximo 20 anexos por e-mail.">Anexos</Label>
+            <Label hint="Tudo somado (inclusive o que veio do e-mail original) precisa caber em 25 MB, no máximo 20 arquivos.">
+              Anexos
+            </Label>
             <Button
               type="button"
               variant="outline"
@@ -412,25 +536,71 @@ export function Escrever({
               }}
             />
           </div>
-          {anexos.length > 0 && (
-            <ul className="space-y-1">
-              {anexos.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-2 py-1 text-xs"
-                >
-                  <span className="truncate">{a.nome}</span>
-                  <button
-                    type="button"
-                    onClick={() => removerAnexo(a.id)}
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                    aria-label={`Remover anexo ${a.nome}`}
+          {(anexos.length > 0 || anexosOriginais.length > 0) && (
+            <>
+              <ul className="space-y-1">
+                {/* Os do e-mail original vêm primeiro e ficam MARCADOS: tirar um destes não apaga
+                    arquivo nenhum (o e-mail original continua intacto), enquanto tirar um anexo
+                    novo joga fora o arquivo que a pessoa acabou de subir. */}
+                {anexosOriginais.map((a) => (
+                  <li
+                    key={`orig-${a.id}`}
+                    className="flex items-center justify-between gap-2 rounded-md border border-dashed bg-muted/20 px-2 py-1 text-xs"
                   >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    <span className="truncate" title={a.nome}>
+                      {a.nome}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+                      <span>{formatarTamanho(a.tamanho)}</span>
+                      <span className="rounded bg-muted px-1 py-0.5 text-[10px]">do e-mail original</span>
+                      <button
+                        type="button"
+                        onClick={() => removerAnexoOriginal(a.id)}
+                        className="hover:text-destructive"
+                        // Distinto do rótulo do anexo novo de propósito: um anexo novo pode ter
+                        // exatamente o mesmo nome de um do original, e no leitor de tela os dois
+                        // botões ficariam indistinguíveis.
+                        aria-label={`Remover ${a.nome}, anexo do e-mail original`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  </li>
+                ))}
+                {anexos.map((a) => (
+                  <li
+                    key={a.id}
+                    className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-2 py-1 text-xs"
+                  >
+                    <span className="truncate" title={a.nome}>
+                      {a.nome}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+                      <span>{formatarTamanho(a.tamanho)}</span>
+                      <button
+                        type="button"
+                        onClick={() => removerAnexo(a.id)}
+                        className="hover:text-destructive"
+                        aria-label={`Remover anexo ${a.nome}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className={cn("text-[11px]", bytesAnexos > LIMITE_TOTAL_BYTES ? "text-destructive" : "text-muted-foreground")}>
+                {formatarTamanho(bytesAnexos)} de 25 MB
+              </p>
+              {/* O schema do servidor recusa mais de 20 ids em `anexosOriginais` — sem este aviso,
+                  encaminhar um e-mail com 21 anexos falharia num erro de validação ilegível. */}
+              {anexosOriginais.length > MAX_ANEXOS && (
+                <p role="alert" className="text-[11px] text-destructive">
+                  Dá para levar no máximo {MAX_ANEXOS} anexos do e-mail original — tire{" "}
+                  {anexosOriginais.length - MAX_ANEXOS} da lista.
+                </p>
+              )}
+            </>
           )}
         </div>
         </fieldset>
