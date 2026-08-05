@@ -84,6 +84,7 @@ model User {
   categorias          Categoria[]            @relation("CategoriaDono")
   tarefasCriadas      Tarefa[]               @relation("TarefaCriador")
   tarefasResponsavel  TarefaResponsavel[]
+  caixasEmail         CaixaEmail[]
 
   @@index([role])
   @@index([clienteId])
@@ -1251,4 +1252,157 @@ model DocumentoVersao {
   autor     User?     @relation(fields: [autorId], references: [id], onDelete: SetNull)
 
   @@index([documentoId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// E-mail dentro da aplicação (IMAP por usuário) — ver
+// docs/superpowers/specs/2026-08-03-email-na-aplicacao-design.md
+
+enum CaixaEstado {
+  OK
+  AUTENTICACAO_FALHOU
+  ERRO
+}
+
+enum PastaPapel {
+  INBOX
+  SENT
+  DRAFTS
+  TRASH
+  JUNK
+  ARCHIVE
+}
+
+enum EnderecoPapel {
+  DE
+  PARA
+  CC
+  CCO
+  RESPONDER_A
+}
+
+/// Caixa de e-mail que UM usuário plugou na própria conta. A privacidade nasce do `userId`:
+/// ninguém enxerga caixa de ninguém. Duas pessoas podem plugar o MESMO endereço (ex.: contato@)
+/// — são duas linhas, e o servidor de e-mail é quem concilia (é a mesma caixa de verdade).
+model CaixaEmail {
+  id            String      @id @default(cuid())
+  userId        String
+  email         String
+  rotulo        String?
+  nomeExibicao  String
+  assinatura    String?     @db.Text
+  imapHost      String
+  imapPorta     Int         @default(993)
+  smtpHost      String
+  smtpPorta     Int         @default(465)
+  usuario       String
+  /// Senha cifrada (AES-256-GCM, ver lib/cripto-caixa.ts). NUNCA sai da API.
+  segredo       String      @db.Text
+  padrao        Boolean     @default(false)
+  ativa         Boolean     @default(true)
+  estado        CaixaEstado @default(OK)
+  ultimoErro    String?     @db.Text
+  ultimaSyncEm  DateTime?
+  /// Limite para trás da sincronização. Padrão = 90 dias atrás no momento de plugar.
+  importarDesde DateTime?
+  createdAt     DateTime    @default(now())
+  deletedAt     DateTime?
+
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pastas CaixaPasta[]
+
+  @@unique([userId, email])
+  @@index([userId, ativa])
+}
+
+/// Uma pasta da caixa, com os ponteiros de sincronização do IMAP.
+model CaixaPasta {
+  id            String      @id @default(cuid())
+  caixaId       String
+  caminho       String
+  nome          String
+  papel         PastaPapel?
+  uidValidity   BigInt      @default(0)
+  ultimoUid     BigInt      @default(0)
+  highestModseq BigInt      @default(0)
+  naoLidos      Int         @default(0)
+  total         Int         @default(0)
+  ordem         Int         @default(0)
+  sincronizando DateTime?
+
+  caixa     CaixaEmail      @relation(fields: [caixaId], references: [id], onDelete: Cascade)
+  mensagens EmailMensagem[]
+
+  @@unique([caixaId, caminho])
+  @@index([caixaId, ordem])
+}
+
+/// Índice de uma mensagem. O corpo é CACHE: nulo até alguém abrir.
+model EmailMensagem {
+  id          String    @id @default(cuid())
+  caixaId     String
+  pastaId     String
+  uid         BigInt
+  messageId   String?   @db.VarChar(512)
+  inReplyTo   String?   @db.VarChar(512)
+  referencias String?   @db.Text
+  threadKey   String?   @db.VarChar(512)
+  deNome      String?
+  deEmail     String
+  assunto     String?   @db.Text
+  trecho      String?   @db.Text
+  dataEm      DateTime
+  lido        Boolean   @default(false)
+  respondido  Boolean   @default(false)
+  temAnexo    Boolean   @default(false)
+  tamanho     Int?
+  corpoHtml   String?   @db.LongText
+  corpoTexto  String?   @db.LongText
+  corpoEm     DateTime?
+  /// Marcada como particular pelo dono: sai da ficha do cliente (usado no bloco do CRM).
+  particular  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  pasta     CaixaPasta      @relation(fields: [pastaId], references: [id], onDelete: Cascade)
+  enderecos EmailEndereco[]
+  anexos    EmailAnexo[]
+
+  @@unique([pastaId, uid])
+  // A consulta que a tela faz o tempo todo: mensagens DA PASTA, mais recentes primeiro.
+  // `(pastaId, uid)` casa a pasta mas não ordena por data, e `(caixaId, dataEm)` não filtra
+  // por pasta — sem este índice, cada abertura e cada polling faziam filesort.
+  @@index([pastaId, dataEm])
+  @@index([caixaId, dataEm])
+  @@index([threadKey])
+}
+
+/// Todos os endereços de uma mensagem. O vínculo com Cliente/Lead é resolvido por JOIN
+/// neste endereço na hora de consultar — nunca gravado fixo (ver §5.4 do desenho).
+model EmailEndereco {
+  id         String        @id @default(cuid())
+  mensagemId String
+  papel      EnderecoPapel
+  nome       String?
+  endereco   String
+
+  mensagem EmailMensagem @relation(fields: [mensagemId], references: [id], onDelete: Cascade)
+
+  @@index([endereco])
+  @@index([mensagemId])
+}
+
+/// Metadado do anexo. O CONTEÚDO não é guardado — é buscado no IMAP na hora do download.
+model EmailAnexo {
+  id         String  @id @default(cuid())
+  mensagemId String
+  nome       String
+  tipo       String
+  tamanho    Int
+  parte      String
+  cid        String?
+  arquivoId  String?
+
+  mensagem EmailMensagem @relation(fields: [mensagemId], references: [id], onDelete: Cascade)
+
+  @@index([mensagemId])
 }

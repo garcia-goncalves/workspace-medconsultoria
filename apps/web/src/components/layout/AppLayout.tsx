@@ -2,15 +2,6 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 
 import { createPortal } from "react-dom";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
-  LayoutDashboard,
-  Users,
-  Filter,
-  FolderKanban,
-  Calendar,
-  Wallet,
-  MessageSquare,
-  FileText,
-  ListTodo,
   Search,
   Sparkles,
   HelpCircle,
@@ -19,14 +10,12 @@ import {
   X,
   ChevronsUpDown,
   Settings,
-  SlidersHorizontal,
-  ServerCog,
   PanelLeftClose,
   PanelLeftOpen,
-  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@app/ui";
-import { ROLE_LABEL, hasRoleLevel, type Role } from "@app/shared";
+import { ROLE_LABEL, hasRoleLevel } from "@app/shared";
+import { MENU_GRUPOS, type Pagina } from "../../lib/paginas";
 import { useAuth } from "../../lib/auth-context";
 import { trpc } from "../../lib/trpc";
 import { Avatar } from "../ui/avatar";
@@ -35,41 +24,16 @@ import { NotificationBell } from "./NotificationBell";
 import { GuiaTour } from "../GuiaTour";
 import { Breadcrumbs, BreadcrumbProvider } from "./Breadcrumbs";
 
-interface NavItem {
-  label: string;
-  icon: LucideIcon;
-  to: string;
-  exact?: boolean;
-  minRole: Role;
-}
-
 /**
- * Navegação agrupada por USO: "Dia a dia" (o que a equipe usa sempre) e "Configuração"
- * (o que se ajusta uma vez — Ajustes junta os painéis administrativos; Sistema é dos devs).
+ * Navegação agrupada por PERGUNTA que a pessoa faz: Comunicação ("alguém me chamou?"),
+ * Meu trabalho ("o que é meu hoje?"), Negócio ("como está o negócio?") e Configuração
+ * (o que se ajusta uma vez). Início fica solto no topo. Ver ADR-94.
+ *
+ * A lista vem do catálogo `lib/paginas.ts` (campo `grupo`), que também alimenta a busca do
+ * Ctrl+K. Antes esta era uma lista à mão, PARALELA ao catálogo — e a página "E-mail" foi
+ * registrada só lá, sumindo do menu. Uma fonte só; `paginas.test.ts` guarda o cruzamento.
  */
-const NAV_GROUPS: { titulo: string; itens: NavItem[] }[] = [
-  {
-    titulo: "Dia a dia",
-    itens: [
-      { label: "Início", icon: LayoutDashboard, to: "/", exact: true, minRole: "FUNCIONARIO" },
-      { label: "Vendas", icon: Filter, to: "/leads", minRole: "FUNCIONARIO" },
-      { label: "Clientes", icon: Users, to: "/clientes", minRole: "FUNCIONARIO" },
-      { label: "Projetos", icon: FolderKanban, to: "/projetos", minRole: "FUNCIONARIO" },
-      { label: "Tarefas", icon: ListTodo, to: "/tarefas", minRole: "FUNCIONARIO" },
-      { label: "Agenda", icon: Calendar, to: "/agenda", minRole: "FUNCIONARIO" },
-      { label: "Mensagens", icon: MessageSquare, to: "/mensagens", minRole: "FUNCIONARIO" },
-      { label: "Documentos", icon: FileText, to: "/documentos", minRole: "FUNCIONARIO" },
-      { label: "Financeiro", icon: Wallet, to: "/financeiro", minRole: "ADMIN" },
-    ],
-  },
-  {
-    titulo: "Configuração",
-    itens: [
-      { label: "Ajustes", icon: SlidersHorizontal, to: "/ajustes", minRole: "ADMIN" },
-      { label: "Sistema", icon: ServerCog, to: "/sistema", minRole: "ROOT" },
-    ],
-  },
-];
+const NAV_GROUPS = MENU_GRUPOS;
 
 /** Títulos de páginas fora da navegação principal (acessadas via Ajustes, ficha ou menu do usuário). */
 const EXTRA_TITLES: Record<string, string> = {
@@ -100,17 +64,23 @@ function itemAtivo(pathname: string, to: string): boolean {
 const ATALHO_BUSCA =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "⌘K" : "Ctrl K";
 
-/** Deriva o título da página atual a partir da rota, para o cabeçalho. */
+/**
+ * Deriva o título da página atual a partir da rota, para o cabeçalho.
+ *
+ * Casa por SEGMENTO (`/x` ou `/x/…`), nunca por prefixo cru: `/emails-enviados` começa com
+ * `/email`, e o prefixo cru daria a essa página o título "E-mail".
+ */
 function usePageTitle(): string {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   if (pathname === "/") return "Início";
+  const casa = (p: string) => pathname === p || pathname.startsWith(p + "/");
   const match = ALL_ITEMS.filter((i) => i.to !== "/")
-    .filter((i) => pathname.startsWith(i.to))
+    .filter((i) => casa(i.to))
     .sort((a, b) => b.to.length - a.to.length)[0];
   if (match) return match.label;
-  // Páginas fora do menu (via Ajustes/ficha): casa por prefixo — cobre detalhes como /documentos/$id.
+  // Páginas fora do menu (via Ajustes/ficha): cobre detalhes como /documentos/$id.
   const extra = Object.keys(EXTRA_TITLES)
-    .filter((k) => pathname.startsWith(k))
+    .filter(casa)
     .sort((a, b) => b.length - a.length)[0];
   return (extra ? EXTRA_TITLES[extra] : undefined) ?? "MedConsultoria";
 }
@@ -200,6 +170,17 @@ function UserMenu({ colapsada, onNavigate }: { colapsada: boolean; onNavigate?: 
   );
 }
 
+/**
+ * O menu NUNCA deve rolar — rolar esconde item de navegação, que é o oposto do trabalho do menu.
+ * Como a altura varia (1080 em casa, 768 num notebook), a barra ENCOLHE sozinha em três degraus
+ * de altura de VIEWPORT em vez de ganhar barra de rolagem. Os degraus são medidos, não chutados:
+ * `e2e/menu-sem-scroll.spec.ts` reprova se em qualquer tela comum o menu precisar de mais espaço
+ * do que tem. (Antes disto o menu exigia 912px de viewport — no 1080 passava raspando.)
+ * O `overflow-y-auto` do `<nav>` fica só como rede de segurança para telas absurdamente baixas.
+ */
+const ALTURA_ITEM = "py-2.5 alt:py-2 alt-sm:py-1.5 alt-xs:py-1";
+const ESPACO_GRUPOS = "space-y-4 alt:space-y-3 alt-sm:space-y-2 alt-xs:space-y-1.5";
+
 /** Conteúdo da barra lateral — reutilizado no desktop (recolhível) e no drawer mobile. */
 function SidebarConteudo({
   colapsada,
@@ -209,7 +190,7 @@ function SidebarConteudo({
   onToggle,
 }: {
   colapsada: boolean;
-  grupos: { titulo: string; itens: NavItem[] }[];
+  grupos: { titulo: string | null; itens: Pagina[] }[];
   pathname: string;
   onNavigate?: () => void;
   onToggle?: () => void;
@@ -226,7 +207,12 @@ function SidebarConteudo({
 
   return (
     <>
-      <div className={cn("flex h-16 items-center gap-3", colapsada ? "justify-center px-2" : "px-5")}>
+      <div
+        className={cn(
+          "flex h-16 shrink-0 items-center gap-3 alt-sm:h-14",
+          colapsada ? "justify-center px-2" : "px-5",
+        )}
+      >
         {colapsada ? (
           <button
             onClick={onToggle}
@@ -258,16 +244,26 @@ function SidebarConteudo({
         )}
       </div>
 
-      <nav className={cn("flex-1 space-y-4 overflow-y-auto py-4", colapsada ? "px-2" : "px-3")}>
-        {grupos.map((grupo) => (
-          <div key={grupo.titulo} className="space-y-1">
-            {colapsada ? (
-              <div className="mx-2 mb-1 border-t border-white/10 first:border-0" />
-            ) : (
-              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/70">
-                {grupo.titulo}
-              </p>
-            )}
+      <nav
+        className={cn(
+          "flex-1 overflow-y-auto py-4 alt-sm:py-2 alt-xs:py-1",
+          ESPACO_GRUPOS,
+          colapsada ? "px-2" : "px-3",
+        )}
+      >
+        {grupos.map((grupo, iGrupo) => (
+          <div key={grupo.titulo ?? "topo"} className="space-y-1">
+            {/* Grupo sem título (o Início) não ganha cabeçalho nem divisor — é o topo da lista.
+                No modo recolhido o traço separa os grupos; `first:border-0` não servia, porque
+                o divisor é o PRIMEIRO filho do próprio grupo (a regra casava em todos). */}
+            {grupo.titulo &&
+              (colapsada ? (
+                iGrupo > 0 && <div className="mx-2 mb-1 border-t border-white/10" />
+              ) : (
+                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/70 alt-sm:pb-0 alt-sm:leading-none">
+                  {grupo.titulo}
+                </p>
+              ))}
             {grupo.itens.map((item) => {
               const ativo = itemAtivo(pathname, item.to);
               return (
@@ -284,7 +280,8 @@ function SidebarConteudo({
                   aria-current={ativo ? "page" : undefined}
                   className={cn(
                     "group relative flex items-center rounded-lg text-[0.9rem] text-white/70 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand-blueLight",
-                    colapsada ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
+                    ALTURA_ITEM,
+                    colapsada ? "justify-center px-0" : "gap-3 px-3",
                     ativo &&
                       "bg-white/10 font-semibold !text-white before:absolute before:left-0 before:top-1/2 before:h-6 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-brand-blueLight",
                   )}
@@ -298,7 +295,12 @@ function SidebarConteudo({
         ))}
       </nav>
 
-      <div className={cn("border-t border-white/10", colapsada ? "p-2" : "p-3")}>
+      <div
+        className={cn(
+          "shrink-0 border-t border-white/10 alt-sm:p-2",
+          colapsada ? "p-2" : "p-3",
+        )}
+      >
         <UserMenu colapsada={colapsada} onNavigate={onNavigate} />
       </div>
 
@@ -371,7 +373,13 @@ export function AppLayout() {
 
   // Telas "app" com painéis de altura fixa + scroll interno (não usam o scroll de janela): o chat
   // das Mensagens rola por dentro e a grade da Agenda cabe na tela. Ver ADR-83.
-  const telaCheia = pathname.startsWith("/mensagens") || pathname.startsWith("/agenda");
+  // `/email` exato (e filhas): `startsWith("/email")` pegaria junto `/emails` e
+  // `/emails-enviados`, que são páginas normais e não podem virar tela cheia.
+  const telaCheia =
+    pathname.startsWith("/mensagens") ||
+    pathname.startsWith("/agenda") ||
+    pathname === "/email" ||
+    pathname.startsWith("/email/");
 
   return (
     <BreadcrumbProvider>

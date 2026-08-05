@@ -31,6 +31,9 @@ import {
   Landmark,
   HardDrive,
   SendHorizontal,
+  Inbox,
+  Search,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@app/ui";
 import { hasRoleLevel, type Role } from "@app/shared";
@@ -261,6 +264,13 @@ const GUIA_EMAILS_ENVIADOS: Passo[] = [
   { icon: CheckCircle2, titulo: "Por que falhou", descricao: "Cada falha traz o motivo (ex.: caixa inexistente, servidor recusou). Se o SMTP não estiver configurado, os e-mails aparecem como “modo dev” — o link é mostrado na tela em vez de enviado." },
 ];
 
+const GUIA_EMAIL: Passo[] = [
+  { icon: Inbox, titulo: "Sua caixa, dentro do Workspace", descricao: "Conecte a sua caixa @medconsultoria.com.br para ler os e-mails aqui, sem abrir o webmail. Cada pessoa vê apenas a própria caixa — ninguém enxerga a correspondência de outra." },
+  { icon: Mail, titulo: "Conectar e reconectar", descricao: "Em “Adicionar caixa” informe o endereço e a mesma senha do webmail; ela é testada na hora e guardada cifrada. Se a senha mudar, a caixa avisa “precisa reconectar” em vez de ficar tentando sozinha." },
+  { icon: Search, titulo: "Buscar de verdade", descricao: "A busca é feita no servidor de e-mail: procura no remetente, no assunto e também dentro do texto da mensagem. Digite e aperte Enter; “Limpar” volta para a pasta inteira." },
+  { icon: ShieldCheck, titulo: "Abrir com segurança", descricao: "O conteúdo abre isolado e as imagens de fora ficam bloqueadas até você pedir “Mostrar imagens” — é assim que quem manda spam descobre que o endereço existe e foi lido. Anexos aparecem listados." },
+];
+
 const GUIA_USUARIOS: Passo[] = [
   { icon: UserCog, titulo: "Equipe e acessos", descricao: "Aqui ficam a equipe interna e os clientes com acesso ao Portal, com nome, e-mail, papel e situação. A tabela mostra quem está ativo e quem já aceitou o convite." },
   { icon: Mail, titulo: "Convidar", descricao: "Em “Convidar usuário”, informe e-mail e papel — a pessoa recebe um link e define a própria senha. Você nunca digita a senha de ninguém; nenhuma senha fica exposta." },
@@ -300,6 +310,8 @@ const OUTRAS: { prefixo: string; guia: Guia }[] = [
   // `/emails-enviados` ANTES de `/emails` — senão o prefixo mais curto captura os dois.
   { prefixo: "/emails-enviados", guia: { titulo: "E-mails enviados", passos: GUIA_EMAILS_ENVIADOS } },
   { prefixo: "/emails", guia: { titulo: "Mensagens automáticas", passos: GUIA_COMUNICACOES } },
+  // `/email` (a caixa da pessoa) vem DEPOIS de `/emails*` — é prefixo dos dois.
+  { prefixo: "/email", guia: { titulo: "E-mail", passos: GUIA_EMAIL } },
   { prefixo: "/usuarios", guia: { titulo: "Equipe e acessos", passos: GUIA_USUARIOS } },
   { prefixo: "/configuracoes", guia: { titulo: "Configurações", passos: GUIA_CONFIG } },
   { prefixo: "/sistema", guia: { titulo: "Sistema", passos: GUIA_SISTEMA } },

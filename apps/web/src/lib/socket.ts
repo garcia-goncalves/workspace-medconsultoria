@@ -24,6 +24,10 @@ export const POLL = {
   chamadosCliente: 15_000,
   /** Sininho de notificações. */
   notificacoes: 20_000,
+  /** Lista de e-mails com a página aberta. O IMAP não empurra (sem IDLE) — ver ADR-84. */
+  emailLista: 30_000,
+  /** Pastas: contador de não lidos. Muda devagar. */
+  emailPastas: 60_000,
 } as const;
 
 let socket: Socket | null = null;

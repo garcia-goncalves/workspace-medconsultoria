@@ -22,7 +22,8 @@ import { aiService } from "../lib/ai.js";
 const CONTENT_TYPE_POR_EXT: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
 
 /** Resolve o usuário autenticado a partir do cookie de sessão assinado. */
-async function usuarioDaRequest(req: FastifyRequest): Promise<SessionUser | null> {
+/** Sessão a partir do cookie, para rotas HTTP fora do tRPC (arquivos, avatar, corpo de e-mail). */
+export async function usuarioDaRequest(req: FastifyRequest): Promise<SessionUser | null> {
   const raw = req.cookies[SESSION_COOKIE];
   const unsigned = raw ? req.unsignCookie(raw) : null;
   const sid = unsigned?.valid ? unsigned.value ?? undefined : undefined;

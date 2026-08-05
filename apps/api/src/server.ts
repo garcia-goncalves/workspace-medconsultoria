@@ -15,6 +15,8 @@ import { appRouter } from "./trpc/router.js";
 import { createContext } from "./trpc/context.js";
 import { initRealtime } from "./realtime/socket.js";
 import { registrarRotasArquivos } from "./http/uploads.js";
+import { registrarRotaCorpoEmail } from "./http/email-corpo.js";
+import { registrarRotaAnexoEmail, iniciarLimpezaAnexosTemp } from "./http/email-anexo.js";
 import { validarPastaUploads } from "./lib/storage.js";
 import { startReminderLoop } from "./realtime/reminders.js";
 import { startMonitor } from "./observability/monitor.js";
@@ -102,6 +104,14 @@ const upl = await validarPastaUploads();
 app.log.info({ uploads: upl }, `[uploads] base=${upl.base} escrita=${upl.escrita}`);
 await registrarRotasArquivos(app);
 
+// Corpo do e-mail em documento próprio, com CSP própria (o `srcdoc` herdaria a CSP da app e
+// bloquearia a imagem remota mesmo depois de a pessoa clicar em "Mostrar imagens").
+registrarRotaCorpoEmail(app);
+
+// Anexo de e-mail: baixar (stream) e anexar ao escrever (arquivo temporário). Depende do
+// @fastify/multipart registrado dentro de `registrarRotasArquivos`, acima.
+registrarRotaAnexoEmail(app);
+
 // Em produção, o mesmo processo serve o SPA buildado (copiado para dist/public no build).
 const here = dirname(fileURLToPath(import.meta.url));
 const webDist = resolve(here, "public");
@@ -119,6 +129,7 @@ initRealtime(app);
 startReminderLoop();
 startMonitor();
 startAlertas();
+iniciarLimpezaAnexosTemp();
 
 await app.listen({ port: config.API_PORT, host: "0.0.0.0" });
 app.log.info(`API ouvindo na porta ${config.API_PORT}`);

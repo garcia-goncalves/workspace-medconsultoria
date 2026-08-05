@@ -24,6 +24,7 @@ const AgendaPage = lazyRouteComponent(() => import("../features/agenda/AgendaPag
 const TarefasPage = lazyRouteComponent(() => import("../features/tarefas/TarefasPage"), "TarefasPage");
 const FinanceiroPage = lazyRouteComponent(() => import("../features/financeiro/FinanceiroPage"), "FinanceiroPage");
 const MensagensPage = lazyRouteComponent(() => import("../features/mensagens/MensagensPage"), "MensagensPage");
+const EmailPage = lazyRouteComponent(() => import("../features/email/EmailPage"), "EmailPage");
 const DocumentosPage = lazyRouteComponent(() => import("../features/documentos/DocumentosPage"), "DocumentosPage");
 const DocumentoDetailPage = lazyRouteComponent(() => import("../features/documentos/DocumentoDetailPage"), "DocumentoDetailPage");
 const ModelosPage = lazyRouteComponent(() => import("../features/documentos/ModelosPage"), "ModelosPage");
@@ -183,6 +184,12 @@ const mensagensRoute = createRoute({
   component: MensagensPage,
 });
 
+const emailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/email",
+  component: EmailPage,
+});
+
 const documentosRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/documentos",
@@ -232,6 +239,7 @@ const routeTree = rootRoute.addChildren([
   tarefasRoute,
   financeiroRoute,
   mensagensRoute,
+  emailRoute,
   documentosRoute,
   documentoDetailRoute,
   modelosRoute,

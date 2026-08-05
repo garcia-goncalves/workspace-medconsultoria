@@ -15,6 +15,8 @@ const CONSUMIDORES = [
   "features/portal/PortalSuporte.tsx",
   "features/crm/clientes/ClienteDetailPage.tsx",
   "components/layout/NotificationBell.tsx",
+  // O IMAP desta hospedagem não faz IDLE: sem polling, e-mail novo só apareceria ao recarregar.
+  "features/email/EmailPage.tsx",
 ];
 
 describe("tempo real por polling (Opção A)", () => {

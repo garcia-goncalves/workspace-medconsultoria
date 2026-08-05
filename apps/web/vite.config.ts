@@ -18,6 +18,8 @@ export default defineConfig({
       "/avatar": { target: API_ALVO, changeOrigin: true },
       "/transcrever": { target: API_ALVO, changeOrigin: true },
       "/arquivos": { target: API_ALVO, changeOrigin: true },
+      "/email-corpo": { target: API_ALVO, changeOrigin: true },
+      "/email-anexo": { target: API_ALVO, changeOrigin: true },
     },
   },
 });

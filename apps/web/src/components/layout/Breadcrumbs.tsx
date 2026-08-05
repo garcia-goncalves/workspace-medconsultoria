@@ -29,6 +29,7 @@ const SECTION_LABEL: Record<string, string> = {
   "/projetos": "Projetos",
   "/agenda": "Agenda",
   "/mensagens": "Mensagens",
+  "/email": "E-mail", // sem isto o fallback capitaliza o segmento e escreve "Email", sem hífen
   "/documentos": "Documentos",
   "/financeiro": "Financeiro",
   "/ajustes": "Ajustes",

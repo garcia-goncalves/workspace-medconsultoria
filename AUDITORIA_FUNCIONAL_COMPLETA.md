@@ -72,10 +72,13 @@ Fonte: `apps/web/src/app/router.tsx` (guards `RoleGuard`). "Equipe" = ROOT/ADMIN
 
 ## 2. Sub-abas e seções por página (detalhe)
 
-Fonte: `apps/web/src/components/layout/AppLayout.tsx` (`NAV_GROUPS`) + páginas em `features/`.
+Fonte: `apps/web/src/lib/paginas.ts` (campo `grupo` → `MENU_GRUPOS`; o `AppLayout` só filtra por papel e desenha) + páginas em `features/`.
 
-**Menu (sidebar)** — 2 grupos:
-- **Dia a dia:** Início `/` · Vendas `/leads` · Clientes `/clientes` · Projetos `/projetos` · Agenda `/agenda` · Mensagens `/mensagens` · Documentos `/documentos` · Financeiro `/financeiro` (ADMIN)
+**Menu (sidebar)** — 4 grupos + Início solto no topo (ADR-94):
+- **(sem cabeçalho):** Início `/`
+- **Meu trabalho:** Tarefas `/tarefas` · Agenda `/agenda` · Projetos `/projetos`
+- **Negócio:** Vendas `/leads` · Clientes `/clientes` · Documentos `/documentos` · Financeiro `/financeiro` (ADMIN)
+- **Comunicação:** E-mail `/email` · Mensagens `/mensagens`
 - **Configuração:** Ajustes `/ajustes` (ADMIN) · Sistema `/sistema` (ROOT)
 - **Ocultas do menu** (acessíveis via Ajustes/fichas, "iluminam" Ajustes): `/servicos`, `/modelos`, `/emails`, `/emails-enviados`, `/usuarios`, `/configuracoes`.
 - Header: busca global/Command Palette (Ctrl/⌘K, com IA quando disponível), sino de notificações, Guia (`?`), menu do usuário, recolher sidebar, breadcrumbs.
