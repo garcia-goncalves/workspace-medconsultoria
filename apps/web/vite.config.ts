@@ -19,6 +19,7 @@ export default defineConfig({
       "/transcrever": { target: API_ALVO, changeOrigin: true },
       "/arquivos": { target: API_ALVO, changeOrigin: true },
       "/email-corpo": { target: API_ALVO, changeOrigin: true },
+      "/email-anexo": { target: API_ALVO, changeOrigin: true },
     },
   },
 });
