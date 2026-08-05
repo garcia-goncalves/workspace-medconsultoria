@@ -10,6 +10,19 @@ import { STAGE_DEFAULTS } from "../src/seed-config";
 config({ path: resolve(process.cwd(), "../../.env") });
 const prisma = new PrismaClient();
 
+/**
+ * Senha das contas de exemplo = a MESMA senha de seed do `.env`, nunca um literal.
+ *
+ * Até 05/08/2026 estava escrita aqui no código: além de ser credencial versionada, ficava
+ * imune a `pnpm senha:rotacionar` — quem tivesse lido o repositório continuava entrando como
+ * FUNCIONARIO e como cliente do Portal depois da rotação (ADR-98).
+ */
+function senhaDeSeed(): string {
+  const senha = process.env.SEED_ROOT_PASSWORD;
+  if (!senha) throw new Error("Defina SEED_ROOT_PASSWORD no .env antes de rodar o demo-seed.");
+  return senha;
+}
+
 async function main() {
   const guard = podeRodarDemoSeed(process.env);
   if (!guard.permitido) {
@@ -17,9 +30,11 @@ async function main() {
   }
   console.log(`• demo-seed liberado: ${guard.motivo}`);
 
+  const senhaExemplo = await hash(senhaDeSeed());
+
   const root = await prisma.user.findFirst({ where: { role: "ROOT" } });
 
-  // Usuários de exemplo (senha: medconsultoria123) para testar mensagens/atribuições.
+  // Usuários de exemplo (senha = a de seed, do `.env`) para testar mensagens/atribuições.
   const equipe: { nome: string; email: string; role: "ADMIN" | "FUNCIONARIO" }[] = [
     { nome: "Thaís", email: "thais.garcia@medconsultoria.com.br", role: "ADMIN" },
     { nome: "Funcionário Exemplo", email: "func@medconsultoria.com.br", role: "FUNCIONARIO" },
@@ -28,7 +43,7 @@ async function main() {
     const existe = await prisma.user.findUnique({ where: { email: u.email } });
     if (!existe) {
       await prisma.user.create({
-        data: { nome: u.nome, email: u.email, role: u.role, passwordHash: await hash("medconsultoria123") },
+        data: { nome: u.nome, email: u.email, role: u.role, passwordHash: senhaExemplo },
       });
     }
   }
@@ -149,7 +164,7 @@ async function main() {
           email: emailPortal,
           role: "CLIENTE",
           clienteId: clientePortal.id,
-          passwordHash: await hash("medconsultoria123"),
+          passwordHash: senhaExemplo,
         },
       });
     }

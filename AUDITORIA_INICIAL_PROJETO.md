@@ -385,7 +385,7 @@ Todas as integrações externas são **opcionais e degradam com elegância** (o 
 - **Cobertura atual:** **0% automatizada.** A "QA" mencionada nas notas do projeto = sessões manuais do agente via MCP Playwright, não uma suíte reproduzível.
 - **Divergência documentada:** `docs/CLAUDE.md` prescreve "TDD por padrão, Vitest + Playwright" como norma — **isso é aspiracional; a realidade é zero testes.**
 - **O que foi verificado ao vivo NESTA sessão (manual, não reproduzível):** Portal "Editar perfil", construtores de Contrato/Recibo, fluxo proposta→aceite→contrato automático, comportamento de scroll (Início/Vendas/Clientes/Agenda/Mensagens/Documentos), divisor da Mensagens. **O restante das telas não foi testado em runtime.**
-- **Credenciais/dados p/ testes completos:** usuário ROOT (`SEED_ROOT_*` no `.env`); dados demo via `pnpm db:demo` (Portal `cliente@medconsultoria.com.br` / `medconsultoria123`). Para SMTP/OpenAI reais, seriam necessárias as chaves.
+- **Credenciais/dados p/ testes completos:** usuário ROOT (`SEED_ROOT_*` no `.env`); dados demo via `pnpm db:demo` (Portal `cliente@medconsultoria.com.br`, com a senha de seed do `.env`). Para SMTP/OpenAI reais, seriam necessárias as chaves.
 
 ---
 

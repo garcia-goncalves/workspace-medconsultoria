@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
 
-const PASS = process.env.E2E_PASSWORD ?? "medconsultoria123";
+// Sem senha embutida: o valor vem do ambiente (ver e2e/auth.setup.ts e playwright.config.ts).
+const PASS: string = process.env.E2E_PASSWORD ?? "";
+if (!PASS) throw new Error("Sem senha para os testes: defina SEED_ROOT_PASSWORD no .env (ou E2E_PASSWORD no ambiente).");
 
 test.describe("Auth — login inválido", () => {
   test("mostra erro e permanece no login", async ({ page }) => {
