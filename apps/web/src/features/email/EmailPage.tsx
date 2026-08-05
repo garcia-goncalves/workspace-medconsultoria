@@ -193,6 +193,16 @@ export function EmailPage() {
     onError: (e) => toast(e.message),
   });
 
+  /**
+   * Trocar de e-mail fecha a caixa de escolha. Sem isto ela ficava aberta mostrando o anexo do
+   * e-mail ANTERIOR enquanto o `mensagemId` enviado já era o do novo — o par não bate no servidor
+   * e a pessoa levava um erro sem entender de onde veio.
+   */
+  useEffect(() => {
+    setEscolhendoCliente(null);
+    setClienteEscolhido("");
+  }, [msgId]);
+
   /** Um clique só quando já se sabe de quem é; caixa de escolha quando não se sabe. */
   const guardarAnexo = (anexoId: string, nome: string) => {
     if (!msgAberta) return;
@@ -466,7 +476,11 @@ export function EmailPage() {
                           type="button"
                           disabled={arquivarAnexo.isPending}
                           onClick={() => guardarAnexo(a.id, a.nome)}
-                          aria-label={`Guardar ${a.nome} nos documentos do cliente`}
+                          aria-label={
+                            clienteUnico
+                              ? `Guardar ${a.nome} nos documentos de ${clienteUnico.nome}`
+                              : `Guardar ${a.nome} nos documentos de um cliente — escolher qual`
+                          }
                           title={
                             clienteUnico
                               ? `Guardar nos documentos de ${clienteUnico.nome}.`
@@ -614,7 +628,7 @@ export function EmailPage() {
             </Button>
             <Button
               type="button"
-              disabled={!clienteEscolhido || arquivarAnexo.isPending}
+              disabled={!clienteEscolhido || !msgAberta || arquivarAnexo.isPending}
               onClick={() => {
                 if (!msgAberta || !escolhendoCliente) return;
                 arquivarAnexo.mutate({

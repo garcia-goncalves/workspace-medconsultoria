@@ -192,6 +192,11 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
       return reply.code(404).send({ error: "Arquivo não encontrado." });
     }
     reply.header("Content-Type", arquivo.mimetype);
+    // `nosniff` escrito AQUI, e não emprestado do helmet global: o `mimetype` vem do banco, e o
+    // acervo passou a receber arquivo de terceiro (anexo de e-mail, fase 2D-2). Hoje a allowlist
+    // de `/upload` prende o valor a 8 tipos, mas quem afrouxar aquela lista amanhã não vai
+    // adivinhar que esta rota dependia dela.
+    reply.header("X-Content-Type-Options", "nosniff");
     reply.header(
       "Content-Disposition",
       `attachment; filename*=UTF-8''${encodeURIComponent(arquivo.nome)}`,

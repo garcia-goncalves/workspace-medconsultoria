@@ -100,7 +100,15 @@ export async function salvarArquivo(
   stream.on("data", (chunk: Buffer) => {
     tamanho += chunk.length;
   });
-  await pipeline(stream, createWriteStream(abs));
+  try {
+    await pipeline(stream, createWriteStream(abs));
+  } catch (e) {
+    // Origem que morre no meio (rede caindo, teto de tamanho estourado) deixaria o pedaço já
+    // escrito no disco para sempre — invisível para a app e contando espaço. Some com ele e
+    // relança: quem chamou decide o que dizer a quem clicou.
+    await unlink(abs).catch(() => {});
+    throw e;
+  }
   return { caminho: rel, tamanho };
 }
 

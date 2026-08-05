@@ -1,3 +1,4 @@
+import { Transform } from "node:stream";
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import { comCaixa } from "./imap.js";
@@ -18,9 +19,38 @@ import { createLead } from "../leads/leads.service.js";
  *    própria consulta — nunca numa comparação depois da leitura.
  * 2. **A trava da casa (ADR-97).** Endereço do nosso domínio não vira chave de nada: nem acha
  *    cliente, nem vira lead. Sem isso, a primeira conversa entre colegas encheria o funil.
- * 3. **Nada duplica.** Clicar duas vezes (ou dois colegas clicando ao mesmo tempo) devolve o que
- *    já existe em vez de criar um segundo documento/lead.
+ * 3. **Nada duplica.** Clicar duas vezes devolve o que já existe em vez de criar um segundo
+ *    documento/lead. No anexo isso vale inclusive para cliques SIMULTÂNEOS: quem grava o elo é um
+ *    `updateMany` condicionado a `arquivoId: null`, então o segundo perde a corrida e desfaz o
+ *    próprio documento. No lead, não: a dedup é ler-e-então-criar, e dois cliques no mesmo
+ *    instante geram dois leads — é o mesmo risco que a captação pelo site (`capturarLead`) já
+ *    corre há tempo, e fechá-lo exigiria um índice único que o soft delete não permite
+ *    (`Lead.email` se repete de propósito entre um lead apagado e um novo). Risco aceito e
+ *    escrito aqui para não virar surpresa.
  */
+
+/**
+ * Corta o stream ao passar do teto, em vez de medir o estrago depois de ele estar no disco.
+ * O erro sobe pelo `pipeline` da gravação, que apaga o arquivo parcial (`salvarArquivo`).
+ */
+function tetoDeBytes(max: number): Transform {
+  let total = 0;
+  return new Transform({
+    transform(pedaco: Buffer, _enc, cb) {
+      total += pedaco.length;
+      if (total > max) {
+        cb(
+          new TRPCError({
+            code: "PAYLOAD_TOO_LARGE",
+            message: `Anexo acima do limite de ${max / 1024 / 1024} MB para documentos do cliente.`,
+          }),
+        );
+        return;
+      }
+      cb(null, pedaco);
+    },
+  });
+}
 
 /** Teto de endereços de uma mensagem que viram chave de busca — um e-mail com 200 cópias não vira um `IN (...)` gigante. */
 const MAXIMO_ENDERECOS = 50;
@@ -46,6 +76,34 @@ export function nomeDoRemetente(deNome: string | null | undefined, deEmail: stri
   if (nome) return nome;
   const local = (deEmail ?? "").split("@")[0]!.trim();
   return local || NOME_SEM_REMETENTE;
+}
+
+/**
+ * De quem é esta mensagem, para efeito de escolher o cliente-destino — e a resposta **não** é
+ * "todos os endereços que aparecem nela".
+ *
+ * `EmailEndereco` guarda também `CC`, `CCO` e `RESPONDER_A`, que são cabeçalhos escritos por
+ * QUEM MANDA e que a tela não mostra. Usá-los como chave deixava um estranho sem conta nenhuma
+ * escolher o destino: bastava mandar um anexo qualquer com `Reply-To: financeiro@clientealvo`
+ * para o arquivo dele entrar na ficha daquele cliente, marcado como enviado pela EQUIPE — com a
+ * procedência da MedConsultoria, num canal que o cliente confia. Achado da revisão de segurança
+ * desta fase, e a correção é escolher a chave por **o que a pessoa vê ou o que nós escrevemos**:
+ *
+ *  - mensagem que SAIU de nós (pasta `SENT`, fato do servidor e não cabeçalho): valem os
+ *    destinatários, porque quem os escreveu foi alguém da equipe;
+ *  - qualquer outra: vale só o REMETENTE, que é o que a tela mostra ao lado do botão. Forjar o
+ *    `From` continua possível em e-mail, mas aí a decisão do humano é informada — ele lê o
+ *    endereço antes de clicar. Com `Cc`/`Reply-To` não havia nada para ler.
+ */
+function chavesDeVinculo(mensagem: {
+  deEmail: string;
+  pasta: { papel: string | null };
+  enderecos: Array<{ endereco: string }>;
+}): string[] {
+  if (mensagem.pasta.papel === "SENT") {
+    return [mensagem.deEmail, ...mensagem.enderecos.map((e) => e.endereco)];
+  }
+  return [mensagem.deEmail];
 }
 
 /**
@@ -92,7 +150,11 @@ export interface ContextoDaMensagem {
 export async function contextoDaMensagem(userId: string, mensagemId: string): Promise<ContextoDaMensagem> {
   const msg = await prisma.emailMensagem.findFirst({
     where: { id: mensagemId, pasta: { caixa: { userId, deletedAt: null } } },
-    select: { deEmail: true, enderecos: { select: { endereco: true } } },
+    select: {
+      deEmail: true,
+      pasta: { select: { papel: true } },
+      enderecos: { select: { endereco: true } },
+    },
   });
   if (!msg) throw new TRPCError({ code: "NOT_FOUND", message: "Mensagem não encontrada." });
 
@@ -100,10 +162,7 @@ export async function contextoDaMensagem(userId: string, mensagemId: string): Pr
   const remetente = normalizarEndereco(msg.deEmail);
   const remetenteDaCasa = !!remetente && ehEnderecoDaCasa(remetente, casa);
 
-  const clientes = await clientesPorEnderecos(
-    [msg.deEmail, ...msg.enderecos.map((e) => e.endereco)],
-    casa,
-  );
+  const clientes = await clientesPorEnderecos(chavesDeVinculo(msg), casa);
 
   // Lead só interessa pelo REMETENTE: quem está em cópia não é dono da conversa.
   const lead =
@@ -162,12 +221,14 @@ export async function arquivarAnexoComoDocumento(
       tipo: true,
       parte: true,
       arquivoId: true,
+      tamanho: true,
       mensagem: {
         select: {
           id: true,
           uid: true,
           deEmail: true,
-          pasta: { select: { caminho: true, caixaId: true } },
+          particular: true,
+          pasta: { select: { caminho: true, caixaId: true, papel: true } },
           enderecos: { select: { endereco: true } },
         },
       },
@@ -186,6 +247,15 @@ export async function arquivarAnexoComoDocumento(
     if (existente) {
       return { arquivoId: existente.id, nome: existente.nome, clienteId: existente.clienteId, jaExistia: true };
     }
+  }
+
+  // Recusa rápida pelo metadado do índice: serve para não abrir conexão à toa, e só para isso —
+  // o tamanho vem do servidor de e-mail e pode mentir, então ele NUNCA autoriza, só recusa.
+  if (anexo.tamanho > TAMANHO_MAX) {
+    throw new TRPCError({
+      code: "PAYLOAD_TOO_LARGE",
+      message: `Anexo acima do limite de ${TAMANHO_MAX / 1024 / 1024} MB para documentos do cliente.`,
+    });
   }
 
   const mimetype = tipoBase(anexo.tipo);
@@ -208,10 +278,7 @@ export async function arquivarAnexoComoDocumento(
     if (!escolhido) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
     clienteId = escolhido.id;
   } else {
-    const candidatos = await clientesPorEnderecos(
-      [anexo.mensagem.deEmail, ...anexo.mensagem.enderecos.map((e) => e.endereco)],
-      casa,
-    );
+    const candidatos = await clientesPorEnderecos(chavesDeVinculo(anexo.mensagem), casa);
     if (candidatos.length === 0) {
       throw new TRPCError({
         code: "PRECONDITION_FAILED",
@@ -239,8 +306,10 @@ export async function arquivarAnexoComoDocumento(
       try {
         const r = await c.download(String(anexo.mensagem.uid), anexo.parte, { uid: true });
         if (!r?.content) return null;
-        // Gravação AQUI DENTRO, com a conexão viva — ver o cabeçalho desta função.
-        return await salvarArquivo(clienteId, anexo.nome, r.content);
+        // Gravação AQUI DENTRO, com a conexão viva — ver o cabeçalho desta função. O teto vai no
+        // MEIO do caminho, não depois: quem manda o e-mail escolhe o tamanho, e um Node só serve
+        // API + SPA num plano compartilhado — disco cheio derruba a app inteira, não só o e-mail.
+        return await salvarArquivo(clienteId, anexo.nome, r.content.pipe(tetoDeBytes(TAMANHO_MAX)));
       } finally {
         lock.release();
       }
@@ -264,20 +333,61 @@ export async function arquivarAnexoComoDocumento(
     });
   }
 
-  const arquivo = await registrarUpload({
-    clienteId,
-    nome: anexo.nome,
-    mimetype,
-    tamanho: salvo.tamanho,
-    caminho: salvo.caminho,
-    // Quem guardou foi a equipe, ainda que o arquivo tenha vindo do cliente: `enviadoPorTipo`
-    // responde "por qual porta entrou", e a porta aqui é a caixa de alguém da casa. Marcar
-    // CLIENTE dispararia o aviso de "cliente enviou documento" para a equipe inteira.
-    enviadoPorTipo: "EQUIPE",
-    enviadoPorId: userId,
-  });
+  let arquivo;
+  try {
+    arquivo = await registrarUpload({
+      clienteId,
+      nome: anexo.nome,
+      mimetype,
+      tamanho: salvo.tamanho,
+      caminho: salvo.caminho,
+      // Quem guardou foi a equipe, ainda que o arquivo tenha vindo do cliente: `enviadoPorTipo`
+      // responde "por qual porta entrou", e a porta aqui é a caixa de alguém da casa. Marcar
+      // CLIENTE dispararia o aviso de "cliente enviou documento" para a equipe inteira.
+      enviadoPorTipo: "EQUIPE",
+      enviadoPorId: userId,
+    });
+  } catch (e) {
+    // O banco recusou o registro depois de o arquivo já estar no disco: sem isto ele ficaria
+    // órfão lá dentro para sempre, invisível para a app e contando espaço.
+    await removerArquivo(salvo.caminho);
+    throw e;
+  }
 
-  await prisma.emailAnexo.update({ where: { id: anexo.id }, data: { arquivoId: arquivo.id } });
+  // A gravação do elo é `updateMany` com `arquivoId: null` no `where` — e é ela que decide quem
+  // ganhou a corrida. Dois cliques simultâneos (duas abas, dois colegas) passam os dois pela
+  // conferência lá de cima, porque entre ler e gravar não há trava nenhuma; aqui o segundo
+  // encontra `arquivoId` já preenchido, atualiza 0 linhas e desfaz o próprio documento em vez de
+  // deixar dois iguais na ficha. É a diferença entre prometer "nada duplica" e cumprir.
+  const elo = await prisma.emailAnexo.updateMany({
+    where: { id: anexo.id, arquivoId: null },
+    data: { arquivoId: arquivo.id },
+  });
+  if (elo.count === 0) {
+    await prisma.arquivo.delete({ where: { id: arquivo.id } }).catch(() => {});
+    await removerArquivo(salvo.caminho);
+    // `arquivoId` é uma string solta (sem FK declarada, como o campo nasceu no Bloco 1), então o
+    // documento do vencedor é lido em dois passos, não por relação.
+    const atual = await prisma.emailAnexo.findFirst({
+      where: { id: anexo.id },
+      select: { arquivoId: true },
+    });
+    const vencedor = atual?.arquivoId
+      ? await prisma.arquivo.findFirst({
+          where: { id: atual.arquivoId, deletedAt: null },
+          select: { id: true, nome: true, clienteId: true },
+        })
+      : null;
+    // O outro clique pode ter apagado o documento no meio disto (janela mínima, mas real):
+    // sem vencedor para devolver, o certo é dizer que não deu, não inventar um id.
+    if (!vencedor) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "Este anexo foi guardado por outra pessoa agora há pouco. Abra o e-mail de novo.",
+      });
+    }
+    return { arquivoId: vencedor.id, nome: vencedor.nome, clienteId: vencedor.clienteId, jaExistia: true };
+  }
 
   // Auditoria com ids, nunca com assunto ou conteúdo — o log do painel ROOT não pode virar
   // outra porta para a correspondência (mesmo critério do `marcarParticular`).
@@ -320,6 +430,7 @@ export async function criarLeadDoRemetente(
       deEmail: true,
       assunto: true,
       dataEm: true,
+      particular: true,
       pasta: { select: { caixa: { select: { id: true, email: true } } } },
     },
   });
@@ -355,9 +466,12 @@ export async function criarLeadDoRemetente(
   if (jaLead) return { leadId: jaLead.id, nome: jaLead.nome, jaExistia: true };
 
   const quando = msg.dataEm.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  // O rastreio é lido pela equipe inteira. Mensagem que o dono da caixa marcou como PARTICULAR
+  // não devolve o assunto por esta porta — tirar da ficha e reaparecer aqui esvaziaria a válvula
+  // do ADR-97. O lead ainda pode ser criado: quem clica é o dono, e nome e e-mail são o negócio.
   const rastreio = [
     `Criado a partir de um e-mail recebido na caixa ${msg.pasta.caixa.email} em ${quando}.`,
-    msg.assunto ? `Assunto: ${msg.assunto}` : null,
+    msg.assunto && !msg.particular ? `Assunto: ${msg.assunto}` : null,
   ]
     .filter(Boolean)
     .join("\n");

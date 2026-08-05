@@ -18,7 +18,8 @@ import { Readable } from "node:stream";
 
 const mocks = vi.hoisted(() => ({
   anexoFindFirst: vi.fn(),
-  anexoUpdate: vi.fn(),
+  anexoUpdateMany: vi.fn(),
+  arquivoDelete: vi.fn(),
   mensagemFindFirst: vi.fn(),
   clienteFindMany: vi.fn(),
   clienteFindFirst: vi.fn(),
@@ -36,11 +37,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@app/db", () => ({
   prisma: {
-    emailAnexo: { findFirst: mocks.anexoFindFirst, update: mocks.anexoUpdate },
+    emailAnexo: { findFirst: mocks.anexoFindFirst, updateMany: mocks.anexoUpdateMany },
     emailMensagem: { findFirst: mocks.mensagemFindFirst },
     cliente: { findMany: mocks.clienteFindMany, findFirst: mocks.clienteFindFirst },
     lead: { findFirst: mocks.leadFindFirst },
-    arquivo: { findFirst: mocks.arquivoFindFirst },
+    arquivo: { findFirst: mocks.arquivoFindFirst, delete: mocks.arquivoDelete },
     activityLog: { create: mocks.activityLogCreate },
     user: { findMany: mocks.userFindMany },
     caixaEmail: { findMany: mocks.caixaFindMany },
@@ -76,7 +77,8 @@ function anexoPadrao(over: Record<string, unknown> = {}) {
       uid: BigInt(7),
       assunto: "Contrato assinado",
       deEmail: "cliente@empresa.com",
-      pasta: { caminho: "INBOX", caixaId: "cx1" },
+      particular: false,
+      pasta: { caminho: "INBOX", caixaId: "cx1", papel: "INBOX" },
       enderecos: [{ endereco: "cliente@empresa.com" }],
     },
     ...over,
@@ -90,6 +92,7 @@ function mensagemPadrao(over: Record<string, unknown> = {}) {
     deEmail: "maria@empresa.com",
     assunto: "Orçamento",
     dataEm: new Date("2026-08-05T12:00:00Z"),
+    particular: false,
     pasta: { caixa: { id: "cx1", email: "thiago.garcia@medconsultoria.com.br" } },
     ...over,
   };
@@ -118,7 +121,8 @@ beforeEach(() => {
   mocks.arquivoFindFirst.mockResolvedValue(null);
   mocks.salvarArquivo.mockResolvedValue({ caminho: "clientes/c1/uuid.pdf", tamanho: 1024 });
   mocks.registrarUpload.mockResolvedValue({ id: "arq1", nome: "contrato.pdf" });
-  mocks.anexoUpdate.mockResolvedValue({});
+  mocks.anexoUpdateMany.mockResolvedValue({ count: 1 });
+  mocks.arquivoDelete.mockResolvedValue({});
   mocks.comCaixa.mockImplementation(imapQueEntrega());
 });
 
@@ -166,7 +170,12 @@ describe("2D-2 · anexo vira documento do cliente", () => {
       }),
     );
     // O elo que a fase existe para fechar: `EmailAnexo.arquivoId` deixa de ser um campo morto.
-    expect(mocks.anexoUpdate).toHaveBeenCalledWith({ where: { id: "anx1" }, data: { arquivoId: "arq1" } });
+    // `arquivoId: null` no `where` é o que faz o segundo clique simultâneo perder a corrida em vez
+    // de sobrescrever o elo do primeiro — tirar essa condição tem de ficar vermelho.
+    expect(mocks.anexoUpdateMany).toHaveBeenCalledWith({
+      where: { id: "anx1", arquivoId: null },
+      data: { arquivoId: "arq1" },
+    });
   });
 
   it("não arquiva duas vezes: anexo já arquivado devolve o documento existente sem tocar no IMAP", async () => {
@@ -212,6 +221,77 @@ describe("2D-2 · anexo vira documento do cliente", () => {
 
     expect(r.arquivoId).toBe("arq1");
     expect(mocks.registrarUpload).toHaveBeenCalledWith(expect.objectContaining({ mimetype: "application/pdf" }));
+  });
+
+  /**
+   * O furo que a revisão de segurança desta fase achou: `EmailEndereco` guarda CC, CCO e
+   * RESPONDER_A, escritos por QUEM MANDA e invisíveis na tela. Enquanto eles eram chave, um
+   * estranho sem conta nenhuma escolhia em qual cliente o arquivo dele ia parar — bastava um
+   * `Reply-To:`. O documento entrava na ficha marcado como enviado pela EQUIPE, ou seja, com a
+   * procedência da empresa, num canal que o cliente confia.
+   */
+  it("estranho NÃO escolhe o cliente-destino pondo o endereço dele em cópia/responder-a", async () => {
+    mocks.anexoFindFirst.mockResolvedValue(
+      anexoPadrao({
+        mensagem: {
+          id: "m1",
+          uid: BigInt(7),
+          assunto: "Fatura em anexo",
+          deEmail: "estranho@golpe.com",
+          particular: false,
+          pasta: { caminho: "INBOX", caixaId: "cx1", papel: "INBOX" },
+          // O atacante pôs o endereço do cliente-alvo aqui.
+          enderecos: [{ endereco: "estranho@golpe.com" }, { endereco: "financeiro@clientealvo.com" }],
+        },
+      }),
+    );
+    // Só o remetente pode virar chave: quem responder por `financeiro@clientealvo.com` não conta.
+    mocks.clienteFindMany.mockImplementation(async ({ where }: { where: { OR: Array<{ email?: { in: string[] } }> } }) => {
+      const alvo = where.OR[0]?.email?.in ?? [];
+      return alvo.includes("financeiro@clientealvo.com") ? [{ id: "c-alvo", nome: "Cliente Alvo" }] : [];
+    });
+
+    await expect(
+      arquivarAnexoComoDocumento("u1", { mensagemId: "m1", anexoId: "anx1" }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+
+    expect(mocks.registrarUpload).not.toHaveBeenCalled();
+  });
+
+  it("na pasta Enviados valem os destinatários — ali quem escreveu os cabeçalhos fomos nós", async () => {
+    mocks.anexoFindFirst.mockResolvedValue(
+      anexoPadrao({
+        mensagem: {
+          id: "m1",
+          uid: BigInt(7),
+          assunto: "Segue o contrato",
+          deEmail: "thiago.garcia@medconsultoria.com.br",
+          particular: false,
+          pasta: { caminho: "INBOX.Sent", caixaId: "cx1", papel: "SENT" },
+          enderecos: [{ endereco: "maria@empresa.com" }],
+        },
+      }),
+    );
+    mocks.clienteFindMany.mockResolvedValue([{ id: "c1", nome: "Empresa X" }]);
+
+    const r = await arquivarAnexoComoDocumento("u1", { mensagemId: "m1", anexoId: "anx1" });
+
+    expect(r).toMatchObject({ clienteId: "c1", jaExistia: false });
+    // O endereço da casa não entra como chave nem aqui (o filtro do `casa.ts` continua valendo).
+    const chaves = mocks.clienteFindMany.mock.calls[0]![0].where.OR[0].email.in;
+    expect(chaves).toContain("maria@empresa.com");
+    expect(chaves).not.toContain("thiago.garcia@medconsultoria.com.br");
+  });
+
+  it("recusa pelo tamanho do índice sem nem abrir conexão", async () => {
+    mocks.anexoFindFirst.mockResolvedValue(anexoPadrao({ tamanho: 21 * 1024 * 1024 }));
+    mocks.clienteFindMany.mockResolvedValue([{ id: "c1", nome: "Empresa X" }]);
+
+    await expect(
+      arquivarAnexoComoDocumento("u1", { mensagemId: "m1", anexoId: "anx1" }),
+    ).rejects.toMatchObject({ code: "PAYLOAD_TOO_LARGE" });
+
+    expect(mocks.comCaixa).not.toHaveBeenCalled();
   });
 
   it("pede o cliente quando a mensagem não está vinculada a nenhum", async () => {
@@ -271,7 +351,7 @@ describe("2D-2 · anexo vira documento do cliente", () => {
     ).rejects.toBeInstanceOf(TRPCError);
 
     expect(mocks.registrarUpload).not.toHaveBeenCalled();
-    expect(mocks.anexoUpdate).not.toHaveBeenCalled();
+    expect(mocks.anexoUpdateMany).not.toHaveBeenCalled();
   });
 
   it("apaga o que gravou quando o anexo passa do teto de tamanho no disco", async () => {
@@ -286,6 +366,80 @@ describe("2D-2 · anexo vira documento do cliente", () => {
 
     expect(mocks.removerArquivoDisco).toHaveBeenCalledWith("clientes/c1/gigante.pdf");
     expect(mocks.registrarUpload).not.toHaveBeenCalled();
+  });
+
+  it("perde a corrida com elegância: dois cliques simultâneos deixam UM documento só", async () => {
+    // Os dois passaram pela conferência de "já arquivado" antes de qualquer um gravar o elo —
+    // é a janela real, e quem decide o vencedor é o `updateMany` condicionado a `arquivoId: null`.
+    mocks.anexoFindFirst.mockResolvedValue(anexoPadrao());
+    mocks.clienteFindMany.mockResolvedValue([{ id: "c1", nome: "Empresa X" }]);
+    mocks.anexoUpdateMany.mockResolvedValue({ count: 0 }); // o outro clique chegou primeiro
+    mocks.anexoFindFirst.mockResolvedValueOnce(anexoPadrao()).mockResolvedValue({ arquivoId: "arq-vencedor" });
+    mocks.arquivoFindFirst.mockResolvedValue({ id: "arq-vencedor", nome: "contrato.pdf", clienteId: "c1" });
+
+    const r = await arquivarAnexoComoDocumento("u1", { mensagemId: "m1", anexoId: "anx1" });
+
+    expect(r).toMatchObject({ arquivoId: "arq-vencedor", jaExistia: true });
+    // O perdedor desfaz o próprio documento — registro E arquivo em disco.
+    expect(mocks.arquivoDelete).toHaveBeenCalledWith({ where: { id: "arq1" } });
+    expect(mocks.removerArquivoDisco).toHaveBeenCalledWith("clientes/c1/uuid.pdf");
+  });
+
+  it("não deixa arquivo órfão no disco quando o banco recusa o registro", async () => {
+    mocks.anexoFindFirst.mockResolvedValue(anexoPadrao());
+    mocks.clienteFindMany.mockResolvedValue([{ id: "c1", nome: "Empresa X" }]);
+    mocks.registrarUpload.mockRejectedValue(new Error("banco fora do ar"));
+
+    await expect(arquivarAnexoComoDocumento("u1", { mensagemId: "m1", anexoId: "anx1" })).rejects.toThrow();
+
+    expect(mocks.removerArquivoDisco).toHaveBeenCalledWith("clientes/c1/uuid.pdf");
+  });
+
+  it("solta o cadeado da pasta IMAP mesmo quando o download falha", async () => {
+    // Cadeado preso segura a caixa até o processo reiniciar — e um processo Node serve a app toda.
+    const release = vi.fn();
+    mocks.anexoFindFirst.mockResolvedValue(anexoPadrao());
+    mocks.clienteFindMany.mockResolvedValue([{ id: "c1", nome: "Empresa X" }]);
+    mocks.comCaixa.mockImplementation(async (_id: string, cb: (c: unknown) => Promise<unknown>) =>
+      cb({
+        getMailboxLock: async () => ({ release }),
+        download: async () => {
+          throw new Error("conexão caiu no meio");
+        },
+      }),
+    );
+
+    await expect(arquivarAnexoComoDocumento("u1", { mensagemId: "m1", anexoId: "anx1" })).rejects.toThrow();
+
+    expect(release).toHaveBeenCalled();
+  });
+
+  it("grava com a conexão IMAP ainda aberta (senão o arquivo chega cortado)", async () => {
+    // `download()` resolve no PRIMEIRO pedaço; o resto ainda vem pelo socket. Se a gravação sair
+    // de dentro do callback, a conexão fecha no meio da leitura — foi a lição da rota de download.
+    let conexaoAberta = false;
+    let gravouComConexaoAberta = false;
+    mocks.anexoFindFirst.mockResolvedValue(anexoPadrao());
+    mocks.clienteFindMany.mockResolvedValue([{ id: "c1", nome: "Empresa X" }]);
+    mocks.salvarArquivo.mockImplementation(async () => {
+      gravouComConexaoAberta = conexaoAberta;
+      return { caminho: "clientes/c1/uuid.pdf", tamanho: 1024 };
+    });
+    mocks.comCaixa.mockImplementation(async (_id: string, cb: (c: unknown) => Promise<unknown>) => {
+      conexaoAberta = true;
+      try {
+        return await cb({
+          getMailboxLock: async () => ({ release: () => {} }),
+          download: async () => ({ content: Readable.from([Buffer.from("x")]) }),
+        });
+      } finally {
+        conexaoAberta = false; // o `comCaixa` de verdade fecha o socket aqui
+      }
+    });
+
+    await arquivarAnexoComoDocumento("u1", { mensagemId: "m1", anexoId: "anx1" });
+
+    expect(gravouComConexaoAberta).toBe(true);
   });
 
   it("registra quem arquivou (auditoria), sem assunto nem conteúdo", async () => {
@@ -361,6 +515,19 @@ describe("2D-3 · e-mail de desconhecido vira lead", () => {
     expect(rastreio).toContain("Orçamento");
   });
 
+  it("e-mail tirado da ficha (particular) não devolve o assunto pelo rastreio do lead", async () => {
+    // A válvula do ADR-97 não pode ser esvaziada por uma porta lateral: o rastreio é lido pela
+    // equipe inteira, e o assunto foi justamente o que o dono da caixa escondeu.
+    mocks.mensagemFindFirst.mockResolvedValue(mensagemPadrao({ particular: true }));
+    mocks.createLead.mockResolvedValue({ id: "lead1", nome: "Maria Souza" });
+
+    await criarLeadDoRemetente("u1", { mensagemId: "m1" });
+
+    const rastreio = mocks.createLead.mock.calls[0]![2] as string;
+    expect(rastreio).toContain("thiago.garcia@medconsultoria.com.br");
+    expect(rastreio).not.toContain("Orçamento");
+  });
+
   it("usa a parte local do endereço quando o remetente não tem nome", async () => {
     mocks.mensagemFindFirst.mockResolvedValue(mensagemPadrao({ deNome: null }));
     mocks.createLead.mockResolvedValue({ id: "lead1", nome: "maria" });
@@ -380,6 +547,7 @@ describe("contexto da mensagem (o que a tela oferece)", () => {
   it("aponta o cliente quando a conversa é com um cadastro conhecido", async () => {
     mocks.mensagemFindFirst.mockResolvedValue({
       deEmail: "maria@empresa.com",
+      pasta: { papel: "INBOX" },
       enderecos: [{ endereco: "maria@empresa.com" }],
     });
     mocks.clienteFindMany.mockResolvedValue([{ id: "c1", nome: "Empresa X" }]);
@@ -392,6 +560,7 @@ describe("contexto da mensagem (o que a tela oferece)", () => {
   it("marca remetente da casa e não procura lead para colega", async () => {
     mocks.mensagemFindFirst.mockResolvedValue({
       deEmail: "andre.cintra@medconsultoria.com.br",
+      pasta: { papel: "INBOX" },
       enderecos: [{ endereco: "andre.cintra@medconsultoria.com.br" }],
     });
 
@@ -405,6 +574,7 @@ describe("contexto da mensagem (o que a tela oferece)", () => {
   it("devolve o lead do remetente quando já existe", async () => {
     mocks.mensagemFindFirst.mockResolvedValue({
       deEmail: "maria@empresa.com",
+      pasta: { papel: "INBOX" },
       enderecos: [{ endereco: "maria@empresa.com" }],
     });
     mocks.leadFindFirst.mockResolvedValue({ id: "lead1", nome: "Maria Souza" });
