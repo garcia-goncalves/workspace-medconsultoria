@@ -266,6 +266,13 @@ Só siga se **todas as verificações CRÍTICAS** passarem (Argon2, MySQL, migra
 - **Reinstalar** (após recriar o ambiente): reenviar `scripts/server/*.sh` para `ops/`, `chmod +x`, rodar `install-cron.sh`.
 - ⚠️ **Falta cobrir:** os backups ficam **no mesmo servidor** (protegem contra erro lógico/DROP, não contra perda do host) e a pasta `uploads/` ainda não entra no backup automático. **Recomendação ao dono:** (a) baixar os dumps para fora do servidor periodicamente (ou storage externo) e (b) um **monitor de uptime externo** (ex.: UptimeRobot, grátis) — o `healthcheck` interno não alerta se o servidor inteiro cair.
 
-**Rollback:** o deploy tira **snapshot do release** (`../backups/release-pre-<TS>.tar.gz`, sem `node_modules`) e **dump do banco** antes de migrar. Para reverter: extrair o snapshot sobre `public_html` e restaurar o dump.
+**Rollback:** o `deploy.sh` tira **snapshot do release** (`../backups/release-pre-<TS>.tar.gz`, sem `node_modules`) **antes do rsync**. Para reverter: extrair o snapshot sobre o Application Root e reiniciar (`touch tmp/restart.txt`).
+
+> **Correção de 05/08/2026:** até esta data este parágrafo descrevia um snapshot **e um dump do banco** que o script **nunca fez** — a promessa existia só aqui. O snapshot foi implementado; o **dump antes de migrar continua não existindo**, e o que protege o banco é o backup automático das 03:00. Antes de um deploy **com migration destrutiva**, tire o dump à mão (`ops/backup-db.sh`). Documentação que descreve salvaguarda inexistente é pior que documentação nenhuma: dá coragem para uma operação que não tem rede.
+
+**Duas armadilhas do deploy que já morderam** (as duas estão comentadas dentro do `deploy.sh`, não as "simplifique"):
+
+1. **O restart vai numa chamada SSH separada.** Encadeado com `&&` depois do `prisma generate`, ele **não roda**: o `generate` derruba o resto da cadeia neste servidor, o deploy termina dizendo "concluído" e a aplicação segue servindo o código **antigo**. Por isso o script confere a **data do `tmp/restart.txt`** depois — mandar reiniciar não é prova de que reiniciou.
+2. **`curl` na produção exige `--compressed`.** Sem isso o LiteSpeed devolve o corpo comprimido e o smoke test mostra lixo binário em vez do JSON de `/health`.
 
 **Restauração:** `gunzip < auto-db-<TS>.sql.gz | mysql <db>` + restaurar `uploads/` no mesmo caminho.

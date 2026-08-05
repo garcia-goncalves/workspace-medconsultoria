@@ -32,19 +32,48 @@ echo "==> Build de produção + bundle auto-contido"
 pnpm install --frozen-lockfile
 pnpm build:deploy
 
+CARIMBO="$(date +%Y%m%d-%H%M%S)"
+
+# Snapshot do release ATUAL antes de o rsync sobrescrevê-lo. A documentação (§10 do
+# docs/DEPLOY.md) sempre prometeu isto, e o script nunca fez — descoberto ao publicar a fase
+# 2D-2/2D-3 em 05/08/2026. Sem o snapshot, voltar atrás dependia de rebuildar o commit anterior
+# na máquina de alguém; com ele, o rollback é extrair um tar no servidor.
+# `node_modules` fica de fora (é reinstalável e pesa demais).
+echo "==> Snapshot do release atual (rollback)"
+# shellcheck disable=SC2087
+ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" "cd '${DEPLOY_PATH}' && \
+  mkdir -p ../backups && \
+  tar -czf '../backups/release-pre-${CARIMBO}.tar.gz' --exclude=node_modules . 2>/dev/null && \
+  ls -la '../backups/release-pre-${CARIMBO}.tar.gz'"
+
 echo "==> Enviando artefato (apps/api/dist) via rsync"
 # --delete mantém o destino idêntico; preserva um .env já existente no servidor.
 rsync -az --delete --exclude ".env" -e "${RSYNC_SSH}" \
   apps/api/dist/ \
   "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/"
 
-echo "==> Servidor: deps de produção + Prisma Client + migrations + restart"
+echo "==> Servidor: deps de produção + Prisma Client + migrations"
 # shellcheck disable=SC2087
 ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" "cd '${DEPLOY_PATH}' && \
   (npm ci --omit=dev || npm install --omit=dev) && \
   npm run prisma:generate && \
   npm run prisma:deploy && \
-  ${RESTART_CMD} && \
-  echo 'Deploy concluído.'"
+  echo 'Dependências e banco prontos.'"
 
-echo "==> Feito. Smoke test: abra https://workspace.medconsultoria.com.br e /health"
+# RESTART EM CHAMADA SEPARADA, e não encadeado com `&&` na linha acima. O `prisma generate`
+# derruba o resto da cadeia SSH neste servidor (armadilha conhecida deste projeto): o deploy
+# terminava "com sucesso" e a aplicação seguia rodando o código ANTIGO, porque o `touch` nunca
+# acontecia. Depois do restart, a data do arquivo é conferida — não basta mandar reiniciar.
+echo "==> Restart (chamada separada — ver comentário)"
+# shellcheck disable=SC2087
+ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" "cd '${DEPLOY_PATH}' && \
+  ${RESTART_CMD} && \
+  echo -n 'restart.txt em: ' && date -r tmp/restart.txt '+%Y-%m-%d %H:%M:%S'"
+
+# `--compressed` é obrigatório aqui: sem ele o LiteSpeed devolve corpo comprimido e o curl
+# mostra lixo binário em vez do JSON de saúde.
+echo "==> Smoke test"
+sleep 5
+curl -s --compressed --max-time 20 "https://workspace.medconsultoria.com.br/health" || true
+echo
+echo "==> Feito. Rollback, se precisar: extrair ../backups/release-pre-${CARIMBO}.tar.gz sobre ${DEPLOY_PATH} e reiniciar."
