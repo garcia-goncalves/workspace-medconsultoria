@@ -34,9 +34,11 @@ const ATRASO_MS = 5000;
  *    gravação de ~6s que já estava em voo quando a pessoa clicou Enviar — cenário comum, não raro,
  *    já que reler o e-mail por alguns segundos antes de mandar é o padrão — não deixa mais um
  *    rascunho quase idêntico ao e-mail enviado sobrevivendo, reabrível e reenviável, em Rascunhos.
- *    Os campos do formulário não ficam desabilitados durante o envio (só o botão Enviar), então
- *    digitar durante o "Enviando…" também é coberto: o efeito de debounce re-agenda, mas
- *    `enviando` barra a NOVA gravação de sequer começar.
+ *    Desde o Achado 3 da revisão de segurança/React da fase 2A, os campos do formulário ficam
+ *    desabilitados durante o "Enviando…" (`<fieldset disabled>` em `Escrever.tsx`) — então digitar
+ *    no meio do envio não é mais possível pela tela. `enviando` continua como segunda trava (e não
+ *    vira código morto): cobre a gravação que JÁ estava em voo quando o clique aconteceu, que a
+ *    UI desabilitada não alcança.
  *    `aoEnvioFalhou` desliga `enviando` de novo se o envio falhar — a pessoa continua na tela e os
  *    rascunhos precisam voltar a gravar normalmente.
  *

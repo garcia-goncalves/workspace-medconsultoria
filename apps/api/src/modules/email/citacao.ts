@@ -27,25 +27,51 @@ function escapar(t: string): string {
  * Citação da mensagem original, para ir dentro da resposta. Duas versões, porque o mesmo HTML
  * serve a dois lugares com regras diferentes:
  *
- *  - `preview`: para a TELA, enquanto a pessoa ainda está escrevendo — imagem remota continua
+ *  - `preview`: para a TELA, enquanto a pessoa ainda está escrevendo — imagem remota SEMPRE
  *    bloqueada (`data-src-bloqueada`), senão o pixel de rastreio do e-mail original dispararia
- *    sozinho ao abrir o "Responder".
- *  - `envio`: para o E-MAIL QUE SAI — a imagem remota é restaurada (logo, assinatura com
- *    figura), senão quem recebe a resposta vê a citação com imagem quebrada. Isto NÃO reabre a
- *    sanitização: script, iframe e handler `on*` continuam removidos nas duas versões, é só o
- *    `src` da imagem que muda entre elas.
+ *    sozinho ao abrir "Responder"/"Encaminhar". O `iframe sandbox=""` que mostra o preview NÃO
+ *    bloqueia imagem sozinho — quem impede o pixel aqui é este bloqueio.
+ *  - `envio`: para o E-MAIL QUE SAI — restaura a imagem remota SÓ quando `restaurarImagensNoEnvio`
+ *    é `true` (achado 1 da revisão de segurança da fase 2A). A razão de depender do modo:
+ *
+ *      - RESPOSTA: quem recebe a citação de volta é a MESMA pessoa que mandou o e-mail original.
+ *        Se há um pixel de rastreio nele, é dela — ela não descobre nada que já não soubesse ao
+ *        mandar. Por isso a resposta pode restaurar a imagem (logo, assinatura com figura),
+ *        senão a pessoa veria a própria citação com a imagem quebrada.
+ *      - ENCAMINHAMENTO: quem recebe é um TERCEIRO (o cliente) que nunca escolheu abrir aquele
+ *        e-mail. Restaurar a imagem repassaria o pixel de rastreio a ele — com o NOSSO domínio
+ *        no remetente, o que dá credibilidade ao golpe seguinte. Por isso encaminhar usa a MESMA
+ *        versão bloqueada do preview.
+ *
+ *    Isto NÃO reabre a sanitização em nenhum dos dois casos: script, iframe e handler `on*`
+ *    continuam removidos sempre — é só o `src` da imagem que muda conforme `restaurarImagensNoEnvio`.
+ *
+ * NOTA HONESTA (achada na revisão de segurança deste mesmo achado 1): `EmailMensagem.corpoHtml`
+ * só é gravado por `abrirMensagem` (`leitura.service.ts`), que SEMPRE sanitiza com imagem
+ * bloqueada antes de salvar — então, no fluxo real de hoje, `original.corpoHtml` NUNCA chega aqui
+ * com um `src` de imagem remota "vivo" (já é `data-src-bloqueada`), e `restaurarImagensNoEnvio:
+ * true` não tem o que restaurar. Mesmo assim o contrato fica explícito nos dois modos, de
+ * propósito: é o que garante o comportamento CORRETO se `corpoHtml` algum dia passar a chegar
+ * cru por outro caminho — e é a razão de a decisão morar AQUI, não em quem grava o corpo. NÃO
+ * "conserte" a imagem quebrada da citação de resposta copiando o replace
+ * `data-src-bloqueada` → `src` (usado em `http/email-corpo.ts` para a TELA) para dentro deste
+ * fluxo — isso reabriria o vazamento para o encaminhamento também, já que os dois partem do
+ * mesmo `corpoHtml` já bloqueado.
  *
  * O corpo original é HIGIENIZADO aqui mesmo, nas duas versões. Citar o HTML cru de um terceiro
  * reintroduziria o XSS que as três camadas do Bloco 1 barram — e, pior, mandaria o conteúdo
  * hostil para fora com a nossa assinatura.
  */
-export function montarCitacao(original: {
-  deNome: string | null;
-  deEmail: string;
-  dataEm: Date;
-  corpoHtml: string | null;
-  corpoTexto: string | null;
-}): { preview: string; envio: string } {
+export function montarCitacao(
+  original: {
+    deNome: string | null;
+    deEmail: string;
+    dataEm: Date;
+    corpoHtml: string | null;
+    corpoTexto: string | null;
+  },
+  opcoes: { restaurarImagensNoEnvio: boolean },
+): { preview: string; envio: string } {
   const quem = original.deNome
     ? `${escapar(original.deNome)} &lt;${escapar(original.deEmail)}&gt;`
     : escapar(original.deEmail);
@@ -61,7 +87,9 @@ export function montarCitacao(original: {
 
   if (original.corpoHtml) {
     const preview = sanitizarEmailHtml(original.corpoHtml).html;
-    const envio = sanitizarEmailHtml(original.corpoHtml, { bloquearImagensRemotas: false }).html;
+    const envio = sanitizarEmailHtml(original.corpoHtml, {
+      bloquearImagensRemotas: !opcoes.restaurarImagensNoEnvio,
+    }).html;
     return { preview: montar(preview), envio: montar(envio) };
   }
   if (original.corpoTexto) {

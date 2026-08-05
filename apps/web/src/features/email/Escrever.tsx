@@ -105,6 +105,14 @@ export function Escrever({
     if (encaminhamento.error) toast(encaminhamento.error.message);
   }, [encaminhamento.error]);
 
+  // Achado 2 (React) — o toast do efeito acima SOME sozinho. Se `prepararResposta`/
+  // `prepararEncaminhamento` cair em erro (rede, caixa fora do ar, mensagem apagada), o
+  // pré-preenchimento acima nunca seta `preenchido = true` — sem isto, `carregandoPreparo` fica
+  // `true` PARA SEMPRE, o botão Enviar morre desabilitado, e a única pista já sumiu da tela.
+  // Guardamos o erro e o `refetch` certo para mostrar um estado PERSISTENTE no corpo do modal.
+  const erroPreparo = ehResposta ? resposta.isError : modo === "encaminhar" ? encaminhamento.isError : false;
+  const refazerPreparo = ehResposta ? resposta.refetch : encaminhamento.refetch;
+
   // Rascunho automático na pasta Drafts do servidor — lógica isolada em `useRascunhoAutomatico`
   // (testável com timers falsos, sem montar tRPC) para cobrir 3 defeitos: timer disparando NO
   // MEIO do envio, rascunho órfão depois de enviar, e duas gravações em voo ao mesmo tempo.
@@ -264,7 +272,11 @@ export function Escrever({
       size="xl"
       footer={
         <>
-          <Button type="button" variant="outline" onClick={aoFechar}>
+          {/* Achado 3 (React) — enquanto o envio está em voo, Cancelar SÓ fecha o modal, não
+              cancela o envio (não existe desfazer um e-mail que já saiu). Deixá-lo clicável dava
+              a entender que fechar interromperia algo que, na verdade, completa em segundo plano
+              com a tela já fechada. */}
+          <Button type="button" variant="outline" onClick={aoFechar} disabled={enviar.isPending}>
             Cancelar
           </Button>
           <Button type="submit" form="escrever-form" disabled={enviar.isPending || carregandoPreparo}>
@@ -274,6 +286,25 @@ export function Escrever({
       }
     >
       <form id="escrever-form" onSubmit={aoSubmeter} className="space-y-3" noValidate>
+        {erroPreparo && (
+          <div
+            role="alert"
+            className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          >
+            <p>
+              Não deu para carregar {modo === "encaminhar" ? "a mensagem que você está encaminhando" : "a mensagem original"}.
+              Verifique a conexão e tente de novo.
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refazerPreparo()}>
+              Tentar de novo
+            </Button>
+          </div>
+        )}
+        {/* Achado 3 (React) — envolve TODOS os campos (não só o botão Enviar): enquanto o envio
+            está em voo, editar Para/Cc/Cco/Assunto/Corpo não muda nada no que está saindo (o
+            payload já foi capturado por valor em `enviar.mutate`, logo abaixo) — deixar os campos
+            editáveis prometia um efeito que eles não têm. */}
+        <fieldset disabled={enviar.isPending} className="space-y-3 border-0 p-0 m-0 min-w-0">
         <div className="space-y-1">
           <Label htmlFor="esc-para" hint="Quem recebe o e-mail. Separe vários endereços por vírgula, ponto-e-vírgula ou espaço.">
             Para *
@@ -402,6 +433,7 @@ export function Escrever({
             </ul>
           )}
         </div>
+        </fieldset>
       </form>
     </Modal>
   );

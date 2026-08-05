@@ -241,7 +241,9 @@ export async function prepararResposta(
     aTodos,
   });
 
-  const citacao = montarCitacao(msg);
+  // Resposta: quem recebe é quem mandou o e-mail original — pode restaurar a imagem remota da
+  // citação de envio (ver a razão completa no comentário de `montarCitacao`, `citacao.ts`).
+  const citacao = montarCitacao(msg, { restaurarImagensNoEnvio: true });
   return {
     para,
     cc,
@@ -261,6 +263,9 @@ export async function prepararEncaminhamento(
     select: { deNome: true, deEmail: true, dataEm: true, assunto: true, corpoHtml: true, corpoTexto: true },
   });
   if (!msg) throw new TRPCError({ code: "NOT_FOUND", message: "Mensagem não encontrada." });
-  const citacao = montarCitacao(msg);
+  // Encaminhamento: quem recebe é um TERCEIRO que nunca escolheu abrir aquele e-mail — a citação
+  // de envio fica bloqueada (igual ao preview), senão repassa o pixel de rastreio a ele (ver
+  // `montarCitacao`, `citacao.ts`).
+  const citacao = montarCitacao(msg, { restaurarImagensNoEnvio: false });
   return { assunto: assuntoEncaminhar(msg.assunto), citacaoPreview: citacao.preview, citacaoEnvio: citacao.envio };
 }
