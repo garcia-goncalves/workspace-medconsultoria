@@ -1,12 +1,22 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { observable } from "@trpc/server/observable";
 import { TRPCClientError, type TRPCLink } from "@trpc/client";
 import type { AnyTRPCRouter } from "@trpc/server";
 import { trpc } from "../../lib/trpc";
-import { EmailPage } from "./EmailPage";
+
+// O `Link` do TanStack exige o contexto de um router montado, e aqui a página é renderizada
+// solta. Estes testes existem para checar O QUE a tela oferece (e a quem), não para onde ela
+// navega — o dublê troca o `Link` por um `<a>` e mantém o teste sobre a decisão, não sobre a rota.
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, ...resto }: { children: React.ReactNode; [k: string]: unknown }) => (
+    <a {...(resto as Record<string, string>)}>{children}</a>
+  ),
+}));
+
+const { EmailPage } = await import("./EmailPage");
 
 // Mesmo arranjo de `Escrever.test.tsx`: sem Testing Library, com um link tRPC de mentira que
 // responde de um mapa por `op.path`.
@@ -63,12 +73,16 @@ const HANDLERS: Record<string, Handler> = {
     deEmail: "cliente@exemplo.com",
     dataEm: DATA,
     enderecos: [],
-    anexos: [{ id: "anx-1", nome: "contrato assinado.pdf", tipo: "application/pdf", tamanho: 12_345 }],
+    anexos: [
+      { id: "anx-1", nome: "contrato assinado.pdf", tipo: "application/pdf", tamanho: 12_345, arquivoId: null },
+    ],
     corpoHtml: null,
     corpoTexto: "segue em anexo",
     imagensBloqueadas: 0,
     particular: false,
   }),
+  // Fases 2D-2/2D-3: por padrão, remetente de fora que ainda não é ninguém no sistema.
+  "email.contextoDaMensagem": () => ({ clientes: [], lead: null, remetenteDaCasa: false }),
 };
 
 function montar(handlers: Record<string, Handler>) {
@@ -191,5 +205,87 @@ describe("EmailPage — a válvula do ADR-97 tem de ter volta", () => {
     botoes = await abrirMensagem(true);
     expect(botoes.some((b) => b.textContent?.includes("Devolver à ficha"))).toBe(true);
     expect(botoes.some((b) => b.textContent?.includes("Tirar da ficha"))).toBe(false);
+  });
+});
+
+describe("EmailPage — o que dá para FAZER com este e-mail (fases 2D-2 e 2D-3)", () => {
+  let raiz: { root: Root; container: HTMLDivElement } | null = null;
+
+  afterEach(() => {
+    if (raiz) {
+      act(() => raiz!.root.unmount());
+      raiz.container.remove();
+    }
+    raiz = null;
+  });
+
+  /** Abre a mensagem com um contexto (quem é o remetente para a empresa) e devolve o container. */
+  async function abrirCom(contexto: unknown, extras: Record<string, Handler> = {}) {
+    raiz = montar({ ...HANDLERS, "email.contextoDaMensagem": () => contexto, ...extras });
+    for (let i = 0; i < 6; i += 1) await aguardar();
+    const item = [...raiz.container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Proposta assinada"),
+    );
+    act(() => {
+      item!.click();
+    });
+    await aguardar();
+    await aguardar();
+    return raiz.container;
+  }
+
+  it("desconhecido de fora ganha o botão de virar lead", async () => {
+    const c = await abrirCom({ clientes: [], lead: null, remetenteDaCasa: false });
+    const botoes = [...c.querySelectorAll("button")];
+    expect(botoes.some((b) => b.textContent?.includes("Virar lead"))).toBe(true);
+  });
+
+  /** A trava do ADR-97 também do lado de cá: nem chega a existir o botão para um colega. */
+  it("colega da casa NÃO ganha o botão de virar lead", async () => {
+    const c = await abrirCom({ clientes: [], lead: null, remetenteDaCasa: true });
+    const botoes = [...c.querySelectorAll("button")];
+    expect(botoes.some((b) => b.textContent?.includes("Virar lead"))).toBe(false);
+  });
+
+  it("quem já é cliente aparece identificado, e não vira lead de novo", async () => {
+    const c = await abrirCom({ clientes: [{ id: "c1", nome: "Clínica Exemplo" }], lead: null, remetenteDaCasa: false });
+    expect(c.textContent).toContain("Clínica Exemplo");
+    expect([...c.querySelectorAll("button")].some((b) => b.textContent?.includes("Virar lead"))).toBe(false);
+  });
+
+  it("quem já é lead aparece como do funil, sem oferecer criar outro", async () => {
+    const c = await abrirCom({ clientes: [], lead: { id: "l1", nome: "Maria Souza" }, remetenteDaCasa: false });
+    expect(c.textContent).toContain("Maria Souza");
+    expect([...c.querySelectorAll("button")].some((b) => b.textContent?.includes("Virar lead"))).toBe(false);
+  });
+
+  it("anexo não guardado oferece guardar; anexo já guardado vira selo, não botão", async () => {
+    let c = await abrirCom({ clientes: [{ id: "c1", nome: "Clínica Exemplo" }], lead: null, remetenteDaCasa: false });
+    expect([...c.querySelectorAll("button")].some((b) => b.textContent?.includes("guardar"))).toBe(true);
+    expect(c.textContent).not.toContain("na ficha");
+
+    act(() => raiz!.root.unmount());
+    raiz!.container.remove();
+    raiz = null;
+
+    c = await abrirCom(
+      { clientes: [{ id: "c1", nome: "Clínica Exemplo" }], lead: null, remetenteDaCasa: false },
+      {
+        "email.abrir": () => ({
+          ...(HANDLERS["email.abrir"]!({}) as object),
+          anexos: [
+            {
+              id: "anx-1",
+              nome: "contrato assinado.pdf",
+              tipo: "application/pdf",
+              tamanho: 12_345,
+              arquivoId: "arq-1",
+            },
+          ],
+        }),
+      },
+    );
+    expect([...c.querySelectorAll("button")].some((b) => b.textContent?.includes("guardar"))).toBe(false);
+    expect(c.textContent).toContain("na ficha");
   });
 });

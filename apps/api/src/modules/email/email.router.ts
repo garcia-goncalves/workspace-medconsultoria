@@ -10,6 +10,7 @@ import * as leitura from "./leitura.service.js";
 import * as envio from "./envio.service.js";
 import * as rascunhos from "./rascunhos.service.js";
 import * as vinculo from "./vinculo.service.js";
+import * as acoes from "./acoes.service.js";
 
 /**
  * E-mail dentro da aplicação. TODO procedure é `funcionarioProcedure` (equipe; o Portal do
@@ -189,4 +190,30 @@ export const emailRouter = router({
     .mutation(({ ctx, input }) =>
       vinculo.marcarParticular(ctx.user.id, input.mensagemId, input.particular),
     ),
+
+  // ── O que a equipe faz A PARTIR de um e-mail (fases 2D-2 e 2D-3) ──────────────────────────
+  //
+  // As duas voltam a filtrar por `ctx.user.id`: são ações da caixa de quem clicou, e a posse vai
+  // no `where` da consulta dentro do serviço. Ver `acoes.service.ts`.
+
+  /** Diz à tela o que oferecer nesta mensagem: de qual cliente é, e se o remetente é conhecido. */
+  contextoDaMensagem: funcionarioProcedure
+    .input(z.object({ mensagemId: z.string().min(1) }))
+    .query(({ ctx, input }) => acoes.contextoDaMensagem(ctx.user.id, input.mensagemId)),
+
+  /** 2D-2: guarda o anexo recebido como documento do cliente. */
+  arquivarAnexo: funcionarioProcedure
+    .input(
+      z.object({
+        mensagemId: z.string().min(1),
+        anexoId: z.string().min(1),
+        clienteId: z.string().min(1).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => acoes.arquivarAnexoComoDocumento(ctx.user.id, input)),
+
+  /** 2D-3: transforma o remetente desconhecido em lead do funil. */
+  criarLeadDoRemetente: funcionarioProcedure
+    .input(z.object({ mensagemId: z.string().min(1) }))
+    .mutation(({ ctx, input }) => acoes.criarLeadDoRemetente(ctx.user.id, input)),
 });

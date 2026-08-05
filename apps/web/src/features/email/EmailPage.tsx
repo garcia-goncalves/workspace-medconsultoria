@@ -13,7 +13,12 @@ import {
   Download,
   Eye,
   EyeOff,
+  FolderPlus,
+  Check,
+  UserPlus,
+  Building2,
 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { cn } from "@app/ui";
 import { trpc } from "../../lib/trpc";
 import { POLL } from "../../lib/socket";
@@ -21,6 +26,10 @@ import { data, hora } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Avatar } from "../../components/ui/avatar";
+import { Modal } from "../../components/ui/modal";
+import { Combobox } from "../../components/ui/combobox";
+import { Label } from "../../components/ui/label";
+import { toast } from "../../components/ui/toast";
 import { AdicionarCaixaDialog } from "./AdicionarCaixaDialog";
 import { ReconectarCaixaDialog } from "./ReconectarCaixaDialog";
 import { CorpoEmail } from "./CorpoEmail";
@@ -139,6 +148,71 @@ export function EmailPage() {
   // Const local para o TS manter a narrowing de "não é null" dentro dos onClick abaixo
   // (acesso via `aberta.data` direto perde a narrowing dentro de closures).
   const msgAberta = aberta.data ?? null;
+
+  // ── Fases 2D-2 e 2D-3: o que dá para FAZER a partir deste e-mail ────────────────────────────
+  //
+  // Consulta à parte da abertura de propósito: `abrir` é a operação cara (baixa e higieniza o
+  // corpo) e este contexto é barato. Separado, ele reaparece sozinho depois de criar o lead.
+  const contexto = trpc.email.contextoDaMensagem.useQuery({ mensagemId: msgId ?? "" }, { enabled: !!msgId });
+  const clienteUnico = contexto.data?.clientes.length === 1 ? contexto.data.clientes[0]! : null;
+  const podeVirarLead = !!contexto.data && !contexto.data.remetenteDaCasa && !contexto.data.lead && contexto.data.clientes.length === 0;
+
+  /** Anexo aguardando a escolha do cliente (sem vínculo automático, ou com mais de um candidato). */
+  const [escolhendoCliente, setEscolhendoCliente] = useState<{ anexoId: string; nome: string } | null>(null);
+  const [clienteEscolhido, setClienteEscolhido] = useState("");
+  // Só carrega a lista de clientes quando a escolha é realmente necessária.
+  const clientes = trpc.clientes.list.useQuery(undefined, { enabled: !!escolhendoCliente });
+
+  const arquivarAnexo = trpc.email.arquivarAnexo.useMutation({
+    onSuccess: (r) => {
+      toast(
+        r.jaExistia
+          ? `"${r.nome}" já estava guardado na ficha do cliente.`
+          : `"${r.nome}" foi guardado nos documentos do cliente.`,
+        "success",
+      );
+      setEscolhendoCliente(null);
+      setClienteEscolhido("");
+      // O selo "na ficha" do anexo vem do `arquivoId`, que acabou de mudar.
+      utils.email.abrir.invalidate();
+      // A ficha do cliente mostra o documento novo sem esperar o próximo polling.
+      utils.clientes.arquivos.invalidate();
+    },
+    onError: (e) => toast(e.message),
+  });
+
+  const criarLead = trpc.email.criarLeadDoRemetente.useMutation({
+    onSuccess: (r) => {
+      toast(
+        r.jaExistia ? `${r.nome} já estava no funil.` : `${r.nome} entrou no funil como lead novo.`,
+        "success",
+      );
+      utils.email.contextoDaMensagem.invalidate();
+      utils.leads.invalidate();
+    },
+    onError: (e) => toast(e.message),
+  });
+
+  /**
+   * Trocar de e-mail fecha a caixa de escolha. Sem isto ela ficava aberta mostrando o anexo do
+   * e-mail ANTERIOR enquanto o `mensagemId` enviado já era o do novo — o par não bate no servidor
+   * e a pessoa levava um erro sem entender de onde veio.
+   */
+  useEffect(() => {
+    setEscolhendoCliente(null);
+    setClienteEscolhido("");
+  }, [msgId]);
+
+  /** Um clique só quando já se sabe de quem é; caixa de escolha quando não se sabe. */
+  const guardarAnexo = (anexoId: string, nome: string) => {
+    if (!msgAberta) return;
+    if (clienteUnico) {
+      arquivarAnexo.mutate({ mensagemId: msgAberta.id, anexoId, clienteId: clienteUnico.id });
+      return;
+    }
+    setClienteEscolhido("");
+    setEscolhendoCliente({ anexoId, nome });
+  };
 
   // Abrir marca a mensagem como lida no servidor. Sem avisar a lista e o contador de não lidos,
   // o e-mail continuaria em negrito até o próximo polling.
@@ -371,21 +445,54 @@ export function EmailPage() {
                 <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                   <Paperclip className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   {msgAberta.anexos.map((a) => (
-                    <a
-                      key={a.id}
-                      href={`/email-anexo/${msgAberta.id}/${a.id}`}
-                      target="_blank"
-                      rel="noopener"
-                      aria-label={`Baixar anexo ${a.nome}`}
-                      className="inline-flex max-w-[16rem] items-center gap-1 rounded border px-1.5 py-0.5 hover:bg-muted hover:text-foreground"
-                    >
-                      <Download className="h-3 w-3 shrink-0" aria-hidden="true" />
-                      {/* `title` no texto (não no link): serve de balão para o mouse quando o nome
-                          é truncado, sem virar uma segunda leitura para o leitor de tela. */}
-                      <span className="truncate" title={a.nome}>
-                        {a.nome}
-                      </span>
-                    </a>
+                    <span key={a.id} className="inline-flex items-center">
+                      <a
+                        href={`/email-anexo/${msgAberta.id}/${a.id}`}
+                        target="_blank"
+                        rel="noopener"
+                        aria-label={`Baixar anexo ${a.nome}`}
+                        className="inline-flex max-w-[16rem] items-center gap-1 rounded-l border px-1.5 py-0.5 hover:bg-muted hover:text-foreground"
+                      >
+                        <Download className="h-3 w-3 shrink-0" aria-hidden="true" />
+                        {/* `title` no texto (não no link): serve de balão para o mouse quando o nome
+                            é truncado, sem virar uma segunda leitura para o leitor de tela. */}
+                        <span className="truncate" title={a.nome}>
+                          {a.nome}
+                        </span>
+                      </a>
+                      {/* Fase 2D-2: o anexo vira documento do cliente sem passar pelo disco de
+                          ninguém. Já guardado vira SELO, não botão — repetir o clique não cria
+                          um segundo documento, e a tela deve dizer isso antes de o servidor dizer. */}
+                      {a.arquivoId ? (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-r border border-l-0 bg-muted px-1.5 py-0.5 text-success"
+                          title="Este anexo já está nos documentos do cliente."
+                        >
+                          <Check className="h-3 w-3 shrink-0" aria-hidden="true" />
+                          na ficha
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={arquivarAnexo.isPending}
+                          onClick={() => guardarAnexo(a.id, a.nome)}
+                          aria-label={
+                            clienteUnico
+                              ? `Guardar ${a.nome} nos documentos de ${clienteUnico.nome}`
+                              : `Guardar ${a.nome} nos documentos de um cliente — escolher qual`
+                          }
+                          title={
+                            clienteUnico
+                              ? `Guardar nos documentos de ${clienteUnico.nome}.`
+                              : "Guardar nos documentos de um cliente (você escolhe qual)."
+                          }
+                          className="inline-flex items-center gap-1 rounded-r border border-l-0 px-1.5 py-0.5 hover:bg-muted hover:text-foreground disabled:opacity-50"
+                        >
+                          <FolderPlus className="h-3 w-3 shrink-0" aria-hidden="true" />
+                          guardar
+                        </button>
+                      )}
+                    </span>
                   ))}
                 </p>
               )}
@@ -443,6 +550,43 @@ export function EmailPage() {
                     </>
                   )}
                 </Button>
+
+                {/*
+                 * Quem é esta pessoa para a empresa (fase 2D-3). Três estados, e cada um responde
+                 * a pergunta que quem lê o e-mail está fazendo:
+                 *  - já é cliente ou lead → atalho para a ficha, para não procurar no menu;
+                 *  - ninguém conhecido → o convite para pôr no funil com um clique;
+                 *  - colega da casa → nada, e é de propósito (ADR-97: colega não vira lead).
+                 */}
+                {clienteUnico && (
+                  <Link
+                    to="/clientes/$clienteId"
+                    params={{ clienteId: clienteUnico.id }}
+                    className="inline-flex items-center rounded-md px-2 text-sm text-primary hover:underline"
+                  >
+                    <Building2 className="mr-1.5 h-3.5 w-3.5" /> Ver {clienteUnico.nome}
+                  </Link>
+                )}
+                {contexto.data?.lead && (
+                  <Link
+                    to="/leads"
+                    className="inline-flex items-center rounded-md px-2 text-sm text-primary hover:underline"
+                  >
+                    <UserPlus className="mr-1.5 h-3.5 w-3.5" /> No funil: {contexto.data.lead.nome}
+                  </Link>
+                )}
+                {podeVirarLead && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={criarLead.isPending}
+                    onClick={() => criarLead.mutate({ mensagemId: msgAberta.id })}
+                    title="Cria um lead no funil com o nome e o e-mail de quem escreveu."
+                  >
+                    <UserPlus className="mr-1.5 h-3.5 w-3.5" /> Virar lead
+                  </Button>
+                )}
               </div>
             </header>
 
@@ -470,6 +614,52 @@ export function EmailPage() {
           onFechar={() => setEscrevendo(null)}
         />
       )}
+
+      {/* Só aparece quando o e-mail NÃO diz de quem é o documento — com vínculo único, guardar é
+          um clique e esta caixa nunca abre. */}
+      <Modal
+        open={!!escolhendoCliente}
+        onClose={() => setEscolhendoCliente(null)}
+        title="Guardar anexo na ficha de qual cliente?"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setEscolhendoCliente(null)}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={!clienteEscolhido || !msgAberta || arquivarAnexo.isPending}
+              onClick={() => {
+                if (!msgAberta || !escolhendoCliente) return;
+                arquivarAnexo.mutate({
+                  mensagemId: msgAberta.id,
+                  anexoId: escolhendoCliente.anexoId,
+                  clienteId: clienteEscolhido,
+                });
+              }}
+            >
+              {arquivarAnexo.isPending ? "Guardando…" : "Guardar"}
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-3 text-sm text-muted-foreground">
+          <strong className="text-foreground">{escolhendoCliente?.nome}</strong> vai virar um
+          documento na ficha do cliente que você escolher — do mesmo jeito que um arquivo enviado
+          pelo Portal.
+        </p>
+        <div className="space-y-1">
+          <Label htmlFor="clienteDoAnexo">Cliente</Label>
+          <Combobox
+            id="clienteDoAnexo"
+            value={clienteEscolhido}
+            onChange={setClienteEscolhido}
+            options={(clientes.data ?? []).map((c) => ({ value: c.id, label: c.nome }))}
+            placeholder="Buscar cliente…"
+            emptyText="Nenhum cliente encontrado."
+          />
+        </div>
+      </Modal>
     </div>
   );
 }

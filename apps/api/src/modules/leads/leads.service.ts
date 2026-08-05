@@ -965,7 +965,24 @@ export async function criarOportunidadeParaCliente(
   return { leadId: lead.id };
 }
 
-export async function createLead(input: CreateLeadInput, userId: string) {
+/** Rastreio de atribuição do cadastro MANUAL: registra quem cadastrou e a origem informada. */
+async function montarRastreioManual(userId: string, origemManual: string | null): Promise<string> {
+  const criador = await nomeUsuario(userId);
+  return [
+    `Cadastrado manualmente no sistema${criador ? ` por ${criador}` : ""}.`,
+    origemManual ? `Origem informada: ${origemManual}.` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * `rastreioPronto` existe para quem já sabe de onde o lead veio e não foi um cadastro manual —
+ * hoje, o lead criado a partir de um e-mail recebido (fase 2D-3). Sem ele, todo lead nascido de
+ * outra porta mentiria "Cadastrado manualmente no sistema" no campo que existe justamente para
+ * responder de onde a pessoa apareceu.
+ */
+export async function createLead(input: CreateLeadInput, userId: string, rastreioPronto?: string) {
   let stageId = input.pipelineStageId;
   if (!stageId) {
     const stages = await listStages();
@@ -984,13 +1001,9 @@ export async function createLead(input: CreateLeadInput, userId: string) {
   // Rastreio de atribuição para cadastro MANUAL: registra que veio da equipe (quem e a
   // origem informada). Completa o "de onde veio (detectado)" para leads não capturados.
   const origemManual = clean(input.origem);
-  const criador = await nomeUsuario(userId);
-  const rastreioManual = [
-    `Cadastrado manualmente no sistema${criador ? ` por ${criador}` : ""}.`,
-    origemManual ? `Origem informada: ${origemManual}.` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  // Quem já trouxe o rastreio pronto não passa por aqui: montar o texto de "cadastro manual"
+  // custaria uma consulta a mais (`nomeUsuario`) para produzir algo que seria descartado.
+  const rastreio = rastreioPronto ?? (await montarRastreioManual(userId, origemManual));
 
   const lead = await prisma.lead.create({
     data: {
@@ -999,7 +1012,7 @@ export async function createLead(input: CreateLeadInput, userId: string) {
       email: clean(input.email),
       telefone: clean(input.telefone),
       origem: origemManual,
-      rastreio: rastreioManual,
+      rastreio,
       valorEstimado: input.valorEstimado ?? null,
       observacoes: clean(input.observacoes),
       pipelineStageId: stageId,
