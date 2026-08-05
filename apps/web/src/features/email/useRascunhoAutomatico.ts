@@ -107,7 +107,11 @@ export function useRascunhoAutomatico(opts: {
         }
       })
       .catch(() => {
-        /* rascunho é detalhe: a próxima tentativa (5s depois, ou ao fechar) resolve sozinha */
+        /* Rascunho é detalhe: uma gravação que falha não avisa nem atrapalha quem está escrevendo.
+           Só não existe nova tentativa AGENDADA aqui — este caminho não rearma o timer. A próxima
+           chance vem de fora: a pessoa digitar de novo (o `useEffect` chama `agendar`), fechar a
+           tela (`aoFechar`) ou um envio falhar (`aoEnvioFalhou`). Quem parar de digitar depois de
+           uma falha fica sem rascunho no servidor até fechar a tela. */
       })
       .finally(() => {
         emVooRef.current = false;

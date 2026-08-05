@@ -56,8 +56,30 @@ export async function salvarRascunho(userId: string, input: SalvarRascunhoInput)
   // Tudo dentro de UMA conexão: `comCaixa` fecha o socket assim que o callback retorna, então
   // gravar a nova e remover a antiga têm de acontecer aqui dentro, nesta ordem.
   return comCaixa(caixa.id, async (c) => {
-    const gravado = await c.append(drafts.caminho, mime, ["\\Draft"]);
+    // O "gravar por cima" INTEIRO depende de UIDPLUS, e nada garante a extensão: `descobrirServidor`
+    // (`imap.ts`) deriva `mail.<domínio>` de qualquer endereço digitado, então a garantia é do
+    // servidor de hoje, não da estrutura. Sem a extensão, as duas metades quebram: o `append` não
+    // devolve UID (não sobra a que apontar depois) e o `messageDelete(uid: true)` degrada, DENTRO
+    // do imapflow, para um `EXPUNGE` cego — que apaga TODA mensagem \Deleted da pasta Drafts,
+    // inclusive rascunho de outra composição que a pessoa tenha apagado pelo webmail. Gravar assim
+    // mesmo deixaria uma cópia nova a cada 5 s, sem teto e sem ninguém removendo a anterior. Entre
+    // encher a pasta e não gravar, não gravar é o menor dano — é a mesma degradação já aceita
+    // quando a pasta Drafts não existe.
+    if (!c.capabilities.has("UIDPLUS")) {
+      console.warn("[email] rascunho: servidor sem UIDPLUS — gravação automática desligada nesta caixa.");
+      return { uid: null };
+    }
+
+    // `\Seen` junto de `\Draft`, como na cópia em Enviados (`envio.service.ts`): sem ele o
+    // contador de não-lidos da pasta Rascunhos sobe a cada gravação automática (uma a cada 5 s
+    // de pausa na digitação) — ruído diário e visível no webmail e no celular.
+    const gravado = await c.append(drafts.caminho, mime, ["\\Draft", "\\Seen"]);
     const uidNovo = gravado && typeof gravado.uid === "number" ? gravado.uid : null;
+    if (uidNovo === null) {
+      // UIDPLUS anunciado mas sem `APPENDUID` na resposta: a próxima gravação não terá a que
+      // apontar e vai duplicar. Não dá para consertar daqui — mas não pode passar em silêncio.
+      console.warn("[email] rascunho: o servidor gravou o rascunho e não devolveu o UID (sem APPENDUID).");
+    }
 
     // Só remove a versão anterior DEPOIS de gravar a nova — nunca antes (0.3 do brief). Se a
     // remoção falhar, a pessoa fica com uma duplicata no webmail (cosmético), nunca sem rascunho.
@@ -65,16 +87,18 @@ export async function salvarRascunho(userId: string, input: SalvarRascunhoInput)
       try {
         const lock = await c.getMailboxLock(drafts.caminho);
         try {
-          // `messageDelete` com `uid: true` faz STORE +FLAGS \Deleted seguido de UID EXPUNGE
-          // (este servidor tem UIDPLUS) — expurga só a mensagem apontada, nunca a pasta inteira.
-          // Um `EXPUNGE` cego apagaria também rascunhos de outras composições que a pessoa tenha
-          // marcado \Deleted no webmail.
+          // `messageDelete` com `uid: true` faz STORE +FLAGS \Deleted seguido de UID EXPUNGE —
+          // e só porque a checagem de UIDPLUS acima já garantiu que este servidor o suporta.
+          // Expurga só a mensagem apontada, nunca a pasta inteira.
           await c.messageDelete(String(input.uidAnterior), { uid: true });
         } finally {
           lock.release();
         }
-      } catch {
-        /* a gravação nova já aconteceu — não remover a antiga é cosmético, não perda */
+      } catch (e) {
+        // A gravação nova já aconteceu — não remover a antiga é cosmético, não perda. Mas falha
+        // SISTEMÁTICA aqui é uma cópia nova a cada 5 s até a pasta Rascunhos encher, e sem rastro
+        // isso é invisível: registra e segue (nunca vira exceção — quebraria o fluxo à toa).
+        console.warn(`[email] rascunho: não consegui remover a versão anterior (uid ${input.uidAnterior}).`, e);
       }
     }
 
@@ -104,11 +128,29 @@ export async function descartarRascunho(userId: string, input: { caixaId: string
   if (!drafts) return;
 
   await comCaixa(caixa.id, async (c) => {
-    const lock = await c.getMailboxLock(drafts.caminho);
+    // Mesmo motivo do `salvarRascunho`: sem UIDPLUS o `messageDelete(uid: true)` degrada para um
+    // `EXPUNGE` cego e apagaria TODA mensagem \Deleted desta pasta, não só a do `uid` pedido. Um
+    // descarte cosmético nunca pode apagar o rascunho de outra composição — sem a extensão, não
+    // descarta (o pior caso é um rascunho órfão no webmail).
+    if (!c.capabilities.has("UIDPLUS")) {
+      console.warn("[email] rascunho: servidor sem UIDPLUS — descarte por UID não é seguro, rascunho mantido.");
+      return;
+    }
+
     try {
-      await c.messageDelete(String(input.uid), { uid: true });
-    } finally {
-      lock.release();
+      const lock = await c.getMailboxLock(drafts.caminho);
+      try {
+        await c.messageDelete(String(input.uid), { uid: true });
+      } finally {
+        lock.release();
+      }
+    } catch (e) {
+      // Achado 1-B da Tarefa 5, o mesmo tratamento já aplicado ao download de anexo
+      // (`http/email-anexo.ts`): falha em operação ACESSÓRIA não pode marcar a caixa como
+      // quebrada. Este callback roda dentro do `comCaixa`, e qualquer exceção que suba daqui
+      // grava `estado: "ERRO"` + `ultimoErro` na caixa (`imap.ts`) — ou seja, o envio dá certo,
+      // o descarte do rascunho tem um soluço de rede, e a caixa aparece "com erro" na tela.
+      console.warn(`[email] rascunho: não consegui descartar o rascunho (uid ${input.uid}) depois do envio.`, e);
     }
   });
 }

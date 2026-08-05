@@ -38,6 +38,10 @@ export async function comSmtp<T>(caixaId: string, fn: (t: Transporter) => Promis
     host: caixa.smtpHost,
     port: caixa.smtpPorta,
     secure: caixa.smtpPorta === 465,
+    // Inócuo hoje (`descobrirServidor` só produz 465, e o cliente não escolhe a porta), mas
+    // obrigatório no dia em que a 587 entrar: sem isto o nodemailer aceita seguir em texto claro
+    // quando o servidor não anuncia STARTTLS — downgrade oportunista, com a senha da caixa junto.
+    requireTLS: true,
     auth: { user: caixa.usuario, pass: senha },
     // NUNCA ligar logger/debug: o diálogo SMTP inclui a autenticação.
     logger: false,

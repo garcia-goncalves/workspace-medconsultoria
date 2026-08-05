@@ -47,6 +47,66 @@ export function anexoTempVencido(mtimeMs: number, agoraMs: number, prazoMs: numb
 }
 
 /**
+ * Teto de disco da área temporária de anexos, POR PESSOA. Sem isto, `POST /email-anexo` grava até
+ * 20 MB por requisição sem somar nada antes: dentro do rate limit global (300 req/min), uma
+ * sessão de funcionário enche o disco muito antes de a varredura de órfãos encostar em qualquer
+ * arquivo (ela tem prazo de 24 h e roda de hora em hora — não impede o estrago, só limpa depois).
+ * Aqui isso não derruba só o e-mail: a hospedagem é compartilhada e um único processo Node serve
+ * API + SPA, então disco cheio derruba a app inteira.
+ *
+ * 200 MB = oito composições do tamanho máximo de um envio (25 MB, teto do `conferirAnexos`)
+ * abertas ao mesmo tempo — muito acima do uso real —, e pequeno o bastante para as poucas pessoas
+ * da empresa somadas não ameaçarem o disco.
+ */
+export const COTA_ANEXO_TEMP_BYTES = 200 * 1024 * 1024;
+
+/**
+ * Função pura: decide se ainda cabe mais um upload, dado o que a pessoa já tem gravado.
+ *
+ * PESSIMISTA de propósito — conta o pior caso (`TAMANHO_MAX`, o teto que o multipart aplica por
+ * arquivo) em vez do tamanho real do que está chegando, porque esse tamanho só seria conhecido
+ * DEPOIS de gravar o arquivo, que é justamente o que a cota existe para evitar. Assim nenhuma
+ * decisão depende de um valor que ainda pode mudar, e duas requisições simultâneas que leiam o
+ * mesmo total ultrapassam a cota em no máximo um arquivo cada — nunca sem teto.
+ */
+export function cabeMaisUmAnexoTemp(
+  usadosBytes: number,
+  tamanhoMaxBytes: number = TAMANHO_MAX,
+  cotaBytes: number = COTA_ANEXO_TEMP_BYTES,
+): boolean {
+  return usadosBytes + tamanhoMaxBytes <= cotaBytes;
+}
+
+/**
+ * Soma o que a pessoa já tem gravado na PRÓPRIA área temporária. É uma pasta por usuário, com os
+ * anexos de composições ainda abertas — na prática um punhado de arquivos, então o `readdir` +
+ * `stat` custa milissegundos e só roda no upload, não em toda requisição. Pasta inexistente = 0.
+ *
+ * Conta TUDO o que ocupa disco ali (não só o que casa com o formato de UUID): para uma cota, o
+ * que importa é o espaço realmente usado. O nome vem do `readdir` da própria pasta e nunca contém
+ * separador, então não há caminho para escapar dela.
+ */
+export async function usoPastaTemp(userId: string): Promise<number> {
+  const pasta = pastaTemp(userId);
+  let arquivos: Dirent[];
+  try {
+    arquivos = await readdir(pasta, { withFileTypes: true });
+  } catch {
+    return 0; // esta pessoa ainda não anexou nada
+  }
+  let total = 0;
+  for (const arquivo of arquivos) {
+    if (!arquivo.isFile()) continue;
+    try {
+      total += (await stat(join(pasta, arquivo.name))).size;
+    } catch {
+      /* sumiu entre listar e medir (envio ou limpeza concorrente) — não ocupa mais espaço */
+    }
+  }
+  return total;
+}
+
+/**
  * Varredura por mtime dos temporários de anexo de e-mail. Cobre os três jeitos de um anexo ficar
  * órfão que o envio (`envio.service.ts:enviarMensagem`) NÃO cobre — porque só limpa o que foi
  * efetivamente enviado: anexo REMOVIDO da lista antes de enviar, compose CANCELADO, ou aba
@@ -215,6 +275,20 @@ export function registrarRotaAnexoEmail(app: FastifyInstance): void {
 
     const parte = await req.file();
     if (!parte) return reply.code(400).send({ error: "Nenhum arquivo recebido." });
+
+    // Cota por pessoa ANTES de gravar um byte (ver `COTA_ANEXO_TEMP_BYTES`). O stream é drenado
+    // (`resume()`) antes de responder — mesmo padrão das recusas de `/upload`: sem isso o cliente
+    // vê a conexão cair em vez da mensagem de erro.
+    const usados = await usoPastaTemp(user.id);
+    if (!cabeMaisUmAnexoTemp(usados)) {
+      parte.file.resume();
+      return reply.code(413).send({
+        error:
+          `Você já tem ${Math.round(usados / 1024 / 1024)} MB de anexos aguardando envio ` +
+          `(limite de ${COTA_ANEXO_TEMP_BYTES / 1024 / 1024} MB por pessoa). ` +
+          `Envie ou feche os e-mails que estão abertos e tente de novo.`,
+      });
+    }
 
     const id = randomUUID();
     await mkdir(pastaTemp(user.id), { recursive: true });

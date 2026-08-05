@@ -8,11 +8,13 @@ import sanitizeHtml from "sanitize-html";
  * Imagem remota vira `data-src-bloqueada`: o front decide mostrar. O "pixel invisível" é como
  * quem manda spam confirma que o endereço existe e que foi lido.
  *
- * `bloquearImagensRemotas` (padrão `true`) existe só para a citação que sai dentro de uma
- * resposta/encaminhamento (`citacao.ts`): lá o e-mail de fato SAI com o nosso domínio no
- * remetente, e o destinatário original espera ver a própria logo/assinatura, não uma imagem
- * quebrada. Desligar isto NÃO afrouxa a sanitização — script, iframe e handler `on*` continuam
- * removidos sempre; só o `src` da imagem deixa de ser trocado por `data-src-bloqueada`.
+ * `bloquearImagensRemotas` (padrão `true`) só é desligado num lugar: a citação que sai dentro de
+ * uma RESPOSTA (`citacao.ts`). Ali quem recebe de volta é a MESMA pessoa que mandou o e-mail
+ * original — se há pixel de rastreio, é dela — e ela espera ver a própria logo/assinatura, não
+ * uma imagem quebrada. **Encaminhamento nunca passa `false`**: quem recebe é um terceiro, que
+ * nunca escolheu abrir aquele e-mail (ADR-96 §5). Desligar isto NÃO afrouxa a sanitização —
+ * script, iframe e handler `on*` continuam removidos sempre; só o `src` da imagem deixa de ser
+ * trocado por `data-src-bloqueada`.
  */
 export function sanitizarEmailHtml(
   html: string,

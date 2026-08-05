@@ -2,12 +2,16 @@ import { describe, it, expect, afterAll } from "vitest";
 import { sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, utimes, rm, readdir } from "node:fs/promises";
+import { TAMANHO_MAX } from "../lib/storage.js";
 import {
   pastaTemp,
   caminhoTemp,
   anexoTempVencido,
   limparAnexosTempOrfaos,
+  cabeMaisUmAnexoTemp,
+  usoPastaTemp,
   PRAZO_ANEXO_TEMP_MS,
+  COTA_ANEXO_TEMP_BYTES,
 } from "./email-anexo.js";
 
 describe("caminhoTemp (defesa contra travessia de caminho)", () => {
@@ -77,6 +81,55 @@ describe("anexoTempVencido (decide sem relógio real)", () => {
     const agora = 10_000_000;
     expect(anexoTempVencido(agora - 1_000, agora)).toBe(false);
     expect(anexoTempVencido(agora - PRAZO_ANEXO_TEMP_MS - 1_000, agora)).toBe(true);
+  });
+});
+
+// Achado B1 da revisão de segurança: `POST /email-anexo` gravava até 20 MB por requisição sem
+// somar NADA antes. Dentro do rate limit global (300 req/min), uma sessão de funcionário enche o
+// disco muito antes de a varredura de órfãos (24 h de prazo, de hora em hora) tocar em algo — e,
+// em hospedagem compartilhada, disco cheio derruba a app inteira, não só o e-mail.
+describe("cota de disco dos anexos temporários, por pessoa", () => {
+  const userId = `teste-cota-anexos-${randomUUID()}`;
+
+  afterAll(async () => {
+    await rm(pastaTemp(userId), { recursive: true, force: true });
+  });
+
+  it("deixa passar quem ainda não tem nada gravado", () => {
+    expect(cabeMaisUmAnexoTemp(0)).toBe(true);
+  });
+
+  it("recusa mais um anexo quando o que já está gravado não deixa espaço para outro arquivo do tamanho máximo", () => {
+    // Pessimista de propósito: o tamanho do arquivo que está chegando só seria conhecido DEPOIS
+    // de gravá-lo — que é exatamente o que a cota existe para evitar.
+    expect(cabeMaisUmAnexoTemp(COTA_ANEXO_TEMP_BYTES - TAMANHO_MAX)).toBe(true);
+    expect(cabeMaisUmAnexoTemp(COTA_ANEXO_TEMP_BYTES - TAMANHO_MAX + 1)).toBe(false);
+    expect(cabeMaisUmAnexoTemp(COTA_ANEXO_TEMP_BYTES)).toBe(false);
+  });
+
+  it("a cota é por pessoa e cabe folgadamente um envio inteiro (25 MB do teto agregado)", () => {
+    expect(COTA_ANEXO_TEMP_BYTES).toBe(200 * 1024 * 1024);
+    expect(cabeMaisUmAnexoTemp(25 * 1024 * 1024)).toBe(true);
+  });
+
+  it("usoPastaTemp devolve 0 quando a pessoa nunca anexou nada (pasta inexistente)", async () => {
+    await expect(usoPastaTemp(`nunca-existiu-${randomUUID()}`)).resolves.toBe(0);
+  });
+
+  it("usoPastaTemp soma o tamanho real dos anexos já gravados da própria pessoa", async () => {
+    await mkdir(pastaTemp(userId), { recursive: true });
+    await writeFile(caminhoTemp(userId, randomUUID()), Buffer.alloc(3_000));
+    await writeFile(caminhoTemp(userId, randomUUID()), Buffer.alloc(1_000));
+    await expect(usoPastaTemp(userId)).resolves.toBe(4_000);
+  });
+
+  it("o upload seguinte é recusado quando a soma do que já está em disco estoura a cota", async () => {
+    // Regressão do defeito em si, com os limites parametrizados para não escrever 200 MB no
+    // disco só para provar a soma: 4 KB gravados, teto de 1 KB por arquivo, cota de 4 KB.
+    const usados = await usoPastaTemp(userId);
+    expect(usados).toBe(4_000);
+    expect(cabeMaisUmAnexoTemp(usados, 1_000, 4_000)).toBe(false);
+    expect(cabeMaisUmAnexoTemp(usados, 1_000, 8_000)).toBe(true);
   });
 });
 
