@@ -59,6 +59,13 @@ export const enviarEmailSchema = z
       .array(z.object({ id: z.string().uuid(), nome: z.string().min(1).max(255) }))
       .max(20)
       .default([]),
+    /**
+     * Anexos do e-mail ORIGINAL que vão junto no encaminhamento: só os ids de `EmailAnexo`
+     * devolvidos por `prepararEncaminhamento`. Ficam separados de `anexos` porque não são
+     * arquivo no nosso disco — o servidor os rebaixa do IMAP na hora de enviar. O nome NÃO vem
+     * do cliente de propósito: sai do banco, junto com a parte MIME.
+     */
+    anexosOriginais: z.array(z.string().min(1).max(64)).max(20).default([]),
   })
   .refine((v) => v.para.length + v.cc.length + v.cco.length > 0, {
     message: "Informe pelo menos um destinatário.",

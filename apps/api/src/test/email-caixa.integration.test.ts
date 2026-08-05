@@ -219,6 +219,7 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
       assunto: marca,
       corpoHtml: "<p>corpo de teste</p>",
       anexos: [],
+      anexosOriginais: [],
     });
 
     expect(r.enviado).toBe(true);
@@ -281,6 +282,7 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
       assunto: `Re: ${marca}`,
       corpoHtml: "<p>resposta de teste</p>",
       anexos: [],
+      anexosOriginais: [],
       emRespostaA: original.id,
     });
     expect(r.enviado).toBe(true);
@@ -326,6 +328,7 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
         assunto: "não deve sair",
         corpoHtml: "<p>x</p>",
         anexos: [],
+        anexosOriginais: [],
       }),
     ).rejects.toThrow(/desenvolvimento/i);
   });

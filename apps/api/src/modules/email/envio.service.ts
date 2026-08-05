@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import MailComposer from "nodemailer/lib/mail-composer/index.js";
 import { createReadStream } from "node:fs";
 import { rm, stat } from "node:fs/promises";
+import type { Readable } from "node:stream";
 import { prisma } from "@app/db";
 import { DESTINOS_TESTE_PERMITIDOS, type EnviarEmailInput } from "@app/shared";
 import { isProd } from "../../config.js";
@@ -18,6 +19,18 @@ import { caminhoTemp } from "../../http/email-anexo.js";
  * anexos de 20 MB) seriam ~530 MB de base64 sem este teto.
  */
 const LIMITE_ANEXOS_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Corpo usado quando a pessoa não escreveu nada. Existe por uma razão só, e é grave: `html: ""`
+ * é FALSY para o `MailComposer` (`getAlternatives`, do nodemailer), e sem nenhuma "alternativa"
+ * ele não monta `multipart/mixed` — uma mensagem sem texto e com UM anexo COLAPSA, e o anexo
+ * VIRA o corpo (`Content-Type: text/html; name=contrato.html`). O e-mail sai sem anexo nenhum,
+ * a nossa cópia em Enviados grava `temAnexo: false` e quem escreveu vê sucesso na tela. Com um
+ * anexo `.html`, o cliente de e-mail de quem recebe ainda renderiza HTML de terceiro como corpo,
+ * com o NOSSO domínio no remetente. E mandar só "segue o contrato em anexo", sem escrever nada,
+ * é caso de uso normal — uma caixa COM assinatura configurada mascarava o defeito.
+ */
+const CORPO_MINIMO = "<p></p>";
 
 /**
  * Fora de produção, só é permitido enviar para os endereços de teste do dono.
@@ -43,13 +56,21 @@ export function conferirDestinoPermitido(destinos: string[]): void {
  * passa do teto do CONJUNTO. Chamada antes de `compile().build()`, que materializa a mensagem
  * inteira (anexos em base64 incluídos) num Buffer só — no mesmo processo que serve a tela.
  *
- * Também é a defesa contra reenviar depois de uma falha do SMTP: o `finally` do PASSO 1 já
- * apagou os temporários da tentativa anterior, e sem esta checagem o `createReadStream` do
- * `MailComposer` cairia num ENOENT cru — que, sem `errorFormatter` no tRPC, vazaria o caminho de
- * disco do servidor pro cliente e pro ErrorLog.
+ * `bytesJaContados` são os anexos que NÃO estão no nosso disco e entram no mesmo teto: os do
+ * e-mail original, rebaixados do IMAP num encaminhamento. Sem somá-los aqui, encaminhar um
+ * e-mail de 24 MB com mais um arquivo anexado passaria batido pelo teto.
+ *
+ * Também é a defesa contra o temporário que sumiu entre anexar e enviar — a varredura de 24h
+ * (`limparAnexosTempOrfaos`) apaga o anexo de um compose deixado aberto além do prazo. Sem esta
+ * checagem, o `createReadStream` do `MailComposer` cairia num ENOENT cru — que, sem
+ * `errorFormatter` no tRPC, vazaria o caminho de disco do servidor pro cliente e pro ErrorLog.
  */
-export async function conferirAnexos(userId: string, anexos: EnviarEmailInput["anexos"]): Promise<void> {
-  let total = 0;
+export async function conferirAnexos(
+  userId: string,
+  anexos: EnviarEmailInput["anexos"],
+  bytesJaContados = 0,
+): Promise<void> {
+  let total = bytesJaContados;
   for (const a of anexos) {
     let tamanho: number;
     try {
@@ -96,6 +117,119 @@ async function originalDoUsuario(userId: string, mensagemId: string) {
   });
 }
 
+/** O que o `MailComposer` precisa de cada anexo — arquivo em stream ou conteúdo já em memória. */
+type AnexoParaCompor = { filename: string; content: Readable | Buffer };
+
+/**
+ * Monta o MIME da mensagem. Separado do envio de propósito: é aqui que um detalhe do
+ * `MailComposer` decide se o anexo sai como ANEXO ou vira o corpo (ver `CORPO_MINIMO`), e isso
+ * só dá para travar com um teste que inspecione o buffer construído — sem SMTP nem IMAP no meio.
+ */
+export async function montarMime(m: {
+  de: { nome: string; email: string };
+  para: string[];
+  cc: string[];
+  cco: string[];
+  assunto: string;
+  corpoHtml: string;
+  inReplyTo?: string;
+  references?: string;
+  anexos: AnexoParaCompor[];
+}): Promise<Buffer> {
+  const composer = new MailComposer({
+    from: { name: m.de.nome, address: m.de.email },
+    to: m.para,
+    cc: m.cc,
+    bcc: m.cco,
+    subject: m.assunto,
+    html: m.corpoHtml || CORPO_MINIMO,
+    inReplyTo: m.inReplyTo,
+    references: m.references,
+    attachments: m.anexos,
+  });
+  return new Promise<Buffer>((ok, falhou) => {
+    composer.compile().build((erro, buffer) => (erro ? falhou(erro) : ok(buffer)));
+  });
+}
+
+/**
+ * Anexos do e-mail original escolhidos para ir junto no encaminhamento, resolvidos no banco.
+ *
+ * A POSSE vem da cadeia inteira: `citada` só existe se `originalDoUsuario` a achou pela caixa
+ * DESTA pessoa, e aqui os anexos são presos a `mensagemId: citada.id`. Um id de anexo de outra
+ * mensagem (ou de outra pessoa) simplesmente não é encontrado.
+ *
+ * O `nome` sai do BANCO, nunca do cliente: é o mesmo nome que a pessoa viu na mensagem aberta.
+ */
+async function resolverAnexosOriginais(
+  citada: { id: string } | null,
+  ids: string[],
+): Promise<{ id: string; nome: string; tamanho: number; parte: string }[]> {
+  if (ids.length === 0) return [];
+  if (!citada) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Só dá para levar anexos do e-mail original ao responder ou encaminhar uma mensagem.",
+    });
+  }
+  const achados = await prisma.emailAnexo.findMany({
+    where: { id: { in: ids }, mensagemId: citada.id },
+    select: { id: true, nome: true, tamanho: true, parte: true },
+  });
+  if (achados.length !== new Set(ids).size) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Um dos anexos do e-mail original não está mais disponível. Abra a mensagem de novo e tente encaminhar.",
+    });
+  }
+  return achados;
+}
+
+/**
+ * Rebaixa do IMAP os anexos do original para anexá-los ao e-mail que sai. Uma conexão e um lock
+ * para o conjunto todo — encaminhar um e-mail com 5 anexos não pode abrir 5 conexões.
+ *
+ * TUDO acontece DENTRO do `comCaixa`, inclusive esgotar o stream: `c.download()` resolve depois
+ * do PRIMEIRO pedaço e o resto continua sendo puxado do socket. Devolver o stream para fora
+ * fecharia a conexão no meio da leitura e o anexo sairia CORTADO, em silêncio, acima de ~64 KB —
+ * é a mesma regra que `http/email-anexo.ts` documenta na rota de download.
+ *
+ * "O servidor não devolveu esta parte" NÃO sobe de dentro do callback de propósito: o `catch` do
+ * `comCaixa` marcaria a CAIXA INTEIRA como `ERRO` por causa de um anexo — sem nenhuma relação
+ * com a sincronização dela.
+ */
+async function baixarAnexosOriginais(
+  citada: { uid: bigint; pasta: { caminho: string; caixaId: string } },
+  anexos: { nome: string; parte: string }[],
+): Promise<AnexoParaCompor[]> {
+  if (anexos.length === 0) return [];
+
+  const r = await comCaixa(citada.pasta.caixaId, async (c) => {
+    const lock = await c.getMailboxLock(citada.pasta.caminho);
+    try {
+      const prontos: AnexoParaCompor[] = [];
+      for (const a of anexos) {
+        const baixado = await c.download(String(citada.uid), a.parte, { uid: true });
+        if (!baixado?.content) return { faltou: a.nome } as const;
+        const pedacos: Buffer[] = [];
+        for await (const p of baixado.content) pedacos.push(p as Buffer);
+        prontos.push({ filename: a.nome, content: Buffer.concat(pedacos) });
+      }
+      return { prontos } as const;
+    } finally {
+      lock.release();
+    }
+  });
+
+  if ("faltou" in r) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `O servidor de e-mail não devolveu o anexo "${r.faltou}". Tente encaminhar de novo em alguns instantes.`,
+    });
+  }
+  return r.prontos;
+}
+
 export async function enviarMensagem(
   userId: string,
   input: EnviarEmailInput,
@@ -103,8 +237,6 @@ export async function enviarMensagem(
   const caixa = await caixaDoUsuario(userId, input.caixaId);
   const todos = [...input.para, ...input.cc, ...input.cco];
   conferirDestinoPermitido(todos);
-
-  await conferirAnexos(userId, input.anexos);
 
   // `emRespostaA` e `encaminhando` são mutuamente exclusivos na prática; se vierem os dois,
   // `emRespostaA` manda (é o caso mais forte) — não estoura erro por isso.
@@ -122,6 +254,11 @@ export async function enviarMensagem(
     });
   }
 
+  // Anexos do original (encaminhamento) primeiro: eles entram no MESMO teto de 25 MB dos
+  // temporários, então o tamanho tem de ser conhecido antes de conferir o conjunto.
+  const originais = await resolverAnexosOriginais(citada, input.anexosOriginais);
+  await conferirAnexos(userId, input.anexos, originais.reduce((s, a) => s + a.tamanho, 0));
+
   const corpo = [input.corpoHtml, caixa.assinatura ? `<br>--<br>${caixa.assinatura}` : ""]
     .filter(Boolean)
     .join("\n");
@@ -131,40 +268,48 @@ export async function enviarMensagem(
   // nos dois casos; `inReplyTo` só na resposta (encaminhar não é responder a ela — 0.1 do brief).
   const referencias = citada ? [citada.referencias, citada.messageId].filter(Boolean).join(" ").trim() : "";
 
-  const composer = new MailComposer({
-    from: { name: caixa.nomeExibicao, address: caixa.email },
-    to: input.para,
-    cc: input.cc,
-    bcc: input.cco,
-    subject: input.assunto,
-    html: corpo,
-    inReplyTo: modo === "resposta" ? (citada?.messageId ?? undefined) : undefined,
-    references: referencias || undefined,
-    // `input.anexos` traz { id, nome }: o id é o do upload temporário (POST /email-anexo), o
-    // nome é o original informado por quem escreveu o e-mail.
-    attachments: input.anexos.map((a) => ({
-      filename: a.nome,
-      content: createReadStream(caminhoTemp(userId, a.id)),
-    })),
-  });
+  // Os anexos do original saem do IMAP ANTES de compor: se o servidor de e-mail não os devolver,
+  // nada foi enviado ainda e a pessoa vê o erro em vez de um encaminhamento sem o anexo — que é
+  // justamente o ponto de encaminhar.
+  const doOriginal = citada ? await baixarAnexosOriginais(citada, originais) : [];
 
   // Compor UMA vez: o mesmo MIME vai para o SMTP e para a cópia em Enviados, então o que está
   // na pasta é exatamente o que saiu.
-  const mime: Buffer = await new Promise((ok, falhou) => {
-    composer.compile().build((erro, buffer) => (erro ? falhou(erro) : ok(buffer)));
+  const mime = await montarMime({
+    de: { nome: caixa.nomeExibicao, email: caixa.email },
+    para: input.para,
+    cc: input.cc,
+    cco: input.cco,
+    assunto: input.assunto,
+    corpoHtml: corpo,
+    inReplyTo: modo === "resposta" ? (citada?.messageId ?? undefined) : undefined,
+    references: referencias || undefined,
+    anexos: [
+      // `input.anexos` traz { id, nome }: o id é o do upload temporário (POST /email-anexo), o
+      // nome é o original informado por quem escreveu o e-mail.
+      ...input.anexos.map((a) => ({
+        filename: a.nome,
+        content: createReadStream(caminhoTemp(userId, a.id)),
+      })),
+      ...doOriginal,
+    ],
   });
 
-  // PASSO 1 — enviar. Os anexos temporários são de uso único: limpa dê certo ou não o envio
-  // (`finally` — se o envio falhar e a limpeza ficasse só depois, o arquivo vazaria no disco).
-  try {
-    await comSmtp(caixa.id, async (t) => {
-      await t.sendMail({ envelope: { from: caixa.email, to: todos }, raw: mime });
-    });
-  } finally {
-    await Promise.all(
-      input.anexos.map((a) => rm(caminhoTemp(userId, a.id), { force: true }).catch(() => {})),
-    );
-  }
+  // PASSO 1 — enviar.
+  await comSmtp(caixa.id, async (t) => {
+    await t.sendMail({ envelope: { from: caixa.email, to: todos }, raw: mime });
+  });
+
+  // Os temporários só somem depois de o SMTP ACEITAR a mensagem. Apagá-los num `finally` (dê
+  // certo ou não) fechava um beco sem saída: SMTP recusa (greylisting, timeout, 535) → a tela
+  // mostra o erro → a pessoa clica Enviar de novo → `conferirAnexos` acusa "anexo não está mais
+  // disponível" porque os arquivos já morreram, e anexar de novo não resolve (os ids mortos
+  // continuam na lista da tela). Anexo abandonado — compose cancelado, aba fechada, envio que
+  // falhou e não foi retomado — é coberto pela varredura de 24h, que foi escrita para isso
+  // (`limparAnexosTempOrfaos`, `http/email-anexo.ts`).
+  await Promise.all(
+    input.anexos.map((a) => rm(caminhoTemp(userId, a.id), { force: true }).catch(() => {})),
+  );
 
   // PASSO 2 — guardar a cópia em Enviados. SMTP não guarda cópia: sem isto, a pessoa responde
   // aqui e no celular dela o e-mail não existe.
@@ -212,6 +357,29 @@ export async function enviarMensagem(
   return { enviado: true, copiaEmEnviados };
 }
 
+/**
+ * Recusa preparar resposta/encaminhamento de uma mensagem cujo corpo NÃO está guardado aqui.
+ *
+ * `abrirMensagem` (`leitura.service.ts`) tem um ramo `grandeDemais`: acima do teto de corpo ela
+ * mostra "esta mensagem é grande demais, abra pelo webmail" na tela e NÃO grava corpo nenhum —
+ * `corpoHtml` e `corpoTexto` continuam nulos no banco. Sem esta guarda, `montarCitacao` recebia
+ * nulo nos dois e devolvia `""`: saía um e-mail com assunto "Enc: …" e corpo VAZIO. Quem recebe
+ * não recebe nada, e quem mandou acha que encaminhou. Falhar alto é o único desfecho honesto —
+ * a tarja de erro de `Escrever.tsx` já mostra esta mensagem.
+ */
+function exigirCorpoGuardado(
+  msg: { corpoHtml: string | null; corpoTexto: string | null },
+  acao: "responder" | "encaminhar",
+): void {
+  if (msg.corpoHtml || msg.corpoTexto) return;
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message:
+      `Não dá para ${acao} esta mensagem por aqui: o conteúdo dela não está guardado na aplicação ` +
+      `(mensagens muito grandes não são abertas aqui). Use o webmail para ${acao} esta.`,
+  });
+}
+
 /** Rascunho de resposta pronto para a tela: destinatários, assunto e citação já montados. */
 export async function prepararResposta(
   userId: string,
@@ -232,6 +400,7 @@ export async function prepararResposta(
     },
   });
   if (!msg) throw new TRPCError({ code: "NOT_FOUND", message: "Mensagem não encontrada." });
+  exigirCorpoGuardado(msg, "responder");
 
   const { para, cc } = destinatariosResposta({
     deEmail: msg.deEmail,
@@ -253,19 +422,45 @@ export async function prepararResposta(
   };
 }
 
-/** Idem para encaminhar: sem destinatário, assunto com Enc: e a mensagem inteira citada. */
+/**
+ * Idem para encaminhar: sem destinatário, assunto com Enc: e a mensagem inteira citada.
+ *
+ * Devolve TAMBÉM os anexos do original (`anexos`), porque encaminhar o e-mail cujo ponto inteiro
+ * É o PDF anexo é o caso normal, não a exceção. A tela mostra a lista já marcada e manda de volta
+ * em `anexosOriginais` do envio os ids que a pessoa quis levar; o conteúdo em si nunca passa pelo
+ * navegador — quem rebaixa do IMAP é `enviarMensagem`.
+ */
 export async function prepararEncaminhamento(
   userId: string,
   mensagemId: string,
-): Promise<{ assunto: string; citacaoPreview: string; citacaoEnvio: string }> {
+): Promise<{
+  assunto: string;
+  citacaoPreview: string;
+  citacaoEnvio: string;
+  anexos: { id: string; nome: string; tamanho: number }[];
+}> {
   const msg = await prisma.emailMensagem.findFirst({
     where: { id: mensagemId, pasta: { caixa: { userId, deletedAt: null } } },
-    select: { deNome: true, deEmail: true, dataEm: true, assunto: true, corpoHtml: true, corpoTexto: true },
+    select: {
+      deNome: true,
+      deEmail: true,
+      dataEm: true,
+      assunto: true,
+      corpoHtml: true,
+      corpoTexto: true,
+      anexos: { select: { id: true, nome: true, tamanho: true } },
+    },
   });
   if (!msg) throw new TRPCError({ code: "NOT_FOUND", message: "Mensagem não encontrada." });
+  exigirCorpoGuardado(msg, "encaminhar");
   // Encaminhamento: quem recebe é um TERCEIRO que nunca escolheu abrir aquele e-mail — a citação
   // de envio fica bloqueada (igual ao preview), senão repassa o pixel de rastreio a ele (ver
   // `montarCitacao`, `citacao.ts`).
   const citacao = montarCitacao(msg, { restaurarImagensNoEnvio: false });
-  return { assunto: assuntoEncaminhar(msg.assunto), citacaoPreview: citacao.preview, citacaoEnvio: citacao.envio };
+  return {
+    assunto: assuntoEncaminhar(msg.assunto),
+    citacaoPreview: citacao.preview,
+    citacaoEnvio: citacao.envio,
+    anexos: msg.anexos,
+  };
 }

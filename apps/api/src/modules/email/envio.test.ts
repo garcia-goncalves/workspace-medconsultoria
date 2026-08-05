@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, rm } from "node:fs/promises";
-import { conferirDestinoPermitido, conferirAnexos } from "./envio.service.js";
+import { conferirDestinoPermitido, conferirAnexos, montarMime } from "./envio.service.js";
 import { pastaTemp, caminhoTemp } from "../../http/email-anexo.js";
 
 describe("conferirDestinoPermitido (fora de produção)", () => {
@@ -56,10 +56,70 @@ describe("conferirAnexos (teto agregado + existência, antes de compor)", () => 
     );
   });
 
-  it("recusa com mensagem amigável (sem caminho de disco) quando um anexo temporário não existe mais — cobre o reenvio depois de falha do SMTP", async () => {
+  it("conta os anexos rebaixados do original no MESMO teto — encaminhar um e-mail pesado com mais um arquivo estoura", async () => {
+    const anexado = await criarTemp(5 * 1024 * 1024);
+    // 24 MB de anexos do e-mail original (vêm do IMAP, não do nosso disco) + 5 MB anexados aqui.
+    await expect(conferirAnexos(userId, [anexado], 24 * 1024 * 1024)).rejects.toThrow(
+      /anexos somam 29\.0 MB.*limite total é 25 MB/i,
+    );
+  });
+
+  it("recusa com mensagem amigável (sem caminho de disco) quando um anexo temporário não existe mais — é o caso do compose deixado aberto além das 24h da varredura", async () => {
     const idInexistente = randomUUID();
     await expect(
       conferirAnexos(userId, [{ id: idInexistente, nome: "sumiu.pdf" }]),
     ).rejects.toThrow(/não está mais disponível/i);
+  });
+});
+
+/**
+ * O MIME construído é inspecionado DE VERDADE (o buffer, não o código): o defeito que estes
+ * testes travam é do `MailComposer`, não nosso — `html: ""` é falsy para ele e a mensagem
+ * COLAPSA no anexo. Ler o código não pega isso; só o Content-Type do buffer pega.
+ */
+describe("montarMime (o anexo tem de sair como ANEXO)", () => {
+  const de = { nome: "Med Consultoria", email: "contato@medconsultoria.com.br" };
+  const base = {
+    de,
+    para: ["tibamooca@gmail.com"],
+    cc: [] as string[],
+    cco: [] as string[],
+    assunto: "Segue o contrato",
+  };
+  const anexo = { filename: "contrato.html", content: Buffer.from("<h1>anexo de terceiro</h1>") };
+
+  /** Só o bloco de cabeçalhos da mensagem — é ali que o Content-Type da RAIZ aparece. */
+  function cabecalhos(mime: Buffer): string {
+    return mime.toString("utf8").split(/\r?\n\r?\n/)[0] ?? "";
+  }
+
+  it("com CORPO VAZIO e um anexo, ainda monta multipart/mixed — o anexo não vira o corpo", async () => {
+    const mime = await montarMime({ ...base, corpoHtml: "", anexos: [anexo] });
+    expect(cabecalhos(mime)).toMatch(/Content-Type: multipart\/mixed/i);
+    // O nome do arquivo tem de aparecer como PARTE, nunca no Content-Type da mensagem inteira.
+    expect(cabecalhos(mime)).not.toMatch(/contrato\.html/);
+    expect(mime.toString("utf8")).toMatch(/Content-Disposition: attachment; filename=.*contrato\.html/i);
+  });
+
+  it("com corpo preenchido e um anexo, segue multipart/mixed (o caso que já funcionava)", async () => {
+    const mime = await montarMime({ ...base, corpoHtml: "<p>segue</p>", anexos: [anexo] });
+    expect(cabecalhos(mime)).toMatch(/Content-Type: multipart\/mixed/i);
+  });
+
+  it("com corpo vazio e DOIS anexos, os dois saem como anexo", async () => {
+    const mime = await montarMime({
+      ...base,
+      corpoHtml: "",
+      anexos: [anexo, { filename: "recibo.pdf", content: Buffer.from("%PDF-1.4") }],
+    });
+    const texto = mime.toString("utf8");
+    expect(cabecalhos(mime)).toMatch(/Content-Type: multipart\/mixed/i);
+    expect(texto).toMatch(/filename=.*contrato\.html/i);
+    expect(texto).toMatch(/filename=.*recibo\.pdf/i);
+  });
+
+  it("sem anexo nenhum e com corpo, sai text/html simples", async () => {
+    const mime = await montarMime({ ...base, corpoHtml: "<p>oi</p>", anexos: [] });
+    expect(cabecalhos(mime)).toMatch(/Content-Type: text\/html/i);
   });
 });
