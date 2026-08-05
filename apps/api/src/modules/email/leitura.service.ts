@@ -80,7 +80,9 @@ export async function abrirMensagem(userId: string, mensagemId: string) {
     where: { id: mensagemId, pasta: { caixa: { userId, deletedAt: null } } },
     include: {
       enderecos: { select: { papel: true, nome: true, endereco: true } },
-      anexos: { select: { id: true, nome: true, tipo: true, tamanho: true } },
+      // `arquivoId` preenchido = este anexo já virou documento do cliente (fase 2D-2): a tela
+      // mostra "já guardado" em vez de oferecer guardar de novo.
+      anexos: { select: { id: true, nome: true, tipo: true, tamanho: true, arquivoId: true } },
       pasta: { select: { id: true, caminho: true, caixaId: true } },
     },
   });

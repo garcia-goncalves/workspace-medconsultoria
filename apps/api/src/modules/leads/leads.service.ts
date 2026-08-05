@@ -965,7 +965,13 @@ export async function criarOportunidadeParaCliente(
   return { leadId: lead.id };
 }
 
-export async function createLead(input: CreateLeadInput, userId: string) {
+/**
+ * `rastreioPronto` existe para quem já sabe de onde o lead veio e não foi um cadastro manual —
+ * hoje, o lead criado a partir de um e-mail recebido (fase 2D-3). Sem ele, todo lead nascido de
+ * outra porta mentiria "Cadastrado manualmente no sistema" no campo que existe justamente para
+ * responder de onde a pessoa apareceu.
+ */
+export async function createLead(input: CreateLeadInput, userId: string, rastreioPronto?: string) {
   let stageId = input.pipelineStageId;
   if (!stageId) {
     const stages = await listStages();
@@ -999,7 +1005,7 @@ export async function createLead(input: CreateLeadInput, userId: string) {
       email: clean(input.email),
       telefone: clean(input.telefone),
       origem: origemManual,
-      rastreio: rastreioManual,
+      rastreio: rastreioPronto ?? rastreioManual,
       valorEstimado: input.valorEstimado ?? null,
       observacoes: clean(input.observacoes),
       pipelineStageId: stageId,

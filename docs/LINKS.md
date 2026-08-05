@@ -81,7 +81,7 @@ O `{token}` é gerado pela aplicação e vai no link enviado ao cliente — não
 
 | Clique aqui | O que é |
 | ----------- | ------- |
-| http://localhost:4310/email | **Sua caixa de e-mail dentro do Workspace** — ler, escrever, responder e encaminhar sem abrir o webmail. |
+| http://localhost:4310/email | **Sua caixa de e-mail dentro do Workspace** — ler, escrever, responder e encaminhar sem abrir o webmail. Ao abrir um e-mail você também **guarda o anexo direto nos documentos do cliente** (botão "guardar", ao lado do nome do arquivo) e **põe no funil** quem escreveu pela primeira vez (botão "Virar lead"). |
 
 **Cuidado para não confundir**, porque os três nomes se parecem e as três páginas são coisas diferentes:
 
