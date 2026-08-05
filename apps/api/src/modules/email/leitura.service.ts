@@ -12,7 +12,7 @@ const MAX_UIDS_BUSCA = 500;
  * uma dessas para a memória do processo que serve a aplicação inteira é como um estranho
  * derruba tudo sem ter conta nenhuma. 10 MB cobre com folga e-mail real com anexo.
  */
-const LIMITE_CORPO_BYTES = 10 * 1024 * 1024;
+export const LIMITE_CORPO_BYTES = 10 * 1024 * 1024;
 
 /** Garante que a pasta é de uma caixa DESTE usuário. Base da privacidade — sempre chamar. */
 async function pastaDoUsuario(userId: string, pastaId: string) {

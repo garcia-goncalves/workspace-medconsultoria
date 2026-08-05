@@ -93,6 +93,27 @@ describe("montarMime (o anexo tem de sair como ANEXO)", () => {
     return mime.toString("utf8").split(/\r?\n\r?\n/)[0] ?? "";
   }
 
+  /**
+   * Cabeçalhos de CADA parte do multipart. Existe por causa do SEGUNDO rosto do mesmo defeito:
+   * com dois ou mais anexos, `html: ""` deixa a raiz `multipart/mixed` e os nomes de arquivo
+   * todos no lugar — só que SEM parte de corpo nenhuma. Olhar só a raiz e os `filename=` passa
+   * verde com o defeito de volta; quem discrimina é contar as partes e achar a que não é anexo.
+   */
+  function partesDo(mime: Buffer): string[] {
+    const texto = mime.toString("utf8");
+    const fronteira = /boundary="([^"]+)"/.exec(cabecalhos(mime))?.[1];
+    if (!fronteira) return [];
+    return (
+      texto
+        .split(`--${fronteira}`)
+        // fora o preâmbulo (antes da 1ª fronteira) e o epílogo (depois da fronteira final).
+        .slice(1, -1)
+        .map((p) => (p.split(/\r?\n\r?\n/)[0] ?? "").trim())
+    );
+  }
+
+  const ehAnexo = (cabecalhosDaParte: string) => /Content-Disposition:\s*attachment/i.test(cabecalhosDaParte);
+
   it("com CORPO VAZIO e um anexo, ainda monta multipart/mixed — o anexo não vira o corpo", async () => {
     const mime = await montarMime({ ...base, corpoHtml: "", anexos: [anexo] });
     expect(cabecalhos(mime)).toMatch(/Content-Type: multipart\/mixed/i);
@@ -106,7 +127,7 @@ describe("montarMime (o anexo tem de sair como ANEXO)", () => {
     expect(cabecalhos(mime)).toMatch(/Content-Type: multipart\/mixed/i);
   });
 
-  it("com corpo vazio e DOIS anexos, os dois saem como anexo", async () => {
+  it("com corpo vazio e DOIS anexos, os dois saem como anexo E a mensagem ainda tem um corpo", async () => {
     const mime = await montarMime({
       ...base,
       corpoHtml: "",
@@ -116,6 +137,16 @@ describe("montarMime (o anexo tem de sair como ANEXO)", () => {
     expect(cabecalhos(mime)).toMatch(/Content-Type: multipart\/mixed/i);
     expect(texto).toMatch(/filename=.*contrato\.html/i);
     expect(texto).toMatch(/filename=.*recibo\.pdf/i);
+
+    // A asserção que DISCRIMINA: sem `CORPO_MINIMO` o `MailComposer` monta as duas partes de
+    // anexo e mais nada — mensagem sem corpo nenhum, que sai como "e-mail vazio com 2 anexos"
+    // e nem sempre é exibida. Tem de haver 3 partes: o corpo e os dois anexos.
+    const partes = partesDo(mime);
+    expect(partes, "corpo + 2 anexos = 3 partes").toHaveLength(3);
+    const corpo = partes.filter((p) => !ehAnexo(p));
+    expect(corpo, "faltou a parte de CORPO — o e-mail sairia só com anexos").toHaveLength(1);
+    expect(corpo[0]).toMatch(/Content-Type: text\/html/i);
+    expect(partes.filter(ehAnexo)).toHaveLength(2);
   });
 
   it("sem anexo nenhum e com corpo, sai text/html simples", async () => {

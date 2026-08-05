@@ -101,8 +101,16 @@ export function montarCitacao(
     const html = montar(corpo);
     return { preview: html, envio: html };
   }
-  // Mensagem sem corpo nenhum: citação vazia seria só um traço solto na resposta.
-  return { preview: "", envio: "" };
+  // Mensagem legitimamente VAZIA — o conteúdo dela é o anexo (cliente que manda `contrato.pdf`
+  // sem escrever nada, robô de nota fiscal, scanner), ou o corpo inteiro caiu na higienização.
+  // Sai o cabeçalho de procedência com a citação vazia, e NÃO uma citação inventada: encaminhar
+  // o contrato do cliente sem dizer de quem ele veio é encaminhamento cego, e "de quem é isto?"
+  // é a primeira pergunta de quem recebe.
+  //
+  // Chegar aqui com "não sei o que tem nesta mensagem" não é mais possível: quem responde se o
+  // corpo foi buscado é `corpoEm`, e `exigirCorpoGuardado` (`envio.service.ts`) barra antes o que
+  // nunca foi baixado. Corpos nulos AQUI significam fato conhecido: a mensagem é vazia mesmo.
+  return { preview: montar(""), envio: montar("") };
 }
 
 /**

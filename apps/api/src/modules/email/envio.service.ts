@@ -9,6 +9,7 @@ import { isProd } from "../../config.js";
 import { comSmtp } from "./smtp.js";
 import { comCaixa } from "./imap.js";
 import { montarCitacao, destinatariosResposta, assuntoResposta, assuntoEncaminhar } from "./citacao.js";
+import { LIMITE_CORPO_BYTES } from "./leitura.service.js";
 import { caminhoTemp } from "../../http/email-anexo.js";
 
 /**
@@ -358,25 +359,41 @@ export async function enviarMensagem(
 }
 
 /**
- * Recusa preparar resposta/encaminhamento de uma mensagem cujo corpo NÃO está guardado aqui.
+ * Recusa preparar resposta/encaminhamento de uma mensagem cujo corpo NUNCA foi buscado.
  *
- * `abrirMensagem` (`leitura.service.ts`) tem um ramo `grandeDemais`: acima do teto de corpo ela
- * mostra "esta mensagem é grande demais, abra pelo webmail" na tela e NÃO grava corpo nenhum —
- * `corpoHtml` e `corpoTexto` continuam nulos no banco. Sem esta guarda, `montarCitacao` recebia
- * nulo nos dois e devolvia `""`: saía um e-mail com assunto "Enc: …" e corpo VAZIO. Quem recebe
- * não recebe nada, e quem mandou acha que encaminhou. Falhar alto é o único desfecho honesto —
- * a tarja de erro de `Escrever.tsx` já mostra esta mensagem.
+ * Quem responde "o corpo já foi buscado?" é `corpoEm` — NÃO `corpoHtml`/`corpoTexto`.
+ * `abrirMensagem` (`leitura.service.ts`) grava `corpoEm` assim que baixa e higieniza a mensagem,
+ * MESMO que os dois corpos saiam nulos: e-mail cujo conteúdo inteiro É o anexo (cliente que manda
+ * `contrato.pdf` sem escrever nada, robô de nota fiscal, scanner) é legítimo e comum, e o mesmo
+ * acontece com corpo que a higienização descarta por inteiro. Olhar para os corpos proibia
+ * justamente ENCAMINHAR esse e-mail — o caso que esta fase veio atender —, e ainda mentia na
+ * tarja dizendo que a mensagem era grande demais.
+ *
+ * Sobram dois motivos para `corpoEm` nulo, e cada um tem o seu desfecho:
+ *
+ *  - acima de `LIMITE_CORPO_BYTES`: o ramo `grandeDemais` de `abrirMensagem` decidiu não tocar na
+ *    rede e NUNCA vai baixar essa mensagem. Mandar abrir de novo não resolve — o desfecho honesto
+ *    é o webmail;
+ *  - abaixo do teto: a mensagem só não foi aberta aqui ainda. Abrir resolve, e é o que dizemos.
+ *
+ * A tarja de erro de `Escrever.tsx` mostra esta mensagem como está.
  */
 function exigirCorpoGuardado(
-  msg: { corpoHtml: string | null; corpoTexto: string | null },
+  msg: { corpoEm: Date | null; tamanho: number | null },
   acao: "responder" | "encaminhar",
 ): void {
-  if (msg.corpoHtml || msg.corpoTexto) return;
+  if (msg.corpoEm !== null) return;
+  if ((msg.tamanho ?? 0) > LIMITE_CORPO_BYTES) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        `Não dá para ${acao} esta mensagem por aqui: ela é grande demais para ser aberta na ` +
+        `aplicação (${Math.round((msg.tamanho ?? 0) / 1024 / 1024)} MB). Use o webmail para ${acao} esta.`,
+    });
+  }
   throw new TRPCError({
     code: "PRECONDITION_FAILED",
-    message:
-      `Não dá para ${acao} esta mensagem por aqui: o conteúdo dela não está guardado na aplicação ` +
-      `(mensagens muito grandes não são abertas aqui). Use o webmail para ${acao} esta.`,
+    message: `Abra esta mensagem antes de ${acao}: o conteúdo dela ainda não foi carregado na aplicação.`,
   });
 }
 
@@ -395,6 +412,10 @@ export async function prepararResposta(
       assunto: true,
       corpoHtml: true,
       corpoTexto: true,
+      // `corpoEm` e `tamanho` são o que a guarda de corpo lê — sem eles ela não sabe distinguir
+      // "nunca buscado" de "buscado e legitimamente vazio".
+      corpoEm: true,
+      tamanho: true,
       enderecos: { select: { papel: true, endereco: true } },
       pasta: { select: { caixa: { select: { email: true } } } },
     },
@@ -448,7 +469,11 @@ export async function prepararEncaminhamento(
       assunto: true,
       corpoHtml: true,
       corpoTexto: true,
-      anexos: { select: { id: true, nome: true, tamanho: true } },
+      corpoEm: true,
+      tamanho: true,
+      // `cid` entra no select só para FILTRAR aqui dentro (ver o `filter` do retorno); ele não
+      // faz parte do contrato desta procedure.
+      anexos: { select: { id: true, nome: true, tamanho: true, cid: true } },
     },
   });
   if (!msg) throw new TRPCError({ code: "NOT_FOUND", message: "Mensagem não encontrada." });
@@ -461,6 +486,15 @@ export async function prepararEncaminhamento(
     assunto: assuntoEncaminhar(msg.assunto),
     citacaoPreview: citacao.preview,
     citacaoEnvio: citacao.envio,
-    anexos: msg.anexos,
+    // Só o anexo DE VERDADE (`cid === null`). `sync.service.ts` grava como `EmailAnexo` também a
+    // parte EMBUTIDA (`disposition: inline` com `cid`) — a logo da assinatura de quem escreveu,
+    // tipicamente `image001.png`. Oferecê-la aqui fazia a tela listar imagem-lixo como anexo e o
+    // encaminhamento sair com ela pendurada, para o cliente. A imagem embutida da citação já
+    // chega quebrada hoje (as partes MIME do original não são reanexadas com o `cid` preservado —
+    // pendência registrada de fase futura), então filtrar não piora nada e tira o lixo.
+    //
+    // O filtro é em JS, e não um `where` no `select`, de propósito: é o que deixa a regra
+    // observável no teste que dubla o Prisma (`envio.preparar.test.ts`).
+    anexos: msg.anexos.filter((a) => a.cid === null).map(({ id, nome, tamanho }) => ({ id, nome, tamanho })),
   };
 }

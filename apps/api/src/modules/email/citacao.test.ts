@@ -87,9 +87,34 @@ describe("montarCitacao", () => {
     }
   });
 
-  it("sem corpo nenhum, não inventa citação vazia em nenhuma das duas versões", () => {
-    const c = montarCitacao({ ...original, corpoHtml: null, corpoTexto: null }, { restaurarImagensNoEnvio: false });
-    expect(c).toEqual({ preview: "", envio: "" });
+  /**
+   * Esta regra MUDOU de sentido, e a razão importa mais que o valor esperado.
+   *
+   * Ela nasceu quando corpos nulos queriam dizer "não sei o que tem nesta mensagem" — o corpo
+   * podia simplesmente nunca ter sido buscado, e afirmar procedência sobre conteúdo desconhecido
+   * seria inventar. Depois da correção do `corpoEm` (a guarda `exigirCorpoGuardado`, em
+   * `envio.service.ts`, barra antes tudo o que nunca foi baixado), corpos nulos chegam aqui
+   * significando outra coisa, e ela é um FATO conhecido e verdadeiro: a mensagem é legitimamente
+   * vazia — o conteúdo dela é o anexo. Encaminhar o contrato do cliente sem dizer de quem ele
+   * veio é encaminhamento cego.
+   *
+   * O que continua proibido é o que sempre foi: inventar CORPO. O `<blockquote>` sai vazio.
+   */
+  it("mensagem legitimamente vazia: sai o cabeçalho de procedência, e o blockquote fica VAZIO", () => {
+    const { preview, envio } = montarCitacao(
+      { ...original, corpoHtml: null, corpoTexto: null },
+      { restaurarImagensNoEnvio: false },
+    );
+    for (const c of [preview, envio]) {
+      // Procedência: quem escreveu e quando.
+      expect(c).toContain("José Cliente");
+      expect(c).toContain("&lt;jose@exemplo.com&gt;");
+      expect(c).toContain("04/08/2026");
+      // E nada de corpo inventado dentro da citação.
+      expect(c).toContain("<blockquote");
+      const dentro = /<blockquote[^>]*>([\s\S]*?)<\/blockquote>/.exec(c)?.[1] ?? "";
+      expect(dentro.trim(), "citação de mensagem vazia não pode ter conteúdo").toBe("");
+    }
   });
 
   it("formata corretamente e-mail entre entidades sem duplo-escape", () => {

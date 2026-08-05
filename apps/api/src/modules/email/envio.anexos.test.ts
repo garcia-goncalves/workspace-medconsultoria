@@ -138,29 +138,66 @@ describe("anexos do e-mail original num encaminhamento", () => {
     };
   }
 
-  /** IMAP de mentira: entrega o conteúdo em VÁRIOS pedaços, como o socket de verdade entrega. */
+  /**
+   * IMAP de mentira. Duas coisas o dublê PRECISA imitar da conexão real, senão ele é mais gentil
+   * que a vida e o defeito passa verde:
+   *
+   *  1. entregar o conteúdo em VÁRIOS pedaços, como o socket entrega;
+   *  2. ENCERRAR o stream assim que o callback resolve — é o que `comCaixa` faz ao devolver a
+   *     conexão. Um dublê que só chama `fn` e vai embora deixa o stream vivo para sempre, e aí a
+   *     versão defeituosa (devolver `baixado.content` para FORA do `comCaixa` e só depois lê-lo,
+   *     no `MailComposer`) passa igual — quando na produção o anexo sairia CORTADO em silêncio
+   *     acima de ~64 KB, que é o pior defeito desta fase.
+   */
   function imapQueEntrega() {
-    return async (_caixaId: string, fn: (c: unknown) => Promise<unknown>) =>
-      fn({
-        getMailboxLock: async () => ({
-          release: () => {
-            solturasDeLock += 1;
+    return async (_caixaId: string, fn: (c: unknown) => Promise<unknown>) => {
+      const entregues: Readable[] = [];
+      try {
+        return await fn({
+          getMailboxLock: async () => ({
+            release: () => {
+              solturasDeLock += 1;
+            },
+          }),
+          download: async () => {
+            const content = Readable.from(PEDACOS.map((p) => Buffer.from(p)));
+            entregues.push(content);
+            return { content };
           },
-        }),
-        download: async () => ({ content: Readable.from(PEDACOS.map((p) => Buffer.from(p))) }),
-      });
+        });
+      } finally {
+        // Conexão devolvida = socket fechado. Quem esgotou o stream lá dentro não sente nada
+        // (já terminou e se autodestruiu); quem o levou para fora encontra um stream morto.
+        for (const s of entregues) if (!s.destroyed) s.destroy(new Error("conexão IMAP encerrada"));
+      }
+    };
   }
 
   function encaminhamento(anexosOriginais: string[]) {
     return { ...entrada([]), assunto: "Enc: Proposta", encaminhando: "msg-1", anexosOriginais };
   }
 
+  /**
+   * Anexos "no banco". O dublê de `findMany` RESPEITA o `where` de propósito: é o que faz o teste
+   * de escopo provar a propriedade de segurança (`mensagemId: citada.id`, em
+   * `resolverAnexosOriginais`) em vez de provar só "o dublê devolveu lista vazia".
+   */
+  let banco: { id: string; mensagemId: string; nome: string; tamanho: number; parte: string }[] = [];
+
   beforeEach(() => {
     solturasDeLock = 0;
     mensagemFindFirst.mockResolvedValue(original());
-    anexoFindMany.mockResolvedValue([
-      { id: "anx-1", nome: "proposta.pdf", tamanho: CONTEUDO.length, parte: "2" },
-    ]);
+    banco = [
+      { id: "anx-1", mensagemId: "msg-1", nome: "proposta.pdf", tamanho: CONTEUDO.length, parte: "2" },
+      // Anexo REAL, existente, mas de OUTRA mensagem — de outra pessoa, inclusive.
+      { id: "anx-de-outra-pessoa", mensagemId: "msg-de-outra-pessoa", nome: "sigiloso.pdf", tamanho: 10, parte: "2" },
+    ];
+    anexoFindMany.mockImplementation(async (args: { where: { id: { in: string[] }; mensagemId?: string } }) => {
+      const { id, mensagemId } = args.where;
+      // `undefined` = SEM filtro, como no Prisma de verdade. É o que faz o teste de escopo
+      // reprovar se alguém tirar o `mensagemId: citada.id` da consulta, em vez de reprovar tudo.
+      return banco.filter((a) => id.in.includes(a.id) && (mensagemId === undefined || a.mensagemId === mensagemId));
+    });
   });
 
   it("o anexo do original entra INTEIRO no MIME que sai, como parte separada", async () => {
@@ -184,8 +221,10 @@ describe("anexos do e-mail original num encaminhamento", () => {
     expect(solturasDeLock, "o lock da caixa tem de ser devolvido").toBe(1);
   });
 
-  it("id de anexo que não é daquela mensagem é recusado antes de tocar no IMAP", async () => {
-    anexoFindMany.mockResolvedValue([]);
+  // O id EXISTE no banco e é de um anexo de verdade — só que de outra mensagem, de outra pessoa.
+  // Quem o recusa é o escopo `mensagemId: citada.id` da consulta, e é isso que o dublê que
+  // respeita o `where` põe à prova: sem o escopo, este anexo seria achado e rebaixado do IMAP.
+  it("anexo de OUTRA mensagem é recusado pelo escopo da consulta, antes de tocar no IMAP", async () => {
     comCaixa.mockImplementation(imapQueEntrega());
 
     await expect(enviarMensagem(userId, encaminhamento(["anx-de-outra-pessoa"]))).rejects.toThrow(
@@ -197,9 +236,7 @@ describe("anexos do e-mail original num encaminhamento", () => {
 
   it("os anexos rebaixados contam no teto de 25 MB junto com os anexados aqui", async () => {
     const anexado = await criarTemp();
-    anexoFindMany.mockResolvedValue([
-      { id: "anx-1", nome: "gigante.pdf", tamanho: 25 * 1024 * 1024, parte: "2" },
-    ]);
+    banco = [{ id: "anx-1", mensagemId: "msg-1", nome: "gigante.pdf", tamanho: 25 * 1024 * 1024, parte: "2" }];
 
     await expect(enviarMensagem(userId, { ...encaminhamento(["anx-1"]), anexos: [anexado] })).rejects.toThrow(
       /limite total é 25 MB/i,
