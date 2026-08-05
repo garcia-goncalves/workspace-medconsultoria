@@ -4,7 +4,8 @@
 > ver a aplicação funcionando, o que é cada porta e o que fazer quando algo não abre.
 > Escrito para ser entendido sem conhecimento técnico.
 >
-> Última verificação: **03/08/2026** (tudo abaixo foi testado, não é suposição).
+> Última verificação: **05/08/2026** (tudo abaixo foi testado, não é suposição —
+> a tela respondeu `200` e o motor respondeu `{"status":"ok"}`).
 
 ---
 
@@ -149,12 +150,19 @@ não confundir uma tela de outro projeto com esta.
 
 | Porta | De quem é |
 | ----- | --------- |
+| 3939 | Site do **Grimoire** (Next.js) |
 | 8080 | `sophia-web` (projeto Sophia Camargo) |
+| 8090 | `medcrm-nginx` (projeto MedCRM) |
 | 8025 / 1025 | Mailpit do **Sophia Camargo** |
 | 8039 / 1039 | Mailpit do **Grimoire** |
+| 5432 | Postgres do **MedCRM** |
 | 5433 | Postgres do **Inkflow** |
 | 5435 | Postgres do **Grimoire** |
-| 3306 | Outro MySQL da máquina |
+| 6379 | Redis do **Inkflow** |
+| 9000 / 9001 | MinIO (armazenamento de arquivos) do **Inkflow** |
+| 3306 | MySQL do **cad_anest** (outro projeto) |
+| 3119 / 31190 | MySQL instalado direto no Windows (não é do Docker) |
+| 9749 | Servidor do **Codebase Memory** (o mapa de código que eu uso) |
 
 > ⚠️ **Cuidado com o Mailpit.** Mailpit é uma caixa de entrada falsa, para ver e-mails de teste
 > sem enviar de verdade. A da porta 8025 é do **Sophia Camargo**. Se um e-mail deste projeto cair
@@ -197,6 +205,24 @@ As contas e os papéis de cada uma estão em **[`ACESSOS.md`](./ACESSOS.md)**.
 **Senha não é escrita em documento nenhum** — nem aqui, nem lá. Ao entrar pela primeira vez, a
 própria aplicação obriga cada pessoa da equipe a definir uma senha só dela (ADR-91). Se esquecer,
 use **"Esqueci minha senha"** na tela de login.
+
+### Trocar a senha de teste da sua máquina
+
+Serve quando a senha de desenvolvimento pode ter sido vista por alguém (foi o caso em
+05/08/2026). **Só afeta esta máquina** — produção não é tocada.
+
+```
+pnpm senha:rotacionar
+```
+
+O que aparece se der certo: uma linha `✔ senha reescrita no banco` para cada conta interna e,
+no fim, `✓ Senha de seed rotacionada`. **A senha nova não é mostrada de propósito** (o terminal
+guarda o que passa por ele): ela fica na linha `SEED_ROOT_PASSWORD` do arquivo `.env`, na raiz do
+projeto — abra o arquivo se precisar digitá-la.
+
+Se der errado, a mensagem diz o motivo e **nada muda** (o `.env` volta como estava). O erro mais
+comum é o banco desligado: rode `pnpm db:up` e tente de novo. Depois, confira com `pnpm acessos`
+— todas as contas devem dizer "✓ entra com a senha de teste".
 
 ---
 

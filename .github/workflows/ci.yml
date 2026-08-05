@@ -71,9 +71,11 @@ jobs:
       SESSION_SECRET: "ci-e2e-session-secret-32bytes-minimo-xx"
       WEB_ORIGIN: "http://localhost:4310"
       SEED_ROOT_EMAIL: "root@medconsultoria.com.br"
-      SEED_ROOT_PASSWORD: "medconsultoria123"
+      # Banco efêmero do CI, criado e destruído no job. Valor descartável DE PROPÓSITO
+      # diferente de qualquer senha usada em máquina de desenvolvimento (05/08/2026).
+      SEED_ROOT_PASSWORD: "ci-banco-efemero-nao-reutilizar"
       SEED_ROOT_NOME: "Root"
-      E2E_PASSWORD: "medconsultoria123"
+      E2E_PASSWORD: "ci-banco-efemero-nao-reutilizar"
       NODE_ENV: "development"
     steps:
       - uses: actions/checkout@v4
@@ -162,9 +164,11 @@ jobs:
       SMTP_PASS: "test"
       SMTP_FROM: "MedConsultoria <no-reply@medconsultoria.com.br>"
       SEED_ROOT_EMAIL: "root@medconsultoria.com.br"
-      SEED_ROOT_PASSWORD: "medconsultoria123"
+      # Banco efêmero do CI, criado e destruído no job. Valor descartável DE PROPÓSITO
+      # diferente de qualquer senha usada em máquina de desenvolvimento (05/08/2026).
+      SEED_ROOT_PASSWORD: "ci-banco-efemero-nao-reutilizar"
       SEED_ROOT_NOME: "Root"
-      E2E_PASSWORD: "medconsultoria123"
+      E2E_PASSWORD: "ci-banco-efemero-nao-reutilizar"
       NODE_ENV: "development"
     steps:
       - uses: actions/checkout@v4

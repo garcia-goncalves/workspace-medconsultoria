@@ -74,7 +74,7 @@ Os chamados e serviços de teste aparecem na interface do Portal do cliente. Hoj
 
 | # | Risco | Gravidade |
 |---|---|---|
-| R1 | `demo-seed.ts` **não tem trava de produção** — se alguém rodar `pnpm db:demo` apontando para o banco real, insere clientes fictícios e usuários com senha padrão `medconsultoria123` | 🔴 Alta |
+| R1 | `demo-seed.ts` **não tem trava de produção** — se alguém rodar `pnpm db:demo` apontando para o banco real, insere clientes fictícios e usuários com a senha de seed do `.env` | 🔴 Alta |
 | R2 | Os **estágios do funil** (`PipelineStage`) nascem no `demo-seed`, não no `seed.ts`. Num banco limpo "de verdade", a tela de Vendas nasce **sem colunas** | 🟠 Média |
 | R3 | Specs deixam lixo acumulando no banco local a cada rodada | 🟡 Baixa (dev) |
 

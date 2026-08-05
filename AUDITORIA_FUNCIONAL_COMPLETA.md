@@ -215,7 +215,7 @@ Varredura de `apps/web/src` (interno + Portal + auth/públicas) por lorem ipsum,
 **Resultado geral: nenhum texto de preenchimento (lorem ipsum), nenhum botão sem ação, nenhuma tela "em construção"/stub encontrados** nas telas revisadas. Os textos de produto estão finalizados em PT-BR, com estados de carregamento/erro/vazio e feedback de sucesso. Os únicos "placeholders" são **exemplos de formato em campos de formulário** (UX normal, não bug): `voce@medconsultoria.com.br` (Login/Esqueci senha), `voce@exemplo.com.br` (editar perfil no Portal), `voce@email.com` (captura de lead).
 
 **O "conteúdo fictício" real do sistema é o conjunto de DADOS DEMO** (não texto de UI hardcoded), que só aparece se `pnpm db:demo` for rodado:
-- Equipe demo: **Thaís** (`thais.garcia@medconsultoria.com.br`, ADMIN) e **"Funcionário Exemplo"** (`func@medconsultoria.com.br`), senha `medconsultoria123`.
+- Equipe demo: **Thaís** (`thais.garcia@medconsultoria.com.br`, ADMIN) e **"Funcionário Exemplo"** (`func@medconsultoria.com.br`), com a senha de seed do `.env` (ADR-98).
 - Cliente de Portal demo: `cliente@medconsultoria.com.br`.
 - Clientes/leads/eventos/contas de exemplo (ex.: "Acme").
 → Removível com segurança (§6.4). **Não** é texto embutido no código.

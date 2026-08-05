@@ -2,8 +2,11 @@ import { test as setup, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 
-// E-mails dos papéis-semente (públicos). Senha por env (default = senha demo local, NÃO é segredo de prod).
-const PASS = process.env.E2E_PASSWORD ?? "medconsultoria123";
+// E-mails dos papéis-semente (públicos). A SENHA vem só do ambiente: sem valor embutido aqui,
+// para o repositório não guardar uma senha que também existe em banco de verdade (05/08/2026).
+// Quem preenche é o `playwright.config.ts` (lê o `.env` e deriva de `SEED_ROOT_PASSWORD`).
+const PASS: string = process.env.E2E_PASSWORD ?? "";
+if (!PASS) throw new Error("Sem senha para os testes: defina SEED_ROOT_PASSWORD no .env (ou E2E_PASSWORD no ambiente).");
 export const USERS = {
   root: "root@medconsultoria.com.br",
   admin: "thais.garcia@medconsultoria.com.br",
