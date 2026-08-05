@@ -83,7 +83,7 @@ EMAIL_CRYPTO_KEY="<32 bytes em base64>"   # node -e "console.log(require('crypto
 
 ## 5. Deploy
 
-O script `deploy.sh` faz tudo: build + bundle auto-contido + rsync + instalar deps + gerar Prisma + migrations + restart.
+O script `deploy.sh` faz tudo: build + bundle auto-contido + **snapshot de rollback** + envio + deps + Prisma + migrations + **ensaio de boot** + restart + smoke test.
 
 ```bash
 ./deploy.sh
@@ -91,8 +91,17 @@ O script `deploy.sh` faz tudo: build + bundle auto-contido + rsync + instalar de
 
 O que ele executa:
 1. `pnpm build:deploy` → gera `apps/api/dist/` com **`server.js` + `public/` (o SPA) + `prisma/` + `package.json` de produção**.
-2. `rsync` desse `dist/` para o servidor (preserva o `.env` de produção que já está lá).
-3. No servidor: `npm install --omit=dev` → `npm run prisma:generate` → `npm run prisma:deploy` (migrations) → **restart**.
+2. **Snapshot** do release atual em `~/backups/release-pre-<TS>.tar.gz` — é o rollback.
+3. Envia o `dist/` por **`tar | ssh`** (o `.env` de produção fica intacto).
+4. No servidor, **dentro do virtualenv**: `npm install --omit=dev` → `prisma:generate` → `prisma:deploy`.
+5. **Ensaio de boot** (`node app.cjs` por 15 s) com a produção ainda no ar servindo a versão antiga. Não subiu? O script **para aqui** e não reinicia nada.
+6. Restart + conferência da data do `tmp/restart.txt` + smoke test do `/health`.
+
+> **Três armadilhas que custaram ~9 min de produção fora do ar em 05/08/2026, todas comentadas dentro do `deploy.sh` — leia antes de "simplificar" o script:**
+>
+> - **Não é `rsync`, é `tar`.** O `--delete` do rsync apagaria o **`.htaccess`** (que é o que faz o LiteSpeed servir o site) e o `cgi-bin`, porque nenhum dos dois vem no artefato. De quebra, o Git Bash do Windows não tem `rsync` instalado — o script antigo nunca teria rodado nessa máquina.
+> - **`npm` não existe em sessão SSH não interativa.** Ele mora no virtualenv do CloudLinux (`source ~/nodevenv/.../20/bin/activate`). Sem isso o `npm install` falha com *command not found*, o servidor fica com **`server.js` novo e `node_modules` velho**, e o app morre no boot com `ERR_MODULE_NOT_FOUND` — foi exatamente assim que a produção caiu (faltava `imapflow`).
+> - **Cada passo em uma conexão SSH própria.** Encadeado com `&&`, o `prisma generate` derruba o resto da cadeia: o deploy diz "concluído" e a aplicação segue rodando o código **antigo**.
 
 > **1º deploy:** garanta antes que o **`.env` de produção já existe no servidor** (§3) e que o **banco foi criado** (§1). Sem isso, as migrations falham.
 
@@ -131,9 +140,12 @@ O que ele executa:
 
 ```
 [sua máquina]  pnpm build:deploy → apps/api/dist (server.js + public + prisma + package.json)
-                     │ rsync (SSH)
+                     │ snapshot do release atual (rollback)
+                     │ tar | ssh   ← NÃO rsync (apagaria o .htaccess; e não existe no Git Bash)
                      ▼
-[TineHost]     npm install --omit=dev → prisma generate → migrate deploy → restart
+[TineHost]     source nodevenv/…/activate → npm install --omit=dev → prisma generate
+               → migrate deploy → ENSAIO DE BOOT → restart → smoke test
+               (cada passo numa conexão SSH própria — o generate derruba a cadeia)
                      ▼
             https://workspace.medconsultoria.com.br  (1 processo: API + WS + SPA)
 ```
@@ -187,11 +199,11 @@ Se o Argon2 nativo falhar no plano de hospedagem: a app tem **Plano B portátil 
 |---|---|
 | Sistema | Linux EL8 x86_64 (CloudLinux) |
 | HOME | `/home3/medconsultoria` |
-| Application Root | `/home3/medconsultoria/workspace-medconsultoria` |
+| Application Root | `/home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html` ⚠️ **corrigido em 05/08/2026** — esta tabela dizia `/home3/medconsultoria/workspace-medconsultoria`, pasta que **não existe** no servidor |
 | Diretório do domínio | `/home3/medconsultoria/domains/workspace.medconsultoria.com.br` |
 | public_html | `/home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html` |
 | Uploads persistentes | `/home3/medconsultoria/app-data/workspace-medconsultoria/uploads` |
-| Node | **20.19.2** · npm 10.8.2 |
+| Node | **20.19.2** · npm 10.8.2 — **só dentro do virtualenv**: `source ~/nodevenv/domains/workspace.medconsultoria.com.br/public_html/20/bin/activate`. Numa sessão SSH não interativa, `npm` é *command not found* |
 | Banco | **MariaDB 10.6.22** em `localhost` |
 | Modo | **Production** · LiteSpeed/lsnode · startup `app.cjs` |
 | Domínio | `https://workspace.medconsultoria.com.br` |

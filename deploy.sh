@@ -1,16 +1,33 @@
 #!/usr/bin/env bash
-# Deploy para TineHost/DirectAdmin via SSH + rsync (sem Git no servidor).
-# Uso: ./deploy.sh
-# Pré-requisitos: .env.deploy local (NUNCA commitado) com DEPLOY_HOST/USER/PATH,
-# chave SSH configurada, e o .env de PRODUÇÃO já presente no servidor (ver docs/DEPLOY.md).
+# Deploy para TineHost/DirectAdmin (LiteSpeed/lsnode) via SSH. Uso: ./deploy.sh
+# Pré-requisitos: .env.deploy local (NUNCA commitado), chave SSH, e o .env de PRODUÇÃO
+# já presente no servidor (ver docs/DEPLOY.md).
 #
-# Envia um artefato AUTO-CONTIDO (apps/api/dist com server.js + public/ + prisma/
-# + package.json de produção). No servidor: instala deps, gera o Prisma Client,
-# aplica migrations e reinicia (Passenger `touch tmp/restart.txt`).
-# ⚠️ O mecanismo de restart pode variar (Passenger vs Nginx Unit) — ajuste RESTART_CMD.
+# Envia um artefato AUTO-CONTIDO (apps/api/dist com server.js + public/ + prisma/ +
+# package.json de produção) e reinicia o lsnode.
+#
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# TRÊS COISAS AQUI PARECEM ESTRANHAS E TODAS SÃO CICATRIZ. Não "simplifique" nenhuma —
+# as três foram descobertas no deploy de 05/08/2026, que derrubou a produção por ~9 minutos.
+#
+# 1. `tar | ssh`, e NÃO `rsync`. Motivos, em ordem de gravidade:
+#      (a) `rsync --delete` apagaria o `.htaccess` e o `cgi-bin` do destino, que NÃO vêm no
+#          artefato — e é o `.htaccess` que faz o LiteSpeed servir o site;
+#      (b) o Git Bash do Windows (a máquina de quem publica) não tem `rsync` instalado.
+#    O tar sobrepõe sem apagar. O preço é acumular chunk antigo com hash velho no destino:
+#    ocupa disco, não atrapalha (o `index.html` aponta só para os novos).
+#
+# 2. `npm` NÃO existe numa sessão SSH não interativa — ele vive no virtualenv do CloudLinux.
+#    Sem o `source .../activate`, o `npm install` falha com "command not found", o servidor
+#    fica com um `server.js` novo e um `node_modules` velho, e o app morre no boot com
+#    ERR_MODULE_NOT_FOUND (foi exatamente isso que derrubou a produção: faltava `imapflow`).
+#
+# 3. Cada passo depois do envio vai numa CONEXÃO SSH PRÓPRIA. Encadeado com `&&`, o
+#    `prisma generate` derruba o resto da cadeia: o deploy termina dizendo "concluído" e a
+#    aplicação segue rodando o código ANTIGO, sem nunca ter reiniciado.
+# ─────────────────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-# Carrega credenciais do .env.deploy (gitignored). Veja .env.deploy.example.
 if [ -f .env.deploy ]; then
   set -a; . ./.env.deploy; set +a
 fi
@@ -19,61 +36,53 @@ fi
 : "${DEPLOY_USER:?defina DEPLOY_USER (em .env.deploy)}"
 : "${DEPLOY_PATH:?defina DEPLOY_PATH (em .env.deploy)}"
 DEPLOY_SSH_PORT="${DEPLOY_SSH_PORT:-22}"
-# Comando de restart no servidor. Passenger é o padrão do DirectAdmin;
-# se for Nginx Unit, troque por ex.: "curl -X GET --unix-socket /path/control.sock ...".
+# Virtualenv do Node no CloudLinux — é onde `npm` e `node` de verdade moram (ver nota 2).
+DEPLOY_NODE_VENV="${DEPLOY_NODE_VENV:-~/nodevenv/domains/workspace.medconsultoria.com.br/public_html/20/bin/activate}"
 RESTART_CMD="${DEPLOY_RESTART_CMD:-mkdir -p tmp && touch tmp/restart.txt}"
 
-# Monta as opções de SSH (usa chave se informada).
-SSH_OPTS="-p ${DEPLOY_SSH_PORT}"
+SSH_OPTS="-p ${DEPLOY_SSH_PORT} -o LogLevel=ERROR"
 [ -n "${DEPLOY_SSH_KEY:-}" ] && SSH_OPTS="${SSH_OPTS} -i ${DEPLOY_SSH_KEY}"
-RSYNC_SSH="ssh ${SSH_OPTS}"
+CARIMBO="$(date +%Y%m%d-%H%M%S)"
+remoto() { ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" "$@"; }
 
-echo "==> Build de produção + bundle auto-contido"
+echo "==> 1/6 Build de produção + bundle auto-contido"
 pnpm install --frozen-lockfile
 pnpm build:deploy
 
-CARIMBO="$(date +%Y%m%d-%H%M%S)"
+echo "==> 2/6 Snapshot do release atual (é o rollback)"
+remoto "mkdir -p ~/backups && cd '${DEPLOY_PATH}' && \
+  tar -czf ~/backups/release-pre-${CARIMBO}.tar.gz --exclude=node_modules . && \
+  ls -lh ~/backups/release-pre-${CARIMBO}.tar.gz | awk '{print \$5, \$9}'"
 
-# Snapshot do release ATUAL antes de o rsync sobrescrevê-lo. A documentação (§10 do
-# docs/DEPLOY.md) sempre prometeu isto, e o script nunca fez — descoberto ao publicar a fase
-# 2D-2/2D-3 em 05/08/2026. Sem o snapshot, voltar atrás dependia de rebuildar o commit anterior
-# na máquina de alguém; com ele, o rollback é extrair um tar no servidor.
-# `node_modules` fica de fora (é reinstalável e pesa demais).
-echo "==> Snapshot do release atual (rollback)"
-# shellcheck disable=SC2087
-ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" "cd '${DEPLOY_PATH}' && \
-  mkdir -p ../backups && \
-  tar -czf '../backups/release-pre-${CARIMBO}.tar.gz' --exclude=node_modules . 2>/dev/null && \
-  ls -la '../backups/release-pre-${CARIMBO}.tar.gz'"
+echo "==> 3/6 Enviando o artefato (tar — sobrepõe sem apagar; ver nota 1)"
+tar -czf - -C apps/api/dist . | remoto "cd '${DEPLOY_PATH}' && tar -xzf - && echo 'artefato extraído'"
 
-echo "==> Enviando artefato (apps/api/dist) via rsync"
-# --delete mantém o destino idêntico; preserva um .env já existente no servidor.
-rsync -az --delete --exclude ".env" -e "${RSYNC_SSH}" \
-  apps/api/dist/ \
-  "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/"
+echo "==> 4/6 Dependências de produção (dentro do virtualenv; ver nota 2)"
+remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && npm install --omit=dev 2>&1 | tail -3"
 
-echo "==> Servidor: deps de produção + Prisma Client + migrations"
-# shellcheck disable=SC2087
-ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" "cd '${DEPLOY_PATH}' && \
-  (npm ci --omit=dev || npm install --omit=dev) && \
-  npm run prisma:generate && \
-  npm run prisma:deploy && \
-  echo 'Dependências e banco prontos.'"
+echo "==> 5/6 Prisma Client e migrations (conexões separadas; ver nota 3)"
+remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && npm run prisma:generate 2>&1 | tail -2"
+remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && npm run prisma:deploy 2>&1 | tail -3"
 
-# RESTART EM CHAMADA SEPARADA, e não encadeado com `&&` na linha acima. O `prisma generate`
-# derruba o resto da cadeia SSH neste servidor (armadilha conhecida deste projeto): o deploy
-# terminava "com sucesso" e a aplicação seguia rodando o código ANTIGO, porque o `touch` nunca
-# acontecia. Depois do restart, a data do arquivo é conferida — não basta mandar reiniciar.
-echo "==> Restart (chamada separada — ver comentário)"
-# shellcheck disable=SC2087
-ssh ${SSH_OPTS} "${DEPLOY_USER}@${DEPLOY_HOST}" "cd '${DEPLOY_PATH}' && \
-  ${RESTART_CMD} && \
-  echo -n 'restart.txt em: ' && date -r tmp/restart.txt '+%Y-%m-%d %H:%M:%S'"
+# Sobe o app à mão ANTES de reiniciar o de verdade: se faltar dependência ou variável, o erro
+# aparece aqui, com a produção ainda servindo a versão antiga — em vez de aparecer como um 503
+# para quem está usando o sistema.
+echo "==> 6/6 Ensaio de boot (a produção ainda está no ar servindo a versão anterior)"
+if remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && timeout 15 node app.cjs 2>&1 | head -20" | tee /tmp/boot-teste.log | grep -q "Server listening"; then
+  echo "    boot OK — pode reiniciar"
+else
+  echo "    !! O app NÃO subiu. A produção continua na versão anterior (nada foi reiniciado)."
+  echo "    !! Saída do ensaio:"; cat /tmp/boot-teste.log
+  echo "    !! Rollback, se quiser desfazer o envio: ~/backups/release-pre-${CARIMBO}.tar.gz"
+  exit 1
+fi
 
-# `--compressed` é obrigatório aqui: sem ele o LiteSpeed devolve corpo comprimido e o curl
+echo "==> Restart + prova de que reiniciou"
+remoto "cd '${DEPLOY_PATH}' && ${RESTART_CMD} && date -r tmp/restart.txt '+restart.txt marcado em %Y-%m-%d %H:%M:%S'"
+
+# `--compressed` é obrigatório: sem ele o LiteSpeed devolve corpo comprimido e o smoke test
 # mostra lixo binário em vez do JSON de saúde.
 echo "==> Smoke test"
-sleep 5
-curl -s --compressed --max-time 20 "https://workspace.medconsultoria.com.br/health" || true
-echo
-echo "==> Feito. Rollback, se precisar: extrair ../backups/release-pre-${CARIMBO}.tar.gz sobre ${DEPLOY_PATH} e reiniciar."
+sleep 10
+curl -s --compressed --max-time 25 "https://workspace.medconsultoria.com.br/health"; echo
+echo "==> Feito. Rollback: extrair ~/backups/release-pre-${CARIMBO}.tar.gz sobre ${DEPLOY_PATH} e reiniciar."
