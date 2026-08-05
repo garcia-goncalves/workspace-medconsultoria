@@ -501,7 +501,10 @@ talvez("plugar caixa (integração, caixa real de teste)", () => {
           assunto: "não pode estourar",
           corpoHtml: "<p>x</p>",
         }),
-      ).resolves.toEqual({ uid: null });
+        // `gravacaoDesligada: false` de propósito: caixa sem pasta Drafts mapeada é situação
+        // recuperável (a pasta reaparece numa sincronização), ao contrário de servidor sem UIDPLUS
+        // ou sem APPENDUID — nesses dois insistir é inútil ou acumula cópia a cada 5 s.
+      ).resolves.toEqual({ uid: null, gravacaoDesligada: false });
     } finally {
       await sincronizarPastas(caixa.id);
     }
