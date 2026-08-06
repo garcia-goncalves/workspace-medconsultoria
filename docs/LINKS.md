@@ -161,6 +161,8 @@ não confundir uma tela de outro projeto com esta.
 | 6379 | Redis do **Inkflow** |
 | 9000 / 9001 | MinIO (armazenamento de arquivos) do **Inkflow** |
 | 3306 | MySQL do **cad_anest** (outro projeto) |
+| 3312 | MySQL do **CCVP** (outro projeto) |
+| 8099 | Um servidor **PHP** solto na máquina (não é do Docker nem deste projeto) |
 | 3119 / 31190 | MySQL instalado direto no Windows (não é do Docker) |
 | 9749 | Servidor do **Codebase Memory** (o mapa de código que eu uso) |
 
