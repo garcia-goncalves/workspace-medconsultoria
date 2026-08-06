@@ -6,6 +6,7 @@ import { observable } from "@trpc/server/observable";
 import { TRPCClientError, type TRPCLink } from "@trpc/client";
 import type { AnyTRPCRouter } from "@trpc/server";
 import { trpc } from "../../lib/trpc";
+import { DialogsProvider } from "../../components/ui/confirm-dialog";
 
 // O `Link` do TanStack exige o contexto de um router montado, e aqui a página é renderizada
 // solta. Estes testes existem para checar O QUE a tela oferece (e a quem), não para onde ela
@@ -93,9 +94,13 @@ function montar(handlers: Record<string, Handler>) {
   const root = createRoot(container);
   act(() => {
     root.render(
+      // `DialogsProvider` porque desplugar uma caixa é ação destrutiva e passa pelo `useConfirm`
+      // (que estoura sem o provider na árvore).
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
-          <EmailPage />
+          <DialogsProvider>
+            <EmailPage />
+          </DialogsProvider>
         </QueryClientProvider>
       </trpc.Provider>,
     );
@@ -205,6 +210,153 @@ describe("EmailPage — a válvula do ADR-97 tem de ter volta", () => {
     botoes = await abrirMensagem(true);
     expect(botoes.some((b) => b.textContent?.includes("Devolver à ficha"))).toBe(true);
     expect(botoes.some((b) => b.textContent?.includes("Tirar da ficha"))).toBe(false);
+  });
+});
+
+describe("EmailPage — falha de consulta tem de aparecer, nunca virar tela vazia", () => {
+  let raiz: { root: Root; container: HTMLDivElement } | null = null;
+
+  afterEach(() => {
+    if (raiz) {
+      act(() => raiz!.root.unmount());
+      raiz.container.remove();
+    }
+    raiz = null;
+  });
+
+  const explode = () => {
+    throw new Error("falha de rede");
+  };
+
+  /**
+   * O defeito mais caro dos três: sem tratar `isError`, `caixas.data` fica `undefined` e a página
+   * caía no caminho de "nenhuma caixa plugada" — a tela de boas-vindas para quem JÁ tem caixa.
+   * A pessoa concluía que a caixa sumiu e ia redigitar a senha.
+   */
+  it("caixas que falham mostram erro com 'tentar de novo', NUNCA o convite de plugar a primeira", async () => {
+    raiz = montar({ ...HANDLERS, "email.caixas": explode });
+    for (let i = 0; i < 4; i += 1) await aguardar();
+
+    expect(raiz.container.textContent).not.toContain("Conecte a sua caixa");
+    expect(raiz.container.textContent).not.toContain("Seu e-mail, aqui dentro");
+    expect([...raiz.container.querySelectorAll("button")].some((b) => b.textContent?.includes("Adicionar caixa"))).toBe(
+      false,
+    );
+    expect([...raiz.container.querySelectorAll("button")].some((b) => b.textContent?.includes("Tentar de novo"))).toBe(
+      true,
+    );
+  });
+
+  /** "Nenhum e-mail nesta pasta" depende de `length === 0` — com `data` indefinido a lista ficava muda. */
+  it("lista que falha mostra erro, e não deixa a pasta cheia parecendo vazia", async () => {
+    raiz = montar({ ...HANDLERS, "email.mensagens": explode });
+    for (let i = 0; i < 6; i += 1) await aguardar();
+
+    expect(raiz.container.textContent).not.toContain("Nenhum e-mail nesta pasta");
+    expect(raiz.container.textContent).toContain("Não foi possível carregar os e-mails desta pasta");
+  });
+
+  /**
+   * Caminho NORMAL, não exceção: "Abrir na minha caixa" na ficha do cliente manda `?mensagem=<id>`
+   * de um e-mail que pode ser da caixa de outra pessoa (ADR-95). O painel ficava em branco.
+   */
+  it("mensagem que não abre explica o motivo provável em vez de deixar o painel em branco", async () => {
+    raiz = montar({ ...HANDLERS, "email.abrir": explode });
+    for (let i = 0; i < 6; i += 1) await aguardar();
+
+    const item = [...raiz.container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Proposta assinada"),
+    );
+    act(() => {
+      item!.click();
+    });
+    await aguardar();
+    await aguardar();
+
+    expect(raiz.container.textContent).toContain("Este e-mail não está na sua caixa");
+    expect([...raiz.container.querySelectorAll("button")].some((b) => b.textContent?.includes("Tentar de novo"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("EmailPage — dá para desplugar uma caixa", () => {
+  let raiz: { root: Root; container: HTMLDivElement } | null = null;
+
+  afterEach(() => {
+    if (raiz) {
+      act(() => raiz!.root.unmount());
+      raiz.container.remove();
+    }
+    raiz = null;
+  });
+
+  /**
+   * `email.removerCaixa` existia no servidor, com serviço e teste, e NENHUMA tela chamava: caixa
+   * plugada por engano ficava para sempre, com a senha cifrada guardada junto.
+   */
+  it("cada caixa oferece desconectar, e a ação passa por confirmação antes de remover", async () => {
+    const removidas: unknown[] = [];
+    raiz = montar({
+      ...HANDLERS,
+      "email.removerCaixa": (input) => {
+        removidas.push(input);
+        return undefined;
+      },
+    });
+    for (let i = 0; i < 6; i += 1) await aguardar();
+
+    const botao = raiz.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Desconectar a caixa thais@medconsultoria.com.br"]',
+    );
+    expect(botao, "a caixa da barra lateral tem de oferecer desplugar").not.toBeNull();
+
+    act(() => {
+      botao!.click();
+    });
+    await aguardar();
+
+    // Ação destrutiva NUNCA remove no clique: confirma antes, dizendo o que acontece.
+    expect(removidas).toHaveLength(0);
+    // O diálogo vive num portal, fora do container da página.
+    expect(document.body.textContent).toContain("Desconectar esta caixa?");
+    expect(document.body.textContent).toContain("Os e-mails continuam no servidor");
+
+    const confirmar = [...document.body.querySelectorAll("button")].find((b) => b.textContent === "Desconectar");
+    act(() => {
+      confirmar!.click();
+    });
+    await aguardar();
+
+    expect(removidas).toEqual([{ caixaId: "caixa-1" }]);
+  });
+
+  /**
+   * `estado`/`ultimaSyncEm` vinham do servidor e NENHUM arquivo do front os lia: com o IMAP fora
+   * do ar a caixa continuava com cara de saudável e a pessoa lia cache velho sem saber.
+   */
+  it("caixa em ERRO avisa que a lista parou, e desde quando", async () => {
+    raiz = montar({
+      ...HANDLERS,
+      "email.caixas": () => [
+        {
+          id: "caixa-1",
+          email: "thais@medconsultoria.com.br",
+          rotulo: "Thaís",
+          estado: "ERRO",
+          nomeExibicao: "Thaís",
+          ultimaSyncEm: DATA,
+          ultimoErro: "ECONNREFUSED",
+        },
+      ],
+    });
+    for (let i = 0; i < 6; i += 1) await aguardar();
+
+    expect(raiz.container.textContent).toContain("Não deu para falar com o servidor de e-mail");
+    // A data do último acesso bem-sucedido, no formato pt-BR da app (nunca um formatador local).
+    expect(raiz.container.textContent).toContain("05/08/2026");
+    // Detalhe técnico do servidor não vai para a tela de quem não é técnico.
+    expect(raiz.container.textContent).not.toContain("ECONNREFUSED");
   });
 });
 

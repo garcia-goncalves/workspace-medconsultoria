@@ -17,12 +17,13 @@ import {
   Check,
   UserPlus,
   Building2,
+  Unplug,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { cn } from "@app/ui";
-import { trpc } from "../../lib/trpc";
+import { trpc, type RouterOutputs } from "../../lib/trpc";
 import { POLL } from "../../lib/socket";
-import { data, hora } from "../../lib/format-date";
+import { data, dataHora, hora } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Avatar } from "../../components/ui/avatar";
@@ -30,13 +31,21 @@ import { Modal } from "../../components/ui/modal";
 import { Combobox } from "../../components/ui/combobox";
 import { Label } from "../../components/ui/label";
 import { toast } from "../../components/ui/toast";
+import { QueryError } from "../../components/ui/query-error";
+import { useConfirm } from "../../components/ui/confirm-dialog";
 import { AdicionarCaixaDialog } from "./AdicionarCaixaDialog";
 import { ReconectarCaixaDialog } from "./ReconectarCaixaDialog";
 import { CorpoEmail } from "./CorpoEmail";
 import { Escrever, type ModoEscrever } from "./Escrever";
 
+/** Quantos e-mails cada página da lista traz. O servidor usa o mesmo padrão em `listarMensagens`. */
+const LIMITE_PAGINA = 50;
+
+type ItemDaLista = RouterOutputs["email"]["mensagens"][number];
+
 export function EmailPage() {
   const utils = trpc.useUtils();
+  const confirm = useConfirm();
   const [adicionando, setAdicionando] = useState(false);
   const [caixaId, setCaixaId] = useState<string | null>(null);
   const [pastaId, setPastaId] = useState<string | null>(null);
@@ -92,7 +101,52 @@ export function EmailPage() {
       utils.email.mensagens.invalidate();
       utils.email.pastas.invalidate();
     },
+    /**
+     * Falhar aqui quase sempre quer dizer que a CAIXA parou (senha trocada no painel da
+     * hospedagem, servidor fora do ar) — e é o servidor que sabe disso, no `estado` da caixa.
+     * `caixas` é a única consulta da página sem polling, então sem esta invalidação o `estado`
+     * ficava congelado no que era ao abrir a página: o banner "Reconectar" só aparecia depois de
+     * um F5, e enquanto isso o ciclo de 30 s despejava um toast técnico em cima da pessoa (a rede
+     * de segurança do `main.tsx` só cala quando a mutação trata o próprio erro, como aqui).
+     */
+    onError: () => {
+      utils.email.caixas.invalidate();
+    },
   });
+
+  /**
+   * Desplugar a caixa. Soft-delete no servidor: a senha cifrada é apagada e a caixa some daqui —
+   * nada é tocado no servidor de e-mail. Sem esta ação, caixa plugada por engano ficava para
+   * sempre, com a credencial guardada junto.
+   */
+  const removerCaixa = trpc.email.removerCaixa.useMutation({
+    onSuccess: () => {
+      toast("Caixa desconectada. Os e-mails continuam no servidor.", "success");
+      // A caixa aberta pode ter sido a removida: voltar ao começo evita a tela pedir pastas e
+      // mensagens de uma caixa que não existe mais.
+      setCaixaId(null);
+      setPastaId(null);
+      setMsgId(null);
+      utils.email.caixas.invalidate();
+      utils.email.pastas.invalidate();
+      utils.email.mensagens.invalidate();
+    },
+    onError: (e) => toast(e.message),
+  });
+
+  const desplugar = async (caixa: { id: string; email: string }) => {
+    const ok = await confirm({
+      title: "Desconectar esta caixa?",
+      description:
+        `${caixa.email} sai do Workspace e a senha guardada é apagada. ` +
+        "Os e-mails continuam no servidor, como sempre estiveram — nada é apagado lá. " +
+        "Para voltar a ler por aqui é só plugar a caixa de novo.",
+      confirmText: "Desconectar",
+      variant: "destructive",
+      icon: Unplug,
+    });
+    if (ok) removerCaixa.mutate({ caixaId: caixa.id });
+  };
 
   /**
    * Sincroniza ao abrir a pasta E a cada intervalo do polling.
@@ -128,7 +182,7 @@ export function EmailPage() {
   }, [caixaAtual?.id, pastaAtual?.id]);
 
   const mensagens = trpc.email.mensagens.useQuery(
-    { pastaId: pastaAtual?.id ?? "", busca: buscaAtiva || undefined },
+    { pastaId: pastaAtual?.id ?? "", busca: buscaAtiva || undefined, limite: LIMITE_PAGINA },
     {
       enabled: !!pastaAtual,
       // Busca ativa NÃO entra no polling: cada refetch com termo vira varredura de corpo
@@ -136,6 +190,55 @@ export function EmailPage() {
       refetchInterval: buscaAtiva ? false : POLL.emailLista,
     },
   );
+
+  /**
+   * "Carregar mais antigos", sem trocar a consulta por `useInfiniteQuery`.
+   *
+   * A primeira página continua sendo a query acima — é ela que tem o polling e traz e-mail NOVO.
+   * As páginas antigas ficam neste acumulador à parte, buscadas sob demanda com `antesDe` (a data
+   * do último e-mail já na tela). Sem isto, só os 50 mais recentes eram alcançáveis pela tela: o
+   * resto da janela importada existia no banco e não tinha como ser lido aqui.
+   */
+  const [antigas, setAntigas] = useState<ItemDaLista[]>([]);
+  const [temMaisAntigas, setTemMaisAntigas] = useState(true);
+  const [carregandoAntigas, setCarregandoAntigas] = useState(false);
+
+  // Trocar de pasta ou de busca zera o acumulado — senão a lista mistura e-mail de outra pasta.
+  useEffect(() => {
+    setAntigas([]);
+    setTemMaisAntigas(true);
+  }, [pastaAtual?.id, buscaAtiva]);
+
+  // Dedup por id: `antesDe` é exclusivo (`lt`), mas dois e-mails com a MESMA data na virada de
+  // página fariam um deles aparecer duas vezes — e chave repetida quebra a lista do React.
+  const lista = useMemo(() => {
+    const base = mensagens.data ?? [];
+    const vistos = new Set(base.map((m) => m.id));
+    return [...base, ...antigas.filter((m) => !vistos.has(m.id))];
+  }, [mensagens.data, antigas]);
+
+  // Página cheia é a única pista de que pode haver mais; página curta encerra a lista.
+  const podeCarregarMais = temMaisAntigas && (mensagens.data?.length ?? 0) >= LIMITE_PAGINA;
+
+  const carregarMaisAntigos = async () => {
+    const ultima = lista[lista.length - 1];
+    if (!pastaAtual || !ultima || carregandoAntigas) return;
+    setCarregandoAntigas(true);
+    try {
+      const pagina = await utils.email.mensagens.fetch({
+        pastaId: pastaAtual.id,
+        busca: buscaAtiva || undefined,
+        limite: LIMITE_PAGINA,
+        antesDe: ultima.dataEm,
+      });
+      setAntigas((a) => [...a, ...pagina]);
+      if (pagina.length < LIMITE_PAGINA) setTemMaisAntigas(false);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Não foi possível buscar os e-mails mais antigos.");
+    } finally {
+      setCarregandoAntigas(false);
+    }
+  };
 
   const aberta = trpc.email.abrir.useQuery({ mensagemId: msgId ?? "" }, { enabled: !!msgId });
   const marcarParticular = trpc.email.marcarParticular.useMutation({
@@ -225,6 +328,23 @@ export function EmailPage() {
 
   if (caixas.isLoading) return <div className="p-6 text-sm text-muted-foreground">Carregando…</div>;
 
+  /*
+   * Erro ANTES da lista vazia, e a ordem é o conserto.
+   *
+   * Falhando a consulta, `caixas.data` fica `undefined` e a página caía no caminho de "nenhuma
+   * caixa plugada" — mostrando a tela de boas-vindas para quem já tinha a caixa dela ali. A
+   * pessoa concluía que a caixa sumiu, clicava em "Adicionar caixa", redigitava a senha e levava
+   * um "Você já plugou esta caixa". Uma falha de rede virava um susto e uma senha digitada à toa.
+   */
+  if (caixas.isError) {
+    return (
+      <QueryError
+        onRetry={() => caixas.refetch()}
+        message="Não foi possível carregar as suas caixas de e-mail agora. Nada foi perdido — o que está plugado continua plugado."
+      />
+    );
+  }
+
   // Nenhuma caixa plugada: a página inteira é o convite para plugar a primeira.
   if (!caixas.data?.length) {
     return (
@@ -274,21 +394,46 @@ export function EmailPage() {
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {caixas.data.map((c) => (
             <div key={c.id} className="mb-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setCaixaId(c.id);
-                  setPastaId(null);
-                  setMsgId(null);
-                }}
-                className={cn(
-                  "w-full truncate rounded-lg px-2 py-1.5 text-left text-xs font-semibold",
-                  c.id === caixaAtual?.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
-                )}
-                title={c.email}
-              >
-                {c.rotulo || c.email}
-              </button>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCaixaId(c.id);
+                    setPastaId(null);
+                    setMsgId(null);
+                  }}
+                  className={cn(
+                    "min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-left text-xs font-semibold",
+                    c.id === caixaAtual?.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
+                  )}
+                  title={c.email}
+                >
+                  {c.rotulo || c.email}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => desplugar(c)}
+                  disabled={removerCaixa.isPending}
+                  aria-label={`Desconectar a caixa ${c.email}`}
+                  title="Desconectar esta caixa do Workspace. Os e-mails continuam no servidor."
+                  className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-50"
+                >
+                  <Unplug className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {/* Caixa que o servidor não conseguiu ler. NÃO é erro vermelho de página inteira: o
+                  que já foi baixado continua legível — o que a pessoa precisa saber é que a lista
+                  parou no tempo, e desde quando. Senha recusada tem tratamento próprio, logo abaixo. */}
+              {c.estado === "ERRO" && (
+                <p className="mt-1 flex items-start gap-1 px-2 text-[11px] leading-snug text-warning">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span>
+                    Não deu para falar com o servidor de e-mail
+                    {c.ultimaSyncEm ? ` — o que está aqui é do último acesso, em ${dataHora(c.ultimaSyncEm)}` : ""}.
+                  </span>
+                </p>
+              )}
 
               {c.estado === "AUTENTICACAO_FALHOU" && (
                 <div className="mt-1 px-2">
@@ -369,12 +514,22 @@ export function EmailPage() {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {mensagens.isLoading && <p className="p-4 text-sm text-muted-foreground">Carregando…</p>}
+          {/* Falhando, a lista ficava MUDA: "Nenhum e-mail nesta pasta" depende de `length === 0`,
+              que não acontece com `data` indefinido. Pasta cheia parecia pasta vazia. */}
+          {mensagens.isError && (
+            <div className="p-3">
+              <QueryError
+                onRetry={() => mensagens.refetch()}
+                message="Não foi possível carregar os e-mails desta pasta agora."
+              />
+            </div>
+          )}
           {mensagens.data?.length === 0 && (
             <p className="p-4 text-sm text-muted-foreground">
               {buscaAtiva ? "Nenhum e-mail encontrado para esta busca." : "Nenhum e-mail nesta pasta."}
             </p>
           )}
-          {mensagens.data?.map((m) => (
+          {lista.map((m) => (
             <button
               key={m.id}
               type="button"
@@ -398,6 +553,19 @@ export function EmailPage() {
               {m.temAnexo && <Paperclip className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
             </button>
           ))}
+          {podeCarregarMais && (
+            <div className="p-3 text-center">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={carregandoAntigas}
+                onClick={carregarMaisAntigos}
+              >
+                {carregandoAntigas ? "Buscando…" : "Carregar mais antigos"}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -415,6 +583,19 @@ export function EmailPage() {
         {!msgId && <p className="m-auto text-sm text-muted-foreground">Escolha um e-mail para ler.</p>}
 
         {msgId && aberta.isLoading && <p className="p-4 text-sm text-muted-foreground">Abrindo…</p>}
+
+        {/* Acontece no caminho NORMAL: "Abrir na minha caixa", na ficha do cliente, manda
+            `?mensagem=<id>` de um e-mail que pode ser da caixa de OUTRA pessoa (ADR-95 — a caixa é
+            privada). O servidor responde NOT_FOUND e o painel ficava em branco, sem uma linha de
+            texto: parecia a tela travando, não uma regra funcionando. */}
+        {msgId && aberta.isError && (
+          <div className="m-auto w-full max-w-md p-4">
+            <QueryError
+              onRetry={() => aberta.refetch()}
+              message="Este e-mail não está na sua caixa. Ele pode ser da caixa de outra pessoa da equipe — só quem é dono da caixa consegue abrir a mensagem inteira."
+            />
+          </div>
+        )}
 
         {msgId && msgAberta && (
           <>
