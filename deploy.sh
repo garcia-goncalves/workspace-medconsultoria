@@ -67,8 +67,12 @@ remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && npm run prisma:depl
 # Sobe o app à mão ANTES de reiniciar o de verdade: se faltar dependência ou variável, o erro
 # aparece aqui, com a produção ainda servindo a versão antiga — em vez de aparecer como um 503
 # para quem está usando o sistema.
+#
+# O `head` NÃO entra aqui: cortar a saída antes das linhas de "Server listening" produz um FALSO
+# NEGATIVO — o app subiu, o script diz que não, e o deploy trava por nada (aconteceu em 05/08 ao
+# ligar a EMAIL_CRYPTO_KEY). A saída vai inteira para um arquivo no servidor e só então é filtrada.
 echo "==> 6/6 Ensaio de boot (a produção ainda está no ar servindo a versão anterior)"
-if remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && timeout 15 node app.cjs 2>&1 | head -20" | tee /tmp/boot-teste.log | grep -q "Server listening"; then
+if remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && timeout 25 node app.cjs > /tmp/boot-teste.log 2>&1; grep -c 'Server listening' /tmp/boot-teste.log; echo '--- erros ---'; grep -iE 'error|invalid' /tmp/boot-teste.log | head -5" | tee /tmp/boot-teste.log | head -1 | grep -qvE "^0$"; then
   echo "    boot OK — pode reiniciar"
 else
   echo "    !! O app NÃO subiu. A produção continua na versão anterior (nada foi reiniciado)."
