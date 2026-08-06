@@ -59,12 +59,19 @@ export type UpdateClienteInput = z.infer<typeof updateClienteSchema>;
  * Dados que o PRÓPRIO cliente pode editar pelo Portal (LGPD: acesso + retificação dos
  * seus dados). Subconjunto seguro do cadastro — nunca inclui campos internos
  * (responsável, situação comercial, observações da equipe).
+ *
+ * **`email` ficou de fora, e o motivo é de segurança, não de produto.** O endereço do
+ * cadastro é CHAVE DE CONSULTA (`chaveDeEndereco` em `emails/enviados.service.ts`, e
+ * `clientesPorEnderecos` em `email/acoes.service.ts`): quem escolhe o endereço escolhe o
+ * que a consulta devolve. Com o campo aqui, um cliente do Portal punha o endereço de
+ * OUTRO cliente no próprio cadastro e passava a enxergar os e-mails endereçados a ele.
+ * A trava que existia (`ehDaCasa`, ADR-97) só barra endereço do nosso domínio.
+ * A retificação do e-mail continua garantida — passa pela equipe, que tem o histórico.
  */
 export const portalMeusDadosSchema = z.object({
   nome: z.string().trim().min(1, "Informe o nome").max(160),
   tipo: clienteTipoEnum,
   documento: textoOpcional,
-  email: emailOpcional.optional(),
   telefone: textoOpcional,
 });
 export type PortalMeusDadosInput = z.infer<typeof portalMeusDadosSchema>;

@@ -233,10 +233,46 @@ async function enviarBoasVindas(nome: string, email: string): Promise<void> {
 }
 
 /**
+ * Freio do "esqueci minha senha", por E-MAIL (não por IP).
+ *
+ * O `login` já tinha throttle; o reset não tinha nada além do rate-limit global por IP
+ * (300/min), e quem sofre aqui não é quem pede: é o DONO da caixa. Sem isto, qualquer
+ * pessoa da internet dispara centenas de e-mails de redefinição para a caixa da Thaís,
+ * inutiliza a caixa e queima a reputação do nosso SMTP — o mesmo que manda proposta e
+ * contrato para cliente. Por IP não adianta: trocar de IP é trivial, e o alvo é a caixa.
+ *
+ * Contar por e-mail (inclusive de conta que não existe) mantém a anti-enumeração: a
+ * resposta é `{ ok: true }` em todos os casos, e o silêncio ao estourar o teto é igual
+ * ao silêncio de um e-mail desconhecido.
+ *
+ * Pura de propósito, para ser testável sem banco nem SMTP.
+ */
+const RESET_MAX = 3;
+const RESET_JANELA_MS = 60 * 60 * 1000;
+const resetPedidos = new Map<string, { count: number; ate: number }>();
+
+export function podeEnviarReset(email: string, agora = Date.now()): boolean {
+  const chave = email.trim().toLowerCase();
+  const reg = resetPedidos.get(chave);
+  if (!reg || agora >= reg.ate) {
+    resetPedidos.set(chave, { count: 1, ate: agora + RESET_JANELA_MS });
+    return true;
+  }
+  reg.count += 1;
+  return reg.count <= RESET_MAX;
+}
+
+/** Só para teste: zera o freio entre casos. */
+export function _limparFreioReset(): void {
+  resetPedidos.clear();
+}
+
+/**
  * Solicita redefinição de senha. SEMPRE responde ok (não revela se o e-mail
  * existe — anti-enumeração). Se existir uma conta ativa com senha, envia o link.
  */
 export async function solicitarReset(email: string): Promise<{ ok: true }> {
+  if (!podeEnviarReset(email)) return { ok: true };
   const user = await prisma.user.findFirst({
     where: { email: email.trim().toLowerCase(), ativo: true, deletedAt: null, passwordHash: { not: null } },
     select: { id: true, nome: true, email: true },

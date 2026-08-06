@@ -1389,3 +1389,32 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 - ~~**Caixa de e-mail dentro do app** (ver/enviar/receber sem sair, estilo Mensagens).~~ **Resolvido no ADR-95** (Bloco 1: plugar e ler — IMAP por usuário, índice+cache, caixa privada) **e no ADR-96** (Bloco 2, fase 2A: escrever/responder/encaminhar/anexar/rascunho por SMTP real). O alerta se confirmou: Gmail/Hotmail exigem OAuth próprio e ficaram **fora da fase 1**. **Bloco 2 concluído:** ficha do cliente na **ADR-97** (fase 2D‑1) e as ações da **ADR-99** (2D‑2 anexo → documento, 2D‑3 remetente → lead).
 - Zustand vs Context para o estado global mínimo do front.
 - Política de backup do MySQL.
+
+---
+
+## ADR-100 — Quem escolhe o endereço escolhe o que a consulta devolve (fechando a chave envenenável) ✅
+
+**Contexto:** auditoria de segurança de 05/08/2026, disparada pelo pedido do dono de garantir a aplicação inteira. O ADR‑97 documentou, com todas as letras, que o endereço do cadastro é **chave de consulta** do histórico de e‑mail (`chaveDeEndereco` em `emails/enviados.service.ts`; `clientesPorEnderecos` em `email/acoes.service.ts`) e que por isso *"bastava pôr `root@…` no cadastro para listar, de dentro do Portal, os transacionais mandados a uma conta interna"*. A trava criada na época — `ehDaCasa` — barra endereço **do nosso domínio**. Ela nunca barrou o endereço **de outro cliente**, e o Portal deixava o próprio cliente gravar o campo (`portalMeusDadosSchema`, ADR‑80, "direito de retificação").
+
+**A falha, reproduzida em teste antes de qualquer correção:** o cliente A abre "Editar perfil" no Portal, grava no próprio cadastro o e‑mail do cliente B e passa a enxergar, em `portal.emails`, tudo o que a empresa mandou para B — destinatário, assunto, tipo de mensagem, data, status e motivo de falha. O corpo continua protegido; o metadado atravessa a fronteira entre clientes, que é justamente a fronteira que o Portal existe para manter. O mesmo campo é a chave que decide de quem é o cliente ao guardar um anexo recebido: pondo no cadastro o endereço de um terceiro que escreve para a empresa, o cliente A se torna o **único** candidato e o anexo daquele terceiro vira documento dele, baixável pelo Portal.
+
+**Decisões:**
+
+1. **O Portal não grava mais o e‑mail do cadastro.** O campo saiu do `portalMeusDadosSchema` — é o *schema* que derruba o campo, não a boa vontade da tela: quem ataca não usa a tela. Nome, tipo, CPF/CNPJ e telefone continuam editáveis; a retificação do e‑mail passa a ser pedida à equipe, que é quem tem o histórico para saber o que aquela troca significa. A tela do Portal mostra o endereço em campo desabilitado, dizendo em português onde pedir a troca — campo que some sem explicação vira chamado de suporte.
+2. **A trava fica no servidor, não na tela.** O serviço `atualizarMeusDados` deixou de aceitar `email` na assinatura, e o teste chama o **schema** com um payload hostil antes de chamar o serviço, exatamente como um atacante faria.
+3. **Freio no "esqueci minha senha", contado por CAIXA e não por IP.** O endpoint é anônimo, dispara e‑mail real e só tinha o rate‑limit global de 300/min por IP — e quem sofre não é quem pede, é o dono da caixa. Teto de 3 por hora por endereço. Contar por IP não protegeria nada (trocar de IP é trivial e o alvo é a caixa). Ao estourar, a resposta continua `{ ok: true }`: qualquer outra resposta viraria um detector de "esta conta existe", derrubando a anti‑enumeração que o endpoint já tinha.
+
+**O que ficou de fora, de propósito, por ser decisão do dono e não defeito:** (a) qualquer FUNCIONARIO ainda pode pôr no cadastro de um cliente um endereço externo e, pela ficha, ler o **trecho** (200 caracteres do corpo) das mensagens trocadas com aquele endereço por toda a equipe — o ADR‑97 escolheu conscientemente mostrar o trecho à equipe, e estreitar isso é mudança de produto; (b) `assinaturas.doDocumento` devolve o token de assinatura do cliente a qualquer funcionário, o que permitiria assinar em nome dele — mas é o mesmo token do botão "Abrir link", uma funcionalidade documentada ("você escolhe se envia por e‑mail ou copia o link daqui"), então restringir muda o fluxo de trabalho.
+
+**Verificado:** o teste de exploração falha antes e passa depois (`isolation.integration.test.ts`); 5 casos novos para o freio do reset, incluindo caixa alta/espaço em volta (senão o teto é contornável) e a virada da janela.
+
+## ADR-101 — No computador é de mentira, no servidor é de verdade (contas de teste públicas + selo na tela) ✅
+
+**Contexto:** regra nova do `CLAUDE.md` global (§0.8), e este projeto é o que mais precisava dela — foi aqui que tratar a senha de teste como segredo, com **a mesma senha valendo nos dois mundos**, custou a rotação de emergência do ADR‑98. O dono não sabe (nem deveria precisar saber) o que é seed ou variável de ambiente para conseguir abrir a própria aplicação.
+
+**Decisões:**
+
+1. **Quatro contas de teste, iguais às dos outros projetos dele**, criadas por `pnpm contas:teste`: `root@teste.local`, `admin@teste.local`, `funcionario@teste.local` e `cliente@teste.local` (esta ligada a um cliente real do banco, para o Portal ter o que mostrar). Senha `teste1234`, **escrita na documentação de propósito**: senha de teste não é segredo, é dado de teste. O que é segredo — a senha de seed, as chaves, o SMTP — continua fora do repositório.
+2. **A trava é a do `demo-seed` (`podeRodarDemoSeed`), não uma nova.** Ela já é pura, testada e cobre a armadilha que derrubou a primeira versão do ADR‑98: em produção o banco **também** é `localhost`, então quem separa os ambientes é o `NODE_ENV=production`, nunca o host.
+3. **Diferente do `pnpm db:seed`, este script REESCREVE a senha toda vez.** O seed preserva senha de conta existente de propósito; reconfigurar o ambiente de ensaio é exatamente o que se espera deste. Também preenche `senhaTrocadaEm` — sem isso o ADR‑91 manda a conta para a página obrigatória de "defina sua senha" e o ambiente de ensaio não serve para ensaiar nada.
+4. **Selo "AMBIENTE LOCAL — dados de teste" na tela**, sempre visível, inclusive no login e no Portal. Aviso em documentação não serve: quem está prestes a apagar um cliente não está lendo o README. Fica `fixed` e `pointer-events-none` porque a barra lateral tem teste que proíbe rolagem (ADR‑94) e as telas de altura fixa calculam `100dvh − 4rem` — uma faixa no fluxo da página quebraria as duas contas. Some do pacote publicado por `import.meta.env.DEV`, que o Vite resolve em tempo de build: não há configuração errada capaz de fazê‑lo aparecer no ar.

@@ -13,6 +13,7 @@ import { trpc } from "./lib/trpc";
 import { App } from "./App";
 import { Toaster, toast } from "./components/ui/toast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { SeloAmbienteLocal } from "./components/SeloAmbienteLocal";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -47,6 +48,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <QueryClientProvider client={queryClient}>
           <App />
           <Toaster />
+          {/* Fora do <App> de propósito: aparece também no login e no Portal, e não
+              depende de haver sessão para avisar que a máquina é a de ensaio. */}
+          <SeloAmbienteLocal />
         </QueryClientProvider>
       </trpc.Provider>
     </ErrorBoundary>

@@ -124,7 +124,6 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
                 nome: form.nome.trim(),
                 tipo: form.tipo,
                 documento: form.documento.trim(),
-                email: form.email.trim(),
                 telefone: form.telefone.trim(),
               })
             }
@@ -198,16 +197,12 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
+            {/* Só leitura: o endereço é chave das consultas do histórico de e-mail, então
+                quem o edita escolhe o que a consulta devolve. Trocar passa pela equipe. */}
             <div className="space-y-1.5">
-              <Label htmlFor="perfil-email" hint="Usamos este e-mail para falar com você e enviar avisos importantes.">E-mail</Label>
-              <Input
-                id="perfil-email"
-                type="email"
-                inputMode="email"
-                value={form.email}
-                onChange={(e) => set("email", e.target.value)}
-                placeholder="voce@exemplo.com.br"
-              />
+              <Label htmlFor="perfil-email" hint="Para trocar o e-mail, fale com a nossa equipe — é ele que identifica você no nosso histórico de mensagens.">E-mail</Label>
+              <Input id="perfil-email" type="email" value={form.email} readOnly disabled />
+              <p className="text-xs text-muted-foreground">Para alterar, fale com a nossa equipe.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="perfil-tel" hint="Um número para contato, com DDD.">Telefone</Label>
