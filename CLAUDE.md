@@ -29,6 +29,9 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - **Senha de desenvolvimento fora do repositório (ADR-98):** nem spec nem `demo-seed` guardam senha embutida; a fonte única é `SEED_ROOT_PASSWORD` no `.env` e o `playwright.config.ts` lê dela a senha dos e2e. Para trocar, `pnpm senha:rotacionar` — ele troca o valor **e reescreve o hash de quem ainda usa a senha atual** (o seed preserva senha de conta existente: reexecutá-lo não rotaciona nada). **Atenção ao mexer na trava:** em produção o banco também é `localhost`, então host não separa dev de prod — quem separa é o `NODE_ENV=production` do `.env`.
 - **Pendências do dono (só ele faz):** preencher dados jurídicos (Ajustes → Dados da empresa) · **rotacionar** a chave OpenAI + senha SMTP do `.env` do servidor · **conferir em produção** se as 4 contas semeadas ainda aceitam a senha de dev que vazou (ADR-98; o `root@` primordial é o candidato, ninguém o usa para entrar).
 
+- **Ambiente local separado do servidor (ADR-101):** `pnpm contas:teste` cria as 4 contas públicas de ensaio (`root@`/`admin@`/`funcionario@`/`cliente@teste.local`, senha **`teste1234`** — documentada de propósito, senha de teste não é segredo) e **recusa rodar em produção**. Toda tela rodando localmente mostra o selo **"AMBIENTE LOCAL — dados de teste"**, que não existe no pacote publicado.
+- **Auditoria de 05/08/2026 (ADR-100):** o Portal deixava o cliente gravar o próprio e-mail, que é **chave de consulta** do histórico — dava para ler o metadado de e-mail de outro cliente. Fechado no schema. Também entrou freio de 3/hora no "esqueci minha senha", por caixa.
+
 ## Onde está a verdade (ler nesta ordem)
 
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.

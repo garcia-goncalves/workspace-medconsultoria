@@ -163,13 +163,12 @@ export const emailRouter = router({
   // O que as torna aceitáveis é o que elas NÃO devolvem — corpo nenhum, só metadado e o trecho
   // — mais a válvula do `marcarParticular` logo abaixo. Ver `vinculo.service.ts`.
 
-  doCliente: funcionarioProcedure
-    .input(z.object({ clienteId: z.string().min(1), limite: z.number().int().min(1).max(200).optional() }))
-    .query(({ input }) => vinculo.mensagensDoCliente(input.clienteId, input.limite)),
-
-  doLead: funcionarioProcedure
-    .input(z.object({ leadId: z.string().min(1), limite: z.number().int().min(1).max(200).optional() }))
-    .query(({ input }) => vinculo.mensagensDoLead(input.leadId, input.limite)),
+  // `doCliente`/`doLead` foram REMOVIDAS em 05/08/2026. Elas mostravam só o que saiu das caixas;
+  // a ficha passou a usar a linha do tempo unificada (`conversaDo*`, ADR-97) e nenhum arquivo do
+  // front as chamava mais. Procedure sem consumidor não é neutra: estas duas estavam entre as
+  // poucas do módulo que não filtram por dono da caixa, ou seja, superfície exposta que ninguém
+  // exercitava — e portanto ninguém veria quebrar. Os serviços `mensagensDo*` seguem vivos, usados
+  // por dentro pelas `conversaDo*`. O ADR-97 §8 já havia removido as gêmeas em `emailsEnviados`.
 
   /** Linha do tempo unificada: o log dos e-mails automáticos + o que saiu/entrou pelas caixas. */
   conversaDoCliente: funcionarioProcedure

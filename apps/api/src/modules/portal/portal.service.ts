@@ -23,16 +23,19 @@ export async function meusDados(clienteId: string) {
 export async function atualizarMeusDados(
   clienteId: string,
   userId: string,
-  dados: { nome: string; tipo: "PF" | "PJ"; documento?: string; email?: string; telefone?: string },
+  dados: { nome: string; tipo: "PF" | "PJ"; documento?: string; telefone?: string },
 ) {
   const nome = dados.nome.trim();
+  // `email` NÃO entra aqui de propósito: o endereço do cadastro é chave de consulta
+  // (`chaveDeEndereco`/`clientesPorEnderecos`), então deixar o cliente escolhê-lo é
+  // deixá-lo escolher o que a própria consulta devolve — inclusive e-mail de outro
+  // cliente. Ver o comentário do `portalMeusDadosSchema`. Retificação: pela equipe.
   await prisma.cliente.update({
     where: { id: clienteId },
     data: {
       nome,
       tipo: dados.tipo,
       documento: dados.documento?.trim() || null,
-      email: dados.email?.trim() || null,
       telefone: dados.telefone?.trim() || null,
     },
   });

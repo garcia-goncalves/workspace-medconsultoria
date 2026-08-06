@@ -202,9 +202,38 @@ Depois é só abrir o link acima. Para fechar, `Ctrl+C` na janela onde rodou.
 
 ## 8. Contas de acesso
 
-As contas e os papéis de cada uma estão em **[`ACESSOS.md`](./ACESSOS.md)**.
+### 8-A. Para VOCÊ testar na sua máquina (pode usar à vontade)
 
-**Senha não é escrita em documento nenhum** — nem aqui, nem lá. Ao entrar pela primeira vez, a
+Estas contas existem **só no seu computador**. A senha está escrita aqui de propósito: ela não é
+segredo, é dado de teste — do mesmo jeito que um manequim de vitrine não é uma pessoa.
+
+| Entre com | O que você vê |
+| --------- | ------------- |
+| `root@teste.local` | **Tudo**, inclusive o painel técnico "Sistema" |
+| `admin@teste.local` | O que a Thaís vê (a empresa inteira, sem a parte técnica) |
+| `funcionario@teste.local` | O que um funcionário vê (só o trabalho dele) |
+| `cliente@teste.local` | O **Portal do Cliente**, do lado de fora |
+
+**Senha de todas: `teste1234`**
+
+Se alguma parar de funcionar (ou se você limpar o banco), recrie com:
+
+```
+pnpm contas:teste
+```
+
+O que aparece se der certo: uma linha `✔` para cada conta e, no fim, `✓ 4 contas de teste prontas`.
+
+> 🔒 **Por que isso é seguro:** o comando **se recusa a rodar no servidor**. A aplicação que está
+> no ar tem contas de verdade, com senhas de verdade, e nenhuma dessas quatro existe lá.
+> Você também reconhece a máquina de ensaio pela tela: sempre que estiver rodando localmente,
+> aparece um selo amarelo embaixo escrito **"AMBIENTE LOCAL — dados de teste"**.
+
+### 8-B. As contas de verdade (as que existem no ar)
+
+As contas reais e os papéis de cada uma estão em **[`ACESSOS.md`](./ACESSOS.md)**.
+
+**Senha delas não é escrita em documento nenhum** — nem aqui, nem lá. Ao entrar pela primeira vez, a
 própria aplicação obriga cada pessoa da equipe a definir uma senha só dela (ADR-91). Se esquecer,
 use **"Esqueci minha senha"** na tela de login.
 

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
-import { getDocumento } from "../modules/portal/portal.service";
+import { portalMeusDadosSchema } from "@app/shared";
+import { getDocumento, atualizarMeusDados } from "../modules/portal/portal.service";
 import { removerArquivo } from "../modules/arquivos/arquivos.service";
+import { listPorCliente } from "../modules/emails/enviados.service";
 import { hashPassword } from "../lib/password";
 
 const PFX = `iso-${randomBytes(4).toString("hex")}`;
@@ -45,6 +47,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await prisma.emailEnviado.deleteMany({ where: { assunto: { startsWith: PFX } } });
   await prisma.documento.deleteMany({ where: { titulo: { startsWith: PFX } } });
   await prisma.arquivo.deleteMany({ where: { nome: { startsWith: PFX } } });
   await prisma.cliente.deleteMany({ where: { nome: { startsWith: PFX } } });
@@ -68,6 +71,46 @@ describe("Isolamento do Portal por clienteId", () => {
 
   it("NÃO remove arquivo de OUTRO cliente (FORBIDDEN)", async () => {
     await expect(removerArquivo(arqB, clienteA)).rejects.toThrow();
+  });
+});
+
+/**
+ * O endereço do cadastro é chave de consulta (`chaveDeEndereco`, ADR-97): quem escolhe o
+ * endereço escolhe o que a consulta devolve. A trava existente barra só endereço DA CASA —
+ * o endereço de OUTRO CLIENTE passava direto, e o Portal deixava o próprio cliente gravá-lo.
+ */
+describe("Portal não escolhe a chave da própria consulta", () => {
+  it("cliente do Portal NÃO consegue gravar o e-mail de outro cliente no próprio cadastro", async () => {
+    const vitima = `${PFX}-vitima@example.test`;
+    await prisma.cliente.update({ where: { id: clienteB }, data: { email: vitima } });
+    await prisma.emailEnviado.create({
+      data: { para: vitima, assunto: `${PFX}-proposta sigilosa`, corpo: "x", clienteId: clienteB },
+    });
+
+    const userA = await prisma.user.create({
+      data: {
+        nome: `${PFX}-portalA`,
+        email: `${PFX}-portalA@example.test`,
+        passwordHash: await hashPassword("x"),
+        role: "CLIENTE",
+        clienteId: clienteA,
+      },
+    });
+
+    // Como um cliente mal-intencionado chega ao servidor: o payload passa pelo schema do
+    // Portal, e é ELE quem tem de derrubar o campo — não a boa vontade da tela.
+    const payload = portalMeusDadosSchema.parse({ nome: `${PFX}-A`, tipo: "PJ", email: vitima });
+    expect("email" in payload, "o schema do Portal não pode aceitar `email`").toBe(false);
+    await atualizarMeusDados(clienteA, userA.id, payload);
+
+    const depois = await prisma.cliente.findUnique({ where: { id: clienteA }, select: { email: true } });
+    expect(depois?.email, "o Portal não pode gravar o e-mail do cadastro").not.toBe(vitima);
+
+    const lista = await listPorCliente(clienteA);
+    expect(
+      lista.some((e) => e.assunto.includes("proposta sigilosa")),
+      "o cliente A não pode enxergar e-mail endereçado ao cliente B",
+    ).toBe(false);
   });
 });
 
