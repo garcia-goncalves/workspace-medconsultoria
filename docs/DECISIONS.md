@@ -1390,6 +1390,22 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 - Zustand vs Context para o estado global mínimo do front.
 - Política de backup do MySQL.
 
+### Achados da auditoria de 05/08/2026 que NÃO foram corrigidos (e por quê)
+
+Levantados na varredura que gerou as ADR‑100/101/102. Ficaram de fora por serem decisão de produto
+ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescoberto do zero.
+
+| Achado | Por que não foi feito agora |
+| ------ | --------------------------- |
+| **Dinheiro em `Float`** — `Servico.valor`/`percentual`, `ClienteServico.valor`/`percentual` e `Lead.valorEstimado` são `Float` (só `Conta.valor` é `Decimal`). Eles são somados em JS e o resultado vai para o **texto do contrato** e para a conta a receber: três serviços podem somar `1621.0000000000002`. | Migration de tipo + trocar as somas em `leads.service.ts` e `documentos.service.ts`. Escopo médio, mexe em dinheiro e em documento assinado — merece branch e revisão própria, não pegar carona. |
+| **Trecho do e-mail na ficha** — qualquer FUNCIONARIO pode pôr um endereço externo no cadastro de um cliente e ler, pela ficha, os 200 caracteres iniciais das mensagens que a equipe trocou com aquele endereço. | O ADR‑97 **escolheu** mostrar o trecho à equipe. Estreitar (ex.: trecho só ADMIN+) é mudança de produto, do dono. Vale junto registrar em `ActivityLog` a troca de `Cliente.email`/`Contato.email` — hoje trocar a chave da consulta não deixa rastro. |
+| **Token de assinatura do cliente visível ao funcionário** (`assinaturas.doDocumento`) — permite assinar em nome do cliente, e a trilha grava o IP de quem assinou como se fosse o dele. | É o mesmo token do botão "Abrir link", funcionalidade documentada ("você escolhe se envia por e‑mail ou copia o link daqui"). Restringir muda o fluxo de trabalho e o valor probatório é assunto jurídico — decisão do dono. |
+| **Índice de `Notificacao`** — a consulta do sino filtra por `userId` e ordena por `createdAt`, e o índice é `(userId, lida)`: sobra filesort. Roda em polling, para toda sessão aberta. | Volume atual é baixo e não há expurgo de notificação antiga. Vale entrar junto da próxima migration, não sozinha. |
+| **`CaixaEmail.assinatura`** — lido no envio, escrito por ninguém: a assinatura por caixa está pela metade desde o ADR‑96. | Precisa de campo na tela de plugar/editar caixa; é funcionalidade nova, não conserto. |
+| **`clientes.excluirDefinitivo` e `clientes.arquivarNota`** — existem no back, sem botão. | Decidir se viram tela ou saem do código. |
+| **Suíte `@app/web` intermitente** — uma execução a partir da raiz deu 8/12 arquivos e 4 erros; não reproduziu nas tentativas seguintes (rodando dentro de `apps/web` sempre passou). | Precisa de repetição para pegar o padrão. Fica registrado para não ser tratado como novidade quando reaparecer na CI. |
+| **`/avatar/:userId`** serve a foto de qualquer usuário para qualquer sessão, inclusive cliente do Portal. | Enumeração de fotos da equipe. Risco baixo, mas é fronteira do Portal — vale fechar quando alguém tocar o módulo. |
+
 ---
 
 ## ADR-100 — Quem escolhe o endereço escolhe o que a consulta devolve (fechando a chave envenenável) ✅
