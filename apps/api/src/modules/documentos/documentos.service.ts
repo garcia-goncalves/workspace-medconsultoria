@@ -398,8 +398,12 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     try {
       doc = await prisma.documento.create({ data: dadosDoDocumento(numeroAtual, conteudo) });
     } catch (e) {
-      const duplicado = e instanceof Error && "code" in e && (e as { code?: string }).code === "P2002";
-      if (!duplicado || !numeroAtual) throw e;
+      // Só o choque de NÚMERO justifica retentar. Qualquer outra violação de unicidade é
+      // outro problema, e engoli-la aqui trocaria um erro claro por um comportamento estranho.
+      const erro = e as { code?: string; meta?: { target?: unknown } };
+      const alvo = Array.isArray(erro.meta?.target) ? erro.meta.target.join(",") : String(erro.meta?.target ?? "");
+      const numeroDuplicado = erro.code === "P2002" && alvo.includes("numero");
+      if (!numeroDuplicado || !numeroAtual) throw e;
       // O corpo já traz o número escrito: trocar só a coluna deixaria o papel mentindo.
       const anterior = formatarNumeroProposta(numeroAtual);
       numeroAtual = await proximoNumeroProposta();
