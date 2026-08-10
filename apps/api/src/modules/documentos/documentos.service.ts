@@ -12,7 +12,7 @@ import type {
   GerarPautaInput,
 } from "@app/shared";
 import type { TipoModelo } from "@app/shared";
-import { qualificacaoContratada } from "@app/shared";
+import { qualificacaoContratada, totalDaGrade, valorPorExtenso } from "@app/shared";
 import { aiService } from "../../lib/ai.js";
 import { avancarLeadPorClienteAuto, garantirClienteDoLead } from "../leads/leads.service.js";
 import { listModelos } from "./modelos.service.js";
@@ -26,6 +26,17 @@ type ClienteMin = {
   documento: string | null;
   telefone: string | null;
 } | null;
+
+/**
+ * Os profissionais escritos como a proposta da Thaís os escreve: "Dr. Marcos Lottenberg,
+ * cardiologista, e Dra. Carina Lottenberg, ginecologista e obstetra" — vírgula entre eles e
+ * "e" antes do último. Alimenta o marcador `{{profissionais}}` do modelo de credenciamento.
+ */
+function listarProfissionais(profissionais: { nome: string; especialidade: string | null }[]): string {
+  const partes = profissionais.map((p) => (p.especialidade ? `${p.nome}, ${p.especialidade}` : p.nome));
+  if (partes.length <= 1) return partes[0] ?? "";
+  return `${partes.slice(0, -1).join("; ")} e ${partes[partes.length - 1]}`;
+}
 
 /** Substitui {{chave}} pelas variáveis + campos do cliente + data. */
 function render(corpo: string, variaveis: Record<string, string>, cliente: ClienteMin): string {
@@ -176,16 +187,69 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     input.condicoes?.trim() ? `**Condições de pagamento:** ${input.condicoes.trim()}` : "",
   ].filter(Boolean);
 
-  // Duas trilhas de investimento: COMERCIAL (catálogo de serviços) × CREDENCIAMENTO (por operadora).
-  const ehCredenciamento = (input.operadoras?.length ?? 0) > 0;
+  // Três trilhas de investimento: COMERCIAL (catálogo de serviços) × CREDENCIAMENTO POR PESSOA
+  // (a grade médico × operadora, ADR-104) × CREDENCIAMENTO POR OPERADORA (o formato antigo, que
+  // segue valendo para o cliente que ainda não tem médico cadastrado).
+  const grade = input.grade ?? [];
+  const ehGrade = grade.length > 0;
+  const ehCredenciamento = ehGrade || (input.operadoras?.length ?? 0) > 0;
   let servicosNomes: string[] = [];
   let blocoServicos: string;
+  /** Nomes das operadoras que entram no corpo — da grade, quando há grade. */
+  let operadorasDoCorpo: string[] = input.operadoras ?? [];
+  /** "Dr. Fulano, cardiologista, e Dra. Beltrana, ginecologista" — marcador {{profissionais}}. */
+  let profissionaisDoCorpo = "";
+  let totalCredenciamento = 0;
 
-  if (ehCredenciamento) {
-    // CREDENCIAMENTO: o investimento é POR OPERADORA (não passa pelo catálogo de serviços).
+  if (ehGrade) {
+    // CREDENCIAMENTO POR PESSOA: uma linha por cruzamento médico × operadora, com o valor da
+    // célula. Os nomes vêm do BANCO, não do que a tela mandou — o documento é o papel que vai
+    // ao cliente, e nome de médico nele não pode depender do estado de uma tela.
+    const [profissionais, operadoras] = await Promise.all([
+      prisma.profissional.findMany({
+        where: { id: { in: [...new Set(grade.map((c) => c.profissionalId))] } },
+        select: { id: true, nome: true, especialidade: true },
+      }),
+      prisma.operadora.findMany({
+        where: { id: { in: [...new Set(grade.map((c) => c.operadoraId))] } },
+        orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+        select: { id: true, nome: true },
+      }),
+    ]);
+    const nomeProf = new Map(profissionais.map((p) => [p.id, p]));
+    const nomeOp = new Map(operadoras.map((o) => [o.id, o.nome]));
+
+    totalCredenciamento = totalDaGrade(grade);
+    const linhas = grade
+      .filter((c) => nomeProf.has(c.profissionalId) && nomeOp.has(c.operadoraId))
+      .map((c) => {
+        const p = nomeProf.get(c.profissionalId)!;
+        const quem = p.especialidade ? `**${p.nome}** — ${p.especialidade}` : `**${p.nome}**`;
+        return `| ${quem} | ${nomeOp.get(c.operadoraId)} | ${c.valor > 0 ? brl(c.valor) : "a combinar"} |`;
+      });
+    const tabela = [
+      "| Profissional | Operadora | Investimento |",
+      "| --- | --- | --- |",
+      ...linhas,
+      `| | **Total** | **${totalCredenciamento > 0 ? brl(totalCredenciamento) : "a combinar"}** |`,
+    ].join("\n");
+
+    operadorasDoCorpo = operadoras.map((o) => o.nome);
+    profissionaisDoCorpo = listarProfissionais(profissionais);
+
+    const bloco = [`## Investimento\n\n${tabela}`];
+    if (totalCredenciamento > 0) {
+      bloco.push(`Investimento total: **${brl(totalCredenciamento)}** (${valorPorExtenso(totalCredenciamento)}).`);
+    }
+    if (extras.length) bloco.push(extras.join("  \n"));
+    if (input.observacoes?.trim()) bloco.push(input.observacoes.trim());
+    blocoServicos = bloco.join("\n\n");
+  } else if (ehCredenciamento) {
+    // CREDENCIAMENTO POR OPERADORA (sem médico cadastrado): o investimento é por operadora.
     const ops = input.operadoras ?? [];
     const fee = input.valorPorOperadora ?? 0;
     const total = fee * ops.length;
+    totalCredenciamento = total;
     const investeTxt =
       fee > 0
         ? `**${brl(total)}** para o credenciamento em **${ops.length} operadora(s)** — ${brl(fee)} por operadora.`
@@ -213,10 +277,9 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
   }
 
   // Operadoras selecionadas → {{operadoras}} (só o modelo de credenciamento tem esse marcador).
-  const operadorasBloco =
-    (input.operadoras?.length ?? 0) > 0
-      ? (input.operadoras ?? []).map((o) => `- **${o}**`).join("\n")
-      : "_(a definir com você)_";
+  const operadorasBloco = operadorasDoCorpo.length
+    ? operadorasDoCorpo.map((o) => `- **${o}**`).join("\n")
+    : "_(a definir com você)_";
 
   // Usa o CORPO do modelo escolhido como moldura (proposta comercial ≠ credenciamento):
   // {{servicos}} = tabela/investimento; {{operadoras}} = operadoras; {{apresentacao}} = abertura.
@@ -250,6 +313,12 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     const comMarcadores = modelo.corpo
       .replace(/\{\{\s*servicos\s*\}\}/g, blocoServicos)
       .replace(/\{\{\s*operadoras\s*\}\}/g, operadorasBloco)
+      .replace(/\{\{\s*profissionais\s*\}\}/g, profissionaisDoCorpo || "_(a definir com você)_")
+      .replace(/\{\{\s*valor\s*\}\}/g, totalCredenciamento > 0 ? brl(totalCredenciamento) : "_(a combinar)_")
+      .replace(
+        /\{\{\s*valor_extenso\s*\}\}/g,
+        totalCredenciamento > 0 ? valorPorExtenso(totalCredenciamento) : "_(a combinar)_",
+      )
       .replace(/\{\{\s*apresentacao\s*\}\}/g, apresentacao);
     conteudo = render(comMarcadores, {}, cliente);
   } else {
@@ -279,6 +348,14 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
       versoes: { create: { conteudo, autorId: userId, origem: input.usarIA ? "IA" : "MANUAL" } },
     },
   });
+  // A grade vira LINHAS de acompanhamento, presas a esta proposta. É o que transforma o preço
+  // combinado no papel em processo que a Thaís consegue seguir — e, na aprovação, em cobrança.
+  // Import dinâmico para não fechar ciclo de módulos com o serviço de credenciamento.
+  if (ehGrade && clienteId) {
+    const { salvarGrade } = await import("../servicos/credenciamento-grade.service.js");
+    await salvarGrade({ clienteId, celulas: grade, documentoId: doc.id }, { id: userId });
+  }
+
   await prisma.activityLog.create({
     data: { userId, acao: "documento.proposta_gerada", entidadeTipo: "documento", entidadeId: doc.id },
   });

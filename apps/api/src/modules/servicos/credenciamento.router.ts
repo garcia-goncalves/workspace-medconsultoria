@@ -1,7 +1,14 @@
 import { z } from "zod";
-import { createProfissionalSchema, updateProfissionalSchema } from "@app/shared";
+import {
+  createProfissionalSchema,
+  mudarStatusCredenciamentoSchema,
+  novaTentativaCredenciamentoSchema,
+  salvarGradeSchema,
+  updateProfissionalSchema,
+} from "@app/shared";
 import { router, funcionarioProcedure } from "../../trpc/trpc.js";
 import * as service from "./credenciamento.service.js";
+import * as grade from "./credenciamento-grade.service.js";
 
 /**
  * Credenciamento visto pela EQUIPE: os profissionais do cliente, a triagem de
@@ -28,4 +35,22 @@ export const credenciamentoRouter = router({
   removerProfissional: funcionarioProcedure
     .input(z.object({ id: z.string().min(1) }))
     .mutation(({ input }) => service.removerProfissional(input.id)),
+
+  // ── A grade médico × operadora (Bloco B) ───────────────────────────────────
+
+  grade: funcionarioProcedure
+    .input(z.object({ clienteId: z.string().min(1) }))
+    .query(({ input }) => grade.gradeDoCliente(input.clienteId)),
+
+  salvarGrade: funcionarioProcedure
+    .input(salvarGradeSchema)
+    .mutation(({ input, ctx }) => grade.salvarGrade(input, { id: ctx.user.id })),
+
+  mudarStatus: funcionarioProcedure
+    .input(mudarStatusCredenciamentoSchema)
+    .mutation(({ input, ctx }) => grade.mudarStatusCredenciamento(input, { id: ctx.user.id })),
+
+  novaTentativa: funcionarioProcedure
+    .input(novaTentativaCredenciamentoSchema)
+    .mutation(({ input, ctx }) => grade.abrirNovaTentativa(input, { id: ctx.user.id })),
 });

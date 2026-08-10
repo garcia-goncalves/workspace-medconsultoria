@@ -14,4 +14,5 @@ export * from "./schemas/documento.js";
 export * from "./schemas/formulario.js";
 export * from "./schemas/credenciamento.js";
 export * from "./schemas/email.js";
+export * from "./valor-extenso.js";
 export * from "./types.js";

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Sparkles, Loader2, FileSignature, CalendarClock, ClipboardList, Eye, FileSignature as FileSign, HeartHandshake, FileText, Receipt } from "lucide-react";
 import { cn } from "@app/ui";
-import { extrairVariaveis, DOC_INTERACAO, TIPO_MODELO_LABEL, type TipoModelo } from "@app/shared";
+import { extrairVariaveis, DOC_INTERACAO, TIPO_MODELO_LABEL, type CelulaGrade, type TipoModelo } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
@@ -90,7 +90,10 @@ export function NovoDocumentoDialog({
   const [condicoes, setCondicoes] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [usarIA, setUsarIA] = useState(false);
-  // Proposta de credenciamento (operadoras)
+  // Proposta de credenciamento: a grade médico × operadora (ADR-104) e, para o cliente sem
+  // médico cadastrado, o formato antigo por operadora.
+  const [celulasGrade, setCelulasGrade] = useState<CelulaGrade[]>([]);
+  const [modoGrade, setModoGrade] = useState(false);
   const [operadorasSel, setOperadorasSel] = useState<string[]>([]);
   const [valorOperadora, setValorOperadora] = useState(0);
   // Ata / Pauta
@@ -127,6 +130,8 @@ export function NovoDocumentoDialog({
     setUsarIA(false);
     setOperadorasSel([]);
     setValorOperadora(0);
+    setCelulasGrade([]);
+    setModoGrade(false);
     setAnotacoes("");
     setTopicos("");
     setReciboValor(0);
@@ -139,6 +144,13 @@ export function NovoDocumentoDialog({
     setPostagens([novoPost()]);
     setPostObs("");
   }, [open, clienteFixo]);
+
+  // Trocar de cliente zera a grade: as células guardam ids de médicos DAQUELE cliente, e levá-las
+  // para outro montaria uma proposta com o médico errado (o servidor recusa, mas a tela mentiria
+  // até o envio).
+  useEffect(() => {
+    setCelulasGrade([]);
+  }, [clienteId]);
 
   const modelo = modelos.data?.find((m) => m.id === modeloId);
   const modo: Modo | null = !modelo
@@ -227,28 +239,82 @@ export function NovoDocumentoDialog({
   // de OPERADORAS (não o catálogo de serviços da proposta comercial).
   const ehCredenciamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{operadoras}}");
 
+  // Os médicos e as operadoras do cliente — a mesma consulta que o CredenciamentoPicker faz
+  // (o cache do TanStack Query resolve uma vez só). A prévia precisa dos NOMES para desenhar
+  // a grade igual ao que o servidor vai gerar.
+  const gradeCtx = trpc.credenciamento.grade.useQuery(
+    { clienteId },
+    { enabled: open && ehCredenciamento && !!clienteId },
+  );
+
   // Preview ao vivo: injeta os valores já preenchidos no corpo antes de exibir.
   const conteudoPreview = () => {
     if (!modelo) return "";
     let corpo = modelo.corpo;
-    // PROPOSTA DE CREDENCIAMENTO: preenche {{operadoras}} E {{servicos}} (investimento por operadora),
-    // espelhando o servidor — antes só {{operadoras}} era preenchido e {{servicos}} ficava placeholder.
+    // PROPOSTA DE CREDENCIAMENTO: preenche {{operadoras}}, {{profissionais}} e {{servicos}},
+    // espelhando o servidor — a prévia tem de mostrar a proposta que vai sair, não um esboço.
     if (ehCredenciamento) {
-      const ops = operadorasSel;
-      const fee = valorOperadora || 0;
-      const investeTxt =
-        fee > 0
-          ? `**${formatBRL(fee * ops.length)}** para o credenciamento em **${ops.length} operadora(s)** — ${formatBRL(fee)} por operadora.`
-          : "Investimento a combinar conforme as operadoras selecionadas.";
       const extras = [
         prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : "",
         condicoes.trim() ? `**Condições de pagamento:** ${condicoes.trim()}` : "",
       ].filter(Boolean);
-      const bloco = [`## Investimento\n\n${investeTxt}`];
+
+      let nomesOperadoras: string[];
+      let profissionaisTxt = "";
+      let total = 0;
+      const bloco: string[] = [];
+
+      if (modoGrade && celulasGrade.length > 0) {
+        const profDe = (id: string) => gradeCtx.data?.profissionais.find((p) => p.id === id);
+        const opDe = (id: string) => gradeCtx.data?.operadoras.find((o) => o.id === id);
+        total = celulasGrade.reduce((s, c) => s + (c.valor || 0), 0);
+        const linhas = celulasGrade.map((c) => {
+          const p = profDe(c.profissionalId);
+          const quem = p?.especialidade ? `**${p.nome}** — ${p.especialidade}` : `**${p?.nome ?? "Profissional"}**`;
+          return `| ${quem} | ${opDe(c.operadoraId)?.nome ?? "—"} | ${c.valor > 0 ? formatBRL(c.valor) : "a combinar"} |`;
+        });
+        const tabela = [
+          "| Profissional | Operadora | Investimento |",
+          "| --- | --- | --- |",
+          ...linhas,
+          `| | **Total** | **${total > 0 ? formatBRL(total) : "a combinar"}** |`,
+        ].join("\n");
+        bloco.push(`## Investimento\n\n${tabela}`);
+        if (total > 0) bloco.push(`Investimento total: **${formatBRL(total)}** (${valorPorExtenso(total)}).`);
+        nomesOperadoras = [
+          ...new Set(celulasGrade.map((c) => opDe(c.operadoraId)?.nome).filter((n): n is string => !!n)),
+        ];
+        const usados = [...new Set(celulasGrade.map((c) => c.profissionalId))]
+          .map(profDe)
+          .filter((p): p is NonNullable<typeof p> => !!p);
+        const partes = usados.map((p) => (p.especialidade ? `${p.nome}, ${p.especialidade}` : p.nome));
+        profissionaisTxt =
+          partes.length <= 1 ? (partes[0] ?? "") : `${partes.slice(0, -1).join("; ")} e ${partes[partes.length - 1]}`;
+      } else {
+        const ops = operadorasSel;
+        const fee = valorOperadora || 0;
+        total = fee * ops.length;
+        bloco.push(
+          `## Investimento\n\n${
+            fee > 0
+              ? `**${formatBRL(total)}** para o credenciamento em **${ops.length} operadora(s)** — ${formatBRL(fee)} por operadora.`
+              : "Investimento a combinar conforme as operadoras selecionadas."
+          }`,
+        );
+        nomesOperadoras = ops;
+      }
+
       if (extras.length) bloco.push(extras.join("  \n"));
       if (observacoes.trim()) bloco.push(observacoes.trim());
+
       corpo = corpo
-        .replace(/\{\{\s*operadoras\s*\}\}/g, ops.length ? ops.map((o) => `- **${o}**`).join("\n") : "_(selecione as operadoras ao lado)_")
+        .replace(
+          /\{\{\s*operadoras\s*\}\}/g,
+          nomesOperadoras.length ? nomesOperadoras.map((o) => `- **${o}**`).join("\n") : "_(selecione as operadoras ao lado)_",
+        )
+        .replace(/\{\{\s*profissionais\s*\}\}/g, profissionaisTxt || "_(a definir com você)_")
+        .replace(/\{\{\s*valor\s*\}\}/g, total > 0 ? formatBRL(total) : "_(a combinar)_")
+        .replace(/\{\{\s*valor_extenso\s*\}\}/g, total > 0 ? valorPorExtenso(total) : "_(a combinar)_")
         .replace(/\{\{\s*servicos\s*\}\}/g, bloco.join("\n\n"));
     }
     // PROPOSTA COMERCIAL: espelha o servidor (montarServicos) — tabela de serviços + investimento +
@@ -388,9 +454,12 @@ export function NovoDocumentoDialog({
         clienteId: clienteArg,
         modeloId,
         titulo: tituloArg,
-        // Credenciamento envia operadoras; comercial envia os serviços do catálogo.
+        // Credenciamento envia a GRADE (médico × operadora) ou, sem médico cadastrado, as
+        // operadoras soltas; a proposta comercial envia os serviços do catálogo.
         ...(ehCredenciamento
-          ? { operadoras: operadorasSel, valorPorOperadora: valorOperadora || undefined }
+          ? modoGrade
+            ? { grade: celulasGrade }
+            : { operadoras: operadorasSel, valorPorOperadora: valorOperadora || undefined }
           : {
               itens: Object.entries(sel).map(([servicoId, i]) => ({
                 servicoId,
@@ -488,7 +557,9 @@ export function NovoDocumentoDialog({
     pending ||
     (modo === "PROPOSTA"
       ? ehCredenciamento
-        ? operadorasSel.length === 0
+        ? modoGrade
+          ? celulasGrade.length === 0
+          : operadorasSel.length === 0
         : Object.keys(sel).length === 0
       : modo === "CONTRATO"
       ? !clienteId || Object.keys(sel).length === 0
@@ -567,10 +638,14 @@ export function NovoDocumentoDialog({
           <>
             {ehCredenciamento ? (
               <CredenciamentoPicker
+                clienteId={clienteId}
+                celulas={celulasGrade}
+                setCelulas={setCelulasGrade}
                 operadoras={operadorasSel}
                 setOperadoras={setOperadorasSel}
                 valorOperadora={valorOperadora}
                 setValorOperadora={setValorOperadora}
+                onModoGrade={setModoGrade}
               />
             ) : (
               <PropostaServicosPicker sel={sel} setSel={setSel} />

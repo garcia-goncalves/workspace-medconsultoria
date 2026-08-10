@@ -241,6 +241,7 @@ model Cliente {
   respostasFormulario FormularioResposta[]
   tarefas          Tarefa[]
   profissionais    Profissional[]
+  credenciamentos  Credenciamento[]
 
   @@index([responsavelId])
   @@index([deletedAt])
@@ -335,6 +336,8 @@ model Operadora {
   nome      String
   ordem     Int      @default(0)
   createdAt DateTime @default(now())
+
+  credenciamentos Credenciamento[]
 
   @@index([ordem])
 }
@@ -577,10 +580,66 @@ model Profissional {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  cliente  Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  arquivos Arquivo[]
+  cliente         Cliente          @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  arquivos        Arquivo[]
+  credenciamentos Credenciamento[]
 
   @@index([clienteId])
+}
+
+/// Andamento de UM credenciamento na operadora. `NEGADO` encerra aquele cruzamento (spec §3.4:
+/// "após uma tentativa e negativa, o credenciamento se encerra, salvo acordo expresso"); voltar a
+/// tentar é uma linha NOVA com `tentativa` 2, e não a mesma linha reaberta — senão o histórico da
+/// primeira negativa seria sobrescrito, e é exatamente ele que justifica cobrar de novo.
+enum StatusCredenciamento {
+  A_PROTOCOLAR
+  PROTOCOLADO
+  EM_ANALISE
+  APROVADO
+  NEGADO
+  ENCERRADO
+}
+
+/// A GRADE médico × operadora: cada cruzamento é uma linha. Uma peça, três funções — monta o
+/// preço da proposta (`valor` por célula), acompanha o andamento (`status`) e dispara a cobrança
+/// (`contaId`, criada só na aprovação — spec §6.3, o honorário é no sucesso). Ver ADR-104.
+model Credenciamento {
+  id             String               @id @default(cuid())
+  clienteId      String
+  profissionalId String
+  operadoraId    String
+  valor          Decimal              @default(0) @db.Decimal(12, 2)
+  status         StatusCredenciamento @default(A_PROTOCOLAR)
+  /// 1 por padrão. A 2ª exige o acordo expresso do §3.4, com o motivo gravado em `observacoes`.
+  tentativa      Int                  @default(1)
+  /// A proposta que originou esta linha. SetNull: apagar a proposta não apaga o andamento real.
+  documentoId    String?
+  /// A conta a receber criada na APROVAÇÃO. SetNull: apagar a conta não apaga o credenciamento.
+  contaId        String?
+  protocoladoEm  DateTime?
+  emAnaliseEm    DateTime?
+  aprovadoEm     DateTime?
+  negadoEm       DateTime?
+  encerradoEm    DateTime?
+  motivoNegativa String?              @db.Text
+  observacoes    String?              @db.Text
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  cliente      Cliente      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+  // Restrict de propósito: excluir do catálogo uma operadora com credenciamento em curso
+  // apagaria o andamento. O serviço traduz o erro do banco em recado explicável.
+  operadora    Operadora    @relation(fields: [operadoraId], references: [id], onDelete: Restrict)
+  documento    Documento?   @relation(fields: [documentoId], references: [id], onDelete: SetNull)
+  conta        Conta?       @relation(fields: [contaId], references: [id], onDelete: SetNull)
+
+  /// Não existem duas linhas para o mesmo par na mesma tentativa.
+  @@unique([profissionalId, operadoraId, tentativa])
+  @@index([clienteId, status])
+  @@index([documentoId])
+  @@index([operadoraId])
+  @@index([contaId])
 }
 
 /// Passo padrão de um serviço, atrelado a uma etapa do funil. Ao um lead escolher
@@ -989,9 +1048,10 @@ model Conta {
   updatedAt      DateTime    @updatedAt
   deletedAt      DateTime?
 
-  categoria Categoria? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
-  cliente   Cliente?   @relation(fields: [clienteId], references: [id], onDelete: SetNull)
-  dono      User?      @relation("ContaDono", fields: [donoId], references: [id], onDelete: Cascade)
+  categoria       Categoria?       @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  cliente         Cliente?         @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  dono            User?            @relation("ContaDono", fields: [donoId], references: [id], onDelete: Cascade)
+  credenciamentos Credenciamento[]
 
   @@index([tipo, pago])
   @@index([vencimento])
@@ -1217,6 +1277,10 @@ model Documento {
   titulo        String
   conteudo      String          @db.Text
   status        StatusDocumento @default(RASCUNHO)
+  /// Número sequencial da proposta, exibido com 4 dígitos ("0225"). Continua a contagem MANUAL
+  /// da Thaís, que estava em 224 em 10/08/2026 — a primeira emitida pelo sistema é a 0225.
+  /// Único e opcional: só a proposta de credenciamento numera; o resto fica nulo (ADR-104).
+  numero        Int?            @unique
   // Opcional + SetNull: excluir o usuário criador PRESERVA o documento (propostas/contratos
   // não podem sumir junto com um funcionário desligado). Ver decisão #1 da finalização.
   criadoPorId   String?
@@ -1246,8 +1310,9 @@ model Documento {
   projeto     Projeto?          @relation(fields: [projetoId], references: [id], onDelete: SetNull)
   criadoPor   User?             @relation("DocCriador", fields: [criadoPorId], references: [id], onDelete: SetNull)
   aprovadoPor User?             @relation("DocAprovador", fields: [aprovadoPorId], references: [id], onDelete: SetNull)
-  versoes     DocumentoVersao[]
-  assinaturas Assinatura[]
+  versoes         DocumentoVersao[]
+  assinaturas     Assinatura[]
+  credenciamentos Credenciamento[]
 
   @@index([status])
   @@index([clienteId])

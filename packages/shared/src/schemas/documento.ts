@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { celulaGradeSchema } from "./credenciamento.js";
 
 // ── Assinatura eletrônica (Fase 3) ───────────────────────
 export const assinarSchema = z
@@ -233,6 +234,12 @@ export const criarPropostaSchema = z
     operadoras: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
     /** Credenciamento: investimento por operadora (o total = valor × nº de operadoras). */
     valorPorOperadora: z.number().nonnegative().optional(),
+    /**
+     * Credenciamento por PESSOA (ADR-104): a grade médico × operadora, um valor por cruzamento.
+     * Quando vem preenchida, ela manda — `operadoras`/`valorPorOperadora` só continuam valendo
+     * para o cliente que ainda não tem médico cadastrado, e a proposta sai por operadora.
+     */
+    grade: z.array(celulaGradeSchema).max(400).optional(),
     prazo: z.string().trim().max(200).optional().or(z.literal("")),
     condicoes: z.string().trim().max(300).optional().or(z.literal("")),
     observacoes: z.string().trim().max(2000).optional().or(z.literal("")),
@@ -240,8 +247,8 @@ export const criarPropostaSchema = z
     /** Se true, a IA escreve a apresentação/escopo (quando disponível). */
     usarIA: z.boolean().optional(),
   })
-  .refine((v) => (v.itens?.length ?? 0) > 0 || (v.operadoras?.length ?? 0) > 0, {
-    message: "Escolha ao menos um serviço ou uma operadora.",
+  .refine((v) => (v.itens?.length ?? 0) > 0 || (v.operadoras?.length ?? 0) > 0 || (v.grade?.length ?? 0) > 0, {
+    message: "Escolha ao menos um serviço, uma operadora ou um cruzamento da grade.",
     path: ["itens"],
   });
 export type CriarPropostaInput = z.infer<typeof criarPropostaSchema>;

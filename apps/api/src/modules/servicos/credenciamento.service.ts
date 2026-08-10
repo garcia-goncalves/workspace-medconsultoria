@@ -311,16 +311,21 @@ export async function atualizarProfissional(input: UpdateProfissionalInput) {
 }
 
 /**
- * Tira o profissional da lista. Se ele já tem documento enviado, **desativa** em vez de
- * apagar: `Arquivo.profissionalId` é `SetNull`, e apagar deixaria o arquivo do cliente
- * solto, sem dono e invisível. Cadastro recém-criado por engano (sem arquivo nenhum) é
- * apagado de verdade — senão um erro de digitação ficaria preso para sempre.
+ * Tira o profissional da lista. Se ele já tem documento enviado **ou credenciamento
+ * registrado**, **desativa** em vez de apagar: `Arquivo.profissionalId` é `SetNull` (apagar
+ * deixaria o arquivo do cliente solto e invisível) e `Credenciamento` é `Cascade` (apagar
+ * levaria junto o andamento na operadora e o elo com a cobrança). Cadastro recém-criado por
+ * engano, sem nada preso, é apagado de verdade — senão um erro de digitação ficaria para
+ * sempre.
  */
 export async function removerProfissional(id: string) {
-  const arquivos = await prisma.arquivo.count({ where: { profissionalId: id, deletedAt: null } });
-  if (arquivos > 0) {
+  const [arquivos, credenciamentos] = await Promise.all([
+    prisma.arquivo.count({ where: { profissionalId: id, deletedAt: null } }),
+    prisma.credenciamento.count({ where: { profissionalId: id } }),
+  ]);
+  if (arquivos > 0 || credenciamentos > 0) {
     await prisma.profissional.update({ where: { id }, data: { ativo: false } });
-    return { ok: true, desativado: true as const, arquivos };
+    return { ok: true, desativado: true as const, arquivos, credenciamentos };
   }
   await prisma.profissional.delete({ where: { id } }).catch(() => {
     throw new TRPCError({ code: "NOT_FOUND", message: "Profissional não encontrado." });
