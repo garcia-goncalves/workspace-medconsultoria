@@ -45,9 +45,11 @@ type Celula = {
   status: StatusCredenciamento;
   tentativa: number;
   motivoNegativa: string | null;
+  observacoes: string | null;
   aprovadoEm: Date | string | null;
   negadoEm: Date | string | null;
   protocoladoEm: Date | string | null;
+  emAnaliseEm: Date | string | null;
 };
 
 export function CredenciamentoGradeCard({ clienteId }: { clienteId: string }) {
@@ -84,7 +86,17 @@ export function CredenciamentoGradeCard({ clienteId }: { clienteId: string }) {
         {porMedico.map(({ profissional: p, celulas }) => (
           <div key={p.id} className="rounded-lg border">
             <div className="border-b bg-muted/30 px-3 py-2">
-              <p className="text-sm font-semibold">{p.nome}</p>
+              <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
+                {p.nome}
+                {/* Médico tirado da lista que ainda tem processo correndo. Ele continua aqui de
+                    propósito: o credenciamento existe no mundo (e pode já ter virado cobrança),
+                    e some-lo da tela era perder o único lugar onde se age sobre ele. */}
+                {!p.ativo && (
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                    Fora da lista
+                  </span>
+                )}
+              </p>
               {p.especialidade && <p className="text-xs text-muted-foreground">{p.especialidade}</p>}
             </div>
             <ul className="divide-y">
@@ -103,11 +115,19 @@ export function CredenciamentoGradeCard({ clienteId }: { clienteId: string }) {
                       {formatBRL(c.valor)}
                       {c.aprovadoEm ? ` · aprovado em ${formatarData(c.aprovadoEm)}` : ""}
                       {c.negadoEm ? ` · negado em ${formatarData(c.negadoEm)}` : ""}
-                      {!c.aprovadoEm && !c.negadoEm && c.protocoladoEm
+                      {/* A data que vale é a do estado ATUAL: em análise mostra quando entrou
+                          em análise; antes disso, quando foi protocolado. */}
+                      {!c.aprovadoEm && !c.negadoEm && c.emAnaliseEm
+                        ? ` · em análise desde ${formatarData(c.emAnaliseEm)}`
+                        : ""}
+                      {!c.aprovadoEm && !c.negadoEm && !c.emAnaliseEm && c.protocoladoEm
                         ? ` · protocolado em ${formatarData(c.protocoladoEm)}`
                         : ""}
                     </p>
                     {c.motivoNegativa && <p className="mt-0.5 text-xs text-destructive">Motivo: {c.motivoNegativa}</p>}
+                    {/* O acordo da nova tentativa e o que a Thaís anotou sobre o processo eram
+                        gravados e nunca lidos — o campo existia só no banco. */}
+                    {c.observacoes && <p className="mt-0.5 text-xs text-muted-foreground">{c.observacoes}</p>}
                   </div>
                   <span className={`rounded px-2 py-1 text-xs font-semibold ${COR[c.status]}`}>
                     {STATUS_CREDENCIAMENTO_LABEL[c.status]}
@@ -136,7 +156,11 @@ export function CredenciamentoGradeCard({ clienteId }: { clienteId: string }) {
           onSaved={() => {
             utils.credenciamento.grade.invalidate({ clienteId });
             // A aprovação cria uma conta a receber — o Financeiro precisa saber disso agora.
+            // São DUAS telas: a página Financeiro e o card "Financeiro" da própria ficha, que
+            // lê de `clientes.relacionados`. Sem a segunda, a Thaís aprovava e via, ao lado,
+            // "Nenhuma conta vinculada" — concluindo que a cobrança não tinha nascido.
             utils.financeiro.invalidate();
+            utils.clientes.relacionados.invalidate({ id: clienteId });
             setMudando(null);
           }}
         />
@@ -173,6 +197,7 @@ function MudarStatusDialog({
   const destinos = STATUS_CREDENCIAMENTO.filter((s) => transicaoCredenciamentoPermitida(celula.status, s));
   const [status, setStatus] = useState<StatusCredenciamento>(destinos[0] ?? celula.status);
   const [motivo, setMotivo] = useState("");
+  const [observacoes, setObservacoes] = useState(celula.observacoes ?? "");
 
   const mutar = trpc.credenciamento.mudarStatus.useMutation({
     onSuccess: () => {
@@ -200,7 +225,14 @@ function MudarStatusDialog({
           </Button>
           <Button
             disabled={mutar.isPending || destinos.length === 0 || (status === "NEGADO" && !motivo.trim())}
-            onClick={() => mutar.mutate({ id: celula.id, status, motivoNegativa: motivo.trim() || undefined })}
+            onClick={() =>
+              mutar.mutate({
+                id: celula.id,
+                status,
+                motivoNegativa: motivo.trim() || undefined,
+                observacoes: observacoes.trim(),
+              })
+            }
           >
             {mutar.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Salvar
           </Button>
@@ -230,6 +262,16 @@ function MudarStatusDialog({
             <Textarea id="cred-motivo" rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
           </div>
         )}
+
+        <div className="space-y-1">
+          <Label
+            htmlFor="cred-obs"
+            hint="Fica guardado neste credenciamento e aparece na ficha — ex.: 'protocolo 4471, falar com a Renata do credenciamento'."
+          >
+            Anotações sobre este processo
+          </Label>
+          <Textarea id="cred-obs" rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
+        </div>
 
         {status === "APROVADO" && (
           <p className="rounded-lg border border-success/30 bg-success/5 p-2.5 text-xs text-foreground">

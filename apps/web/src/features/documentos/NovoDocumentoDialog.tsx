@@ -436,6 +436,9 @@ export function NovoDocumentoDialog({
   const onSuccess = (doc: { id: string }) => {
     utils.documentos.list.invalidate();
     utils.clientes.relacionados.invalidate();
+    // A proposta de credenciamento GRAVA a grade médico × operadora ao ser gerada — a ficha
+    // do cliente precisa mostrar os cruzamentos novos sem esperar um refetch espontâneo.
+    utils.credenciamento.grade.invalidate();
     onClose();
     navigate({ to: "/documentos/$documentoId", params: { documentoId: doc.id } });
   };

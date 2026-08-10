@@ -15,6 +15,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ## Estado atual (2026-08-10)
 
+- **Auditoria de tela do credenciamento (ADR-105)** — feita gerando uma proposta de verdade e percorrendo o fluxo inteiro na tela, inclusive o Portal. Cinco defeitos que nenhum teste pegava, todos na costura entre telas: (1) **médico desativado sumia da grade levando junto um credenciamento APROVADO** cuja conta a receber continuava viva no Financeiro — agora ele fica, marcado "fora da lista", e o construtor da proposta é que deixa de oferecê-lo; (2) aprovar não atualizava o card Financeiro **da ficha** (só a página Financeiro), então a tela dizia "Nenhuma conta vinculada" logo ao lado; (3) o acervo de documentos mostrava seis "Diploma" idênticos — agora diz **de qual médico e qual lado**; (4) aprovação e negativa **não avisavam ninguém** (só `activityLog`) — dois templates novos; (5) a tabela de assinatura da proposta saía com uma **tarja azul vazia** no PDF. Também: `observacoes`/`emAnaliseEm` eram gravados e nenhuma tela lia.
 - **Credenciamento inteligente — BLOCOS A, B e C COMPLETOS, MESCLADOS e NO AR** (PRs #88 e #89 em `main`, ADR-103 e ADR-104; publicado em produção em 10/08/2026 às 18:00, smoke test `{"status":"ok"}`). O credenciamento é **por pessoa**, tem **preço por cruzamento**, **documento fiel ao papel da Thaís** e **cobrança no sucesso**:
   - **Bloco A (ADR-103, já em `main`):** model **`Profissional`**, a **lista real de 14 documentos** em 4 escopos, exigência **frente e verso**, e a **triagem** INAPTO × PENDENTE que **avisa sem bloquear**. O Portal agrupa **por médico** e a barra conta **pares** (documento × médico × lado). O cliente **nunca lê "inapto"**. A reconciliação **não apaga exigência** (`Arquivo.requisitoId` é `SetNull`).
   - **Bloco B (ADR-104):** a **grade médico × operadora** — cada cruzamento é uma linha `Credenciamento` com valor, situação (a protocolar → protocolado → em análise → aprovado/negado/encerrado), datas e tentativa. **`NEGADO` não vira `APROVADO` por edição**: retentar é linha nova (tentativa 2) com o acordo registrado. Editar a grade **não apaga o que já foi protocolado**. Operadora com credenciamento não sai do catálogo; profissional com credenciamento é desativado, não apagado. Na tela: cartão por médico no construtor da proposta (o modal é estreito) e card **"Credenciamentos em andamento"** na ficha.
@@ -44,7 +45,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-104). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-105). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

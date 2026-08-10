@@ -1,5 +1,7 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
+import { notificar } from "../notificacoes/notificacoes.service.js";
+import { equipeDoCliente } from "../arquivos/arquivos.service.js";
 import {
   motivoDaTransicaoRecusada,
   proximaTentativa,
@@ -66,13 +68,29 @@ const paraCelula = (c: {
  *
  * Mostra TODAS as tentativas: a negativa de 2025 é o que justifica a tentativa de 2026, e
  * esconder o histórico faria a Thaís reabrir um caso que ela já sabe que foi negado.
+ *
+ * E mostra também o médico DESATIVADO que ainda tem cruzamento registrado. `removerProfissional`
+ * desativa em vez de apagar justamente para preservar o andamento e o elo com a cobrança —
+ * mas, listando só os ativos, a grade fazia o contrário do pretendido: o médico saía da tela e
+ * levava junto os processos dele, inclusive um APROVADO cuja conta a receber continuava no
+ * Financeiro sem nada na ficha que a explicasse. Vem com `ativo: false` para quem desenha
+ * saber a diferença: o card de andamento mostra (é trabalho em curso), o construtor da
+ * proposta não oferece (não se vende credenciamento novo de quem saiu da lista).
  */
 export async function gradeDoCliente(clienteId: string) {
   const [profissionais, operadoras, linhas] = await Promise.all([
     prisma.profissional.findMany({
-      where: { clienteId, ativo: true },
-      orderBy: { nome: "asc" },
-      select: { id: true, nome: true, especialidade: true, conselho: true, conselhoNumero: true, conselhoUf: true },
+      where: { clienteId, OR: [{ ativo: true }, { credenciamentos: { some: {} } }] },
+      orderBy: [{ ativo: "desc" }, { nome: "asc" }],
+      select: {
+        id: true,
+        nome: true,
+        especialidade: true,
+        conselho: true,
+        conselhoNumero: true,
+        conselhoUf: true,
+        ativo: true,
+      },
     }),
     prisma.operadora.findMany({ orderBy: [{ ordem: "asc" }, { nome: "asc" }], select: { id: true, nome: true } }),
     prisma.credenciamento.findMany({
@@ -248,8 +266,59 @@ export async function mudarStatusCredenciamento(
     },
   });
 
+  // Aprovação e negativa são os dois desfechos que mudam dinheiro e conduta — e até aqui só
+  // existiam no `activityLog` (que ninguém abre) e no toast de quem clicou. Quem cuida do
+  // Financeiro, ou o responsável que não estava com a tela aberta, não ficava sabendo.
+  // Best-effort: o aviso não pode derrubar a mudança de estado, que já está gravada.
+  if (input.status === "APROVADO" || input.status === "NEGADO") {
+    await avisarEquipeDoDesfecho(atual.clienteId, input.id, input.status, motivoNegativa).catch(() => {});
+  }
+
   // Relê para devolver o `contaId` recém-gravado — a tela mostra "conta criada" a partir dele.
   return paraCelula((await prisma.credenciamento.findUnique({ where: { id: input.id } })) ?? atualizado);
+}
+
+/**
+ * Avisa quem cuida do cliente que a operadora respondeu. Mesmos destinatários de qualquer
+ * outro fato do cliente (responsável + gestão), pelo mesmo caminho — notificação interna e,
+ * para quem deixou ligado, e-mail.
+ */
+async function avisarEquipeDoDesfecho(
+  clienteId: string,
+  credenciamentoId: string,
+  status: "APROVADO" | "NEGADO",
+  motivo: string,
+) {
+  const [cliente, celula] = await Promise.all([
+    prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
+    prisma.credenciamento.findUnique({
+      where: { id: credenciamentoId },
+      select: { valor: true, profissional: { select: { nome: true } }, operadora: { select: { nome: true } } },
+    }),
+  ]);
+
+  const vars: Record<string, string> =
+    status === "APROVADO"
+      ? {
+          cliente: cliente?.nome ?? "Cliente",
+          profissional: celula?.profissional.nome ?? "o profissional",
+          operadora: celula?.operadora.nome ?? "a operadora",
+          valor: Number(celula?.valor ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
+        }
+      : {
+          cliente: cliente?.nome ?? "Cliente",
+          profissional: celula?.profissional.nome ?? "o profissional",
+          operadora: celula?.operadora.nome ?? "a operadora",
+          motivo: motivo || "não informado",
+        };
+
+  const destinos = await equipeDoCliente(clienteId);
+  for (const uid of destinos) {
+    await notificar(uid, status === "APROVADO" ? "credenciamento_aprovado" : "credenciamento_negado", vars, {
+      entidadeTipo: "cliente",
+      entidadeId: clienteId,
+    }).catch(() => {});
+  }
 }
 
 /**

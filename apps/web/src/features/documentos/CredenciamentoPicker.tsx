@@ -43,7 +43,10 @@ export function CredenciamentoPicker({
   const catalogo = trpc.documentos.operadoras.list.useQuery();
   const [gerir, setGerir] = useState(false);
 
-  const profissionais = grade.data?.profissionais ?? [];
+  // A grade traz também o médico DESATIVADO que ainda tem processo em curso, para o card de
+  // andamento na ficha não perdê-lo de vista. Aqui é o contrário: proposta é venda nova, e não
+  // se vende credenciamento de quem saiu da lista.
+  const profissionais = (grade.data?.profissionais ?? []).filter((p) => p.ativo);
   const temGrade = !!clienteId && profissionais.length > 0;
 
   useEffect(() => {

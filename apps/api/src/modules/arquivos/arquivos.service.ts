@@ -82,7 +82,15 @@ export async function registrarUpload(input: RegistrarUploadInput) {
   return arquivo;
 }
 
-/** Lista os arquivos (não removidos) de um cliente, opcionalmente de um serviço. */
+/**
+ * Lista os arquivos (não removidos) de um cliente, opcionalmente de um serviço.
+ *
+ * Traz o médico e o lado (ADR-103) porque a papelada do credenciamento REPETE por pessoa:
+ * uma clínica com dois médicos tem seis linhas "Diploma", "Registro no Conselho" e
+ * "Especializações" — frente e verso de cada um. Sem essas duas colunas, o acervo mostrava
+ * seis itens de nome idêntico, e nem o cliente nem a equipe conseguiam dizer qual era qual
+ * (nem qual apagar).
+ */
 export async function listarArquivos(clienteId: string, servicoId?: string) {
   const rows = await prisma.arquivo.findMany({
     where: { clienteId, deletedAt: null, ...(servicoId ? { servicoId } : {}) },
@@ -94,10 +102,12 @@ export async function listarArquivos(clienteId: string, servicoId?: string) {
       tamanho: true,
       servicoId: true,
       requisitoId: true,
+      lado: true,
       enviadoPorTipo: true,
       createdAt: true,
       servico: { select: { nome: true } },
       requisito: { select: { titulo: true } },
+      profissional: { select: { id: true, nome: true } },
     },
   });
   return rows;
