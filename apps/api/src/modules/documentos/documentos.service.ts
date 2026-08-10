@@ -12,7 +12,13 @@ import type {
   GerarPautaInput,
 } from "@app/shared";
 import type { TipoModelo } from "@app/shared";
-import { qualificacaoContratada, totalDaGrade, valorPorExtenso } from "@app/shared";
+import {
+  formatarNumeroProposta,
+  NUMERO_PROPOSTA_INICIAL,
+  qualificacaoContratada,
+  totalDaGrade,
+  valorPorExtenso,
+} from "@app/shared";
 import { aiService } from "../../lib/ai.js";
 import { avancarLeadPorClienteAuto, garantirClienteDoLead } from "../leads/leads.service.js";
 import { listModelos } from "./modelos.service.js";
@@ -26,6 +32,20 @@ type ClienteMin = {
   documento: string | null;
   telefone: string | null;
 } | null;
+
+/**
+ * O próximo número da proposta, continuando a contagem MANUAL da Thaís (§5.5): ela estava em
+ * 224, então a primeira emitida pelo sistema é a 225. Recomeçar do 1 faria conviverem duas
+ * propostas "0034" no arquivo dela.
+ *
+ * Não usa contador em tabela à parte de propósito: o maior número já emitido É o estado, e
+ * ele não pode divergir do que está nos documentos. A corrida entre duas emissões simultâneas
+ * é resolvida pelo índice único de `Documento.numero` — quem perder tenta o número seguinte.
+ */
+async function proximoNumeroProposta(): Promise<number> {
+  const maior = await prisma.documento.aggregate({ _max: { numero: true } });
+  return Math.max(maior._max.numero ?? 0, NUMERO_PROPOSTA_INICIAL - 1) + 1;
+}
 
 /**
  * Os profissionais escritos como a proposta da Thaís os escreve: "Dr. Marcos Lottenberg,
@@ -199,6 +219,8 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
   let operadorasDoCorpo: string[] = input.operadoras ?? [];
   /** "Dr. Fulano, cardiologista, e Dra. Beltrana, ginecologista" — marcador {{profissionais}}. */
   let profissionaisDoCorpo = "";
+  /** Só os nomes, para a cláusula de confidencialidade — marcador {{profissionais_nomes}}. */
+  let nomesDosProfissionais = "";
   let totalCredenciamento = 0;
 
   if (ehGrade) {
@@ -236,6 +258,9 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
 
     operadorasDoCorpo = operadoras.map((o) => o.nome);
     profissionaisDoCorpo = listarProfissionais(profissionais);
+    // Na cláusula de confidencialidade o papel cita só os nomes — "informações de propriedade
+    // dos médicos Fulano e Beltrano" —, sem a especialidade.
+    nomesDosProfissionais = listarProfissionais(profissionais.map((p) => ({ nome: p.nome, especialidade: null })));
 
     const bloco = [`## Investimento\n\n${tabela}`];
     if (totalCredenciamento > 0) {
@@ -308,12 +333,25 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     }
   }
 
+  // NUMERAÇÃO (§5.5): só a proposta que declara {{numero}} entra na sequência da Thaís — o
+  // resto dos documentos continua sem número, como sempre foi.
+  const usaNumero = modelo?.corpo?.includes("{{numero}}") ?? false;
+  const numero = usaNumero ? await proximoNumeroProposta() : null;
+
+  // A consultora responsável é quem está emitindo a proposta. O nome sai do cadastro, não de
+  // uma constante: a Thaís não é a única pessoa da casa que emite proposta.
+  const consultora =
+    (await prisma.user.findUnique({ where: { id: userId }, select: { nome: true } }))?.nome ?? "MedConsultoria";
+
   let conteudo: string;
   if (modelo?.corpo?.includes("{{servicos}}")) {
     const comMarcadores = modelo.corpo
       .replace(/\{\{\s*servicos\s*\}\}/g, blocoServicos)
       .replace(/\{\{\s*operadoras\s*\}\}/g, operadorasBloco)
       .replace(/\{\{\s*profissionais\s*\}\}/g, profissionaisDoCorpo || "_(a definir com você)_")
+      .replace(/\{\{\s*profissionais_nomes\s*\}\}/g, nomesDosProfissionais || "_(a definir com você)_")
+      .replace(/\{\{\s*numero\s*\}\}/g, numero ? formatarNumeroProposta(numero) : "—")
+      .replace(/\{\{\s*consultora\s*\}\}/g, consultora)
       .replace(/\{\{\s*valor\s*\}\}/g, totalCredenciamento > 0 ? brl(totalCredenciamento) : "_(a combinar)_")
       .replace(
         /\{\{\s*valor_extenso\s*\}\}/g,
@@ -332,22 +370,43 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     conteudo = secoes.join("\n\n");
   }
 
-  const titulo = input.titulo?.trim() || `${modelo?.nome ?? "Proposta"}${cliente ? " - " + cliente.nome : ""}`;
-
-  const doc = await prisma.documento.create({
-    data: {
-      modeloId: modelo?.id ?? null,
-      clienteId,
-      titulo,
-      conteudo,
-      status: "RASCUNHO",
-      criadoPorId: userId,
-      // Itens estruturados (só na proposta comercial) — o aceite os sincroniza com os serviços
-      // contratados do cliente. Credenciamento (operadoras) não mapeia para o catálogo.
-      itens: ehCredenciamento ? undefined : (input.itens as object[]),
-      versoes: { create: { conteudo, autorId: userId, origem: input.usarIA ? "IA" : "MANUAL" } },
-    },
+  // O número entra no TÍTULO, e não só no corpo: é por ele que a Thaís procura a proposta na
+  // lista ("manda de novo a 0225"), e a busca da página de Documentos olha o título. Fica dentro
+  // da função porque a retentativa abaixo pode trocar o número — e aí o título muda junto.
+  const dadosDoDocumento = (n: number | null, corpo: string) => ({
+    modeloId: modelo?.id ?? null,
+    clienteId,
+    titulo:
+      input.titulo?.trim() ||
+      `${modelo?.nome ?? "Proposta"}${n ? " " + formatarNumeroProposta(n) : ""}${cliente ? " - " + cliente.nome : ""}`,
+    conteudo: corpo,
+    numero: n,
+    status: "RASCUNHO" as const,
+    criadoPorId: userId,
+    // Itens estruturados (só na proposta comercial) — o aceite os sincroniza com os serviços
+    // contratados do cliente. Credenciamento (operadoras) não mapeia para o catálogo.
+    itens: ehCredenciamento ? undefined : (input.itens as object[]),
+    versoes: { create: { conteudo: corpo, autorId: userId, origem: input.usarIA ? ("IA" as const) : ("MANUAL" as const) } },
   });
+
+  // Duas propostas emitidas no mesmo instante disputam o mesmo número. O índice único derruba
+  // a segunda (P2002); em vez de mostrar erro de banco a quem só clicou em "Gerar", tenta o
+  // número seguinte. Três tentativas cobrem qualquer concorrência real desta casa.
+  let doc: Awaited<ReturnType<typeof prisma.documento.create>> | null = null;
+  let numeroAtual = numero;
+  for (let tentativa = 0; tentativa < 3 && !doc; tentativa++) {
+    try {
+      doc = await prisma.documento.create({ data: dadosDoDocumento(numeroAtual, conteudo) });
+    } catch (e) {
+      const duplicado = e instanceof Error && "code" in e && (e as { code?: string }).code === "P2002";
+      if (!duplicado || !numeroAtual) throw e;
+      // O corpo já traz o número escrito: trocar só a coluna deixaria o papel mentindo.
+      const anterior = formatarNumeroProposta(numeroAtual);
+      numeroAtual = await proximoNumeroProposta();
+      conteudo = conteudo.replace(anterior, formatarNumeroProposta(numeroAtual));
+    }
+  }
+  if (!doc) throw new TRPCError({ code: "CONFLICT", message: "Não foi possível reservar o número da proposta. Tente de novo." });
   // A grade vira LINHAS de acompanhamento, presas a esta proposta. É o que transforma o preço
   // combinado no papel em processo que a Thaís consegue seguir — e, na aprovação, em cobrança.
   // Import dinâmico para não fechar ciclo de módulos com o serviço de credenciamento.

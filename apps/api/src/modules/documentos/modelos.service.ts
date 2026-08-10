@@ -7,7 +7,8 @@ import type { CreateModeloInput, UpdateModeloInput, TipoModelo } from "@app/shar
  * na moldura branded (DocumentoBranded). O cabeçalho da folha já mostra título/cliente/data,
  * então os modelos NÃO repetem isso; começam direto no conteúdo.
  */
-const DEFAULTS: { nome: string; tipo: TipoModelo; corpo: string }[] = [
+/** Exportado para o teste conferir que a Proposta de credenciamento segue fiel ao papel real. */
+export const DEFAULTS: { nome: string; tipo: TipoModelo; corpo: string }[] = [
   {
     // O marcador {{servicos}} é onde o construtor injeta a tabela de serviços + investimento
     // (com prazo/condições). O resto do corpo é livre e editável.
@@ -27,45 +28,66 @@ Atenciosamente,
   {
     nome: "Proposta de credenciamento",
     tipo: "PROPOSTA",
-    corpo: `Prezado(a) {{cliente.nome}},
+    // FIEL AO PAPEL DA THAÍS (ADR-104). As cinco seções, os seis passos do plano de trabalho,
+    // a cláusula de honorários no sucesso, as observações e a confidencialidade estão
+    // transcritas do PDF real (`brand/identidade/Proposta Credenciamento…`), palavra por
+    // palavra. O que o sistema escreve são só os marcadores: número, data, cliente,
+    // profissionais, operadoras, valores e a consultora responsável.
+    corpo: `**Proposta {{numero}}** &nbsp;·&nbsp; **Data:** {{data}}
 
-Sabemos que **se credenciar junto às operadoras e convênios** costuma ser burocrático, demorado e cheio de exigências. Esta proposta mostra como a **MedConsultoria assume esse processo por inteiro** — da organização dos documentos à aprovação final em cada plano —, para que você se dedique ao que faz de melhor: cuidar dos seus pacientes.
+**{{cliente.nome}}**
 
-## O que é o credenciamento
+Prezado(a),
 
-Credenciar é habilitar você (ou a sua clínica) a **atender pelos planos de saúde e convênios** — passando a receber os pacientes dessas operadoras e a faturar por elas. É um processo cheio de exigências e documentos; nós conduzimos tudo por você, do começo ao fim.
+Atendendo à solicitação, apresentamos a proposta para o credenciamento junto à(s) operadora(s) de Saúde, através das solicitações de credenciamento e editais.
 
-## Como funciona — passo a passo
+Considerando nossa experiência anterior em serviços da mesma natureza, temos convicção de que proporcionaremos benefícios significativos, além de um trabalho eficiente e organizado.
 
-1. **Levantamento e organização** dos seus documentos e informações.
-2. **Cadastro e protocolo** junto a cada operadora / convênio.
-3. **Acompanhamento** de cada processo e **negociação da tabela** de honorários.
-4. **Conclusão**: credenciamento aprovado e você liberado para atender.
+Queremos registrar nossa satisfação pela oportunidade de apresentação desta proposta, bem como de fortalecer nossas relações profissionais que, estamos seguros, serão profícuas para ambas as partes. Colocamo-nos à inteira disposição para quaisquer esclarecimentos adicionais.
 
-## O que vamos precisar de você
+# DESCRIÇÃO DA PROPOSTA
 
-Para começar, pediremos alguns documentos — de forma simples, pelo seu Portal do Cliente:
+## 1. Dados, Serviços e instalações a serem fornecidos para o Cliente
 
-- Documentos pessoais e profissionais (RG, CPF, registro no conselho, título de especialista, diploma);
-- Comprovante de endereço e dados bancários;
-- Se for clínica / PJ: CNPJ, contrato social, alvará e licença sanitária.
-
-_A lista exata é confirmada conforme as operadoras escolhidas._
-
-## Operadoras e convênios
-
-Conduzimos o seu credenciamento junto às operadoras selecionadas para o seu perfil e a sua região:
+Credenciamento de {{profissionais}}, junto aos planos de saúde:
 
 {{operadoras}}
 
-_Podemos incluir ou ajustar operadoras conforme a sua especialidade e a sua praça._
+## 2. Plano de Trabalho Relativo à Execução do Serviço
+
+O trabalho proposto será coordenado pela consultora comercial da MedConsultoria, {{consultora}}, que deverá realizar o processo conforme descrito abaixo.
+
+1. Primeiro contato com a operadora;
+2. Elaboração da carta de apresentação;
+3. Follow-up da documentação solicitada;
+4. Elaboração e negociação da tabela de valores;
+5. Acompanhamento até pronunciamento do plano de saúde e assinatura do contrato;
+6. Networking com a equipe de relacionamento médico para obter o referenciamento dos serviços oferecidos.
+
+## 3. Honorários
+
+O repasse de honorário ocorrerá **somente no sucesso** do nosso trabalho, após assinatura do contrato de prestação de serviço formalizado com a operadora. **Não haverá adiantamento nem despesas adicionais.**
 
 {{servicos}}
 
-Assim que você aprovar esta proposta, já iniciamos o levantamento da documentação pelo seu Portal do Cliente.
+## 4. Observações Importantes
 
-Atenciosamente,
-**Equipe MedConsultoria**`,
+- É de responsabilidade do doutor fornecer a documentação exigida pelo plano de saúde.
+- Após 1 (uma) tentativa e negativa do plano de saúde, daremos por encerradas as tentativas, salvo em comum acordo para uma nova tentativa.
+
+## 5. Confidencialidade e não divulgação
+
+A MedConsultoria se compromete a não divulgar, sem autorização formal, quaisquer informações de propriedade dos médicos {{profissionais_nomes}}. Todas as informações fornecidas decorrentes da execução do trabalho são confidenciais.
+
+Qualquer item que esteja fora do escopo proposto será necessária elaboração de nova proposta.
+
+Cordialmente,
+
+| | |
+| --- | --- |
+| \\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_ | \\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_ |
+| **{{consultora}}** | **{{cliente.nome}}** |
+| MedConsultoria | Cliente |`,
   },
   {
     nome: "Contrato de prestação de serviços",

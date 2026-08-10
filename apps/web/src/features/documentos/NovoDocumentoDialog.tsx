@@ -20,6 +20,7 @@ import { SmartCampos } from "./SmartCampos";
 import { AudioTranscricao } from "./AudioTranscricao";
 import { DocumentoBranded, previewModelo } from "./DocumentoBranded";
 import { formatBRL, valorPorExtenso } from "../../lib/masks";
+import { useAuth } from "../../lib/auth-context";
 
 const FORMAS_PAGAMENTO = ["PIX", "Dinheiro", "Cartão de crédito", "Cartão de débito", "Transferência", "Boleto"] as const;
 
@@ -71,6 +72,8 @@ export function NovoDocumentoDialog({
 }) {
   const navigate = useNavigate();
   const utils = trpc.useUtils();
+  // Quem está emitindo assina a proposta de credenciamento como consultora responsável.
+  const { user: usuario } = useAuth();
   const modelos = trpc.documentos.modelos.list.useQuery(undefined, { enabled: open });
   const clientes = trpc.clientes.list.useQuery(undefined, { enabled: open && !clienteFixo });
   const ia = trpc.ia.disponivel.useQuery(undefined, { enabled: open });
@@ -261,6 +264,7 @@ export function NovoDocumentoDialog({
 
       let nomesOperadoras: string[];
       let profissionaisTxt = "";
+      let nomesTxt = "";
       let total = 0;
       const bloco: string[] = [];
 
@@ -287,9 +291,10 @@ export function NovoDocumentoDialog({
         const usados = [...new Set(celulasGrade.map((c) => c.profissionalId))]
           .map(profDe)
           .filter((p): p is NonNullable<typeof p> => !!p);
-        const partes = usados.map((p) => (p.especialidade ? `${p.nome}, ${p.especialidade}` : p.nome));
-        profissionaisTxt =
+        const juntar = (partes: string[]) =>
           partes.length <= 1 ? (partes[0] ?? "") : `${partes.slice(0, -1).join("; ")} e ${partes[partes.length - 1]}`;
+        profissionaisTxt = juntar(usados.map((p) => (p.especialidade ? `${p.nome}, ${p.especialidade}` : p.nome)));
+        nomesTxt = juntar(usados.map((p) => p.nome));
       } else {
         const ops = operadorasSel;
         const fee = valorOperadora || 0;
@@ -313,6 +318,11 @@ export function NovoDocumentoDialog({
           nomesOperadoras.length ? nomesOperadoras.map((o) => `- **${o}**`).join("\n") : "_(selecione as operadoras ao lado)_",
         )
         .replace(/\{\{\s*profissionais\s*\}\}/g, profissionaisTxt || "_(a definir com você)_")
+        .replace(/\{\{\s*profissionais_nomes\s*\}\}/g, nomesTxt || "_(a definir com você)_")
+        // O número é reservado no momento em que o documento é criado — mostrar um aqui seria
+        // prometer um que outra emissão simultânea pode levar.
+        .replace(/\{\{\s*numero\s*\}\}/g, "_(gerado ao criar)_")
+        .replace(/\{\{\s*consultora\s*\}\}/g, usuario.nome || "MedConsultoria")
         .replace(/\{\{\s*valor\s*\}\}/g, total > 0 ? formatBRL(total) : "_(a combinar)_")
         .replace(/\{\{\s*valor_extenso\s*\}\}/g, total > 0 ? valorPorExtenso(total) : "_(a combinar)_")
         .replace(/\{\{\s*servicos\s*\}\}/g, bloco.join("\n\n"));
