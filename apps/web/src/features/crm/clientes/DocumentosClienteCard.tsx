@@ -1,5 +1,5 @@
 import { FileUp, Paperclip, Trash2, User, Users } from "lucide-react";
-import { hasRoleLevel } from "@app/shared";
+import { hasRoleLevel, LADO_ARQUIVO_LABEL, type LadoArquivo } from "@app/shared";
 import { trpc } from "../../../lib/trpc";
 import { Card, CardHeader, CardTitle, CardContent } from "../../../components/ui/card";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
@@ -57,7 +57,15 @@ export function DocumentosClienteCard({ clienteId }: { clienteId: string }) {
         ) : (
           <div className="space-y-1.5">
             {arquivos.map((a) => {
-              const contexto = a.requisito?.titulo ?? a.servico?.nome ?? "Geral";
+              // Documento de credenciamento repete por médico e por lado (ADR-103): sem o nome
+              // de quem é, o acervo mostra seis "Diploma" idênticos e ninguém sabe qual é qual.
+              const contexto = [
+                a.requisito?.titulo ?? a.servico?.nome ?? "Geral",
+                a.lado ? LADO_ARQUIVO_LABEL[a.lado as LadoArquivo] : null,
+                a.profissional?.nome ?? null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
               const doCliente = a.enviadoPorTipo === "CLIENTE";
               return (
                 <div key={a.id} className="flex items-center gap-2.5 rounded-md border px-3 py-2 text-sm">

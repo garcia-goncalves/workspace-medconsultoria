@@ -56,12 +56,21 @@ export function CredenciamentoCard({ clienteId }: { clienteId: string }) {
   const [editando, setEditando] = useState<Profissional | null>(null);
   const [abrindo, setAbrindo] = useState(false);
 
-  const invalidate = () => utils.credenciamento.porCliente.invalidate({ clienteId });
+  // Mexer no cadastro de um médico muda as DUAS visões da ficha: a papelada (esta) e o
+  // andamento na operadora (`CredenciamentoGradeCard`, que lê `credenciamento.grade`). Sem
+  // invalidar a segunda, o card ao lado continuava com o nome antigo — ou com a linha de um
+  // médico que acabou de sair — até alguém recarregar a página.
+  const invalidate = () => {
+    utils.credenciamento.porCliente.invalidate({ clienteId });
+    utils.credenciamento.grade.invalidate({ clienteId });
+  };
   const remover = trpc.credenciamento.removerProfissional.useMutation({
     onSuccess: (r) => {
       invalidate();
       toast(
-        r.desativado ? "Profissional desativado. Os documentos dele foram preservados." : "Profissional removido.",
+        r.desativado
+          ? "Profissional desativado. Os documentos e os credenciamentos dele foram preservados."
+          : "Profissional removido.",
         "success",
       );
     },
@@ -79,7 +88,7 @@ export function CredenciamentoCard({ clienteId }: { clienteId: string }) {
     const ok = await confirm({
       title: `Remover ${p.nome}?`,
       description:
-        "Se já houver documento enviado por ele, o cadastro é apenas desativado — para o arquivo do cliente não ficar solto.",
+        "Se já houver documento enviado por ele — ou credenciamento registrado em alguma operadora — o cadastro é apenas desativado, e continua aparecendo em 'Credenciamentos em andamento'. Nada do que já foi feito se perde.",
       confirmText: "Remover",
       variant: "destructive",
     });

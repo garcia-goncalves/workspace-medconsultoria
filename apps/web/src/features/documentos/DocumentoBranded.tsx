@@ -120,9 +120,18 @@ export function sanitize(html: string): string {
 }
 
 /** Markdown (GFM) → HTML seguro (sanitizado). */
+/**
+ * Cabeçalho de tabela SEM UMA PALAVRA dentro. O Markdown não tem tabela sem cabeçalho, então
+ * quem usa a tabela como layout (o par de assinaturas no pé da proposta) é obrigado a deixar
+ * a primeira linha vazia — e o estilo da folha pinta todo `th` de azul escuro, o que punha uma
+ * tarja azul sólida no PDF que vai para o médico. Some com o cabeçalho quando não há nada a
+ * mostrar; cabeçalho com texto continua cabeçalho.
+ */
+const THEAD_VAZIO = /<thead>\s*<tr>(?:\s*<th[^>]*>(?:\s|&nbsp;)*<\/th>)+\s*<\/tr>\s*<\/thead>/gi;
+
 export function renderMarkdown(md: string): string {
   const raw = marked.parse(md ?? "", { gfm: true, breaks: true, async: false }) as string;
-  return sanitize(raw);
+  return sanitize(raw.replace(THEAD_VAZIO, ""));
 }
 
 function esc(s: string): string {

@@ -379,6 +379,48 @@ export const EMAIL_TEMPLATES = {
       ctaTexto: "Ver documento",
     },
   },
+  credenciamento_aprovado: {
+    label: "Operadora aprovou um credenciamento 🎉",
+    descricao:
+      "Quando uma operadora aprova o credenciamento de um médico. É o momento em que o honorário passa a ser devido — a conta a receber nasce junto. Vai para o responsável e a gestão.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "cliente", rotulo: "Nome do cliente", descricao: "A clínica ou PJ", exemplo: "Clínica Bem-Estar" },
+      { chave: "profissional", rotulo: "Médico", descricao: "Quem foi credenciado", exemplo: "Dra. Helena Martins Prado" },
+      { chave: "operadora", rotulo: "Operadora", descricao: "Quem aprovou", exemplo: "Omint" },
+      { chave: "valor", rotulo: "Honorário", descricao: "O valor que virou conta a receber", exemplo: "R$ 2.500,00" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "{{operadora}} aprovou o credenciamento de {{profissional}} 🎉",
+      titulo: "Credenciamento aprovado! 🎉",
+      corpo:
+        "A {{operadora}} aprovou o credenciamento de {{profissional}} ({{cliente}}). O honorário de {{valor}} entrou no Financeiro como conta a receber.",
+      ctaTexto: "Ver o cliente",
+    },
+  },
+  credenciamento_negado: {
+    label: "Operadora negou um credenciamento",
+    descricao:
+      "Quando uma operadora nega o credenciamento de um médico, com o motivo. Vai para o responsável e a gestão.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "cliente", rotulo: "Nome do cliente", descricao: "A clínica ou PJ", exemplo: "Clínica Bem-Estar" },
+      { chave: "profissional", rotulo: "Médico", descricao: "Quem foi recusado", exemplo: "Dra. Helena Martins Prado" },
+      { chave: "operadora", rotulo: "Operadora", descricao: "Quem negou", exemplo: "Omint" },
+      { chave: "motivo", rotulo: "Motivo", descricao: "O que a operadora respondeu", exemplo: "Rede fechada para a especialidade." },
+    ],
+    temCta: true,
+    default: {
+      assunto: "{{operadora}} negou o credenciamento de {{profissional}}",
+      titulo: "Credenciamento negado",
+      corpo:
+        "A {{operadora}} negou o credenciamento de {{profissional}} ({{cliente}}). Motivo: \"{{motivo}}\". Uma nova tentativa só com acordo expresso do cliente.",
+      ctaTexto: "Ver o cliente",
+    },
+  },
   proposta_recusada: {
     label: "Proposta recusada pelo cliente",
     descricao: "Quando um cliente recusa a proposta pelo link/Portal (com o motivo). Vai para o responsável e a gestão.",

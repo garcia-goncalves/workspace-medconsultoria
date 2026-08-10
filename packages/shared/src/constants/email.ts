@@ -33,6 +33,8 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   { tipo: "lead_retomou", label: "Lead retomou o interesse", descricao: "Quando um lead que havia desistido retoma o atendimento pelo Portal." },
   { tipo: "proposta_aceita", label: "Proposta aceita pelo cliente", descricao: "Quando um cliente aceita a proposta pelo link/Portal." },
   { tipo: "proposta_recusada", label: "Proposta recusada pelo cliente", descricao: "Quando um cliente recusa a proposta pelo link/Portal." },
+  { tipo: "credenciamento_aprovado", label: "Operadora aprovou um credenciamento", descricao: "Quando uma operadora aprova o credenciamento de um médico — é quando o honorário passa a ser devido." },
+  { tipo: "credenciamento_negado", label: "Operadora negou um credenciamento", descricao: "Quando uma operadora nega o credenciamento de um médico, com o motivo." },
   { tipo: "servico_solicitado", label: "Cliente pediu serviços pelo Portal", descricao: "Quando um cliente escolhe serviços no Portal do Cliente." },
   { tipo: "documento_cliente_enviado", label: "Cliente enviou um documento", descricao: "Quando um cliente anexa um documento pelo Portal." },
   { tipo: "servico_cancelado", label: "Cliente cancelou um serviço", descricao: "Quando um cliente cancela um serviço pelo Portal." },

@@ -1,4 +1,5 @@
 import { FileUp, Trash2, User, Users } from "lucide-react";
+import { LADO_ARQUIVO_LABEL, type LadoArquivo } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import { useConfirm } from "../../components/ui/confirm-dialog";
@@ -52,7 +53,17 @@ export function PortalMeusDocumentos() {
         ) : (
           <div className="space-y-1.5">
             {arquivos.map((a) => {
-              const contexto = a.requisito?.titulo ?? a.servico?.nome ?? "Documento avulso";
+              // Documento do credenciamento repete por médico e por lado: sem dizer de quem é
+              // (e se é frente ou verso), a lista vira seis "Diploma" iguais e o cliente não
+              // sabe qual já mandou nem qual está removendo.
+              const base = a.requisito?.titulo ?? a.servico?.nome ?? "Documento avulso";
+              const contexto = [
+                base,
+                a.lado ? LADO_ARQUIVO_LABEL[a.lado as LadoArquivo] : null,
+                a.profissional?.nome ?? null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
               const doCliente = a.enviadoPorTipo === "CLIENTE";
               return (
                 <div key={a.id} className="flex items-center gap-2.5 rounded-lg border px-3 py-2 text-sm">
