@@ -15,7 +15,10 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ## Estado atual (2026-08-10)
 
-- **Credenciamento inteligente — BLOCO A COMPLETO** (ramo `feat/credenciamento-inteligente`, ADR-103): o credenciamento passou a ser **por pessoa**. Model **`Profissional`** (filho de `Cliente`), a **lista real de 14 documentos** do PDF da Thaís em 4 escopos (`EMPRESA`/`CLINICA`/`PROFISSIONAL`/`RESPONSAVEL_TECNICO`), exigência **frente e verso** (duas vagas), e a **triagem** que separa **INAPTO** (cliente PF; menos de 5 anos de formado — informa o ano em que fica apto) de **PENDENTE** (falta documento) — ela **avisa, não bloqueia**. O Portal tem seção própria agrupada **por médico**, e a barra conta **pares** (documento × médico × lado): dois médicos com metade da papelada mostram 50%, nunca 100%. O cliente **nunca lê "inapto"** nem motivo de recusa. Nada é apagado na reconciliação da lista (`Arquivo.requisitoId` é `SetNull` — apagar exigência orfana o arquivo do cliente); "RG e CPF do médico" só deixou de ser obrigatório. Só aparece para quem contratou credenciamento. **Falta:** Bloco B (grade médico × operadora, construtor da proposta) e Bloco C (documento fiel ao PDF, numeração — **a contagem da Thaís está em 224, a próxima proposta é a 0225** — e a conta a receber que nasce na aprovação da operadora).
+- **Credenciamento inteligente — BLOCOS A, B e C COMPLETOS** (ramo `feat/credenciamento-grade-e-documento`, ADR-103 e ADR-104). O credenciamento é **por pessoa**, tem **preço por cruzamento**, **documento fiel ao papel da Thaís** e **cobrança no sucesso**:
+  - **Bloco A (ADR-103, já em `main`):** model **`Profissional`**, a **lista real de 14 documentos** em 4 escopos, exigência **frente e verso**, e a **triagem** INAPTO × PENDENTE que **avisa sem bloquear**. O Portal agrupa **por médico** e a barra conta **pares** (documento × médico × lado). O cliente **nunca lê "inapto"**. A reconciliação **não apaga exigência** (`Arquivo.requisitoId` é `SetNull`).
+  - **Bloco B (ADR-104):** a **grade médico × operadora** — cada cruzamento é uma linha `Credenciamento` com valor, situação (a protocolar → protocolado → em análise → aprovado/negado/encerrado), datas e tentativa. **`NEGADO` não vira `APROVADO` por edição**: retentar é linha nova (tentativa 2) com o acordo registrado. Editar a grade **não apaga o que já foi protocolado**. Operadora com credenciamento não sai do catálogo; profissional com credenciamento é desativado, não apagado. Na tela: cartão por médico no construtor da proposta (o modal é estreito) e card **"Credenciamentos em andamento"** na ficha.
+  - **Bloco C (ADR-104):** o modelo da proposta é a **transcrição do papel real** (5 seções, 6 passos, cláusulas palavra por palavra); a **numeração continua a contagem manual dela — estava em 224, a primeira do sistema é a 0225**; e **a conta a receber nasce quando a operadora APROVA**, nunca no aceite, nem ao contratar o serviço, nem na conversão do lead. Criar a conta não é best-effort: se falhar, a aprovação falha junto.
 
 ## Estado anterior (2026-08-05)
 
@@ -41,7 +44,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-96). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-104). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

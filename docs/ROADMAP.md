@@ -230,26 +230,34 @@ Além do polimento acima, o produto ganhou blocos inteiros depois do MVP. Todos 
 
 ---
 
-## Credenciamento inteligente (em andamento, 2026-08)
+## Credenciamento inteligente ✅ (2026-08)
 
-Ramo `feat/credenciamento-inteligente`. Spec aprovada pelo dono em
+Spec aprovada pelo dono em
 `docs/superpowers/specs/2026-08-10-proposta-credenciamento-design.md` — ela é a fonte da
 verdade deste trabalho, e sai dos dois PDFs reais da Thaís em `brand/identidade/`.
+**Os três blocos estão entregues.**
 
 - **Bloco A — por pessoa, lista real e triagem ✅ (PR #88, ADR-103).** Model `Profissional`;
   os 14 documentos do PDF em 4 escopos; exigência frente e verso; triagem INAPTO × PENDENTE
   que avisa sem bloquear; Portal agrupado por médico com progresso contado em **pares**
   (documento × médico × lado); card "Pode credenciar?" na ficha.
-- **Bloco B — a grade médico × operadora.** Cada cruzamento vira uma linha `Credenciamento`
-  (spec §5.4): monta o preço da proposta, acompanha o andamento (`A_PROTOCOLAR` →
-  `APROVADO`/`NEGADO`) e dispara a cobrança. O `CredenciamentoPicker` troca
-  "valor por operadora × quantidade" pela grade, editável célula a célula.
-- **Bloco C — o documento fiel, a numeração e o dinheiro.** Modelo em 5 seções igual ao PDF
-  (plano de trabalho em 6 passos, honorário só no sucesso, uma tentativa, confidencialidade,
-  assinatura das duas partes); `Documento.numero` sequencial **continuando de 224** (a
-  próxima é a **0225**, confirmado pelo dono em 10/08/2026); e a **conta a receber que nasce
-  quando a operadora APROVA**, não no aceite da proposta. Este último muda comportamento de
-  dinheiro: commit próprio, com teste provando que o aceite **não** cria conta.
+- **Bloco B — a grade médico × operadora ✅ (ADR-104).** Cada cruzamento é uma linha
+  `Credenciamento` (spec §5.4): monta o preço da proposta, acompanha o andamento
+  (`A_PROTOCOLAR` → `PROTOCOLADO` → `EM_ANALISE` → `APROVADO`/`NEGADO`/`ENCERRADO`) e dispara
+  a cobrança. `NEGADO` **não volta a `APROVADO`**: retentar é linha nova (tentativa 2) com o
+  acordo registrado. Editar a grade **não apaga o que já foi protocolado**. O
+  `CredenciamentoPicker` virou grade por médico; a ficha ganhou o card "Credenciamentos em
+  andamento".
+- **Bloco C — o documento fiel, a numeração e o dinheiro ✅ (ADR-104).** O modelo é a
+  transcrição do papel real (5 seções, plano de trabalho em 6 passos, honorário só no
+  sucesso, uma tentativa, confidencialidade, assinatura das duas partes), com um teste que
+  guarda a **redação** dessas cláusulas; `Documento.numero` sequencial **continuando de 224**
+  (a primeira do sistema é a **0225**); e a **conta a receber que nasce quando a operadora
+  APROVA** — não no aceite, não ao contratar o serviço, não na conversão do lead.
+
+**O que ficou de fora, de propósito** (spec §7): lista de documentos diferente por operadora,
+conferência de validade/autenticidade do que o cliente envia, OCR, integração com o site das
+operadoras e cobrança automática ao cliente. Cada um é um projeto próprio.
 
 ## Além do MVP (não agora)
 
