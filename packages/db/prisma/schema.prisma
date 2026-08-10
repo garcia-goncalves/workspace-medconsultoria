@@ -240,6 +240,7 @@ model Cliente {
   arquivos         Arquivo[]
   respostasFormulario FormularioResposta[]
   tarefas          Tarefa[]
+  profissionais    Profissional[]
 
   @@index([responsavelId])
   @@index([deletedAt])
@@ -446,6 +447,16 @@ model ServicoRequisito {
   obrigatorio  Boolean  @default(true)
   ordem        Int      @default(0)
   formularioId String? // quando tipo = BRIEFING: o formulário online a preencher
+  // Credenciamento (ADR-103): a quem o documento pertence — EMPRESA | CLINICA |
+  // PROFISSIONAL | RESPONSAVEL_TECNICO (validado em @app/shared). Ausente = comportamento
+  // de sempre: uma vaga só, sem vínculo com médico.
+  escopo       String?
+  // Divide a exigência em DUAS vagas de envio (frente e verso do mesmo documento).
+  frenteVerso  Boolean  @default(false)
+  // Marca a exigência que TRAVA a elegibilidade: ALVARA_FUNCIONAMENTO | ALVARA_VIGILANCIA |
+  // CNES | TITULO_ESPECIALISTA. É a chave, e não o título, que a triagem consulta — assim
+  // renomear o documento na tela não quebra a regra.
+  travaElegibilidade String?
   createdAt    DateTime @default(now())
 
   servico    Servico              @relation(fields: [servicoId], references: [id], onDelete: Cascade)
@@ -525,19 +536,51 @@ model Arquivo {
   clienteId      String
   servicoId      String?
   requisitoId    String?
+  // Credenciamento (ADR-103): de QUAL médico é este arquivo, e qual lado do documento.
+  // Opcionais — arquivo antigo continua válido sem elas.
+  profissionalId String?
+  lado           String? // FRENTE | VERSO (validado em @app/shared)
   enviadoPorTipo String // CLIENTE | EQUIPE
   enviadoPorId   String? // userId de quem enviou (null se sessão de cliente sem user? sempre há user)
   createdAt      DateTime  @default(now())
   deletedAt      DateTime?
 
-  cliente   Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  servico   Servico?          @relation(fields: [servicoId], references: [id], onDelete: SetNull)
-  requisito ServicoRequisito? @relation(fields: [requisitoId], references: [id], onDelete: SetNull)
+  cliente      Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  servico      Servico?          @relation(fields: [servicoId], references: [id], onDelete: SetNull)
+  requisito    ServicoRequisito? @relation(fields: [requisitoId], references: [id], onDelete: SetNull)
+  profissional Profissional?     @relation(fields: [profissionalId], references: [id], onDelete: SetNull)
 
   @@index([clienteId])
   @@index([servicoId])
   @@index([requisitoId])
+  @@index([profissionalId])
   @@index([deletedAt])
+}
+
+/// Médico/dentista/psicólogo a CREDENCIAR — pertence a um Cliente (a clínica ou a PJ).
+/// Existe porque o credenciamento é por PESSOA: a proposta nomeia cada profissional com a
+/// especialidade, e três documentos (conselho, diploma, especializações) repetem por
+/// médico. Sem isto, uma clínica com dois médicos aparecia com a papelada completa tendo
+/// entregue metade. Ver ADR-103.
+model Profissional {
+  id                 String   @id @default(cuid())
+  clienteId          String
+  nome               String
+  conselho           String // CRM | CRO | CRP | CRN | CREFITO | CRFA (validado em @app/shared)
+  conselhoNumero     String?
+  conselhoUf         String?  @db.VarChar(2)
+  especialidade      String? // entra na proposta ("cardiologista")
+  anoFormatura       Int? // R5 da triagem: 5 anos de formado
+  tituloEspecialista Boolean  @default(false) // R6: declarado; o comprovante é a exigência "Especializações"
+  responsavelTecnico Boolean  @default(false) // quem responde pelo currículo do responsável técnico
+  ativo              Boolean  @default(true) // desligar sem apagar histórico
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  cliente  Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  arquivos Arquivo[]
+
+  @@index([clienteId])
 }
 
 /// Passo padrão de um serviço, atrelado a uma etapa do funil. Ao um lead escolher

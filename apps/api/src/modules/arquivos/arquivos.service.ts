@@ -21,6 +21,9 @@ interface RegistrarUploadInput {
   clienteId: string;
   servicoId?: string | null;
   requisitoId?: string | null;
+  /** Credenciamento: de qual profissional é este documento, e qual lado (ADR-103). */
+  profissionalId?: string | null;
+  lado?: string | null;
   nome: string;
   mimetype: string;
   tamanho: number;
@@ -34,11 +37,21 @@ interface RegistrarUploadInput {
  * avisa a equipe (notificação + e-mail `documento_cliente_enviado`).
  */
 export async function registrarUpload(input: RegistrarUploadInput) {
+  // O id do profissional vem do formulário — inclusive do Portal, onde quem digita é o
+  // cliente. Só vale se aquele profissional for DESTE cliente; qualquer outro id é
+  // descartado, e não recusado, para não virar oráculo de "este id existe?".
+  const profissionalId = input.profissionalId
+    ? ((await prisma.profissional.findFirst({ where: { id: input.profissionalId, clienteId: input.clienteId }, select: { id: true } }))?.id ?? null)
+    : null;
+  const lado = input.lado === "FRENTE" || input.lado === "VERSO" ? input.lado : null;
+
   const arquivo = await prisma.arquivo.create({
     data: {
       clienteId: input.clienteId,
       servicoId: input.servicoId ?? null,
       requisitoId: input.requisitoId ?? null,
+      profissionalId,
+      lado,
       nome: input.nome,
       mimetype: input.mimetype,
       tamanho: input.tamanho,

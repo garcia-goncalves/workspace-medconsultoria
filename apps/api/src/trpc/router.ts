@@ -3,6 +3,7 @@ import { authRouter } from "../modules/auth/auth.router.js";
 import { clientesRouter } from "../modules/clientes/clientes.router.js";
 import { pipelineRouter } from "../modules/pipeline/pipeline.router.js";
 import { servicosRouter } from "../modules/servicos/servicos.router.js";
+import { credenciamentoRouter } from "../modules/servicos/credenciamento.router.js";
 import { origensRouter } from "../modules/origens/origens.router.js";
 import { leadsRouter } from "../modules/leads/leads.router.js";
 import { projetosRouter } from "../modules/projetos/projetos.router.js";
@@ -39,6 +40,7 @@ export const appRouter = router({
   clientes: clientesRouter,
   pipeline: pipelineRouter,
   servicos: servicosRouter,
+  credenciamento: credenciamentoRouter,
   origens: origensRouter,
   leads: leadsRouter,
   projetos: projetosRouter,

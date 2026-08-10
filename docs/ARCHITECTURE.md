@@ -76,7 +76,7 @@ Em `trpc/`:
 
 ### 3.3 Composição
 
-`appRouter = router({ auth, dashboard, mensagens, documentos, assinaturas, propostas, portal, clientes, pipeline, servicos, origens, leads, projetos, cards, agenda, notificacoes, financeiro, usuarios, emails, emailsEnviados, busca, ia, sistema })` — 23 sub-routers, cada um no seu módulo (`apps/api/src/modules/<dominio>`).
+`appRouter = router({ auth, dashboard, mensagens, documentos, assinaturas, propostas, portal, clientes, pipeline, servicos, credenciamento, origens, leads, projetos, cards, agenda, notificacoes, financeiro, usuarios, emails, emailsEnviados, busca, ia, sistema })` — 24 sub-routers, cada um no seu módulo (`apps/api/src/modules/<dominio>`). Exceção proposital: **`credenciamento` mora dentro de `modules/servicos/`** (`credenciamento.service.ts` + `credenciamento.router.ts`) porque é uma leitura especializada do mesmo `ServicoRequisito`/`Arquivo` — separar em módulo próprio duplicaria a fronteira sem separar dado nenhum. A regra pura (triagem, contagem por par) fica em `@app/shared`, não aqui, para a ficha e o Portal darem a mesma resposta — ADR-103.
 
 - `servicos` — catálogo de serviços da MedConsultoria + playbooks por etapa (`ServicoPasso`); leitura `funcionario`, gestão `admin`, `publicos` para o form de captação.
 - `origens` — catálogo editável de origens de lead (`admin`; `ativas` para `funcionario`).

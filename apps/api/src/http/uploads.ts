@@ -83,6 +83,8 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
       clienteId: salvo.clienteId,
       servicoId: campos.servicoId || null,
       requisitoId: campos.requisitoId || null,
+      profissionalId: campos.profissionalId || null,
+      lado: campos.lado || null,
       nome: salvo.nome,
       mimetype: salvo.mimetype,
       tamanho: salvo.tamanho,

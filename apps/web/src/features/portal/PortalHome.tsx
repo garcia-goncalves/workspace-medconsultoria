@@ -14,6 +14,7 @@ import { PortalSuporte } from "./PortalSuporte";
 import { EmailsEnviadosList } from "../../components/EmailsEnviadosList";
 import { ServicosPicker } from "../crm/leads/ServicosPicker";
 import { PortalServicos } from "./PortalServicos";
+import { PortalCredenciamento } from "./PortalCredenciamento";
 import { PortalMeusDocumentos } from "./PortalMeusDocumentos";
 
 const statusLabel: Record<string, string> = {
@@ -213,6 +214,10 @@ export function PortalHome() {
 
       {/* Seus serviços contratados + documentos que precisamos de você */}
       <PortalServicos />
+
+      {/* A papelada do credenciamento tem tela própria porque REPETE por médico — ver
+          `PortalCredenciamento`. Some sozinha quando não há credenciamento em curso. */}
+      <PortalCredenciamento />
 
       {/* Autosserviço: o cliente escolhe os serviços que precisa → vira oportunidade no funil */}
       {catalogo.data &&
