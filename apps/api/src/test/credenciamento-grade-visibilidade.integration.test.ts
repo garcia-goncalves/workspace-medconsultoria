@@ -18,7 +18,6 @@ import { removerProfissional } from "../modules/servicos/credenciamento.service.
  */
 
 const PFX = `gradevis-${randomBytes(4).toString("hex")}`;
-let ator: { id: string };
 let clienteId: string;
 let ativoId: string;
 let desativadoId: string;
@@ -26,11 +25,6 @@ let operadoraId: string;
 
 beforeAll(async () => {
   expect(process.env.DATABASE_URL).toContain("_test");
-  const u = await prisma.user.create({
-    data: { nome: `${PFX}-u`, email: `${PFX}@example.test`, passwordHash: "x", role: "ADMIN" },
-  });
-  ator = { id: u.id };
-
   const cliente = await prisma.cliente.create({ data: { nome: `${PFX}-clinica`, tipo: "PJ" } });
   clienteId = cliente.id;
 
