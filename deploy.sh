@@ -72,11 +72,22 @@ remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && npm run prisma:depl
 # NEGATIVO — o app subiu, o script diz que não, e o deploy trava por nada (aconteceu em 05/08 ao
 # ligar a EMAIL_CRYPTO_KEY). A saída vai inteira para um arquivo no servidor e só então é filtrada.
 echo "==> 6/6 Ensaio de boot (a produção ainda está no ar servindo a versão anterior)"
-if remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && timeout 25 node app.cjs > /tmp/boot-teste.log 2>&1; grep -c 'Server listening' /tmp/boot-teste.log; echo '--- erros ---'; grep -iE 'error|invalid' /tmp/boot-teste.log | head -5" | tee /tmp/boot-teste.log | head -1 | grep -qvE "^0$"; then
-  echo "    boot OK — pode reiniciar"
+# QUARTA CICATRIZ (10/08/2026): a versão anterior avaliava o ensaio com
+#   remoto "…" | tee arquivo | head -1 | grep -qvE "^0$"
+# e reprovava um boot PERFEITO, deixando a produção na versão antiga por nada. Duas causas,
+# as duas do `set -o pipefail`:
+#   (a) `head -1` fecha o cano ao ler a primeira linha; `tee` e o `ssh` morrem com SIGPIPE
+#       (141) e o pipeline inteiro é dado como falho;
+#   (b) o comando remoto herda o código do ÚLTIMO comando dele — o `grep` que procura erros.
+#       Boot limpo = grep não acha nada = sai 1 = reprova.
+# Agora a saída é capturada numa variável e avaliada com `test`. Sem canos, sem herança.
+ENSAIO="$(remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && timeout 25 node app.cjs > /tmp/boot-teste.log 2>&1; grep -c 'Server listening' /tmp/boot-teste.log; echo '--- erros ---'; { grep -iE 'error|invalid' /tmp/boot-teste.log | head -5; } || true" || true)"
+OUVINDO="$(printf '%s\n' "${ENSAIO}" | head -1 | tr -dc '0-9')"
+if [ -n "${OUVINDO}" ] && [ "${OUVINDO}" -gt 0 ]; then
+  echo "    boot OK (${OUVINDO} portas ouvindo) — pode reiniciar"
 else
   echo "    !! O app NÃO subiu. A produção continua na versão anterior (nada foi reiniciado)."
-  echo "    !! Saída do ensaio:"; cat /tmp/boot-teste.log
+  echo "    !! Saída do ensaio:"; printf '%s\n' "${ENSAIO}"
   echo "    !! Rollback, se quiser desfazer o envio: ~/backups/release-pre-${CARIMBO}.tar.gz"
   exit 1
 fi
