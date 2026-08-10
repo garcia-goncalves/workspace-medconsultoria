@@ -42,7 +42,7 @@ Copie `.env.deploy.example` para `.env.deploy` e preencha com os dados de SSH (n
 ```bash
 DEPLOY_HOST="ssh.seudominio.com.br"
 DEPLOY_USER="seu-usuario"
-DEPLOY_PATH="/home/seu-usuario/domains/workspace.medconsultoria.com.br/app"
+DEPLOY_PATH="/home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html"
 DEPLOY_SSH_PORT="22"
 DEPLOY_SSH_KEY="C:/Users/Desktop/.ssh/id_ed25519"
 # Se a TineHost usar Nginx Unit (não Passenger), defina o restart adequado:
@@ -231,8 +231,10 @@ Fica **fora** do Application Root e do `public_html` → o deploy (`rsync --dele
 
 ### Passo 4 — Enviar o build + startup
 1. Na sua máquina: `pnpm build:deploy` (gera `apps/api/dist` auto-contido: `server.js` + `public/` + `prisma/` + `package.json` de produção + `preflight.mjs`).
-2. Ajuste o `deploy.sh` (`.env.deploy`): `DEPLOY_PATH=/home3/medconsultoria/workspace-medconsultoria`, host/usuário/porta/chave SSH **[CONFIRMAR]**.
-3. `./deploy.sh` faz: `rsync` do `dist/` → Application Root; via SSH, `npm install --omit=dev`, `prisma generate`, `prisma migrate deploy`, restart.
+2. Ajuste o `deploy.sh` (`.env.deploy`): **`DEPLOY_PATH="/home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html"`**, host/usuário/porta/chave SSH.
+   > ⚠️ **Corrigido em 10/08/2026.** Esta linha dizia `/home3/medconsultoria/workspace-medconsultoria` — pasta que **não existe** no servidor —, e o `.env.deploy` da máquina de quem publica tinha esse valor. O deploy morria no passo 2 com `cd: No such file or directory`. É o mesmo erro que a tabela do §9 já tinha corrigido em 05/08; aqui ele sobreviveu.
+3. `./deploy.sh` faz: `tar | ssh` do `dist/` → Application Root; via SSH, `npm install --omit=dev`, `prisma generate`, `prisma migrate deploy`, **ensaio de boot**, restart e smoke test.
+   > ⚠️ **O ensaio de boot é um portão, e ele já reprovou boot perfeito** (10/08/2026). A avaliação usava `remoto … | tee | head -1 | grep -q`, e com `set -o pipefail` isso falha de duas formas: o `head -1` fecha o cano e mata `tee`/`ssh` com SIGPIPE; e o comando remoto herda o código do último `grep`, que sai 1 quando **não acha erro nenhum**. Resultado: quanto mais limpo o boot, mais certa a reprovação. Hoje a saída é capturada em variável e avaliada com `test` — se voltar a reprovar, o problema é real, não o portão.
 4. **Startup `app.cjs`** (gerado automaticamente pelo `bundle-deploy`, fica na raiz do Application Root ao lado de `server.js`): o lsnode carrega o startup via `require()` (CommonJS), então usar `.cjs` que faz `import("./server.js")` evita o `ERR_REQUIRE_ESM` (o `server.js` é ESM). **Validado localmente**: `node app.cjs` sobe a API e responde `/health`. O lsnode **intercepta o `.listen()`** do Fastify e gerencia a porta/socket — por isso `API_PORT` é ignorado sob lsnode (não precisa casar com a porta do painel).
 
 ### Passo 5 — Variáveis de ambiente (`.env` na raiz do Application Root)
