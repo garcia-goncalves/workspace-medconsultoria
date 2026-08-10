@@ -4,6 +4,7 @@ import { notificar } from "../notificacoes/notificacoes.service.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { equipeDoCliente } from "../arquivos/arquivos.service.js";
 import { seedRequisitosSeVazio } from "./servicos.service.js";
+import { sincronizarRequisitosCredenciamento } from "./credenciamento.service.js";
 import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js";
 import { garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { config } from "../../config.js";
@@ -15,6 +16,9 @@ import { config } from "../../config.js";
  */
 export async function servicosDoCliente(clienteId: string) {
   await seedRequisitosSeVazio();
+  // Faz a lista real do credenciamento convergir sem passo manual (idempotente, uma vez
+  // por processo). Best-effort: se falhar, a ficha continua abrindo.
+  await sincronizarRequisitosCredenciamento().catch(() => {});
   const [servicos, contratacoes, arquivos, respostas] = await Promise.all([
     prisma.servico.findMany({
       where: { ativo: true },
@@ -43,6 +47,10 @@ export async function servicosDoCliente(clienteId: string) {
         descricao: r.descricao,
         tipo: r.tipo,
         obrigatorio: r.obrigatorio,
+        // Credenciamento (ADR-103): escopo preenchido = a exigência pertence à lista
+        // agrupada por médico, que tem tela própria.
+        escopo: r.escopo,
+        frenteVerso: r.frenteVerso,
         atendido,
         arquivos: arqs,
         respostaId: resp?.id ?? null,
@@ -292,10 +300,18 @@ export async function servicosDoClientePortal(clienteId: string) {
   const todos = await servicosDoCliente(clienteId);
   return todos
     .filter((s) => s.contratado)
-    .map((s) => ({
-      servico: s.servico,
-      requisitos: s.requisitos, // documentos (upload) + briefings (preencher online)
-      pendentes: s.pendentes,
-      totalObrigatorios: s.totalObrigatorios,
-    }));
+    .map((s) => {
+      // Exigência COM escopo é do credenciamento e tem tela própria no Portal
+      // (`PortalCredenciamento`), agrupada por médico. Fica de fora daqui para o cliente
+      // não ver a mesma papelada em dois lugares — e a contagem acompanha o recorte,
+      // senão a lista some e o "faltam 14" fica boiando sozinho.
+      const requisitos = s.requisitos.filter((r) => !r.escopo);
+      const obrigatorios = requisitos.filter((r) => r.obrigatorio);
+      return {
+        servico: s.servico,
+        requisitos, // documentos (upload) + briefings (preencher online)
+        pendentes: obrigatorios.filter((r) => !r.atendido).length,
+        totalObrigatorios: obrigatorios.length,
+      };
+    });
 }

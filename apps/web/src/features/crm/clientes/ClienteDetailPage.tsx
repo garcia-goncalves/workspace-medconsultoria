@@ -50,6 +50,7 @@ import { ClienteFormDialog } from "./ClienteFormDialog";
 import { NovaOportunidadeDialog } from "./NovaOportunidadeDialog";
 import { AssistenteIADialog } from "../../../components/ui/assistente-ia";
 import { ServicosContratadosCard } from "./ServicosContratadosCard";
+import { CredenciamentoCard } from "./CredenciamentoCard";
 import { DocumentosClienteCard } from "./DocumentosClienteCard";
 import { NovoDocumentoDialog } from "../../documentos/NovoDocumentoDialog";
 import { ConviteLinkDialog } from "../../configuracoes/ConviteLinkDialog";
@@ -312,6 +313,9 @@ export function ClienteDetailPage() {
         {/* ───────── Coluna principal ───────── */}
         <div className="min-w-0 space-y-6 lg:col-span-2">
           <ServicosContratadosCard clienteId={c.id} />
+
+          {/* "Pode credenciar?" — a triagem antes de a Thaís escrever qualquer proposta. */}
+          <CredenciamentoCard clienteId={c.id} />
 
           {/* Suporte em destaque — o canal de conversa com o cliente, logo no topo */}
           <Card className="border-primary/30 ring-1 ring-primary/5">

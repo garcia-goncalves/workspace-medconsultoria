@@ -7,6 +7,7 @@ import { listServicosAtivos } from "../servicos/servicos.service.js";
 import { confirmarPresencaCliente } from "../agenda/agenda.service.js";
 import { portalListChamados, portalAbrirChamado, portalMensagens, portalEnviar } from "../mensagens/mensagens.service.js";
 import { servicosDoClientePortal, cancelarServicoCliente } from "../servicos/servicos-cliente.service.js";
+import { credenciamentoParaOPortal } from "../servicos/credenciamento.service.js";
 import { listarArquivos, removerArquivo } from "../arquivos/arquivos.service.js";
 import { getFormularioDoRequisito, salvarResposta } from "../formularios/formularios.service.js";
 import { listPorCliente } from "../emails/enviados.service.js";
@@ -22,6 +23,10 @@ export const portalRouter = router({
 
   // E-mails que o cliente recebeu — para ele acompanhar tudo pelo Portal.
   emails: portalProcedure.query(({ ctx }) => listPorCliente(ctx.clienteId)),
+
+  // Credenciamento: a papelada agrupada por médico e o que ainda falta. Recorte SEM o
+  // veredito comercial — o cliente nunca lê "inapto" nem o motivo de uma recusa.
+  credenciamento: portalProcedure.query(({ ctx }) => credenciamentoParaOPortal(ctx.clienteId)),
 
   // Confirmar presença numa reunião (escopado ao clienteId da sessão).
   confirmarReuniao: portalProcedure

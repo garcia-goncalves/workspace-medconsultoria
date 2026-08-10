@@ -106,8 +106,15 @@ confirmado pelo dono em 10/08/2026 ("atendemos odonto sim").
 
 ## 4. A lista real de documentos (fonte: PDF da Thaís)
 
-Dezoito itens, em quatro escopos. O escopo diz **a quem o documento pertence** e se ele
+**Catorze itens**, em quatro escopos. O escopo diz **a quem o documento pertence** e se ele
 **repete por médico**.
+
+> **Correção de 10/08/2026 (implementação do Bloco A).** Esta seção dizia "dezoito itens" e
+> listava catorze. Conferido no PDF: são **14** — 5 da PJ, 4 da clínica e 5 em "documentos
+> pessoais" (dos quais as duas fotos foram reagrupadas na clínica). O número 18 era erro de
+> redação da spec, não do PDF; a lista numerada abaixo sempre esteve certa. Como três itens
+> são "frente e verso", as **vagas de envio** de um credenciamento com um médico são 17 —
+> 16 delas obrigatórias, que é o que a barra de progresso conta.
 
 ### 4.1 Da empresa — escopo `EMPRESA` (só aparece quando o cliente é PJ)
 
@@ -202,9 +209,10 @@ mesmo par na mesma tentativa.
 
 ### 5.5 `Documento` — uma coluna nova
 
-`numero` (inteiro, sequencial, exibido com 4 dígitos: `0034`). **Pendente do dono:** em que
-número a Thaís está hoje. Sem a resposta, a contagem começa em **35** e é corrigível por
-configuração.
+`numero` (inteiro, sequencial, exibido com 4 dígitos: `0034`). **RESPONDIDO pelo dono em
+10/08/2026: a contagem da Thaís está em 224.** A numeração do sistema continua dela — a
+próxima proposta emitida é a **0225**. (A proposta 0034 que ele mandou como modelo é de
+12/02/2025; ela seguiu contando desde então.) Deixa de ser pendência do Bloco C.
 
 ---
 
@@ -226,7 +234,7 @@ que falta e pede a justificativa do §3.1.
 ### 6.2 O Portal do cliente
 
 A lista agrupada por escopo, com o bloco `PROFISSIONAL` repetido por médico e barra de
-progresso ("faltam 7 de 18"). Exigência `frenteVerso` aparece como duas vagas.
+progresso ("faltam 7 de 16"). Exigência `frenteVerso` aparece como duas vagas.
 
 O progresso conta **pares (exigência × profissional)**, não exigências — senão uma clínica
 com dois médicos mostraria 100% com metade da papelada.
@@ -272,7 +280,7 @@ cliente. Cada um é um projeto próprio.
 
 **Testes automáticos (Vitest)**
 
-- a semente cria os 18 itens nos escopos certos, e **não apaga** o item do §4.5;
+- a semente cria os 14 itens nos escopos certos, e **não apaga** o item do §4.5;
 - a triagem devolve INAPTO para cliente PF, INAPTO com data futura para menos de 5 anos de
   formação, e PENDENTE para cada alvará/CNES/título ausente;
 - o progresso conta pares (exigência × profissional) — dois médicos, metade enviada = 50%;
