@@ -26,8 +26,21 @@ export async function renomearOperadora(id: string, nome: string) {
   });
 }
 
-/** Exclusão PERMANENTE do catálogo (não há vínculo por FK — o nome só é copiado no documento). */
+/**
+ * Exclusão PERMANENTE do catálogo. Desde a grade médico × operadora (ADR-104) há vínculo por
+ * FK: operadora com credenciamento registrado não sai, senão o andamento (e a cobrança presa
+ * a ele) desapareceria junto. O banco recusa com `Restrict`; aqui isso vira um recado que
+ * explica o que está preso, em vez de um erro cru.
+ */
 export async function removerOperadora(id: string) {
+  const emUso = await prisma.credenciamento.count({ where: { operadoraId: id } });
+  if (emUso > 0) {
+    const nome = (await prisma.operadora.findUnique({ where: { id }, select: { nome: true } }))?.nome ?? "Esta operadora";
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${nome} não pode ser excluída: há ${emUso} credenciamento(s) registrado(s) nela. Renomeie-a, se for o caso — o histórico não se apaga.`,
+    });
+  }
   await prisma.operadora.deleteMany({ where: { id } });
   return { ok: true };
 }

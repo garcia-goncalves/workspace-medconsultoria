@@ -51,6 +51,7 @@ import { NovaOportunidadeDialog } from "./NovaOportunidadeDialog";
 import { AssistenteIADialog } from "../../../components/ui/assistente-ia";
 import { ServicosContratadosCard } from "./ServicosContratadosCard";
 import { CredenciamentoCard } from "./CredenciamentoCard";
+import { CredenciamentoGradeCard } from "./CredenciamentoGradeCard";
 import { DocumentosClienteCard } from "./DocumentosClienteCard";
 import { NovoDocumentoDialog } from "../../documentos/NovoDocumentoDialog";
 import { ConviteLinkDialog } from "../../configuracoes/ConviteLinkDialog";
@@ -316,6 +317,9 @@ export function ClienteDetailPage() {
 
           {/* "Pode credenciar?" — a triagem antes de a Thaís escrever qualquer proposta. */}
           <CredenciamentoCard clienteId={c.id} />
+
+          {/* O andamento de cada médico × operadora, depois que a proposta saiu (ADR-104). */}
+          <CredenciamentoGradeCard clienteId={c.id} />
 
           {/* Suporte em destaque — o canal de conversa com o cliente, logo no topo */}
           <Card className="border-primary/30 ring-1 ring-primary/5">

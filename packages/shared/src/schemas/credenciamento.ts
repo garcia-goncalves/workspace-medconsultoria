@@ -302,3 +302,149 @@ export function progressoCredenciamento(entrada: {
     vagas,
   };
 }
+
+// ── A grade médico × operadora (§5.4) ────────────────────────────────────────
+
+/**
+ * O andamento de UM cruzamento médico × operadora. `A_PROTOCOLAR` é o estado de quem foi
+ * incluído na proposta e ainda não foi levado à operadora; `ENCERRADO` é a desistência
+ * (nossa ou do cliente), distinta de `NEGADO`, que é a recusa da operadora.
+ */
+export const statusCredenciamentoEnum = z.enum([
+  "A_PROTOCOLAR",
+  "PROTOCOLADO",
+  "EM_ANALISE",
+  "APROVADO",
+  "NEGADO",
+  "ENCERRADO",
+]);
+export type StatusCredenciamento = z.infer<typeof statusCredenciamentoEnum>;
+export const STATUS_CREDENCIAMENTO = statusCredenciamentoEnum.options;
+
+export const STATUS_CREDENCIAMENTO_LABEL: Record<StatusCredenciamento, string> = {
+  A_PROTOCOLAR: "A protocolar",
+  PROTOCOLADO: "Protocolado",
+  EM_ANALISE: "Em análise",
+  APROVADO: "Aprovado",
+  NEGADO: "Negado",
+  ENCERRADO: "Encerrado",
+};
+
+/** Frase curta que a tela mostra abaixo do rótulo, para ninguém precisar decorar o fluxo. */
+export const STATUS_CREDENCIAMENTO_AJUDA: Record<StatusCredenciamento, string> = {
+  A_PROTOCOLAR: "Está na proposta e ainda não foi levado à operadora.",
+  PROTOCOLADO: "Entregue à operadora, aguardando ela começar a analisar.",
+  EM_ANALISE: "A operadora está analisando a documentação.",
+  APROVADO: "A operadora aceitou — é aqui que nasce a cobrança do honorário.",
+  NEGADO: "A operadora recusou. Tentar de novo abre uma tentativa nova.",
+  ENCERRADO: "Parou por decisão nossa ou do cliente, sem resposta da operadora.",
+};
+
+/** Terminou: não muda mais de estado nesta tentativa. */
+export const STATUS_CREDENCIAMENTO_FINAIS: StatusCredenciamento[] = ["APROVADO", "NEGADO", "ENCERRADO"];
+
+/**
+ * Para onde cada estado pode ir. Só para frente — e `NEGADO` nunca vira `APROVADO`: reverter
+ * uma negativa por edição apagaria o fato que justifica cobrar de novo (§3.4). O caminho de
+ * volta a tentar é uma linha NOVA, com `tentativa` maior e o acordo registrado.
+ *
+ * `APROVADO` → `ENCERRADO` existe porque contrato com operadora se desfaz; o que não existe
+ * é `APROVADO` → `NEGADO`, que reescreveria a história (e a cobrança já emitida).
+ */
+const TRANSICOES: Record<StatusCredenciamento, StatusCredenciamento[]> = {
+  A_PROTOCOLAR: ["PROTOCOLADO", "ENCERRADO"],
+  PROTOCOLADO: ["EM_ANALISE", "APROVADO", "NEGADO", "ENCERRADO"],
+  EM_ANALISE: ["APROVADO", "NEGADO", "ENCERRADO"],
+  APROVADO: ["ENCERRADO"],
+  NEGADO: [],
+  ENCERRADO: [],
+};
+
+export function transicaoCredenciamentoPermitida(de: StatusCredenciamento, para: StatusCredenciamento): boolean {
+  return TRANSICOES[de].includes(para);
+}
+
+/**
+ * O porquê da recusa, em português, para a tela dizer em vez de só desabilitar o botão.
+ * `null` quando a transição é permitida.
+ */
+export function motivoDaTransicaoRecusada(de: StatusCredenciamento, para: StatusCredenciamento): string | null {
+  if (transicaoCredenciamentoPermitida(de, para)) return null;
+  if (de === "NEGADO") {
+    return "Este credenciamento foi negado pela operadora. Para tentar de novo, abra uma nova tentativa — a negativa fica registrada.";
+  }
+  if (de === "ENCERRADO") {
+    return "Este credenciamento está encerrado. Para retomar, abra uma nova tentativa.";
+  }
+  if (de === "APROVADO") {
+    return "Este credenciamento já foi aprovado. Só é possível encerrá-lo.";
+  }
+  return `Não dá para ir de "${STATUS_CREDENCIAMENTO_LABEL[de]}" direto para "${STATUS_CREDENCIAMENTO_LABEL[para]}".`;
+}
+
+/**
+ * O número da próxima tentativa daquele par — ou `null` quando abrir outra não faz sentido.
+ * Só credenciamento que **terminou sem aprovação** rende tentativa nova: abrir a 2ª com a 1ª
+ * em curso criaria duas cobranças pelo mesmo cruzamento, e com a 1ª aprovada, cobraria duas
+ * vezes pelo mesmo sucesso.
+ */
+export function proximaTentativa(status: StatusCredenciamento, tentativaAtual: number): number | null {
+  if (status !== "NEGADO" && status !== "ENCERRADO") return null;
+  return tentativaAtual + 1;
+}
+
+/** Um cruzamento marcado na grade: este médico, nesta operadora, por este valor. */
+export type CelulaGrade = { profissionalId: string; operadoraId: string; valor: number };
+
+export const celulaGradeSchema = z.object({
+  profissionalId: z.string().min(1),
+  operadoraId: z.string().min(1),
+  valor: z.number().nonnegative().max(9_999_999),
+});
+
+/**
+ * O investimento total da proposta. A grade é ESPARSA de propósito — a Thaís marca só os
+ * cruzamentos que vai credenciar, e buraco no meio é escolha dela, não campo esquecido.
+ */
+export function totalDaGrade(celulas: CelulaGrade[]): number {
+  return celulas.reduce((soma, c) => soma + (c.valor || 0), 0);
+}
+
+// ── Numeração da proposta (§5.5) ─────────────────────────────────────────────
+
+/**
+ * A Thaís numera as propostas à mão desde antes do sistema, e a contagem dela estava em
+ * **224** em 10/08/2026 (respondido por ele). O sistema continua a MESMA sequência a partir
+ * daqui — recomeçar do 1 faria conviverem duas propostas "0034" no arquivo dela.
+ */
+export const NUMERO_PROPOSTA_INICIAL = 225;
+
+/** Como o número aparece no papel dela: quatro dígitos, com zeros à esquerda. */
+export function formatarNumeroProposta(numero: number): string {
+  return String(numero).padStart(4, "0");
+}
+
+// ── Entradas das ações da grade ──────────────────────────────────────────────
+
+export const salvarGradeSchema = z.object({
+  clienteId: z.string().min(1),
+  celulas: z.array(celulaGradeSchema).max(400),
+  /** A proposta que originou a grade, quando ela vem do construtor do documento. */
+  documentoId: z.string().min(1).nullable().optional(),
+});
+export type SalvarGradeInput = z.infer<typeof salvarGradeSchema>;
+
+export const mudarStatusCredenciamentoSchema = z.object({
+  id: z.string().min(1),
+  status: statusCredenciamentoEnum,
+  motivoNegativa: z.string().trim().max(1000).nullable().optional(),
+  observacoes: z.string().trim().max(1000).nullable().optional(),
+});
+export type MudarStatusCredenciamentoInput = z.infer<typeof mudarStatusCredenciamentoSchema>;
+
+export const novaTentativaCredenciamentoSchema = z.object({
+  id: z.string().min(1),
+  /** O acordo expresso do §3.4 — sem ele, retentar seria automático, e não é. */
+  motivo: z.string().trim().min(1, "Registre o acordo que autoriza a nova tentativa.").max(1000),
+});
+export type NovaTentativaCredenciamentoInput = z.infer<typeof novaTentativaCredenciamentoSchema>;

@@ -4,7 +4,7 @@ import { notificar } from "../notificacoes/notificacoes.service.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { equipeDoCliente } from "../arquivos/arquivos.service.js";
 import { seedRequisitosSeVazio } from "./servicos.service.js";
-import { sincronizarRequisitosCredenciamento } from "./credenciamento.service.js";
+import { ehServicoDeCredenciamento, sincronizarRequisitosCredenciamento } from "./credenciamento.service.js";
 import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js";
 import { garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { config } from "../../config.js";
@@ -132,7 +132,17 @@ export async function ativarServicoCliente(
   // GAP 3 — provisiona a COBRANÇA no Financeiro quando é uma contratação NOVA pela equipe
   // (a conversão do lead já cria a cobrança agregada; aqui é o upsell/serviço avulso da ficha).
   // Best-effort e só uma vez (contratação nova + origem MANUAL + valor de referência).
-  if (!jaContratado && (opts.origem ?? "MANUAL") === "MANUAL" && servico?.valor && servico.valor > 0) {
+  //
+  // O CREDENCIAMENTO fica de fora: nele o honorário é no sucesso, e a conta a receber nasce
+  // quando a operadora aprova (ADR-104). Contratar é o começo do trabalho, não o fim dele —
+  // cobrar aqui adiantaria dinheiro que a proposta promete não adiantar.
+  if (
+    !jaContratado &&
+    (opts.origem ?? "MANUAL") === "MANUAL" &&
+    !ehServicoDeCredenciamento(servico?.nome) &&
+    servico?.valor &&
+    servico.valor > 0
+  ) {
     try {
       const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } });
       const vencimento = new Date();
