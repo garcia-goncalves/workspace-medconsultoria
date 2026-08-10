@@ -26,6 +26,16 @@ import {
 
 export const NOME_SERVICO_CREDENCIAMENTO = "Credenciamento médico e odontológico";
 
+/**
+ * O credenciamento **não se cobra como os outros serviços**: o honorário é no sucesso, e a
+ * conta a receber nasce quando a operadora aprova (spec §3.3). Quem provisiona cobrança
+ * automática — contratar na ficha, converter o lead — precisa saber disso e pular este
+ * serviço, senão o cliente é cobrado antes de a operadora ter dito qualquer coisa.
+ */
+export function ehServicoDeCredenciamento(nome: string | null | undefined): boolean {
+  return !!nome && nome.trim().toLowerCase() === NOME_SERVICO_CREDENCIAMENTO.toLowerCase();
+}
+
 export type DocumentoCredenciamento = {
   titulo: string;
   descricao: string | null;

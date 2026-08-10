@@ -6,6 +6,7 @@ import { listStages } from "../pipeline/pipeline.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { convidarUsuario, reenviarConvite, garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js";
+import { ehServicoDeCredenciamento } from "../servicos/credenciamento.service.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { config } from "../../config.js";
 import type { Role } from "@app/shared";
@@ -1214,6 +1215,9 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
     let mensal = 0;
     const percentuais: string[] = [];
     for (const s of lead.servicos) {
+      // O CREDENCIAMENTO não entra na conta da conversão: nele o honorário é no sucesso, e a
+      // cobrança nasce quando a operadora aprova, uma por médico × operadora (ADR-104).
+      if (ehServicoDeCredenciamento(s.nome)) continue;
       if (s.valor && s.valor > 0) {
         if (s.valorRecorrencia === "MENSAL") mensal += s.valor;
         else avulso += s.valor;

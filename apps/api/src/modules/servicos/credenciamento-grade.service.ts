@@ -231,6 +231,13 @@ export async function mudarStatusCredenciamento(
     },
   });
 
+  // AQUI nasce a cobrança — e só aqui (§3.3, §6.3). O honorário do credenciamento é no
+  // sucesso: nem o aceite da proposta, nem contratar o serviço na ficha, nem converter o lead
+  // geram conta. A operadora aprovou; agora há o que cobrar.
+  if (input.status === "APROVADO" && !atual.contaId) {
+    await criarContaDoHonorario(atualizado.id, atual.clienteId, Number(atual.valor), ator);
+  }
+
   await prisma.activityLog.create({
     data: {
       userId: ator.id,
@@ -241,7 +248,60 @@ export async function mudarStatusCredenciamento(
     },
   });
 
-  return paraCelula(atualizado);
+  // Relê para devolver o `contaId` recém-gravado — a tela mostra "conta criada" a partir dele.
+  return paraCelula((await prisma.credenciamento.findUnique({ where: { id: input.id } })) ?? atualizado);
+}
+
+/**
+ * A conta a receber do honorário aprovado. Nasce PENDENTE, com 30 dias de vencimento e o
+ * valor exato da célula — a Thaís revisa data e valor no Financeiro como em qualquer outra.
+ *
+ * Não é best-effort: se a cobrança falhar, a aprovação **também** falha. Um credenciamento
+ * marcado como aprovado sem a conta correspondente é dinheiro que ninguém vai cobrar, e
+ * ninguém descobre — o erro visível na hora custa muito menos que a receita perdida em
+ * silêncio.
+ */
+async function criarContaDoHonorario(credenciamentoId: string, clienteId: string, valor: number, ator: { id: string }) {
+  const [cliente, celula] = await Promise.all([
+    prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
+    prisma.credenciamento.findUnique({
+      where: { id: credenciamentoId },
+      select: { profissional: { select: { nome: true } }, operadora: { select: { nome: true } }, tentativa: true },
+    }),
+  ]);
+
+  const vencimento = new Date();
+  vencimento.setDate(vencimento.getDate() + 30);
+  vencimento.setHours(12, 0, 0, 0);
+
+  const quem = celula?.profissional.nome ?? "profissional";
+  const onde = celula?.operadora.nome ?? "operadora";
+
+  const conta = await prisma.conta.create({
+    data: {
+      tipo: "RECEBER",
+      escopo: "EMPRESA",
+      descricao: `Credenciamento aprovado: ${quem} — ${onde}`,
+      valor,
+      vencimento,
+      clienteId,
+      observacoes: `Honorário no sucesso: a operadora ${onde} aprovou o credenciamento de ${quem}${
+        (celula?.tentativa ?? 1) > 1 ? ` (${celula!.tentativa}ª tentativa)` : ""
+      }. Cliente: ${cliente?.nome ?? "—"}. Revise o vencimento.`,
+    },
+  });
+
+  await prisma.credenciamento.update({ where: { id: credenciamentoId }, data: { contaId: conta.id } });
+  await prisma.activityLog.create({
+    data: {
+      userId: ator.id,
+      acao: "conta.criada",
+      entidadeTipo: "cliente",
+      entidadeId: clienteId,
+      dados: { origem: "credenciamento_aprovado", credenciamentoId, contaId: conta.id },
+    },
+  });
+  return conta;
 }
 
 /**
