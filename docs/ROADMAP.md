@@ -230,6 +230,27 @@ Além do polimento acima, o produto ganhou blocos inteiros depois do MVP. Todos 
 
 ---
 
+## Credenciamento inteligente (em andamento, 2026-08)
+
+Ramo `feat/credenciamento-inteligente`. Spec aprovada pelo dono em
+`docs/superpowers/specs/2026-08-10-proposta-credenciamento-design.md` — ela é a fonte da
+verdade deste trabalho, e sai dos dois PDFs reais da Thaís em `brand/identidade/`.
+
+- **Bloco A — por pessoa, lista real e triagem ✅ (PR #88, ADR-103).** Model `Profissional`;
+  os 14 documentos do PDF em 4 escopos; exigência frente e verso; triagem INAPTO × PENDENTE
+  que avisa sem bloquear; Portal agrupado por médico com progresso contado em **pares**
+  (documento × médico × lado); card "Pode credenciar?" na ficha.
+- **Bloco B — a grade médico × operadora.** Cada cruzamento vira uma linha `Credenciamento`
+  (spec §5.4): monta o preço da proposta, acompanha o andamento (`A_PROTOCOLAR` →
+  `APROVADO`/`NEGADO`) e dispara a cobrança. O `CredenciamentoPicker` troca
+  "valor por operadora × quantidade" pela grade, editável célula a célula.
+- **Bloco C — o documento fiel, a numeração e o dinheiro.** Modelo em 5 seções igual ao PDF
+  (plano de trabalho em 6 passos, honorário só no sucesso, uma tentativa, confidencialidade,
+  assinatura das duas partes); `Documento.numero` sequencial **continuando de 224** (a
+  próxima é a **0225**, confirmado pelo dono em 10/08/2026); e a **conta a receber que nasce
+  quando a operadora APROVA**, não no aceite da proposta. Este último muda comportamento de
+  dinheiro: commit próprio, com teste provando que o aceite **não** cria conta.
+
 ## Além do MVP (não agora)
 
 Relatórios avançados do timer, dark mode, app mobile dedicado, integrações externas, storage S3, anexos/upload, menções no chat. Só depois que o núcleo estiver sólido e em uso.
