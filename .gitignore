@@ -54,6 +54,14 @@ AUDITORIA_FUNCIONAL_COMPLETA.html
 # Dumps de segurança do banco (podem conter dados reais — nunca versionar)
 backups/
 
+# Documentos REAIS de cliente (propostas, listas de credenciamento, contratos assinados).
+# Contêm nome de operadora e dados de gente de verdade. Uma vez commitado, fica no
+# histórico do git para sempre — não sai com um `rm`. Ficam só no disco, por decisão do
+# dono em 11/08/2026. Material de marca SEM dado pessoal (logo, fonte, paleta) pode ser
+# versionado normalmente.
+brand/identidade/*.pdf
+brand/identidade/*.docx
+
 # Pacote temporario de deploy (gerado por build:deploy + tar)
 apps/api/bundle-*.tar.gz
 
