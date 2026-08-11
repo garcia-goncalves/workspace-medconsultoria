@@ -24,6 +24,9 @@ export const identidadeRouter = router({
         cnpj: juridico,
         enderecoCompleto: juridico,
         foro: juridico,
+        // Prazo do painel de credenciamentos. O teto de 365 evita desligar o alerta sem
+        // querer digitando um número grande — para desligar de verdade, existe o filtro.
+        credenciamentoPrazoDias: z.number().int().min(1).max(365),
       }),
     )
     .mutation(({ input }) =>

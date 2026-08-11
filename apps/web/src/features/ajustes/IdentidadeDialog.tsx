@@ -24,11 +24,13 @@ type Form = {
   cnpj: string;
   enderecoCompleto: string;
   foro: string;
+  credenciamentoPrazoDias: string;
 };
 
 const VAZIO: Form = {
   nome: "", tagline: "", site: "", siteUrl: "", email: "", telefone: "", cidade: "",
   instagram: "", instagramUrl: "", razaoSocial: "", cnpj: "", enderecoCompleto: "", foro: "",
+  credenciamentoPrazoDias: "60",
 };
 
 /**
@@ -43,6 +45,11 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
   const [form, setForm] = useState<Form>(VAZIO);
   const set = (k: keyof Form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
+  // O prazo é o único campo numérico daqui. Barrar no botão (e explicar embaixo do campo)
+  // evita a pessoa preencher o formulário inteiro e descobrir o erro só ao salvar.
+  const prazo = Number(form.credenciamentoPrazoDias);
+  const prazoValido = Number.isInteger(prazo) && prazo >= 1 && prazo <= 365;
+
   useEffect(() => {
     if (open && dados.data) {
       const d = dados.data;
@@ -51,6 +58,7 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
         telefone: d.telefone, cidade: d.cidade, instagram: d.instagram, instagramUrl: d.instagramUrl,
         razaoSocial: d.razaoSocial ?? "", cnpj: d.cnpj ?? "",
         enderecoCompleto: d.enderecoCompleto ?? "", foro: d.foro ?? "",
+        credenciamentoPrazoDias: String(d.credenciamentoPrazoDias ?? 60),
       });
     }
   }, [open, dados.data]);
@@ -73,7 +81,10 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
           <Button variant="outline" onClick={onClose} disabled={salvar.isPending}>
             Cancelar
           </Button>
-          <Button disabled={!form.nome.trim() || salvar.isPending || dados.isLoading} onClick={() => salvar.mutate(form)}>
+          <Button
+            disabled={!form.nome.trim() || !prazoValido || salvar.isPending || dados.isLoading}
+            onClick={() => salvar.mutate({ ...form, credenciamentoPrazoDias: Number(form.credenciamentoPrazoDias) })}
+          >
             {salvar.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Salvar
           </Button>
@@ -164,6 +175,36 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
               <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>Enquanto um campo jurídico ficar em branco, o contrato mostra um marcador <strong>[A PREENCHER]</strong> no lugar — nunca um dado inventado.</span>
             </p>
+          </section>
+
+          {/* Credenciamento */}
+          <section className="space-y-3 border-t pt-4">
+            <div>
+              <h3 className="text-sm font-semibold">Credenciamento</h3>
+              <p className="text-xs text-muted-foreground">Como o Painel de Credenciamentos decide o que já demorou.</p>
+            </div>
+            <div className="space-y-1.5 sm:max-w-xs">
+              <Label
+                htmlFor="id-prazo"
+                hint="Depois desse tempo sem andar, o credenciamento aparece marcado no painel e entra na contagem de 'precisam de atenção'. Não dispara e-mail nenhum: só chama a sua atenção."
+              >
+                Avisar quando parar por mais de (dias)
+              </Label>
+              <Input
+                id="id-prazo"
+                inputMode="numeric"
+                value={form.credenciamentoPrazoDias}
+                onChange={(e) => set("credenciamentoPrazoDias", e.target.value.replace(/\D/g, ""))}
+                placeholder="60"
+              />
+              {prazoValido ? (
+                <p className="text-xs text-muted-foreground">
+                  Hoje: {prazo} dias. O padrão é 60, o prazo com que a Thaís trabalha.
+                </p>
+              ) : (
+                <p className="text-xs text-destructive">Informe um número de 1 a 365.</p>
+              )}
+            </div>
           </section>
 
           {salvar.error && <p className="text-sm text-destructive">{salvar.error.message}</p>}

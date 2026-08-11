@@ -181,13 +181,18 @@ export function CredenciamentoGradeCard({ clienteId }: { clienteId: string }) {
   );
 }
 
-function MudarStatusDialog({
+/**
+ * Reusado pelo Painel de Credenciamentos (`/credenciamentos`), por isso pede o MÍNIMO de que
+ * precisa em vez da célula inteira da grade: o painel tem as mesmas três informações, com
+ * outro formato em volta. Um segundo diálogo faria as mesmas travas viverem em dois lugares.
+ */
+export function MudarStatusDialog({
   celula,
   titulo,
   onClose,
   onSaved,
 }: {
-  celula: Celula;
+  celula: Pick<Celula, "id" | "status" | "observacoes" | "valor">;
   titulo: string;
   onClose: () => void;
   onSaved: () => void;

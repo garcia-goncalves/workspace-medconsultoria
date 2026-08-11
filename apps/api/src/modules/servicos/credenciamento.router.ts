@@ -6,9 +6,11 @@ import {
   salvarGradeSchema,
   updateProfissionalSchema,
 } from "@app/shared";
+import { statusCredenciamentoEnum } from "@app/shared";
 import { router, funcionarioProcedure } from "../../trpc/trpc.js";
 import * as service from "./credenciamento.service.js";
 import * as grade from "./credenciamento-grade.service.js";
+import * as painel from "./credenciamento-painel.service.js";
 
 /**
  * Credenciamento visto pela EQUIPE: os profissionais do cliente, a triagem de
@@ -53,4 +55,26 @@ export const credenciamentoRouter = router({
   novaTentativa: funcionarioProcedure
     .input(novaTentativaCredenciamentoSchema)
     .mutation(({ input, ctx }) => grade.abrirNovaTentativa(input, { id: ctx.user.id })),
+
+  // ── O painel: todos os credenciamentos, de todos os clientes ───────────────
+  //
+  // Mudar a situação a partir do painel usa a MESMA `mudarStatus` acima, de propósito:
+  // as travas (negado não vira aprovado; aprovar cria a conta a receber e falha junto se
+  // a conta falhar) moram num lugar só. Regra de dinheiro escrita duas vezes são dois
+  // relógios — nunca se sabe qual está certo.
+
+  painel: funcionarioProcedure
+    .input(
+      z
+        .object({
+          clienteId: z.string().min(1).nullish(),
+          operadoraId: z.string().min(1).nullish(),
+          status: z.array(statusCredenciamentoEnum).nullish(),
+          somenteAtencao: z.boolean().nullish(),
+        })
+        .optional(),
+    )
+    .query(({ input }) => painel.painelCredenciamentos(input ?? {})),
+
+  painelOpcoes: funcionarioProcedure.query(() => painel.opcoesDoPainel()),
 });

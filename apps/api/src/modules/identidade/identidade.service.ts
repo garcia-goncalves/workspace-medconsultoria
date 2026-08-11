@@ -44,6 +44,8 @@ export type IdentidadeInput = {
   cnpj: string | null;
   enderecoCompleto: string | null;
   foro: string | null;
+  /** Dias sem andar até um credenciamento pedir atenção no painel (padrão 60, da Thaís). */
+  credenciamentoPrazoDias: number;
 };
 
 /** Normaliza vazio → null nos campos jurídicos (para o contrato mostrar o marcador, não string vazia). */
@@ -67,6 +69,7 @@ export async function atualizarIdentidade(input: IdentidadeInput) {
     cnpj: ouNull(input.cnpj),
     enderecoCompleto: ouNull(input.enderecoCompleto),
     foro: ouNull(input.foro),
+    credenciamentoPrazoDias: input.credenciamentoPrazoDias,
   };
   return prisma.identidadeInstitucional.upsert({
     where: { id: ID },

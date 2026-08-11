@@ -34,6 +34,8 @@ import {
   Inbox,
   Search,
   ShieldCheck,
+  Stethoscope,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@app/ui";
 import { hasRoleLevel, type Role } from "@app/shared";
@@ -185,6 +187,14 @@ const GUIA_CLIENTES: Passo[] = [
   { icon: Sparkles, titulo: "Nova oportunidade (upsell)", descricao: "Cliente quer mais um serviço? Use “Nova oportunidade”: abre um novo negócio no funil já com os serviços escolhidos, sem transformar o cliente em lead de novo." },
 ];
 
+const GUIA_CREDENCIAMENTOS: Passo[] = [
+  { icon: Stethoscope, titulo: "Todos os credenciamentos, num lugar só", descricao: "Cada linha é um médico numa operadora — o cruzamento que a operadora de fato analisa. Antes isso só existia dentro da ficha de cada cliente, um por vez; aqui você vê tudo junto, de todos os clientes." },
+  { icon: AlertTriangle, titulo: "O que travou aparece primeiro", descricao: "A tela abre ordenada pelo que está parado há mais tempo, e marca em amarelo o que passou de 60 dias sem andar. A faixa no topo mostra quantos são — clique nela para ver só esses. O prazo se ajusta em Ajustes → Dados da empresa." },
+  { icon: Filter, titulo: "Filtrar por cliente, operadora ou situação", descricao: "Os três filtros se combinam: “Omint” + “Em análise” mostra só o que está parado naquela operadora. “Só os parados” liga e desliga o recorte do que passou do prazo. “Limpar filtros” volta à lista inteira." },
+  { icon: ArrowRightLeft, titulo: "Atualizar sem sair da tela", descricao: "O botão “Atualizar” move o processo: protocolado, em análise, aprovado ou negado. Só aparecem os destinos permitidos — negado não volta a aprovado, e retentar é uma tentativa nova, feita na ficha do cliente." },
+  { icon: Wallet, titulo: "Aprovar é o que cria a cobrança", descricao: "Ao marcar APROVADO, o honorário nasce como conta a receber no Financeiro — não no aceite da proposta. Por isso o diálogo avisa o valor antes de salvar, e a linha passa a mostrar “conta criada”." },
+];
+
 const GUIA_SERVICOS: Passo[] = [
   { icon: Briefcase, titulo: "Catálogo de serviços", descricao: "Os serviços que a MedConsultoria oferece, com categoria e preço (valor fixo e/ou % do faturamento, avulso ou mensal). O lead escolhe no cadastro (site ou manual) e eles entram no card e no contrato." },
   { icon: SlidersHorizontal, titulo: "Configurar cada serviço", descricao: "No botão “Configurar”, um diálogo com três abas: Detalhes (preço, cláusulas de contrato), Exigências (o que o cliente precisa enviar) e Passos (as tarefas da venda por etapa)." },
@@ -298,6 +308,7 @@ const GUIA_SISTEMA: Passo[] = [
 const OUTRAS: { prefixo: string; guia: Guia }[] = [
   { prefixo: "/leads", guia: { titulo: "Vendas", passos: GUIA_FUNIL } },
   { prefixo: "/clientes", guia: { titulo: "Clientes", passos: GUIA_CLIENTES } },
+  { prefixo: "/credenciamentos", guia: { titulo: "Credenciamentos", passos: GUIA_CREDENCIAMENTOS } },
   { prefixo: "/servicos", guia: { titulo: "Serviços", passos: GUIA_SERVICOS } },
   { prefixo: "/modelos", guia: { titulo: "Modelos de documento", passos: GUIA_MODELOS } },
   { prefixo: "/projetos", guia: { titulo: "Projetos", passos: GUIA_PROJETOS } },

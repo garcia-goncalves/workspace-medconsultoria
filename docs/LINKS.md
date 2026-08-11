@@ -77,6 +77,21 @@ O `{token}` é gerado pela aplicação e vai no link enviado ao cliente — não
 
 ---
 
+## 3-B. 🩺 O Painel de Credenciamentos (`/credenciamentos`)
+
+| Clique aqui | O que é |
+| ----------- | ------- |
+| http://localhost:4310/credenciamentos | **Todos os credenciamentos, de todos os clientes, numa tela só.** Cada linha é um médico numa operadora. Abre mostrando o que está parado há mais tempo, e marca em amarelo o que passou de **60 dias** sem resposta. |
+
+**Para que serve, em uma frase:** responder "o que travou e eu preciso cobrar hoje?" sem abrir cliente por cliente.
+
+- **A faixa amarela no topo** diz quantos processos estão parados demais. Clicar nela mostra só esses.
+- **Os três filtros** (cliente, operadora, situação) funcionam juntos: "Omint" + "Em análise" mostra só o que está parado naquela operadora.
+- **O botão "Atualizar"** muda a situação sem sair da tela. Marcar **Aprovado** é o que **cria a cobrança** no Financeiro — o diálogo avisa o valor antes de você salvar.
+- **Mudar o prazo de 60 dias:** Ajustes → Dados da empresa → "Avisar quando parar por mais de (dias)".
+
+---
+
 ## 4-A. 📬 A página de e-mail (`/email`)
 
 | Clique aqui | O que é |

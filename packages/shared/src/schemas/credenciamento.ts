@@ -410,6 +410,92 @@ export function totalDaGrade(celulas: CelulaGrade[]): number {
   return celulas.reduce((soma, c) => soma + (c.valor || 0), 0);
 }
 
+// ── Painel de credenciamentos: o que travou ──────────────────────────────────
+
+/**
+ * A partir de quantos dias sem andar um credenciamento passa a pedir atenção.
+ *
+ * **60 dias veio da Thaís** (11/08/2026): "a partir de 60 dias precisamos ficar de olho".
+ * É o prazo real de resposta das operadoras com que ela convive, não um palpite de
+ * engenharia — o valor inicialmente sugerido era 30, e estava errado. Fica editável em
+ * Ajustes → Dados da empresa porque operadora muda de ritmo e ela não deve precisar
+ * pedir uma alteração de código para ajustar.
+ */
+export const PRAZO_ACOMPANHAMENTO_PADRAO_DIAS = 60;
+
+/** O que o cálculo de tempo parado precisa saber de uma linha — só datas e situação. */
+export type LinhaDoPainel = {
+  id: string;
+  status: StatusCredenciamento;
+  createdAt: Date;
+  protocoladoEm: Date | null;
+  emAnaliseEm: Date | null;
+  aprovadoEm: Date | null;
+  negadoEm: Date | null;
+  encerradoEm: Date | null;
+};
+
+const MS_POR_DIA = 24 * 60 * 60 * 1000;
+
+/**
+ * Há quantos dias este credenciamento está na situação em que está.
+ *
+ * Conta a partir do **carimbo da situação atual**, não da criação: um processo criado há
+ * cem dias e protocolado ontem está parado há um dia, e dizer "cem" faria a Thaís cobrar
+ * uma operadora que acabou de receber o papel.
+ *
+ * Volta para `createdAt` quando o carimbo não existe — é o caso normal de `A_PROTOCOLAR`
+ * (nada foi carimbado ainda) e o caso de dado antigo, anterior ao Bloco B, que pode ter
+ * situação sem a data correspondente. Nunca devolve negativo.
+ */
+export function diasNaSituacaoAtual(linha: LinhaDoPainel, agora: Date = new Date()): number {
+  const carimbo: Record<StatusCredenciamento, Date | null> = {
+    A_PROTOCOLAR: null,
+    PROTOCOLADO: linha.protocoladoEm,
+    EM_ANALISE: linha.emAnaliseEm,
+    APROVADO: linha.aprovadoEm,
+    NEGADO: linha.negadoEm,
+    ENCERRADO: linha.encerradoEm,
+  };
+  const desde = carimbo[linha.status] ?? linha.createdAt;
+  return Math.max(0, Math.floor((agora.getTime() - desde.getTime()) / MS_POR_DIA));
+}
+
+/**
+ * Este credenciamento passou do prazo e precisa de alguém?
+ *
+ * Só vale para o que ainda está em curso. Aprovado, negado e encerrado não esperam
+ * resposta de ninguém — marcá-los encheria a tela de alerta permanente, e alarme que toca
+ * sempre é alarme que ninguém mais olha.
+ *
+ * `A_PROTOCOLAR` entra de propósito: parado ali a culpa é **nossa**, não da operadora, e é
+ * o atraso mais barato de resolver.
+ */
+export function credenciamentoPrecisaDeAtencao(
+  status: StatusCredenciamento,
+  diasParados: number,
+  prazoDias: number,
+): boolean {
+  if (STATUS_CREDENCIAMENTO_FINAIS.includes(status)) return false;
+  return diasParados >= prazoDias;
+}
+
+/**
+ * A ordem em que o painel abre: o que precisa de atenção primeiro e, dentro de cada grupo,
+ * o que está parado há mais tempo. É a tradução da pergunta que a Thaís faz de manhã —
+ * "o que travou?" — em ordenação, para ela não precisar filtrar nada para começar o dia.
+ *
+ * Devolve um array novo; não mexe no que recebeu.
+ */
+export function ordenarPainelCredenciamentos<T extends { precisaAtencao: boolean; diasParados: number }>(
+  linhas: T[],
+): T[] {
+  return [...linhas].sort((a, b) => {
+    if (a.precisaAtencao !== b.precisaAtencao) return a.precisaAtencao ? -1 : 1;
+    return b.diasParados - a.diasParados;
+  });
+}
+
 // ── Numeração da proposta (§5.5) ─────────────────────────────────────────────
 
 /**

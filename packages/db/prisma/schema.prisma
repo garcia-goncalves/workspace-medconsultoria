@@ -363,6 +363,10 @@ model IdentidadeInstitucional {
   cnpj             String?
   enderecoCompleto String? @db.Text
   foro             String? @db.Text
+  /// A partir de quantos dias sem andar um credenciamento pede atenção no painel.
+  /// 60 é o prazo real das operadoras, dito pela Thaís em 11/08/2026. Editável porque
+  /// operadora muda de ritmo e ela não deve precisar de alteração de código para ajustar.
+  credenciamentoPrazoDias Int @default(60)
   atualizadoEm DateTime @updatedAt
 }
 
