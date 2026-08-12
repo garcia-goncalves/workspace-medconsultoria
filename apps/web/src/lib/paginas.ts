@@ -18,6 +18,7 @@ import {
   Settings,
   ServerCog,
   FileSignature,
+  Stethoscope,
 } from "lucide-react";
 import type { Role } from "@app/shared";
 
@@ -44,7 +45,13 @@ export type GrupoMenu = "Meu trabalho" | "Negócio" | "Comunicação" | "Configu
  * A ordem vai **de dentro para fora**: eu ("o que é meu hoje?" — Meu trabalho) → a empresa
  * ("como está o negócio?" — Negócio) → o que chega de fora ("alguém me chamou?" — Comunicação)
  * → o que se ajusta uma vez (Configuração). Início já é pessoal, então Meu trabalho é o que
- * continua a frase. Nenhum grupo passa de 4 itens — dá para varrer sem ler. Ver ADR-94.
+ * continua a frase. Ver ADR-94.
+ *
+ * O ADR-94 pedia no máximo 4 itens por grupo, para varrer sem ler. **Negócio passou a ter 5**
+ * em 11/08/2026, com o Painel de Credenciamentos: credenciamento é o principal serviço da
+ * casa e a Thaís abre isso todo dia — deixá-lo fora do menu, acessível só pelo Ctrl+K, seria
+ * cumprir a regra e falhar no motivo dela. O limite que continua sendo LEI (e testado, em
+ * `e2e/menu-sem-scroll.spec.ts`) é o menu não rolar: é ele que protege a varredura rápida.
  */
 export const GRUPOS_MENU: readonly (GrupoMenu | null)[] = [
   null,
@@ -73,6 +80,7 @@ export const PAGINAS: Pagina[] = [
   // ── Negócio: quem pode virar cliente, quem já é, o papel que formaliza, o que entra ──
   { label: "Vendas", icon: Filter, to: "/leads", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["funil", "leads", "oportunidades", "pipeline", "negocios"] },
   { label: "Clientes", icon: Users, to: "/clientes", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["contatos", "empresas"] },
+  { label: "Credenciamentos", icon: Stethoscope, to: "/credenciamentos", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["credenciamento", "operadoras", "medicos", "protocolado", "em analise", "aprovado", "negado", "parado", "atrasado", "convenios", "planos"] },
   { label: "Documentos", icon: FileText, to: "/documentos", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["propostas", "contratos", "atas", "recibos"] },
   { label: "Financeiro", icon: Wallet, to: "/financeiro", minRole: "ADMIN", grupo: "Negócio", keywords: ["contas", "pagar", "receber", "carteira", "dinheiro"] },
   // ── Comunicação: o que chega de fora (o e-mail é o canal do cliente; Mensagens é interno) ──

@@ -1516,3 +1516,31 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 **Também:** `observacoes` e `emAnaliseEm` eram gravados no banco e nenhuma tela lia — o diálogo de andamento ganhou o campo de anotação e o card passou a mostrar as duas coisas. A confirmação de remover um profissional agora diz que o credenciamento também é preservado, e não só os documentos.
 
 **Verificado:** 4 testes de integração novos (`credenciamento-grade-visibilidade`) que provam que nenhuma célula fica sem linha de médico para ser desenhada, e 3 de unidade da folha do documento (`tabela-sem-cabecalho`). Suíte: **338/338** unidade da API, **124/124** do web, **9/9** integração do credenciamento, **8/8** e2e (grade + Portal, banco isolado); `pnpm typecheck` limpo nos 6 pacotes; `pnpm lint` sem erro. Sem migração — nenhuma mudança de schema.
+
+---
+
+## ADR-106 — O Painel de Credenciamentos: a visão que tirava a Thaís da planilha ✅
+
+**Contexto:** os Blocos A, B e C entregaram o credenciamento por pessoa, com preço por cruzamento, documento fiel ao papel e cobrança no sucesso — e a ADR-105 costurou as telas. Faltava, ainda assim, a pergunta que ela faz **de manhã**: *o que travou?* O andamento só existia dentro da ficha de cada cliente, um por vez. Para saber o que estava parado, era abrir cliente por cliente e somar de cabeça — ou seja, manter a planilha paralela. Um sistema que obriga a planilha ao lado não substituiu o caos: virou mais um lugar para olhar.
+
+**Decisões:**
+
+1. **Uma tela transversal, `/credenciamentos`, no menu em Negócio.** Uma linha por cruzamento médico × operadora, de **todos** os clientes. O ADR-94 pedia no máximo 4 itens por grupo e Negócio passou a ter 5: credenciamento é o principal serviço da casa e é uso diário — deixá-lo fora do menu, só no Ctrl+K, seria cumprir a regra e falhar no motivo dela. O limite que continua sendo lei, e testado, é **o menu não rolar** (`e2e/menu-sem-scroll.spec.ts`, verde nos três tamanhos com o item novo).
+
+2. **A tela abre pelo que está travado, não pelo mais recente.** Ordenação: quem precisa de atenção primeiro e, dentro de cada grupo, o parado há mais tempo. É o contrário do padrão de quase toda listagem daqui, e é deliberado — a ordenação *é* a resposta à pergunta dela.
+
+3. **O prazo é 60 dias, e veio da Thaís.** A proposta inicial de engenharia era 30; ela corrigiu em 11/08/2026 ("a partir de 60 dias precisamos ficar de olho"). É o prazo real de resposta das operadoras. Fica **editável em Ajustes → Dados da empresa** (`IdentidadeInstitucional.credenciamentoPrazoDias`, migração `20260811204308`), porque operadora muda de ritmo e ela não deve precisar de alteração de código para ajustar.
+
+4. **O tempo conta a partir do carimbo da situação ATUAL, não da criação.** Um processo criado há cem dias e protocolado ontem está parado há um dia; dizer "cem" faria cobrar uma operadora que acabou de receber o papel. Sem carimbo (o caso normal de `A_PROTOCOLAR`, e o de dado anterior ao Bloco B), volta para `createdAt`. Nunca negativo.
+
+5. **`A_PROTOCOLAR` também conta como atraso — e é o mais barato de resolver**, porque a culpa ali é nossa, não da operadora. Já os estados finais (aprovado, negado, encerrado) **nunca** são marcados: eles não esperam ninguém, e alarme que toca sempre é alarme que ninguém mais olha. Pelo mesmo motivo, a coluna mostra a **data** do desfecho para quem terminou e "há N dias" só para quem corre: "parado há 3 dias" num aprovado seria mentir com uma palavra.
+
+6. **Mudar a situação pelo painel usa a MESMA `mudarStatusCredenciamento` da ficha.** O diálogo (`MudarStatusDialog`) foi exportado e passou a pedir o mínimo de que precisa, em vez de a célula inteira da grade. Um segundo caminho faria as travas de dinheiro — negado não vira aprovado, aprovar cria a conta a receber e falha junto se a conta falhar — viverem em dois lugares. Regra de dinheiro escrita duas vezes são dois relógios: nunca se sabe qual está certo.
+
+7. **Médico desativado continua na lista, marcado "fora da lista"** — a mesma decisão da ADR-105, aplicada de novo aqui: filtrar por `ativo: true` no painel apagaria exatamente quem foi desativado *para* preservar o processo e a cobrança que ele sustenta. Verificado na tela.
+
+8. **Os totais descrevem o que está na tela, não o banco.** Um resumo que ignora o filtro ativo faz somar peras com maçãs sem perceber.
+
+**Verificado:** 14 testes novos escritos **antes** da implementação (`credenciamento-painel.test.ts`: carimbo da situação atual, prazo configurável, estados finais nunca marcados, ordenação estável e sem mutar o array). Suíte: **352/352** unidade da API, **124/124** do web, **87/87** e2e em banco isolado, `pnpm typecheck --force` limpo nos 6 pacotes. Verificado também **pela tela**, com dados envelhecidos de propósito no banco local: o alerta acendeu em 2 linhas ("há 90 dias", "há 75 dias") na ordem certa, o filtro "só os parados" recortou para 2, aprovar pelo painel **criou a conta a receber** de R$ 2.500 no Financeiro (conferida no banco), e em 360px a página não rola de lado — a tabela rola dentro do próprio quadro.
+
+**Armadilha registrada:** `prisma migrate dev` reexecuta o seed, que recria as contas internas com `senhaTrocadaEm` nulo (ADR-91). O e2e então loga e cai na página obrigatória de definir senha, e o setup falha com "3 campos de senha". Não é defeito do código: é efeito de migrar em ambiente local. Destravar é marcar `senhaTrocadaEm` nas contas de equipe do banco de desenvolvimento. Em produção o deploy usa `migrate deploy`, que **não** roda seed.

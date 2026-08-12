@@ -16,6 +16,7 @@ import { JaConectadoPage } from "../features/auth/JaConectadoPage";
 
 // Páginas carregadas sob demanda (um chunk por rota) — só o Dashboard (landing) é eager.
 const ClientesListPage = lazyRouteComponent(() => import("../features/crm/clientes/ClientesListPage"), "ClientesListPage");
+const CredenciamentosPage = lazyRouteComponent(() => import("../features/credenciamentos/CredenciamentosPage"), "CredenciamentosPage");
 const ClienteDetailPage = lazyRouteComponent(() => import("../features/crm/clientes/ClienteDetailPage"), "ClienteDetailPage");
 const LeadsPipelinePage = lazyRouteComponent(() => import("../features/crm/leads/LeadsPipelinePage"), "LeadsPipelinePage");
 const ProjetosListPage = lazyRouteComponent(() => import("../features/projetos/ProjetosListPage"), "ProjetosListPage");
@@ -64,6 +65,12 @@ const clientesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/clientes",
   component: ClientesListPage,
+});
+
+const credenciamentosRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/credenciamentos",
+  component: CredenciamentosPage,
 });
 
 const clienteDetailRoute = createRoute({
@@ -250,6 +257,7 @@ const routeTree = rootRoute.addChildren([
   projetoDetailRoute,
   clientesRoute,
   clienteDetailRoute,
+  credenciamentosRoute,
   configuracoesRoute,
   usuariosRoute,
   emailsRoute,
