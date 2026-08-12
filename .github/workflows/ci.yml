@@ -36,6 +36,17 @@ jobs:
           node-version: "20.19.2"
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
+      # Portão de segurança de dependências (ADR-107). `--prod` olha SÓ o que é empacotado e
+      # enviado ao servidor; ferramenta de desenvolvimento não vai ao ar e não deve reprovar PR.
+      # O primeiro passo mostra tudo (inclusive moderadas) sem reprovar; o segundo é o portão.
+      # O corte é `high` de propósito: CVE novo aparece toda semana, e portão que reprova em
+      # qualquer gravidade vira portão que alguém desliga. Reprovar no que é grave é o que se
+      # cumpre. Antes disto, a limpeza de 12/08/2026 (34 avisos → 0) envelhecia em silêncio.
+      - name: Auditoria das dependências que vão ao servidor (informativo)
+        continue-on-error: true
+        run: pnpm audit --prod
+      - name: Portão — nenhuma falha ALTA ou CRÍTICA no que é empacotado
+        run: pnpm audit --prod --audit-level high
       - run: pnpm --filter @app/db exec prisma generate
       - name: Migrar bancos (dev + isolado _test)
         run: |
