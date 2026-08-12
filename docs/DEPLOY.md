@@ -89,6 +89,27 @@ O script `deploy.sh` faz tudo: build + bundle auto-contido + **snapshot de rollb
 ./deploy.sh
 ```
 
+> ### ⛔ NUNCA rode dois `./deploy.sh` ao mesmo tempo (12/08/2026)
+>
+> O deploy passa de 2 minutos e **parece travado** — foi o que levou a colar o comando duas
+> vezes. **Os dois falharam, sem nenhum defeito no código.** Eles se sabotam em três pontos:
+> escrevem no **mesmo `/tmp/boot-teste.log`** do servidor, sobem `node app.cjs` na **mesma
+> porta**, e rodam `prisma generate` sobre os **mesmos `node_modules`** (o segundo travou o
+> Node ali). Uma execução limpa depois passou de primeira: `boot OK (16 portas ouvindo)`,
+> restart, smoke `{"status":"ok"}`.
+>
+> **Como reconhecer o sintoma:** ensaio de boot reportando `0` com `--- erros ---` e **nada
+> embaixo**. Lista de erros vazia = evidência apagada por concorrência, **não** app quebrado.
+> Antes de culpar o código, confirme que só há um deploy rodando.
+>
+> **Qual snapshot restaurar, se precisar voltar:** o **PRIMEIRO** da rodada. Do segundo deploy
+> em diante o snapshot já foi tirado *depois* de outro ter sobrescrito arquivos — restaurá-lo
+> devolve um estado misturado.
+>
+> **Por que resolver no mesmo dia:** o passo 3 grava os arquivos novos **antes** do ensaio. Se
+> o ensaio reprova, a produção segue no ar porque **não reinicia** — mas o disco já tem a
+> versão nova, e o healthcheck automático (a cada 5 min) reiniciaria com ela.
+
 O que ele executa:
 1. `pnpm build:deploy` → gera `apps/api/dist/` com **`server.js` + `public/` (o SPA) + `prisma/` + `package.json` de produção**.
 2. **Snapshot** do release atual em `~/backups/release-pre-<TS>.tar.gz` — é o rollback.

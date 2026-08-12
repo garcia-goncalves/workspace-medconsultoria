@@ -68,7 +68,7 @@ Leia nesta ordem — a documentação é a fonte da verdade, e é mantida atuali
 2. **[`docs/CLAUDE.md`](docs/CLAUDE.md)** — visão geral, papéis (RBAC), regras de negócio.
 3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) → [`docs/DATABASE.md`](docs/DATABASE.md) →
    [`docs/UI_GUIDELINES.md`](docs/UI_GUIDELINES.md) → [`docs/ROADMAP.md`](docs/ROADMAP.md).
-4. **[`docs/DECISIONS.md`](docs/DECISIONS.md)** — o **porquê** de cada escolha (ADR-1 … ADR-98).
+4. **[`docs/DECISIONS.md`](docs/DECISIONS.md)** — o **porquê** de cada escolha (ADR-1 … ADR-107).
 5. [`docs/DEPLOY.md`](docs/DEPLOY.md) — como sobe para produção.
 
 `CLAUDE.md` (raiz) é o retrato curto do estado atual, carregado por quem trabalha com assistente
@@ -80,3 +80,17 @@ Fluxo: branch → commit → PR → CI verde → merge. Commits em `tipo(escopo)
 português explicando o **porquê**. Toda regra de negócio, cálculo, validação e correção de bug
 nasce com teste. Ao mudar uma decisão, registre em `docs/DECISIONS.md` e atualize a documentação
 que ficou desatualizada na mesma leva.
+
+**A CI reprova por dependência vulnerável** (ADR-107). O job `build-test` roda
+`pnpm audit --prod --audit-level high`: se uma biblioteca **que é empacotada e vai ao servidor**
+tiver falha alta ou crítica, o PR fica vermelho. Ferramenta de desenvolvimento não conta (`--prod`),
+e falhas moderadas/baixas aparecem num passo informativo sem bloquear. Para reproduzir localmente:
+
+```bash
+pnpm audit --prod                      # o relatório completo
+pnpm audit --prod --audit-level high   # exatamente o que o portão executa
+```
+
+Transitiva só se corrige por `pnpm.overrides` no `package.json` da **raiz** — e **escopada por
+major** (`"brace-expansion@5": "^5.0.9"`), nunca solta: há bibliotecas com várias versões maiores
+convivendo, e forçar a versão nova sobre quem pede a antiga quebra por consertar.
