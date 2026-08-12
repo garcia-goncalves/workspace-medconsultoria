@@ -13,7 +13,13 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-11)
+## Estado atual (2026-08-12)
+
+- **Dependências de produção sem falha conhecida (ADR-107):** `pnpm audit --prod` saiu de **34 avisos (10 graves) para 0**. Eram 8 bibliotecas, não 34: `dompurify` 3.2.3→3.4.13 (o filtro anti-XSS da folha A4 — usamos o modo simples, então a maioria dos avisos não nos alcançava, mas subiu igual), `@fastify/static` 8→10.1.2, e 6 transitivas fechadas por **`pnpm.overrides` na raiz**. **`brace-expansion` está travado como `brace-expansion@5`** de propósito: convivem 3 versões maiores e só a 5 tem o defeito — override sem escopo quebraria as outras duas. **As 42 vulnerabilidades restantes do aviso do GitHub são de ferramenta de desenvolvimento e não vão ao ar.** Não há portão de CI para isso: a próxima varredura é manual.
+- **Armadilha nova (Windows):** `pnpm install` morre com `ERR_PNPM_ENOENT ... @vitejs/plugin-react_tmp_NNNN` quando um override mexe em dependência do Vite. Pausar a app não resolve; o que resolve é `rm -rf node_modules/@vitejs` e instalar de novo.
+- **Teste instável conhecido:** `flows-financeiro.spec.ts` ("marcar paga, filtrar e excluir") falha esporadicamente na suíte cheia e passa 10/10 sozinho. É instabilidade do teste, não defeito.
+
+## Estado anterior (2026-08-11)
 
 - **Painel de Credenciamentos (ADR-106) — a tela `/credenciamentos`**, no menu em Negócio: uma linha por cruzamento médico × operadora de **todos** os clientes, que responde a pergunta da Thaís de manhã — *o que travou?*. Antes o andamento só existia dentro da ficha de cada cliente, um por vez, e ela mantinha planilha paralela. A tela **abre pelo que está parado há mais tempo** (o contrário do padrão daqui, de propósito), marca em amarelo o que passou de **60 dias** sem andar — número dado pela Thaís, editável em **Ajustes → Dados da empresa** (migração `20260811204308`) —, filtra por cliente/operadora/situação combinados, e deixa mudar a situação sem sair da tela **reusando a mesma função da ficha**, para as travas de dinheiro não viverem em dois lugares. `A_PROTOCOLAR` também conta como atraso (a culpa ali é nossa); estado final nunca é marcado e mostra a **data** do desfecho, não "parado há N dias". Médico desativado continua na lista, marcado "fora da lista" (mesma decisão da ADR-105). Verificado na tela: alerta acendeu em 2 linhas na ordem certa e aprovar pelo painel criou a conta a receber de R$ 2.500 no Financeiro.
 - **Armadilha nova:** `prisma migrate dev` **reexecuta o seed** e recria as contas internas com `senhaTrocadaEm` nulo (ADR-91) — o e2e passa a falhar no setup com "3 campos de senha", porque cai na página obrigatória de definir senha. Destrave marcando `senhaTrocadaEm` nas contas de equipe do banco **de desenvolvimento**. Produção usa `migrate deploy`, que não roda seed.
@@ -51,7 +57,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-105). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-107). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

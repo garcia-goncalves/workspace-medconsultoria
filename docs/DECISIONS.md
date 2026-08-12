@@ -1544,3 +1544,29 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 **Verificado:** 14 testes novos escritos **antes** da implementação (`credenciamento-painel.test.ts`: carimbo da situação atual, prazo configurável, estados finais nunca marcados, ordenação estável e sem mutar o array). Suíte: **352/352** unidade da API, **124/124** do web, **87/87** e2e em banco isolado, `pnpm typecheck --force` limpo nos 6 pacotes. Verificado também **pela tela**, com dados envelhecidos de propósito no banco local: o alerta acendeu em 2 linhas ("há 90 dias", "há 75 dias") na ordem certa, o filtro "só os parados" recortou para 2, aprovar pelo painel **criou a conta a receber** de R$ 2.500 no Financeiro (conferida no banco), e em 360px a página não rola de lado — a tabela rola dentro do próprio quadro.
 
 **Armadilha registrada:** `prisma migrate dev` reexecuta o seed, que recria as contas internas com `senhaTrocadaEm` nulo (ADR-91). O e2e então loga e cai na página obrigatória de definir senha, e o setup falha com "3 campos de senha". Não é defeito do código: é efeito de migrar em ambiente local. Destravar é marcar `senhaTrocadaEm` nas contas de equipe do banco de desenvolvimento. Em produção o deploy usa `migrate deploy`, que **não** roda seed.
+
+---
+
+## ADR-107 — As 34 falhas de dependência que chegavam ao servidor ✅
+
+**Data:** 2026-08-12 · **Contexto:** o aviso do GitHub apontava 76 vulnerabilidades no repositório. `pnpm audit --prod` — que olha só o que é **empacotado e enviado ao servidor** — mostrou **34**, sendo **10 graves**. As outras 42 são ferramentas de desenvolvimento e não vão ao ar; corrigi-las teria custo e nenhum ganho de segurança em produção.
+
+**Decisões:**
+
+1. **34 avisos eram 8 bibliotecas.** O número assusta porque cada biblioteca acumula um aviso por CVE. O trabalho real foi: `dompurify` (17 avisos), `@fastify/static` (4), `postcss` (2), `fast-uri` (2), `brace-expansion` (2), `nanoid` (2), `find-my-way` (1), `socket.io-parser` (1). Contar pacotes, não avisos, é o que dimensiona a tarefa honestamente.
+
+2. **O `dompurify` era o mais assustador e o menos exposto — e foi atualizado assim mesmo.** Ele é o filtro que barra HTML malicioso no `renderMarkdown` da folha A4, e o Portal recebe texto de cliente. Mas `sanitize()` (`DocumentoBranded.tsx`) o usa no **modo mais simples**: só `FORBID_TAGS`/`FORBID_ATTR`, sem `IN_PLACE`, sem ganchos, sem `ADD_TAGS`, sem `CUSTOM_ELEMENT_HANDLING`, sem `SAFE_FOR_TEMPLATES` — que é o alvo de 13 dos 17 avisos. Os que **sim** nos alcançavam eram os genéricos de mutation-XSS. 3.2.3 → **3.4.13**. Registrar isto importa: se um dia alguém ligar `IN_PLACE` ou um gancho, a conta de risco muda, e a razão desta análise deixa de valer.
+
+3. **Transitivas foram fechadas por `pnpm.overrides` na raiz, não esperando os pacotes-pai.** `fast-uri`, `find-my-way`, `nanoid`, `postcss`, `socket.io-parser` e `brace-expansion` entram por dentro do Fastify e do Vite; aguardar o release de cada pai deixaria a falha viva por semanas.
+
+4. **`brace-expansion` foi travado como `brace-expansion@5`, não solto.** Convivem três versões maiores na árvore (1.1.16, 2.1.2, 5.0.7) e **só a 5 tem o defeito**. Um override sem escopo forçaria a 5 sobre quem pede a 1 ou a 2 e quebraria por consertar. Escopo por major é a diferença entre corrigir e derrubar.
+
+5. **`@fastify/static` pulou duas versões maiores (8 → 10.1.2), e isso foi verificado, não presumido.** A v10 depende de `fastify-plugin ^6`, compatível com o Fastify 5 que já rodamos — nenhum bump de servidor foi necessário. Nosso uso é mínimo (`{ root, wildcard: false }` + `reply.sendFile` no fallback da SPA), e é justamente essa rota que os 87 testes de ponta a ponta exercitam a cada tela aberta.
+
+**Verificado:** `pnpm audit --prod` de **34 avisos (10 graves) para 0**. Suíte completa depois da troca: **352/352** unidade da API, **124/124** do web (inclusive os **12 testes de XSS** que exercitam o DOMPurify trocado), **87/87** e2e em banco isolado, `pnpm typecheck` 6/6, `pnpm build` 2/2.
+
+**O que ficou de fora, de propósito:** as 42 vulnerabilidades de ferramenta de desenvolvimento (não são empacotadas, não chegam ao servidor). E **não** foi criado portão de CI para `pnpm audit --prod` — sem ele, esta correção envelhece em silêncio até a próxima varredura manual.
+
+**Armadilhas registradas:**
+- **A instalação falha no Windows com `ERR_PNPM_ENOENT ... plugin-react_tmp_NNNN`** quando o override mexe numa dependência do Vite e a pasta do pacote fica meio-desmontada. Pausar a app **não** basta. O que destrava: `rm -rf node_modules/@vitejs` e `pnpm install` de novo.
+- **`flows-financeiro.spec.ts` ("marcar paga, filtrar e excluir") é instável na suíte cheia** e passa 10/10 sozinho. Falhou uma vez, passou nas duas rodadas seguintes — instabilidade do teste, não defeito do código. Se voltar a falhar, é ali que se deve olhar antes de culpar a mudança.
