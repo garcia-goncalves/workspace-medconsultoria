@@ -1565,7 +1565,9 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 
 **Verificado:** `pnpm audit --prod` de **34 avisos (10 graves) para 0**. Suíte completa depois da troca: **352/352** unidade da API, **124/124** do web (inclusive os **12 testes de XSS** que exercitam o DOMPurify trocado), **87/87** e2e em banco isolado, `pnpm typecheck` 6/6, `pnpm build` 2/2.
 
-**O que ficou de fora, de propósito:** as 42 vulnerabilidades de ferramenta de desenvolvimento (não são empacotadas, não chegam ao servidor). E **não** foi criado portão de CI para `pnpm audit --prod` — sem ele, esta correção envelhece em silêncio até a próxima varredura manual.
+6. **A CI passou a reprovar falha ALTA ou CRÍTICA no que é empacotado** (`ci.yml`, job `build-test`, logo após o `install`). São dois passos: um informativo, que mostra tudo inclusive as moderadas sem reprovar, e o portão, `pnpm audit --prod --audit-level high`. **O corte é `high` de propósito.** CVE novo aparece toda semana; portão que reprova em qualquer gravidade transforma PR alheio em refém e, em duas semanas, alguém o desliga. Portão que reprova no que é grave é portão que se cumpre. `--prod` mantém ferramenta de desenvolvimento fora da conta — ela não vai ao ar, e reprovar por ela ensinaria a ignorar o alarme.
+
+**O que ficou de fora, de propósito:** as 42 vulnerabilidades de ferramenta de desenvolvimento (não são empacotadas, não chegam ao servidor). E as **moderadas/baixas em produção não reprovam** — aparecem no passo informativo e dependem de alguém ler.
 
 **Armadilhas registradas:**
 - **A instalação falha no Windows com `ERR_PNPM_ENOENT ... plugin-react_tmp_NNNN`** quando o override mexe numa dependência do Vite e a pasta do pacote fica meio-desmontada. Pausar a app **não** basta. O que destrava: `rm -rf node_modules/@vitejs` e `pnpm install` de novo.
