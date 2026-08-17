@@ -62,30 +62,69 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build:deploy
 
-      - name: 2/7 · Preparar o acesso ao servidor
+      # QUINTA CICATRIZ (17/08/2026, primeira publicação por aqui): os passos 2 e 3 conectaram
+      # e o 4 morreu com "connect to host ... port 1992: Connection timed out" — sem sequer
+      # abrir a porta. A hospedagem **corta conexões SSH repetidas** vindas de um IP
+      # desconhecido, e o runner do GitHub é sempre um IP novo. Uma conexão por passo (o que o
+      # deploy.sh fazia, e que no laptop nunca incomodou porque o IP era sempre o mesmo)
+      # esbarra nisso na terceira ou quarta.
+      #
+      # A saída NÃO é voltar a encadear com `&&` — a terceira cicatriz continua valendo: o
+      # `prisma generate` derruba a cadeia e o deploy mente que concluiu. A saída é
+      # **multiplexação**: uma ÚNICA conexão TCP (`ControlMaster`), reaproveitada por várias
+      # sessões independentes. Cada comando segue no seu próprio `ssh`, com o próprio código
+      # de saída; o que deixa de se repetir é o aperto de mão na porta.
+      - name: 2/7 · Abrir UMA conexão com o servidor e mantê-la
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          echo "chave instalada e host conhecido"
+
+          # O apelido `deploy` carrega host, usuário, porta e chave — os passos seguintes
+          # dizem só `ssh deploy`, e o segredo não precisa ser reexportado em cada um.
+          cat > ~/.ssh/config <<CFG
+          Host deploy
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            Port $DEPLOY_SSH_PORT
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ControlMaster auto
+            ControlPath ~/.ssh/cm-%r@%h:%p
+            ControlPersist 15m
+            ServerAliveInterval 30
+            ServerAliveCountMax 6
+            ConnectTimeout 30
+          CFG
+          chmod 600 ~/.ssh/config
+
+          # Abre o mestre com paciência: se a hospedagem estiver punindo o IP, esperar é o
+          # que resolve — insistir rápido é o que prolonga o castigo.
+          for TENTATIVA in 1 2 3 4; do
+            if ssh -o LogLevel=ERROR -N -f deploy 2>/tmp/ssh-erro; then
+              echo "conexão aberta na tentativa $TENTATIVA"
+              break
+            fi
+            echo "tentativa $TENTATIVA falhou: $(cat /tmp/ssh-erro)"
+            [ "$TENTATIVA" = "4" ] && { echo "!! não consegui abrir a conexão com o servidor"; exit 1; }
+            sleep $((TENTATIVA * 30))
+          done
+          ssh -O check deploy
 
       - name: 3/7 · Snapshot do release atual (é o rollback)
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -euo pipefail
           # Um carimbo só, calculado UMA vez: o nome do snapshot precisa bater com o que o
           # ensaio de boot mostra no rollback. Dois `date` dariam segundos diferentes.
           CARIMBO="$(date +%Y%m%d-%H%M%S)"
           echo "CARIMBO=$CARIMBO" >> "$GITHUB_ENV"
-          ssh -p "$DEPLOY_SSH_PORT" -i ~/.ssh/deploy_key -o LogLevel=ERROR \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
+          ssh -o LogLevel=ERROR deploy \
             "mkdir -p ~/backups && cd '$DEPLOY_PATH' && \
              tar -czf ~/backups/release-pre-${CARIMBO}.tar.gz --exclude=node_modules . && \
              ls -lh ~/backups/release-pre-${CARIMBO}.tar.gz | awk '{print \$5, \$9}'"
@@ -94,29 +133,18 @@ jobs:
       # não vem no artefato — e é ele que faz o LiteSpeed servir o site. O tar sobrepõe sem
       # apagar. O preço é acumular chunk antigo no destino: ocupa disco, não atrapalha.
       - name: 4/7 · Enviar o artefato
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -euo pipefail
           tar -czf - -C apps/api/dist . | \
-            ssh -p "$DEPLOY_SSH_PORT" -i ~/.ssh/deploy_key -o LogLevel=ERROR \
-              "$DEPLOY_USER@$DEPLOY_HOST" \
-              "cd '$DEPLOY_PATH' && tar -xzf - && echo 'artefato extraído'"
+            ssh -o LogLevel=ERROR deploy "cd '$DEPLOY_PATH' && tar -xzf - && echo 'artefato extraído'"
 
-      # Cada passo numa CONEXÃO SSH PRÓPRIA. Encadeados com `&&`, o `prisma generate` derruba
-      # o resto da cadeia: o deploy termina dizendo "concluído" e a aplicação segue rodando o
-      # código ANTIGO, sem nunca ter reiniciado.
+      # Cada comando numa SESSÃO SSH PRÓPRIA (pela conexão única do passo 2). Encadeados com
+      # `&&`, o `prisma generate` derruba o resto da cadeia: o deploy termina dizendo
+      # "concluído" e a aplicação segue rodando o código ANTIGO, sem nunca ter reiniciado.
       - name: 5/7 · Dependências, Prisma Client e migrations
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -euo pipefail
-          remoto() {
-            ssh -p "$DEPLOY_SSH_PORT" -i ~/.ssh/deploy_key -o LogLevel=ERROR \
-              "$DEPLOY_USER@$DEPLOY_HOST" "$@"
-          }
+          remoto() { ssh -o LogLevel=ERROR deploy "$@"; }
           remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && npm install --omit=dev 2>&1 | tail -3"
           remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && npm run prisma:generate 2>&1 | tail -2"
           remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && npm run prisma:deploy 2>&1 | tail -3"
@@ -129,13 +157,9 @@ jobs:
       # boot PERFEITO (SIGPIPE do `head`, e `grep` que sai 1 quando não acha erro nenhum).
       # A saída vai inteira para uma variável e só então é avaliada.
       - name: 6/7 · Ensaio de boot (a produção ainda está no ar na versão anterior)
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -uo pipefail
-          ENSAIO="$(ssh -p "$DEPLOY_SSH_PORT" -i ~/.ssh/deploy_key -o LogLevel=ERROR \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
+          ENSAIO="$(ssh -o LogLevel=ERROR deploy \
             "cd '$DEPLOY_PATH' && source $NODE_VENV && timeout 25 node app.cjs > /tmp/boot-teste.log 2>&1; \
              grep -c 'Server listening' /tmp/boot-teste.log; echo '--- erros ---'; \
              { grep -iE 'error|invalid' /tmp/boot-teste.log | head -5; } || true" || true)"
@@ -150,13 +174,9 @@ jobs:
           fi
 
       - name: 7/7 · Reiniciar e provar que reiniciou
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -euo pipefail
-          ssh -p "$DEPLOY_SSH_PORT" -i ~/.ssh/deploy_key -o LogLevel=ERROR \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
+          ssh -o LogLevel=ERROR deploy \
             "cd '$DEPLOY_PATH' && mkdir -p tmp && touch tmp/restart.txt && \
              date -r tmp/restart.txt '+restart.txt marcado em %Y-%m-%d %H:%M:%S'"
 
@@ -178,6 +198,8 @@ jobs:
           done
           echo "NO AR: $DOMINIO"
 
-      - name: Limpar a chave do runner
+      - name: Fechar a conexão e limpar a chave do runner
         if: always()
-        run: rm -f ~/.ssh/deploy_key
+        run: |
+          ssh -O exit deploy 2>/dev/null || true
+          rm -f ~/.ssh/deploy_key ~/.ssh/config
