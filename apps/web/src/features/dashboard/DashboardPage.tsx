@@ -131,6 +131,23 @@ export function acaoLabel(acao: string): string {
   return `registrou: ${acao.replace(/[._]/g, " ")}`;
 }
 
+/**
+ * Quem aparece como autor da linha. Nem toda atividade tem gente atrás: o projeto se
+ * conclui e se reabre sozinho quando o último cartão fecha (`reconciliarStatusProjeto`),
+ * e o funil avança sozinho. Isso saía como "Alguém concluiu um projeto" — o dono ficava
+ * procurando quem tinha mexido, e não havia ninguém. Quando o servidor marca o evento
+ * como automático, a linha diz **Automação**; "Alguém" fica só para o caso genuinamente
+ * desconhecido, que é o que a palavra quer dizer.
+ */
+export function atorDaAtividade(a: { acao: string; usuario?: string | null; auto?: boolean }): {
+  nome: string;
+  automatico: boolean;
+} {
+  const automatico = a.auto === true || a.acao.startsWith("lead.auto");
+  if (automatico) return { nome: "Automação", automatico: true };
+  return { nome: a.usuario ?? "Alguém", automatico: false };
+}
+
 const startOfToday = () => {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -938,8 +955,7 @@ export function DashboardPage() {
         ) : (
           <div className="divide-y divide-border/60">
             {g.atividadeRecente.map((a) => {
-              const auto = a.acao.startsWith("lead.auto");
-              const ator = auto ? "Automação" : a.usuario ?? "Alguém";
+              const { nome: ator, automatico: auto } = atorDaAtividade(a);
               return (
                 <div key={a.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
                   <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white", auto ? "bg-primary/80" : "bg-gradient-to-br from-brand-blueLight to-primary")}>

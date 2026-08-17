@@ -13,7 +13,13 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-12)
+## Estado atual (2026-08-17)
+
+- **A conversão do lead não cobra mais credenciamento antes da hora (ADR-108).** Achado percorrendo o fluxo pela tela: lead cujo único serviço era **Credenciamento médico e odontológico** virava cliente **já com conta a receber** no card Financeiro da ficha — e seria cobrado **de novo** quando a operadora aprovasse. O laço da soma pulava o credenciamento; o **fallback da estimativa do funil** não olhava os serviços e provisionava mesmo assim. A regra virou função pura testável (`planejarProvisaoDaConversao`), e no caso **misturado** a observação da conta agora diz em português que o credenciamento não está naquele valor. Provado na tela: R$ 12.000,00 de estimativa → **"Nenhuma conta vinculada."**.
+- **"Alguém concluiu um projeto" agora é "Automação" (ADR-109).** O projeto se conclui e se reabre sozinho quando o último cartão fecha; o histórico grava sem usuário, e o Início inventava uma pessoa. O servidor passa a devolver `auto`, e "Alguém" voltou a valer só para autor genuinamente desconhecido.
+- **Botão "Ligar" do painel do lead volta a discar (ADR-110):** o `tel:` saía com máscara (`tel:(11) 98765-4321`) e o discador engasgava; agora usa os mesmos dígitos do WhatsApp.
+
+## Estado anterior (2026-08-12)
 
 - **Dependências de produção sem falha conhecida (ADR-107):** `pnpm audit --prod` saiu de **34 avisos (10 graves) para 0**. Eram 8 bibliotecas, não 34: `dompurify` 3.2.3→3.4.13 (o filtro anti-XSS da folha A4 — usamos o modo simples, então a maioria dos avisos não nos alcançava, mas subiu igual), `@fastify/static` 8→10.1.2, e 6 transitivas fechadas por **`pnpm.overrides` na raiz**. **`brace-expansion` está travado como `brace-expansion@5`** de propósito: convivem 3 versões maiores e só a 5 tem o defeito — override sem escopo quebraria as outras duas. **As 42 vulnerabilidades restantes do aviso do GitHub são de ferramenta de desenvolvimento e não vão ao ar.** **A CI agora reprova sozinha** falha ALTA ou CRÍTICA no que é empacotado (`pnpm audit --prod --audit-level high` no job `build-test`); moderadas e baixas aparecem num passo informativo e não reprovam — o corte é `high` para o portão não virar refém de CVE novo e acabar desligado.
 - **NO AR desde 12/08/2026 às 14:06** (ADR-107 + portão de CI publicados; ensaio de boot OK com 16 portas, smoke `{"status":"ok"}`, `/` e `/credenciamentos` respondendo 200 conferidos de fora).
@@ -59,7 +65,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-107). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-110). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

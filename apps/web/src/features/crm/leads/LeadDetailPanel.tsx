@@ -175,7 +175,9 @@ export function LeadDetailPanel({
                     )}
                     {d.telefone && (
                       <a
-                        href={`tel:${d.telefone}`}
+                        // Só dígitos: `tel:(11) 98765-4321` faz discador de celular e de
+                        // softphone engasgar com os parênteses e o espaço.
+                        href={`tel:+${telDigits.startsWith("55") ? telDigits : `55${telDigits}`}`}
                         className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent"
                       >
                         <Phone className="h-4 w-4 text-muted-foreground" /> Ligar
