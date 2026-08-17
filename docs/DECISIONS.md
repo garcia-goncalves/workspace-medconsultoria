@@ -1663,3 +1663,31 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 **Verificado:** `pnpm audit --prod --audit-level high` → **"No known vulnerabilities found"**. `deepmerge-ts 8.0.1`, versão única na árvore. Depois da troca: **363/363** unidade da API (3 novos), 129/129 web, `pnpm typecheck` 6/6, `pnpm build` 2/2.
 
 **O que isto ensina sobre o portão:** ele reprovou um PR que não tinha nada a ver com o problema. Isso é ruído — e é o preço certo. A alternativa (descobrir a falha quando alguém for olhar o painel do GitHub) foi exatamente o que produziu as 34 vulnerabilidades da ADR-107.
+
+---
+
+## ADR-113 — A primeira publicação pelo GitHub revelou dois defeitos que o laptop escondia ✅
+
+**Data:** 2026-08-17 · **Contexto:** com os três segredos postos, o workflow da ADR-111 rodou pela primeira vez. Falhou duas vezes antes de passar — e **as duas falhas eram defeitos reais que existiam havia meses**, escondidos porque o deploy sempre saía da mesma máquina. Nenhuma delas tocou a produção: as duas morreram antes do passo 7, o único que reinicia.
+
+### Falha 1 — o `esbuild` que ninguém declarou (passo 1, build)
+
+`ERR_MODULE_NOT_FOUND: 'esbuild' imported from scripts/bundle-deploy.mjs`. O script sempre importou `esbuild`; a raiz nunca o declarou. No laptop funcionava porque **alguma dependência do Vite deixava uma cópia solta na raiz do `node_modules`**. Num ambiente limpo o pacote não existe.
+
+O detalhe que dói: convivem **quatro** versões de esbuild na árvore (0.21.5, 0.25.12, 0.27.7, 0.28.1). Sem declaração, **qual delas montava o artefato que vai para produção era sorte da ordem de instalação** — e podia mudar de um `pnpm install` para o outro sem ninguém perceber. Fixado em **0.27.7**, a que a raiz vinha usando de fato e a que gerou os deploys bons até aqui.
+
+### Falha 2 — a hospedagem corta conexões SSH repetidas (passo 4, envio)
+
+Passos 2 e 3 conectaram e o snapshot de rollback foi criado no servidor; o passo 4 morreu com `connect to host ... port 1992: Connection timed out` — **sem sequer abrir a porta**. A TineHost corta conexões SSH repetidas vindas de um IP desconhecido, e o runner do GitHub é sempre um IP novo. Uma conexão por passo — o que o `deploy.sh` sempre fez, e que no laptop nunca incomodou porque o IP era o de ontem — esbarra nisso na terceira ou quarta.
+
+**A saída não foi voltar a encadear com `&&`:** a terceira cicatriz continua valendo (o `prisma generate` derruba a cadeia e o deploy mente que concluiu). A saída foi **multiplexação** — `ControlMaster` abre **uma** conexão TCP no passo 2 e todos os passos seguintes a reaproveitam. Cada comando segue na própria **sessão**, com o próprio código de saída; o que deixa de se repetir é o aperto de mão na porta. A abertura tem 4 tentativas com espera crescente (30s, 60s, 90s): se a hospedagem está punindo o IP, **esperar** é o que resolve e insistir rápido é o que prolonga o castigo.
+
+Junto veio um ganho de segurança: um apelido `deploy` na configuração de SSH do runner carrega host, usuário, porta e chave, e **só o passo 2 encosta nos segredos** — os outros seis diziam `${{ secrets.* }}` sem precisar.
+
+### O que isto ensina
+
+**Tirar o deploy do laptop pagou-se na primeira execução.** Os dois defeitos eram reais e antigos; o `deploy.sh` "funcionava" havia meses apoiado em dois acidentes da máquina de uma pessoa só — uma cópia de pacote que por sorte estava lá, e um IP que o servidor já conhecia. Ambiente limpo não é burocracia: é o que transforma sorte em erro visível.
+
+**Verificado — a publicação passou e foi conferida de fora, não pelo relatório do workflow:** `No pending migrations to apply` · ensaio de boot **16 portas ouvindo** · `restart.txt marcado em 2026-08-17 17:52:33` · `/health` → `{"status":"ok"}` · `/`, `/credenciamentos` e `/comecar` → **200**, medidos por `curl` daqui. Na tela: página de login renderiza **sem a faixa "AMBIENTE LOCAL"** (a prova de que o pacote publicado é o de produção) e **zero erros de console**.
+
+**No ar desde 17/08/2026 às 17:52** — ADR-108, ADR-109, ADR-110 e ADR-112 publicados.

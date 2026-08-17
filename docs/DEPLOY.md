@@ -47,6 +47,13 @@ gh secret set DEPLOY_SSH_KEY < caminho/da/chave/privada
 A chave privada é a mesma que já funcionava (`~/.ssh/medconsultoria_deploy`). O caminho do
 app e a porta 1992 **não** são segredo e ficam escritos no próprio workflow.
 
+### Duas armadilhas que a primeira publicação revelou (ADR-113)
+
+As duas existiam havia meses e só apareceram num ambiente limpo. Se voltarem, é aqui que se olha:
+
+1. **`ERR_MODULE_NOT_FOUND: 'esbuild'` no passo 1.** O `scripts/bundle-deploy.mjs` importa `esbuild`, que agora é **dependência declarada na raiz** (`0.27.7`). Se alguém a remover, o deploy morre no build — e no laptop continua "funcionando", porque lá sobra uma cópia solta no `node_modules`. Convivem quatro versões de esbuild na árvore: sem a declaração, qual delas monta o artefato de produção é sorte.
+2. **`connect to host ... port 1992: Connection timed out` no meio do deploy.** A TineHost **corta conexões SSH repetidas** vindas de um IP desconhecido, e o runner do GitHub é sempre um IP novo. Por isso o workflow abre **uma só** conexão (`ControlMaster`, passo 2) e todos os passos a reaproveitam. **Não "resolva" isso encadeando comandos com `&&`** — a cicatriz do §5 continua valendo: o `prisma generate` derruba a cadeia e o deploy termina dizendo "concluído" com a produção rodando o código antigo.
+
 ### O que o workflow ganhou de brinde
 
 **A armadilha dos dois deploys simultâneos morreu.** O `concurrency: deploy-producao` faz a
