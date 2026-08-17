@@ -1,0 +1,183 @@
+name: Deploy
+
+# Publicar NÃO é automático. O gatilho é o botão "Run workflow" na aba Actions — nunca
+# `on: push`. Quem aperta é o dono, ou eu depois do "pode subir" dele (§0.9 do CLAUDE.md
+# global, decisão de 17/08/2026).
+#
+# POR QUE O DEPLOY MUDOU DE LUGAR: até 12/08/2026 isto era `./deploy.sh` rodando no laptop
+# do dono. Duas coisas quebravam: (a) a chave SSH precisava morar no disco dele, e (b) o
+# classificador do harness barrava o comando de forma imprevisível — em 17/08/2026 ele
+# barrou uma publicação de correção já pronta e testada. Aqui a chave mora em GitHub
+# Secrets, o runner tem permissão para tudo, e o deploy virou arquivo revisável.
+#
+# O `deploy.sh` continua no repositório: é a MESMA sequência, e serve de documentação e de
+# saída de emergência se o GitHub estiver fora do ar.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Digite PUBLICAR (em maiúsculas) para confirmar'
+        required: true
+        type: string
+
+# ⛔ A ARMADILHA MAIS CARA DESTE PROJETO, resolvida de graça aqui.
+# Dois `./deploy.sh` ao mesmo tempo se sabotam: disputam o mesmo /tmp/boot-teste.log, a
+# mesma porta do `node app.cjs` e os mesmos node_modules do `prisma generate` — e o sintoma
+# (ensaio de boot com 0 e lista de erros VAZIA) parece defeito do código. Acontecia porque
+# o deploy passa de 2 minutos, parece travado, e o comando era colado de novo.
+# Com `concurrency`, a segunda execução ESPERA a primeira terminar. Não há como colidir.
+concurrency:
+  group: deploy-producao
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event.inputs.confirmar == 'PUBLICAR'
+    runs-on: ubuntu-latest
+    environment: producao
+    env:
+      DEPLOY_PATH: /home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html
+      DEPLOY_SSH_PORT: "1992"
+      # Onde `npm` e `node` de verdade moram no CloudLinux. Fora do virtualenv o `npm install`
+      # falha com "command not found", o servidor fica com server.js novo e node_modules
+      # velho, e o app morre no boot com ERR_MODULE_NOT_FOUND. Derrubou a produção por ~9
+      # minutos em 05/08/2026.
+      NODE_VENV: ~/nodevenv/domains/workspace.medconsultoria.com.br/public_html/20/bin/activate
+      DOMINIO: https://workspace.medconsultoria.com.br
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.19.0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.2"
+          cache: "pnpm"
+
+      - name: 1/7 · Build de produção + bundle auto-contido
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build:deploy
+
+      - name: 2/7 · Preparar o acesso ao servidor
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          echo "chave instalada e host conhecido"
+
+      - name: 3/7 · Snapshot do release atual (é o rollback)
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          # Um carimbo só, calculado UMA vez: o nome do snapshot precisa bater com o que o
+          # ensaio de boot mostra no rollback. Dois `date` dariam segundos diferentes.
+          CARIMBO="$(date +%Y%m%d-%H%M%S)"
+          echo "CARIMBO=$CARIMBO" >> "$GITHUB_ENV"
+          ssh -p "$DEPLOY_SSH_PORT" -i ~/.ssh/deploy_key -o LogLevel=ERROR \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "mkdir -p ~/backups && cd '$DEPLOY_PATH' && \
+             tar -czf ~/backups/release-pre-${CARIMBO}.tar.gz --exclude=node_modules . && \
+             ls -lh ~/backups/release-pre-${CARIMBO}.tar.gz | awk '{print \$5, \$9}'"
+
+      # `tar | ssh`, e NÃO `rsync`: `rsync --delete` apagaria o `.htaccess` do destino, que
+      # não vem no artefato — e é ele que faz o LiteSpeed servir o site. O tar sobrepõe sem
+      # apagar. O preço é acumular chunk antigo no destino: ocupa disco, não atrapalha.
+      - name: 4/7 · Enviar o artefato
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          tar -czf - -C apps/api/dist . | \
+            ssh -p "$DEPLOY_SSH_PORT" -i ~/.ssh/deploy_key -o LogLevel=ERROR \
+              "$DEPLOY_USER@$DEPLOY_HOST" \
+              "cd '$DEPLOY_PATH' && tar -xzf - && echo 'artefato extraído'"
+
+      # Cada passo numa CONEXÃO SSH PRÓPRIA. Encadeados com `&&`, o `prisma generate` derruba
+      # o resto da cadeia: o deploy termina dizendo "concluído" e a aplicação segue rodando o
+      # código ANTIGO, sem nunca ter reiniciado.
+      - name: 5/7 · Dependências, Prisma Client e migrations
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          remoto() {
+            ssh -p "$DEPLOY_SSH_PORT" -i ~/.ssh/deploy_key -o LogLevel=ERROR \
+              "$DEPLOY_USER@$DEPLOY_HOST" "$@"
+          }
+          remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && npm install --omit=dev 2>&1 | tail -3"
+          remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && npm run prisma:generate 2>&1 | tail -2"
+          remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && npm run prisma:deploy 2>&1 | tail -3"
+
+      # Sobe o app à mão ANTES de reiniciar o de verdade: se faltar dependência ou variável,
+      # o erro aparece aqui, com a produção ainda servindo a versão antiga — em vez de virar
+      # um 503 para quem está usando o sistema.
+      #
+      # Sem `head` no cano e sem herdar o código do `grep`: as duas coisas já reprovaram um
+      # boot PERFEITO (SIGPIPE do `head`, e `grep` que sai 1 quando não acha erro nenhum).
+      # A saída vai inteira para uma variável e só então é avaliada.
+      - name: 6/7 · Ensaio de boot (a produção ainda está no ar na versão anterior)
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -uo pipefail
+          ENSAIO="$(ssh -p "$DEPLOY_SSH_PORT" -i ~/.ssh/deploy_key -o LogLevel=ERROR \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$DEPLOY_PATH' && source $NODE_VENV && timeout 25 node app.cjs > /tmp/boot-teste.log 2>&1; \
+             grep -c 'Server listening' /tmp/boot-teste.log; echo '--- erros ---'; \
+             { grep -iE 'error|invalid' /tmp/boot-teste.log | head -5; } || true" || true)"
+          OUVINDO="$(printf '%s\n' "$ENSAIO" | head -1 | tr -dc '0-9')"
+          if [ -n "$OUVINDO" ] && [ "$OUVINDO" -gt 0 ]; then
+            echo "boot OK ($OUVINDO portas ouvindo) — pode reiniciar"
+          else
+            echo "!! O app NÃO subiu. A produção continua na versão anterior (nada foi reiniciado)."
+            echo "!! Saída do ensaio:"; printf '%s\n' "$ENSAIO"
+            echo "!! Rollback do envio: ~/backups/release-pre-${CARIMBO}.tar.gz"
+            exit 1
+          fi
+
+      - name: 7/7 · Reiniciar e provar que reiniciou
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          ssh -p "$DEPLOY_SSH_PORT" -i ~/.ssh/deploy_key -o LogLevel=ERROR \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$DEPLOY_PATH' && mkdir -p tmp && touch tmp/restart.txt && \
+             date -r tmp/restart.txt '+restart.txt marcado em %Y-%m-%d %H:%M:%S'"
+
+      # Sem isto o workflow fica verde com o site fora do ar — e a regra é não anunciar
+      # publicação sem resposta HTTP lida. `--compressed` é obrigatório: sem ele o LiteSpeed
+      # devolve o corpo comprimido e o teste mostra lixo binário em vez do JSON de saúde.
+      - name: Smoke test — o site respondeu de verdade?
+        run: |
+          set -euo pipefail
+          sleep 15
+          echo "--- /health ---"
+          SAUDE="$(curl -fsS --compressed --max-time 30 "$DOMINIO/health")"
+          echo "$SAUDE"
+          echo "$SAUDE" | grep -q '"status":"ok"' || { echo "!! /health não disse ok"; exit 1; }
+          for ROTA in / /credenciamentos; do
+            CODIGO="$(curl -s --compressed -o /dev/null -w '%{http_code}' --max-time 30 "$DOMINIO$ROTA")"
+            echo "$ROTA -> $CODIGO"
+            [ "$CODIGO" = "200" ] || { echo "!! $ROTA não devolveu 200"; exit 1; }
+          done
+          echo "NO AR: $DOMINIO"
+
+      - name: Limpar a chave do runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

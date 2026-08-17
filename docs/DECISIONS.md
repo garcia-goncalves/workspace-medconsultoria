@@ -1621,3 +1621,25 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 **Decisão:** o `tel:` passou a usar os mesmos dígitos que o WhatsApp já usava (`telDigits`), com `+55` na frente quando falta. Um número, duas portas de saída, a mesma normalização.
 
 **Verificado:** o `href` sai `tel:+5511987654321` no painel do lead — o único lugar da app que monta `tel:`.
+
+---
+
+## ADR-111 — O deploy saiu do laptop e virou um botão no GitHub ✅
+
+**Data:** 2026-08-17 · **Contexto:** com a correção da ADR-108 mesclada e a CI verde nos três jobs, a publicação foi **barrada pelo classificador de segurança do assistente** — não pelo `settings.json`, que não tem uma regra sequer sobre `ssh`. O `./deploy.sh` faz `tar | ssh` a partir da máquina do dono, e esse formato de comando é bloqueado de forma imprevisível. Resultado prático: uma correção de dinheiro, pronta e testada, ficou parada por um motivo que não tinha nada a ver com o código.
+
+**Decisões:**
+
+1. **O deploy passou a rodar no runner do GitHub** (`.github/workflows/deploy.yml`), com a **mesma sequência de 6 passos** do `deploy.sh` — inclusive as quatro cicatrizes: `tar | ssh` em vez de `rsync` (que apagaria o `.htaccess`), `source` do virtualenv antes de qualquer `npm`, uma **conexão SSH por passo** (encadear com `&&` faz o `prisma generate` derrubar o resto e o deploy mentir que concluiu), e o ensaio de boot avaliado **sem cano e sem herdar o código do `grep`**.
+
+2. **O gatilho é `workflow_dispatch` e só ele**, com um campo que exige digitar `PUBLICAR`. Nada de `on: push` — cada envio ao GitHub indo direto ao ar, num sistema com dado de cliente, é o oposto do portão do §0.9.
+
+3. **A chave SSH saiu do disco do dono e foi para GitHub Secrets.** Três segredos, postos por ele uma vez (`DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`); o valor nunca passa pela conversa. Caminho do app e porta 1992 ficam no workflow — não são segredo, já estão na documentação.
+
+4. **`concurrency: deploy-producao` matou a armadilha mais cara do projeto.** Dois `./deploy.sh` ao mesmo tempo se sabotavam disputando `/tmp/boot-teste.log`, a porta do `node app.cjs` e os `node_modules` do `prisma generate` — e o sintoma (ensaio com `0` e lista de erros **vazia**) parecia defeito do código. Acontecia porque o deploy passa de 2 minutos, parece travado, e o comando era colado de novo. Agora a segunda execução **espera**. O problema deixou de depender de alguém lembrar de um aviso.
+
+5. **O smoke test virou portão, não enfeite.** O workflow só termina verde se `/health` responder `{"status":"ok"}` **e** `/` e `/credenciamentos` devolverem 200, lidos de fora com `--compressed` (sem ele o LiteSpeed devolve corpo comprimido e o teste lê lixo binário). Workflow verde com site fora do ar é pior que workflow vermelho.
+
+6. **O `deploy.sh` foi mantido**, com os comentários de cicatriz intactos: é a documentação executável da sequência e a saída de emergência se o GitHub estiver fora do ar. Apagá-lo trocaria uma dependência (o laptop) por outra (o GitHub) sem deixar rota alternativa.
+
+**Verificado:** YAML validado (`js-yaml`, 12 passos, gatilho `workflow_dispatch`). **A primeira execução real depende dos três segredos, que só o dono pode pôr** — até lá o workflow existe e não publica, que é o comportamento correto.

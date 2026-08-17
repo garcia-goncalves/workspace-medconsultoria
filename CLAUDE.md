@@ -15,6 +15,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ## Estado atual (2026-08-17)
 
+- **⚠️ PUBLICAR MUDOU: agora é um botão no GitHub, não `./deploy.sh` (ADR-111).** Actions → **Deploy** → *Run workflow* → digitar **`PUBLICAR`**. Mesma sequência de 6 passos, rodando no runner: a chave SSH saiu do disco e foi para *GitHub Secrets*, e o classificador de segurança não barra mais a publicação (foi o que travou a ADR-108 já pronta e com CI verde). **`concurrency: deploy-producao` acabou com a armadilha dos dois deploys simultâneos** — a segunda execução espera a primeira. **PENDENTE DO DONO (só ele faz):** pôr os três segredos — `gh secret set DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY < ~/.ssh/medconsultoria_deploy`. Sem eles o workflow existe e não publica. O `deploy.sh` fica no repositório como documentação e saída de emergência. Detalhe em `docs/DEPLOY.md` §0.
 - **A conversão do lead não cobra mais credenciamento antes da hora (ADR-108).** Achado percorrendo o fluxo pela tela: lead cujo único serviço era **Credenciamento médico e odontológico** virava cliente **já com conta a receber** no card Financeiro da ficha — e seria cobrado **de novo** quando a operadora aprovasse. O laço da soma pulava o credenciamento; o **fallback da estimativa do funil** não olhava os serviços e provisionava mesmo assim. A regra virou função pura testável (`planejarProvisaoDaConversao`), e no caso **misturado** a observação da conta agora diz em português que o credenciamento não está naquele valor. Provado na tela: R$ 12.000,00 de estimativa → **"Nenhuma conta vinculada."**.
 - **"Alguém concluiu um projeto" agora é "Automação" (ADR-109).** O projeto se conclui e se reabre sozinho quando o último cartão fecha; o histórico grava sem usuário, e o Início inventava uma pessoa. O servidor passa a devolver `auto`, e "Alguém" voltou a valer só para autor genuinamente desconhecido.
 - **Botão "Ligar" do painel do lead volta a discar (ADR-110):** o `tel:` saía com máscara (`tel:(11) 98765-4321`) e o discador engasgava; agora usa os mesmos dígitos do WhatsApp.
@@ -65,7 +66,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-110). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-111). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

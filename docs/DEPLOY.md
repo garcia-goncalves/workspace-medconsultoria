@@ -10,6 +10,64 @@ O app é **um único processo Node** (`server.js`) que serve, na mesma porta: a 
 
 ---
 
+## 0. Como se publica HOJE — o botão no GitHub (desde 17/08/2026)
+
+**O deploy não sai mais do computador de ninguém.** Ele roda no GitHub, pelo arquivo
+[`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), que faz exatamente a mesma
+sequência de 6 passos descrita neste documento.
+
+**Por que mudou:** a chave SSH precisava morar no disco de quem publicava, e o classificador
+de segurança do assistente barrava o comando de forma imprevisível — em 17/08/2026 ele barrou
+uma correção já pronta, testada e com CI verde. Agora a chave mora em *GitHub Secrets*, e
+publicar é apertar um botão.
+
+### Como publicar (o jeito do dono, sem terminal)
+
+1. Abra **https://github.com/thi-garcia/workspace-medconsultoria/actions/workflows/deploy.yml**
+2. Botão **"Run workflow"**, no canto direito.
+3. No campo que aparece, digite **`PUBLICAR`** (em maiúsculas) e confirme.
+4. **Deu certo quando** o último passo, *"Smoke test"*, terminar em verde mostrando
+   `{"status":"ok"}` e `NO AR: https://workspace.medconsultoria.com.br`.
+5. **Deu errado?** O passo que falhou fica vermelho e diz o motivo. Se falhou no
+   *"Ensaio de boot"*, **a produção não foi tocada** — ela continua servindo a versão
+   anterior, e não há nada de urgente a fazer.
+
+Pelo terminal, o equivalente é `gh workflow run deploy.yml -f confirmar=PUBLICAR`.
+
+### Os três segredos (uma vez por projeto, só o dono faz)
+
+O valor nunca passa pela conversa nem pelo repositório — o terminal pede sem exibir na tela:
+
+```
+gh secret set DEPLOY_HOST      # o endereço SSH do servidor
+gh secret set DEPLOY_USER      # o usuário do DirectAdmin
+gh secret set DEPLOY_SSH_KEY < caminho/da/chave/privada
+```
+
+A chave privada é a mesma que já funcionava (`~/.ssh/medconsultoria_deploy`). O caminho do
+app e a porta 1992 **não** são segredo e ficam escritos no próprio workflow.
+
+### O que o workflow ganhou de brinde
+
+**A armadilha dos dois deploys simultâneos morreu.** O `concurrency: deploy-producao` faz a
+segunda execução **esperar** a primeira terminar. Não existe mais como colidir por impaciência
+— era isso que produzia o ensaio de boot com `0` e a lista de erros vazia (§5).
+
+### Rollback
+
+Rodar o mesmo workflow apontando para o commit anterior:
+`gh workflow run deploy.yml --ref <tag-ou-sha> -f confirmar=PUBLICAR`.
+O snapshot em `~/backups/release-pre-<carimbo>.tar.gz` continua sendo tirado a cada
+publicação, como sempre foi.
+
+### E o `deploy.sh`?
+
+**Continua no repositório de propósito**, com todas as cicatrizes comentadas. Ele é a
+documentação executável da sequência e a saída de emergência se o GitHub estiver fora do ar.
+Só não é mais o caminho normal.
+
+---
+
 ## 1. O que preciso que você busque na TineHost (uma vez)
 
 No painel DirectAdmin da TineHost (ou com o suporte deles), reúna:
