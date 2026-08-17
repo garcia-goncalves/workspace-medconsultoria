@@ -5,6 +5,13 @@
 //   dist/package.json   → só as deps de RUNTIME (externas), sem workspace:*
 //
 // Rode DEPOIS de `pnpm build`. Uso: node scripts/bundle-deploy.mjs
+//
+// O `esbuild` abaixo é dependência DECLARADA na raiz (devDependencies), e precisa continuar
+// sendo. Até 17/08/2026 não era: o script só achava o pacote porque alguma dependência do
+// Vite deixava uma cópia solta na raiz do `node_modules` deste computador. Num ambiente
+// limpo — o runner do GitHub — o pacote não existe e o deploy morre no passo 1 com
+// ERR_MODULE_NOT_FOUND. Quatro versões de esbuild convivem na árvore; sem declarar, qual
+// delas monta o artefato que vai para produção era sorte.
 import { readFileSync, writeFileSync, cpSync, rmSync, existsSync } from "node:fs";
 import * as esbuild from "esbuild";
 import { resolve, dirname } from "node:path";
