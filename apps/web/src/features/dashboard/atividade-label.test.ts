@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { acaoLabel } from "./DashboardPage";
+import { acaoLabel, atorDaAtividade } from "./DashboardPage";
 
 /**
  * A "Atividade recente" monta a frase `<Pessoa> <ação>`. Toda ação precisa começar por um
@@ -74,5 +74,38 @@ describe("frase da Atividade recente", () => {
 
   it("ação desconhecida ainda começa por verbo", () => {
     expect(acaoLabel("coisa.nova")).toBe("registrou: coisa nova");
+  });
+});
+
+/**
+ * Quem assina a linha. Evento automático (o projeto que se conclui sozinho quando o último
+ * cartão fecha) saía como "Alguém concluiu um projeto" — pessoa que não existe. O servidor
+ * marca `auto`; a tela obedece.
+ */
+describe("autor da atividade", () => {
+  it("evento marcado como automático pelo servidor é da Automação, não de 'Alguém'", () => {
+    expect(atorDaAtividade({ acao: "projeto.concluido", usuario: null, auto: true })).toEqual({
+      nome: "Automação",
+      automatico: true,
+    });
+  });
+
+  it("o mesmo vale para o projeto reaberto sozinho", () => {
+    expect(atorDaAtividade({ acao: "projeto.reaberto", usuario: null, auto: true }).nome).toBe("Automação");
+  });
+
+  it("avanço automático do funil continua sendo Automação mesmo sem a marca do servidor", () => {
+    expect(atorDaAtividade({ acao: "lead.auto_avancou", usuario: null }).nome).toBe("Automação");
+  });
+
+  it("ação de gente mostra o nome de quem fez", () => {
+    expect(atorDaAtividade({ acao: "cliente.criado", usuario: "Thaís Garcia" })).toEqual({
+      nome: "Thaís Garcia",
+      automatico: false,
+    });
+  });
+
+  it("'Alguém' fica só para o autor genuinamente desconhecido", () => {
+    expect(atorDaAtividade({ acao: "cliente.criado", usuario: null }).nome).toBe("Alguém");
   });
 });

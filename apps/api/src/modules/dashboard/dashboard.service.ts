@@ -310,7 +310,16 @@ async function montarGestao(hojeInicio: Date, em7: Date, d7: Date, d14: Date, d3
     docsPendentes: docsPendentes.map((d) => ({ id: d.id, titulo: d.titulo, status: d.status, updatedAt: d.updatedAt, cliente: d.cliente })),
     docsPendentesCount,
     docsAguardandoClienteCount,
-    atividadeRecente: atividadeRecente.map((a) => ({ id: a.id, acao: a.acao, createdAt: a.createdAt, usuario: a.user?.nome ?? null })),
+    // `auto` diz que NÃO houve gente atrás do evento (o projeto se concluiu sozinho, por
+    // exemplo). Sem isso a tela chutava "Alguém" e mandava o dono procurar um culpado
+    // inexistente. A marca é do servidor porque só ele sabe quem gravou a linha.
+    atividadeRecente: atividadeRecente.map((a) => ({
+      id: a.id,
+      acao: a.acao,
+      createdAt: a.createdAt,
+      usuario: a.user?.nome ?? null,
+      auto: (a.dados as { auto?: boolean } | null)?.auto === true,
+    })),
   };
 }
 

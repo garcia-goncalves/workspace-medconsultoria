@@ -36,6 +36,67 @@ export function ehServicoDeCredenciamento(nome: string | null | undefined): bool
   return !!nome && nome.trim().toLowerCase() === NOME_SERVICO_CREDENCIAMENTO.toLowerCase();
 }
 
+/** Um serviço do lead, só com o que decide cobrança. */
+export type ServicoParaProvisao = {
+  nome: string | null;
+  valor: number | null;
+  valorRecorrencia: string | null;
+  percentual: number | null;
+};
+
+export type ProvisaoDaConversao = {
+  /** Soma dos serviços de cobrança única (credenciamento fora). */
+  avulso: number;
+  /** Soma dos serviços mensais (credenciamento fora). */
+  mensal: number;
+  /** Cobranças por % do faturamento: texto para as observações, nunca valor fixo. */
+  percentuais: string[];
+  /** O lead pediu credenciamento — quem escreve a observação precisa avisar a Thaís. */
+  temCredenciamento: boolean;
+  /** Provisionar uma conta única com a estimativa do funil. */
+  usarEstimativa: boolean;
+};
+
+/**
+ * O que a conversão do lead pode provisionar no Financeiro.
+ *
+ * A soma sempre pulou o credenciamento, mas o **fallback da estimativa do funil** não
+ * sabia disso: lead cujo único serviço era credenciamento caía nele e virava uma conta a
+ * receber no ato da conversão — exatamente o que a ADR-104 proíbe, e cobrado de novo
+ * quando a operadora aprovasse. Por isso a estimativa também tem de olhar os serviços:
+ * se TODOS são credenciamento, não há nada a provisionar hoje.
+ */
+export function planejarProvisaoDaConversao(
+  servicos: ServicoParaProvisao[],
+  valorEstimado: number | null | undefined,
+): ProvisaoDaConversao {
+  let avulso = 0;
+  let mensal = 0;
+  const percentuais: string[] = [];
+  let temCredenciamento = false;
+  let temOutroServico = false;
+
+  for (const s of servicos) {
+    if (ehServicoDeCredenciamento(s.nome)) {
+      temCredenciamento = true;
+      continue;
+    }
+    temOutroServico = true;
+    if (s.valor && s.valor > 0) {
+      if (s.valorRecorrencia === "MENSAL") mensal += s.valor;
+      else avulso += s.valor;
+    }
+    if (s.percentual && s.percentual > 0) percentuais.push(`${s.percentual}% do faturamento (${s.nome})`);
+  }
+
+  // A estimativa é o último recurso: só quando não há preço de serviço nenhum E sobrou
+  // algo além do credenciamento para cobrar (ou o lead nem escolheu serviço).
+  const soCredenciamento = temCredenciamento && !temOutroServico;
+  const usarEstimativa = avulso === 0 && mensal === 0 && !soCredenciamento && !!valorEstimado && valorEstimado > 0;
+
+  return { avulso, mensal, percentuais, temCredenciamento, usarEstimativa };
+}
+
 export type DocumentoCredenciamento = {
   titulo: string;
   descricao: string | null;

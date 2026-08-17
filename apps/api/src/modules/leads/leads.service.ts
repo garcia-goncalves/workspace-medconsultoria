@@ -6,7 +6,7 @@ import { listStages } from "../pipeline/pipeline.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { convidarUsuario, reenviarConvite, garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js";
-import { ehServicoDeCredenciamento } from "../servicos/credenciamento.service.js";
+import { planejarProvisaoDaConversao } from "../servicos/credenciamento.service.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { config } from "../../config.js";
 import type { Role } from "@app/shared";
@@ -1204,42 +1204,39 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
   // serviços contratados — separando o que é MENSAL (conta recorrente) do que é AVULSO
   // (conta única). O % do faturamento (Faturamento) não vira valor fixo (depende do
   // faturado do mês) — fica registrado nas observações. Fallback: se os serviços não têm
-  // preço mas o funil registrou uma estimativa, provisiona uma conta única com ela.
+  // preço mas o funil registrou uma estimativa, provisiona uma conta única com ela — a não
+  // ser que o lead seja SÓ de credenciamento, em que nada se cobra hoje (ADR-104).
   // Tudo revisável (valor/vencimento). Best-effort: não bloqueia a conversão.
   try {
     const vencimento = new Date();
     vencimento.setDate(vencimento.getDate() + 30);
     vencimento.setHours(12, 0, 0, 0);
 
-    let avulso = 0;
-    let mensal = 0;
-    const percentuais: string[] = [];
-    for (const s of lead.servicos) {
-      // O CREDENCIAMENTO não entra na conta da conversão: nele o honorário é no sucesso, e a
-      // cobrança nasce quando a operadora aprova, uma por médico × operadora (ADR-104).
-      if (ehServicoDeCredenciamento(s.nome)) continue;
-      if (s.valor && s.valor > 0) {
-        if (s.valorRecorrencia === "MENSAL") mensal += s.valor;
-        else avulso += s.valor;
-      }
-      if (s.percentual && s.percentual > 0) percentuais.push(`${s.percentual}% do faturamento (${s.nome})`);
-    }
+    const { avulso, mensal, percentuais, temCredenciamento, usarEstimativa } = planejarProvisaoDaConversao(
+      lead.servicos,
+      lead.valorEstimado,
+    );
     const obsPct = percentuais.length ? ` Cobranças por % (variam com o faturamento do mês): ${percentuais.join("; ")}.` : "";
+    // O credenciamento fica de fora de qualquer valor provisionado aqui; se ele veio junto
+    // de outros serviços, a Thaís precisa saber que o número não o inclui.
+    const obsCred = temCredenciamento
+      ? " O credenciamento NÃO está neste valor: o honorário dele só vira conta quando a operadora aprova."
+      : "";
     const criarConta = (valor: number, recorrencia: "NENHUMA" | "MENSAL", descricao: string, obs: string) =>
       prisma.conta.create({ data: { tipo: "RECEBER", descricao, valor, vencimento, clienteId, recorrencia, observacoes: obs } });
 
     if (avulso > 0 || mensal > 0) {
       if (avulso > 0) {
-        await criarConta(avulso, "NENHUMA", `Contrato (serviços avulsos) — ${nomeCliente}`, `Provisionado na conversão do lead.${obsPct} Revise o valor e o vencimento.`);
+        await criarConta(avulso, "NENHUMA", `Contrato (serviços avulsos) — ${nomeCliente}`, `Provisionado na conversão do lead.${obsPct}${obsCred} Revise o valor e o vencimento.`);
       }
       if (mensal > 0) {
-        await criarConta(mensal, "MENSAL", `Mensalidade — ${nomeCliente}`, `Mensalidade dos serviços recorrentes, provisionada na conversão.${avulso > 0 ? "" : obsPct} Revise o valor e o vencimento.`);
+        await criarConta(mensal, "MENSAL", `Mensalidade — ${nomeCliente}`, `Mensalidade dos serviços recorrentes, provisionada na conversão.${avulso > 0 ? "" : obsPct}${avulso > 0 ? "" : obsCred} Revise o valor e o vencimento.`);
       }
       await prisma.activityLog.create({
         data: { userId, acao: "conta.criada", entidadeTipo: "cliente", entidadeId: clienteId, dados: { origem: "conversao_lead", avulso, mensal } },
       });
-    } else if (lead.valorEstimado && lead.valorEstimado > 0) {
-      await criarConta(lead.valorEstimado, "NENHUMA", `Contrato — ${nomeCliente}`, `Provisionado na conversão do lead a partir da estimativa do funil.${obsPct} Revise o valor e o vencimento.`);
+    } else if (usarEstimativa) {
+      await criarConta(lead.valorEstimado!, "NENHUMA", `Contrato — ${nomeCliente}`, `Provisionado na conversão do lead a partir da estimativa do funil.${obsPct}${obsCred} Revise o valor e o vencimento.`);
       await prisma.activityLog.create({
         data: { userId, acao: "conta.criada", entidadeTipo: "cliente", entidadeId: clienteId, dados: { origem: "conversao_lead" } },
       });

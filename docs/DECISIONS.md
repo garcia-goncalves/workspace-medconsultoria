@@ -1575,3 +1575,49 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 - **⛔ Dois `./deploy.sh` simultâneos se sabotam — e o sintoma parece defeito de código.** O deploy passa de 2 minutos e **parece travado**; o comando foi colado duas vezes e **os dois falharam**, sem nada de errado no artefato. Disputam o **mesmo `/tmp/boot-teste.log`** do servidor, a **mesma porta** do `node app.cjs` e os **mesmos `node_modules`** do `prisma generate` (o segundo travou o Node ali). Uma execução limpa em seguida passou de primeira. **O sintoma que identifica:** ensaio reportando `0` com `--- erros ---` e **nada embaixo** — lista de erros vazia é evidência apagada por concorrência, não app quebrado. **Rollback correto é o PRIMEIRO snapshot da rodada**: do segundo em diante ele já foi tirado depois de outro deploy sobrescrever arquivos, e restauraria um estado misturado. E resolva no mesmo dia: o passo 3 grava os arquivos novos **antes** do ensaio, então um deploy reprovado deixa a produção rodando o código velho de memória com o disco já trocado — e o healthcheck reiniciaria com ele.
 - **A instalação falha no Windows com `ERR_PNPM_ENOENT ... plugin-react_tmp_NNNN`** quando o override mexe numa dependência do Vite e a pasta do pacote fica meio-desmontada. Pausar a app **não** basta. O que destrava: `rm -rf node_modules/@vitejs` e `pnpm install` de novo.
 - **`flows-financeiro.spec.ts` ("marcar paga, filtrar e excluir") é instável na suíte cheia** e passa 10/10 sozinho. Falhou uma vez, passou nas duas rodadas seguintes — instabilidade do teste, não defeito do código. Se voltar a falhar, é ali que se deve olhar antes de culpar a mudança.
+
+---
+
+## ADR-108 — A conversão do lead cobrava credenciamento antes de a operadora dizer sim ✅
+
+**Data:** 2026-08-17 · **Contexto:** varredura pela tela, do jeito da ADR-105 — percorrer um fluxo de negócio inteiro em vez de clicar solto. Criei um lead com o único serviço que é o carro-chefe da casa (Credenciamento médico e odontológico), converti em cliente, e o card **Financeiro** da ficha nasceu com uma conta a receber. Nenhuma operadora tinha dito nada.
+
+**O defeito:** o laço que soma os serviços já pulava o credenciamento (`ehServicoDeCredenciamento(s.nome) → continue`), honrando a ADR-104. Mas logo abaixo havia um **fallback**: se nenhum serviço tinha preço, provisionava uma conta única com a **estimativa do funil**. Esse `else` não olhava os serviços. Lead só de credenciamento cai nele **sempre** — o serviço não tem preço de conversão justamente porque não se cobra ali. A guarda existia e era contornada pelo caminho de baixo.
+
+**Por que dói:** o honorário do credenciamento é **no sucesso** (spec §3.3, ADR-104) — a conta nasce quando a operadora **aprova**, uma por médico × operadora. Com o defeito, o cliente aparecia devendo no dia da conversão e, quando a operadora aprovasse, era cobrado **de novo**. Dinheiro duplicado, e no serviço que mais roda aqui.
+
+**Decisões:**
+
+1. **A regra virou função pura, testável, ao lado da que já dizia o que é credenciamento** — `planejarProvisaoDaConversao` em `credenciamento.service.ts`. Ela devolve `avulso`, `mensal`, `percentuais`, `temCredenciamento` e `usarEstimativa`. O serviço de conversão passou a só obedecer. A decisão de cobrar não deve morar dentro de um `try/catch` de 40 linhas com três caminhos: ali ela é invisível para teste e foi assim que o `else` escapou.
+
+2. **A estimativa do funil só provisiona se sobrou algo além do credenciamento** — ou se o lead nem escolheu serviço. Lead **só** de credenciamento não gera conta nenhuma na conversão.
+
+3. **No caso misturado, a conta avisa em vez de calar.** Lead com credenciamento **e** outro serviço continua provisionando o outro serviço, e a observação da conta passa a dizer: *"O credenciamento NÃO está neste valor: o honorário dele só vira conta quando a operadora aprova."* A estimativa do funil normalmente embute o credenciamento; sem essa frase a Thaís revisaria um número contaminado achando que estava conferido.
+
+**Verificado na tela, não só no teste:** lead "Dr. Só Credenciamento / Clínica Prova ADR-104", único serviço credenciamento, **R$ 12.000,00** de estimativa. Depois de converter: cliente criado, projeto criado, reunião de kickoff criada, e o card Financeiro da ficha diz **"Nenhuma conta vinculada."**. Antes desta correção o mesmo caminho criava R$ 12.000,00 a receber. Testes: 8 casos novos em `conversao-provisao-financeira.test.ts` (inclusive o misturado e o comparador de nome insensível a caixa/espaço).
+
+**O que ficou de fora, de propósito:** no caso misturado sem preço em nenhum serviço, a estimativa ainda é usada inteira — ela pode conter o credenciamento por dentro. Separar isso exigiria a Thaís informar dois números no funil, o que é pedir trabalho para resolver ambiguidade dela. A frase na observação é a saída honesta: o número é revisável e agora diz o que não inclui.
+
+---
+
+## ADR-109 — "Alguém concluiu um projeto" era ninguém ✅
+
+**Data:** 2026-08-17 · **Contexto:** o widget **Atividade recente** do Início mostrava linhas como *"Alguém concluiu um projeto"* e *"Alguém reabriu um projeto"*, com avatar de gente. Não havia gente: `reconciliarStatusProjeto` conclui e reabre o projeto **sozinho** quando o último cartão fecha ou sai de "Concluído", e grava o histórico com `userId: null`.
+
+**Decisões:**
+
+1. **Quem sabe que foi automático é o servidor, e agora ele conta.** Os dois eventos já eram gravados com `dados: { auto: true }`, mas o `dashboard.service` descartava `dados` ao montar a resposta. Passou a devolver `auto: boolean`. A tela não deve inferir intenção do servidor pelo nome da ação.
+
+2. **A tela obedece à marca, e "Alguém" voltou a significar o que a palavra diz.** `atorDaAtividade` (função exportada, testada) devolve **Automação** quando `auto` é verdadeiro — ou quando a ação começa com `lead.auto`, que é o avanço automático do funil e não carrega a marca. "Alguém" ficou só para o autor **genuinamente desconhecido**, que é o caso raro para o qual o rótulo foi criado. Antes ele mandava o dono procurar um responsável que não existia.
+
+**Verificado:** 5 casos novos em `atividade-label.test.ts` (10 no arquivo). Na tela: as linhas de projeto concluído/reaberto passam a aparecer como **Automação**, com o ícone de automação que o widget já tinha e não usava para elas.
+
+---
+
+## ADR-110 — `tel:` com parêntese não disca ✅
+
+**Data:** 2026-08-17 · **Contexto:** no painel do lead, o botão **Ligar** montava `tel:(11) 98765-4321` — o telefone como está na tela, com máscara. O botão do **WhatsApp** ao lado já normalizava para `5511987654321`. Discador de celular e softphone engasgam com parêntese e espaço, e a ligação simplesmente não sai; o defeito é silencioso.
+
+**Decisão:** o `tel:` passou a usar os mesmos dígitos que o WhatsApp já usava (`telDigits`), com `+55` na frente quando falta. Um número, duas portas de saída, a mesma normalização.
+
+**Verificado:** o `href` sai `tel:+5511987654321` no painel do lead — o único lugar da app que monta `tel:`.
