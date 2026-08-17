@@ -1643,3 +1643,23 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 6. **O `deploy.sh` foi mantido**, com os comentários de cicatriz intactos: é a documentação executável da sequência e a saída de emergência se o GitHub estiver fora do ar. Apagá-lo trocaria uma dependência (o laptop) por outra (o GitHub) sem deixar rota alternativa.
 
 **Verificado:** YAML validado (`js-yaml`, 12 passos, gatilho `workflow_dispatch`). **A primeira execução real depende dos três segredos, que só o dono pode pôr** — até lá o workflow existe e não publica, que é o comportamento correto.
+
+---
+
+## ADR-112 — O portão de dependências pegou a primeira falha nova sozinho ✅
+
+**Data:** 2026-08-17 · **Contexto:** o PR do workflow de deploy (ADR-111) teve a CI reprovada — não por nada que o PR mudou, mas porque **apareceu uma falha ALTA nova** numa dependência: `deepmerge-ts` <8.0.0 (GHSA-ggr8-5vv4-36mx, exaustão de pilha ao mesclar grafos recursivos de objeto). Foi a **primeira vez que o portão criado na ADR-107 reprovou algo por conta própria**, cinco dias depois de existir. É o comportamento que se queria comprar.
+
+**Decisões:**
+
+1. **Override escopado por versão maior, como manda a ADR-107** — `"deepmerge-ts@7": "^8.0.0"`. Só a 7.1.5 existia na árvore, então um override solto daria no mesmo hoje; o escopo é o que impede a correção de virar quebra amanhã, quando outra dependência trouxer uma 6 ou uma 9.
+
+2. **Dois pais, um só resultado.** A biblioteca entra por `@prisma/client → prisma → @prisma/config` (tempo de build) **e** por `mailparser → html-to-text` (tempo de execução, a cada e-mail lido). O segundo é que importa: é o caminho que extrai o texto da mensagem.
+
+3. **Pulo de versão maior por baixo do e-mail não se verifica com `typecheck`** — o defeito apareceria como **caixa de entrada em branco**, em produção, sem erro nenhum. Entrou um teste (`email-texto-html.test.ts`) que lê três mensagens de verdade pelo `mailparser`: só-HTML, HTML aninhado com tabela/lista/link (a estrutura recursiva que o CVE atacava) e uma com anexo — porque o anexo vira documento do cliente com um clique (ADR-99) e some sem aviso se o parser parar de enxergá-lo.
+
+4. **O teste entra pelo `mailparser`, não pelo `html-to-text`.** O `html-to-text` é transitivo e não tem tipos; importá-lo direto no teste criaria dependência nova só para testar, e testaria um caminho que a aplicação não usa. Testa-se pela porta que a API realmente abre.
+
+**Verificado:** `pnpm audit --prod --audit-level high` → **"No known vulnerabilities found"**. `deepmerge-ts 8.0.1`, versão única na árvore. Depois da troca: **363/363** unidade da API (3 novos), 129/129 web, `pnpm typecheck` 6/6, `pnpm build` 2/2.
+
+**O que isto ensina sobre o portão:** ele reprovou um PR que não tinha nada a ver com o problema. Isso é ruído — e é o preço certo. A alternativa (descobrir a falha quando alguém for olhar o painel do GitHub) foi exatamente o que produziu as 34 vulnerabilidades da ADR-107.
