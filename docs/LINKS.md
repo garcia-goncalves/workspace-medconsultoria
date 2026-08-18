@@ -4,7 +4,7 @@
 > ver a aplicação funcionando, o que é cada porta e o que fazer quando algo não abre.
 > Escrito para ser entendido sem conhecimento técnico.
 >
-> Última verificação: **05/08/2026** (tudo abaixo foi testado, não é suposição —
+> Última verificação: **18/08/2026** (tudo abaixo foi testado, não é suposição —
 > a tela respondeu `200` e o motor respondeu `{"status":"ok"}`).
 
 ---
@@ -155,6 +155,16 @@ rm scripts/.keepalive-pause       # o vigia volta a subir
 **Se não abrir:** confira nesta ordem — (1) `http://localhost:4319/health` responde? (2) o Docker
 está aberto? (3) veja as últimas linhas de `scripts/.keepalive.log`.
 
+> ⚠️ **Se a tela aparecer na porta 4311 em vez da 4310**, o vigia foi ligado **duas vezes**: o
+> segundo não conseguiu a 4310 (já ocupada pelo primeiro) e caiu para a 4311. Não é defeito da
+> aplicação, mas engana feio — você testa numa tela e confere na outra, e as duas discordam.
+> Aconteceu em 05/08/2026. A saída é ficar com **um** vigia só: `touch scripts/.keepalive-pause`,
+> fechar os dois, apagar a pausa e ligar de novo. Pode pedir a mim, é um minuto.
+
+> 💡 **O `/health` da API responde, mas `http://localhost:4319` sozinho devolve 404.** Está certo:
+> a raiz da API não tem página — quem tem tela é a 4310. Não confunda esse 404 com aplicação fora
+> do ar (aconteceu comigo em 18/08/2026, conferindo a porta errada).
+
 ---
 
 ## 6. Outros projetos ocupando portas nesta máquina
@@ -180,6 +190,7 @@ não confundir uma tela de outro projeto com esta.
 | 8099 | Um servidor **PHP** solto na máquina (não é do Docker nem deste projeto) |
 | 3119 / 31190 | MySQL instalado direto no Windows (não é do Docker) |
 | 9749 | Servidor do **Codebase Memory** (o mapa de código que eu uso) |
+| 54321 – 54327 | **Supabase do projeto "Dents"** — banco, painel, API e caixa de e-mail de teste, tudo em containers próprios (visto ligado em 18/08/2026) |
 
 > ⚠️ **Cuidado com o Mailpit.** Mailpit é uma caixa de entrada falsa, para ver e-mails de teste
 > sem enviar de verdade. A da porta 8025 é do **Sophia Camargo**. Se um e-mail deste projeto cair
