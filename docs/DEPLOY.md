@@ -259,14 +259,19 @@ O que ele executa:
 1. `pnpm build:deploy` → gera `apps/api/dist/` com **`server.js` + `public/` (o SPA) + `prisma/` + `package.json` de produção**.
 2. **Snapshot** do release atual em `~/backups/release-pre-<TS>.tar.gz` — é o rollback.
 3. Envia o `dist/` por **`tar | ssh`** (o `.env` de produção fica intacto).
-4. No servidor, **dentro do virtualenv**: `npm install --omit=dev` → `prisma:generate` → `prisma:deploy`.
+4. No servidor, **dentro do virtualenv**: `npm ci --omit=dev` → `prisma:generate` → `prisma:deploy`.
+   ⚠️ **É `npm ci`, não `npm install` (ADR-116, 18/08/2026).** O artefato leva `package-lock.json`
+   gerado no build, e o `ci` instala exatamente aquela lista — sem re-resolver nada. Com `npm install`
+   sem lock, o servidor re-resolvia a árvore e **ignorava os `pnpm.overrides` da raiz**: foi assim que
+   `deepmerge-ts` 7.1.x (falha ALTA, ADR-112) ficou em produção com a CI verde. O `npm ci` **apaga
+   `node_modules`** antes de instalar — é ~1 minuto com a produção servindo enquanto a pasta é refeita.
 5. **Ensaio de boot** (`node app.cjs` por 15 s) com a produção ainda no ar servindo a versão antiga. Não subiu? O script **para aqui** e não reinicia nada.
 6. Restart + conferência da data do `tmp/restart.txt` + smoke test do `/health`.
 
 > **Três armadilhas que custaram ~9 min de produção fora do ar em 05/08/2026, todas comentadas dentro do `deploy.sh` — leia antes de "simplificar" o script:**
 >
 > - **Não é `rsync`, é `tar`.** O `--delete` do rsync apagaria o **`.htaccess`** (que é o que faz o LiteSpeed servir o site) e o `cgi-bin`, porque nenhum dos dois vem no artefato. De quebra, o Git Bash do Windows não tem `rsync` instalado — o script antigo nunca teria rodado nessa máquina.
-> - **`npm` não existe em sessão SSH não interativa.** Ele mora no virtualenv do CloudLinux (`source ~/nodevenv/.../20/bin/activate`). Sem isso o `npm install` falha com *command not found*, o servidor fica com **`server.js` novo e `node_modules` velho**, e o app morre no boot com `ERR_MODULE_NOT_FOUND` — foi exatamente assim que a produção caiu (faltava `imapflow`).
+> - **`npm` não existe em sessão SSH não interativa.** Ele mora no virtualenv do CloudLinux (`source ~/nodevenv/.../20/bin/activate`). Sem isso o `npm ci` falha com *command not found*, o servidor fica com **`server.js` novo e `node_modules` velho**, e o app morre no boot com `ERR_MODULE_NOT_FOUND` — foi exatamente assim que a produção caiu (faltava `imapflow`).
 > - **Cada passo em uma conexão SSH própria.** Encadeado com `&&`, o `prisma generate` derruba o resto da cadeia: o deploy diz "concluído" e a aplicação segue rodando o código **antigo**.
 
 > **1º deploy:** garanta antes que o **`.env` de produção já existe no servidor** (§3) e que o **banco foi criado** (§1). Sem isso, as migrations falham.
@@ -309,7 +314,7 @@ O que ele executa:
                      │ snapshot do release atual (rollback)
                      │ tar | ssh   ← NÃO rsync (apagaria o .htaccess; e não existe no Git Bash)
                      ▼
-[TineHost]     source nodevenv/…/activate → npm install --omit=dev → prisma generate
+[TineHost]     source nodevenv/…/activate → npm ci --omit=dev → prisma generate
                → migrate deploy → ENSAIO DE BOOT → restart → smoke test
                (cada passo numa conexão SSH própria — o generate derruba a cadeia)
                      ▼
@@ -322,7 +327,7 @@ O que ele executa:
 
 ## 10. Preflight de produção (rodar no servidor ANTES de publicar)
 
-A app **não é considerada compatível com a TineHost até o preflight passar** (ver decisão #3/#4/#22 da finalização). Depois de subir o bundle e rodar `npm install --omit=dev`, execute na pasta do app:
+A app **não é considerada compatível com a TineHost até o preflight passar** (ver decisão #3/#4/#22 da finalização). Depois de subir o bundle e rodar `npm ci --omit=dev`, execute na pasta do app:
 
 ```bash
 node scripts/preflight.mjs        # ou: node preflight.mjs (se copiado para a raiz do bundle)
@@ -399,7 +404,7 @@ Fica **fora** do Application Root e do `public_html` → o deploy (`rsync --dele
 1. Na sua máquina: `pnpm build:deploy` (gera `apps/api/dist` auto-contido: `server.js` + `public/` + `prisma/` + `package.json` de produção + `preflight.mjs`).
 2. Ajuste o `deploy.sh` (`.env.deploy`): **`DEPLOY_PATH="/home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html"`**, host/usuário/porta/chave SSH.
    > ⚠️ **Corrigido em 10/08/2026.** Esta linha dizia `/home3/medconsultoria/workspace-medconsultoria` — pasta que **não existe** no servidor —, e o `.env.deploy` da máquina de quem publica tinha esse valor. O deploy morria no passo 2 com `cd: No such file or directory`. É o mesmo erro que a tabela do §9 já tinha corrigido em 05/08; aqui ele sobreviveu.
-3. `./deploy.sh` faz: `tar | ssh` do `dist/` → Application Root; via SSH, `npm install --omit=dev`, `prisma generate`, `prisma migrate deploy`, **ensaio de boot**, restart e smoke test.
+3. `./deploy.sh` faz: `tar | ssh` do `dist/` → Application Root; via SSH, `npm ci --omit=dev`, `prisma generate`, `prisma migrate deploy`, **ensaio de boot**, restart e smoke test.
    > ⚠️ **O ensaio de boot é um portão, e ele já reprovou boot perfeito** (10/08/2026). A avaliação usava `remoto … | tee | head -1 | grep -q`, e com `set -o pipefail` isso falha de duas formas: o `head -1` fecha o cano e mata `tee`/`ssh` com SIGPIPE; e o comando remoto herda o código do último `grep`, que sai 1 quando **não acha erro nenhum**. Resultado: quanto mais limpo o boot, mais certa a reprovação. Hoje a saída é capturada em variável e avaliada com `test` — se voltar a reprovar, o problema é real, não o portão.
 4. **Startup `app.cjs`** (gerado automaticamente pelo `bundle-deploy`, fica na raiz do Application Root ao lado de `server.js`): o lsnode carrega o startup via `require()` (CommonJS), então usar `.cjs` que faz `import("./server.js")` evita o `ERR_REQUIRE_ESM` (o `server.js` é ESM). **Validado localmente**: `node app.cjs` sobe a API e responde `/health`. O lsnode **intercepta o `.listen()`** do Fastify e gerencia a porta/socket — por isso `API_PORT` é ignorado sob lsnode (não precisa casar com a porta do painel).
 

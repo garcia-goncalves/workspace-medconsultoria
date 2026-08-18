@@ -58,11 +58,25 @@ echo "==> 3/6 Enviando o artefato (tar — sobrepõe sem apagar; ver nota 1)"
 tar -czf - -C apps/api/dist . | remoto "cd '${DEPLOY_PATH}' && tar -xzf - && echo 'artefato extraído'"
 
 echo "==> 4/6 Dependências de produção (dentro do virtualenv; ver nota 2)"
-remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && npm install --omit=dev 2>&1 | tail -3"
+# `npm ci`, não `npm install` — mesma decisão do workflow (ADR-116). O artefato leva
+# `package-lock.json`, e o `ci` instala exatamente aquela lista. Duas cicatrizes juntas aqui:
+# (a) `| tail -N` dentro do `ssh` roda no shell REMOTO, que não tem `pipefail` — o código que
+# volta é o do `tail`, sempre 0, e a falha passa despercebida; (b) o `npm ci` APAGA o
+# node_modules antes de instalar, e o snapshot do passo 2/6 é `--exclude=node_modules`, ou seja
+# não devolve a pasta. Daí o hardlink de socorro.
+PRESERVAR="cp -al node_modules /tmp/nm-antes && echo 'node_modules preservado (hardlink)'"
+remoto "cd '${DEPLOY_PATH}' && rm -rf /tmp/nm-antes && { ${PRESERVAR} ; } || echo 'sem node_modules previo'"
+
+CI_CMD="npm ci --omit=dev > /tmp/npm-ci.log 2>&1"
+SOCORRO="echo '!! npm ci FALHOU - restaurando o node_modules anterior'; tail -30 /tmp/npm-ci.log; rm -rf node_modules; cp -al /tmp/nm-antes node_modules 2>/dev/null || true; exit 1"
+remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && { ${CI_CMD} ; } || { ${SOCORRO} ; }"
 
 echo "==> 5/6 Prisma Client e migrations (conexões separadas; ver nota 3)"
-remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && npm run prisma:generate 2>&1 | tail -2"
-remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && npm run prisma:deploy 2>&1 | tail -3"
+GEN_CMD="npm run prisma:generate > /tmp/prisma-gen.log 2>&1"
+remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && { ${GEN_CMD} ; } || { echo '!! prisma generate FALHOU'; tail -20 /tmp/prisma-gen.log; exit 1; }"
+DEP_CMD="npm run prisma:deploy > /tmp/prisma-dep.log 2>&1"
+remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && { ${DEP_CMD} ; } || { echo '!! migrate deploy FALHOU'; tail -20 /tmp/prisma-dep.log; exit 1; }"
+remoto "tail -3 /tmp/npm-ci.log; tail -2 /tmp/prisma-gen.log; tail -3 /tmp/prisma-dep.log"
 
 # Sobe o app à mão ANTES de reiniciar o de verdade: se faltar dependência ou variável, o erro
 # aparece aqui, com a produção ainda servindo a versão antiga — em vez de aparecer como um 503

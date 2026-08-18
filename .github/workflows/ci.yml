@@ -59,7 +59,22 @@ jobs:
       - run: pnpm -r typecheck
       - name: Testes unitários e de integração (Vitest)
         run: pnpm -r test
-      - run: pnpm -w build
+      # Monta o ARTEFATO DE VERDADE (build + bundle), não só o build. Mudou de `pnpm -w build`
+      # em 18/08/2026 (ADR-116): sem montar o bundle, a CI nunca via o `package-lock.json` que
+      # o servidor obedece — e era exatamente ali que a proteção se perdia.
+      - run: pnpm build:deploy
+
+      # ⛔ O PORTÃO QUE FALTAVA. `pnpm audit --prod` (acima) audita o MONOREPO; este audita a
+      # árvore que o SERVIDOR instala, lendo o lockfile do artefato. Os dois discordavam: em
+      # 18/08/2026 o de cima dizia 0 e este acusava 5 falhas ALTAS (`deepmerge-ts` 7.1.x), porque
+      # o npm não lê `pnpm.overrides`. Hoje o artefato leva os overrides e o lock; se algum dia
+      # voltarem a discordar, é aqui que a CI reprova — antes de publicar, não depois.
+      # ASSERÇÃO NEGATIVA, antes do audit (lição da ADR-114): `npm audit` sai 0 tanto quando a
+      # árvore está limpa quanto quando NÃO HÁ árvore. Este passo prova que há o que auditar — lockfile
+      # com centenas de pacotes, lock casando com o package.json, e TODO override da raiz presente.
+      # Provado que reprova: removendo os overrides do artefato à mão, ele sai 1 listando os 7.
+      - name: Portão — o artefato está inteiro, carrega os overrides e passa no audit
+        run: node scripts/conferir-artefato.mjs
 
   e2e:
     runs-on: ubuntu-latest
