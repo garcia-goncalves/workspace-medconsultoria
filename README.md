@@ -68,8 +68,15 @@ Leia nesta ordem — a documentação é a fonte da verdade, e é mantida atuali
 2. **[`docs/CLAUDE.md`](docs/CLAUDE.md)** — visão geral, papéis (RBAC), regras de negócio.
 3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) → [`docs/DATABASE.md`](docs/DATABASE.md) →
    [`docs/UI_GUIDELINES.md`](docs/UI_GUIDELINES.md) → [`docs/ROADMAP.md`](docs/ROADMAP.md).
-4. **[`docs/DECISIONS.md`](docs/DECISIONS.md)** — o **porquê** de cada escolha (ADR-1 … ADR-107).
+4. **[`docs/DECISIONS.md`](docs/DECISIONS.md)** — o **porquê** de cada escolha (ADR-1 … ADR-113).
 5. [`docs/DEPLOY.md`](docs/DEPLOY.md) — como sobe para produção.
+
+> **Publicar é um botão, não um comando** (ADR-111/113): aba **Actions** → **Deploy** →
+> *Run workflow* → digitar `PUBLICAR`. **Não rode `./deploy.sh` da sua máquina** — ele fica no
+> repositório como documentação executável e saída de emergência, mas o caminho normal é o
+> workflow: a chave SSH mora em *GitHub Secrets*, duas publicações simultâneas não se atropelam
+> mais, e o build acontece num ambiente limpo (foi assim que apareceram dois defeitos que a
+> máquina de quem publicava vinha escondendo).
 
 `CLAUDE.md` (raiz) é o retrato curto do estado atual, carregado por quem trabalha com assistente
 de IA no repositório.

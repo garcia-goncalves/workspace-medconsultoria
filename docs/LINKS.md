@@ -272,6 +272,28 @@ comum é o banco desligado: rode `pnpm db:up` e tente de novo. Depois, confira c
 
 ---
 
+## 8.5. Como colocar no ar (mudou em 17/08/2026)
+
+Publicar **não é mais um comando** — é um botão, e você mesmo consegue apertar.
+
+1. Abra: **https://github.com/thi-garcia/workspace-medconsultoria/actions/workflows/deploy.yml**
+2. Botão **"Run workflow"**, no canto direito.
+3. No campo que aparece, digite **`PUBLICAR`** (em maiúsculas) e confirme.
+
+**Deu certo quando** o último passo — *"Smoke test"* — ficar verde mostrando
+`{"status":"ok"}` e o endereço do site.
+
+**Deu errado?** O passo que falhou fica vermelho e diz o motivo. Se falhou no
+passo *"Ensaio de boot"*, **o site não foi tocado**: ele continua no ar na versão
+anterior, e não há nada urgente a fazer.
+
+**Pode apertar duas vezes sem medo.** A segunda execução espera a primeira
+terminar — antigamente, rodar dois deploys ao mesmo tempo estragava os dois.
+
+O detalhe técnico está em [`DEPLOY.md`](./DEPLOY.md) §0.
+
+---
+
 ## 9. Onde está o resto
 
 | Assunto | Arquivo |
