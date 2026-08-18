@@ -1,0 +1,255 @@
+name: Rotacionar chave de deploy
+
+# POR QUE ISTO EXISTE (18/08/2026, dívida aberta pela ADR-113):
+# Em 17/08/2026 a chave PRIVADA de deploy foi colada numa conversa. Ninguém a usou, mas
+# deixou de valer a premissa de que só o dono a tinha — e chave privada é a senha do
+# servidor. Gerar uma nova NÃO revoga a antiga: o que revoga é apagar a linha dela do
+# arquivo de chaves autorizadas do servidor. É o passo sem retorno visual, o mais esquecido,
+# e o único que importa.
+#
+# POR QUE AQUI E NÃO NO LAPTOP: mesma razão do `deploy.yml` (§0.9 do CLAUDE.md global).
+# Nenhuma janela administra servidor a partir do computador do dono. E há uma razão a mais,
+# específica desta tarefa: o runner JÁ TEM a chave antiga funcionando, então ele se autoriza
+# sozinho — sem ninguém abrir SSH à mão nem colar chave em painel.
+#
+# A ORDEM É DELIBERADA: autoriza a nova → PROVA que a nova entra → remove a velha → PROVA
+# que a nova continua entrando E que a velha é recusada. Falhar antes da remoção não custa
+# nada: o acesso antigo fica intacto e é só rodar de novo.
+#
+# ═══ AS QUATRO ARMADILHAS QUE A REVISÃO DE SEGURANÇA PEGOU ANTES DA PRIMEIRA EXECUÇÃO ═══
+# Todas as quatro terminavam do mesmo jeito: workflow VERDE e o dono sem servidor, ou o
+# vazamento intacto com a dívida marcada como paga. Estão anotadas no passo em que moram.
+# O resumo do desenho que saiu delas:
+#
+#   1. NÃO se remove por comentário. Remove-se pelo CORPO da chave (o base64), que é
+#      derivado da própria chave privada antiga aqui dentro. Comentário é texto livre e casa
+#      por substring: `claude-deploy-homolog` apagaria também `claude-deploy-homolog-2`, que
+#      era o nome que a documentação induzia o dono a escolher.
+#   2. NÃO existe mais campo de texto livre. Ele era interpolado dentro de um comando `ssh`
+#      e uma aspa simples ali executava o que quisesse no servidor de produção, com acesso
+#      ao `.env` (chave OpenAI, senha SMTP, senha do MySQL).
+#   3. A prova negativa exige `Permission denied` no texto do erro. Aceitar "o ssh falhou"
+#      como prova de revogação é aceitar um timeout da hospedagem — que este projeto SABE
+#      que acontece (quinta cicatriz da ADR-113) — como se fosse a fechadura trocada.
+#   4. A chave nova é testada DEPOIS de reescrever o arquivo, não só antes. Sem isso,
+#      nenhuma verificação cobria o estado final do servidor.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Digite ROTACIONAR (em maiúsculas) para confirmar'
+        required: true
+        type: string
+
+# A mesma trava do deploy. E o grupo é COMPARTILHADO com ele de propósito: rotacionar a
+# chave no meio de uma publicação deixaria o passo seguinte dela sem acesso.
+concurrency:
+  group: deploy-producao
+  cancel-in-progress: false
+
+jobs:
+  rotacionar:
+    if: github.event.inputs.confirmar == 'ROTACIONAR'
+    runs-on: ubuntu-latest
+    environment: producao
+    env:
+      DEPLOY_SSH_PORT: "1992"
+
+    steps:
+      # Só UM segredo novo é necessário: a chave privada nova. A pública é DERIVADA dela aqui
+      # (`ssh-keygen -y`), o que elimina de uma vez três coisas: um segredo a menos para o
+      # dono administrar, a classe de erro "mandei a privada no lugar da pública", e a
+      # possibilidade de um comentário de chave com `$(…)` ser expandido pelo runner.
+      - name: 1/7 · Preparar as chaves e derivar as duas públicas
+        env:
+          CHAVE_ANTIGA: ${{ secrets.DEPLOY_SSH_KEY }}
+          CHAVE_NOVA: ${{ secrets.DEPLOY_SSH_KEY_NOVA }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          # A antiga também é conferida. Sem isto, um segredo ausente (renomeado, ou já
+          # promovido numa execução interrompida) só apareceria no passo 2 depois de 180s de
+          # espera, com a mensagem enganosa "a chave antiga não entra mais — chame a
+          # hospedagem" — empurrando o dono ao suporte por causa de um campo em branco.
+          [ -n "${CHAVE_ANTIGA:-}" ] || { echo "!! falta o segredo DEPLOY_SSH_KEY"; exit 1; }
+          [ -n "${CHAVE_NOVA:-}" ]   || { echo "!! falta o segredo DEPLOY_SSH_KEY_NOVA"; exit 1; }
+
+          mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$CHAVE_ANTIGA" > "$HOME/.ssh/chave_antiga"
+          printf '%s\n' "$CHAVE_NOVA"   > "$HOME/.ssh/chave_nova"
+          chmod 600 "$HOME/.ssh/chave_antiga" "$HOME/.ssh/chave_nova"
+
+          # Chave privada com senha faria o `ssh-keygen -y` PARAR esperando digitação, e o
+          # passo só morreria no timeout do job (horas). `-P ""` responde "sem senha" e falha
+          # na hora se houver uma — que é o diagnóstico certo, e está no docs/DEPLOY.md.
+          for ARQ in chave_antiga chave_nova; do
+            ssh-keygen -y -P "" -f "$HOME/.ssh/$ARQ" > "$HOME/$ARQ.pub" 2>/tmp/erro-keygen || {
+              echo "!! não consegui ler a chave privada '$ARQ': $(cat /tmp/erro-keygen)"
+              echo "!! se ela tem senha, gere de novo com  -N \"\"  (o runner não tem como digitar)"
+              exit 1
+            }
+          done
+
+          # O CORPO da chave é o campo 2 do formato do OpenSSH: o base64. É ele que
+          # identifica a chave sem ambiguidade — o comentário (campo 3) é apelido, muda, se
+          # repete e casa por substring.
+          CORPO_ANTIGO="$(awk '{print $2}' "$HOME/chave_antiga.pub")"
+          CORPO_NOVO="$(awk '{print $2}' "$HOME/chave_nova.pub")"
+
+          # base64 do OpenSSH é [A-Za-z0-9+/=] e nada mais. Confirmar isto AQUI é o que torna
+          # seguro interpolar o valor no comando remoto lá no passo 6: sem aspa, sem cifrão,
+          # sem ponto-e-vírgula, não há o que injetar.
+          for C in "$CORPO_ANTIGO" "$CORPO_NOVO"; do
+            printf '%s' "$C" | grep -qE '^[A-Za-z0-9+/=]{40,}$' || { echo "!! corpo de chave em formato inesperado"; exit 1; }
+          done
+          [ "$CORPO_ANTIGO" != "$CORPO_NOVO" ] || { echo "!! a chave nova é a MESMA da antiga — não há o que rotacionar"; exit 1; }
+
+          echo "CORPO_ANTIGO=$CORPO_ANTIGO" >> "$GITHUB_ENV"
+          echo "CORPO_NOVO=$CORPO_NOVO" >> "$GITHUB_ENV"
+          echo "antiga (a revogar): $(ssh-keygen -lf "$HOME/chave_antiga.pub")"
+          echo "nova   (a instalar): $(ssh-keygen -lf "$HOME/chave_nova.pub")"
+
+          # O comentário é escrito por NÓS, com data, e não vem de campo digitado. Serve só
+          # para um humano reconhecer a linha no servidor; a rotação seguinte vai casar pelo
+          # corpo, como esta.
+          printf '%s rotacionada-%s\n' "$(cat "$HOME/chave_nova.pub")" "$(date +%Y%m%d)" > "$HOME/publica_nova.pub"
+
+          # Um apelido por chave: mesmo host, credenciais diferentes. É assim que se prova
+          # QUAL das duas abre a porta. `IdentitiesOnly yes` é obrigatório (senão o ssh
+          # oferece as duas e o teste não prova nada) e `BatchMode yes` também: sem ele uma
+          # chave recusada pode cair em pergunta de senha e pendurar o passo até o timeout.
+          for PAR in "antiga:chave_antiga" "nova:chave_nova"; do
+            APELIDO="${PAR%%:*}"; ARQUIVO="${PAR##*:}"
+            {
+              echo "Host $APELIDO"
+              echo "  HostName $DEPLOY_HOST"
+              echo "  User $DEPLOY_USER"
+              echo "  Port $DEPLOY_SSH_PORT"
+              echo "  IdentityFile $HOME/.ssh/$ARQUIVO"
+              echo "  IdentitiesOnly yes"
+              echo "  BatchMode yes"
+              echo "  StrictHostKeyChecking accept-new"
+              echo "  ConnectTimeout 30"
+            } >> "$HOME/.ssh/config"
+          done
+          chmod 600 "$HOME/.ssh/config"
+
+      # A TineHost corta conexões SSH repetidas de um IP desconhecido, e o runner é sempre um
+      # IP novo (quinta cicatriz da ADR-113). Insistir rápido prolonga o castigo; esperar é o
+      # que resolve.
+      - name: 2/7 · Provar que a chave ANTIGA ainda entra (é ela que faz o resto)
+        run: |
+          set -euo pipefail
+          for TENTATIVA in 1 2 3 4; do
+            if ssh -o LogLevel=ERROR antiga "echo entrou" 2>/tmp/erro; then break; fi
+            echo "tentativa $TENTATIVA falhou: $(cat /tmp/erro)"
+            if [ "$TENTATIVA" = "4" ]; then
+              echo "!! a chave antiga não entra mais. Se os segredos estão certos, o caminho"
+              echo "!! é o Terminal do painel da TineHost — não há como seguir daqui."
+              exit 1
+            fi
+            sleep $((TENTATIVA * 30))
+          done
+
+      - name: 3/7 · Guardar cópia do arquivo de chaves do servidor (é o rollback)
+        run: |
+          set -euo pipefail
+          CARIMBO="$(date +%Y%m%d-%H%M%S)"
+          echo "CARIMBO=$CARIMBO" >> "$GITHUB_ENV"
+          ssh -o LogLevel=ERROR antiga \
+            "cd ~/.ssh && cp authorized_keys authorized_keys.bak-${CARIMBO} && \
+             echo 'cópia guardada: ~/.ssh/authorized_keys.bak-${CARIMBO}' && \
+             echo \"chaves antes: \$(grep -c '^ssh-' authorized_keys)\""
+
+      - name: 4/7 · Autorizar a chave NOVA (a antiga continua valendo neste ponto)
+        run: |
+          set -euo pipefail
+          # `grep -qF` antes de acrescentar deixa o passo repetível: rodar duas vezes não
+          # duplica a linha. O `\n` na frente garante linha própria — um arquivo que termine
+          # sem quebra de linha colaria as duas chaves numa só, invalidando as duas de um
+          # jeito que só apareceria na próxima publicação.
+          PUBLICA="$(cat "$HOME/publica_nova.pub")"
+          ssh -o LogLevel=ERROR antiga "PUB='$PUBLICA'; cd ~/.ssh && \
+            chmod 700 . && touch authorized_keys && chmod 600 authorized_keys && \
+            if grep -qF \"\$PUB\" authorized_keys; then echo 'já estava autorizada'; \
+            else printf '\n%s\n' \"\$PUB\" >> authorized_keys && echo 'chave nova autorizada'; fi"
+
+      - name: 5/7 · PROVA — a chave nova entra sozinha? (só depois disto a velha sai)
+        run: |
+          set -euo pipefail
+          sleep 10
+          for TENTATIVA in 1 2 3; do
+            if ssh -o LogLevel=ERROR nova "echo 'a chave NOVA entrou'" 2>/tmp/erro; then
+              echo "OK — a nova está valendo"
+              exit 0
+            fi
+            echo "tentativa $TENTATIVA falhou: $(cat /tmp/erro)"
+            sleep $((TENTATIVA * 20))
+          done
+          echo "!! a chave nova NÃO entrou. NADA foi revogado — o acesso antigo segue intacto."
+          exit 1
+
+      # Este é O passo que revoga. Tudo antes dele era preparação reversível.
+      - name: 6/7 · Revogar a chave antiga — casando pelo CORPO, nunca pelo apelido
+        run: |
+          set -euo pipefail
+          # Feito PELA CHAVE NOVA de propósito: se ela não estivesse mesmo valendo, este
+          # passo não conectaria — e a antiga sobreviveria.
+          #
+          # A conferência é aritmética, não "sobrou alguma coisa". A versão anterior deste
+          # arquivo checava só `[ -s ak.novo ]` (arquivo não-vazio), o que deixava passar o
+          # caso em que as DUAS chaves de deploy sumiam e restava a chave pessoal do dono:
+          # arquivo não-vazio, guarda satisfeita, servidor sem deploy, workflow verde.
+          ssh -o LogLevel=ERROR nova "cd ~/.ssh && \
+            ANTES=\$(grep -c '^ssh-' authorized_keys) && \
+            ALVOS=\$(grep -cF '$CORPO_ANTIGO' authorized_keys || true) && \
+            echo \"chaves no arquivo: \$ANTES · linhas com a chave antiga: \$ALVOS\" && \
+            if [ \"\$ALVOS\" -eq 0 ]; then echo 'a chave antiga já não estava aqui — nada a remover'; exit 0; fi && \
+            grep -vF '$CORPO_ANTIGO' authorized_keys > ak.novo && \
+            DEPOIS=\$(grep -c '^ssh-' ak.novo) && \
+            echo \"restariam \$DEPOIS de \$ANTES\" && \
+            if [ \"\$DEPOIS\" -ne \$((ANTES - ALVOS)) ] || [ \"\$DEPOIS\" -lt 1 ]; then \
+              echo '!! a conta não fecha — NÃO vou trocar o arquivo'; rm -f ak.novo; exit 1; fi && \
+            grep -qF '$CORPO_NOVO' ak.novo || { echo '!! a chave NOVA não está no arquivo que eu ia gravar'; rm -f ak.novo; exit 1; } && \
+            mv ak.novo authorized_keys && chmod 600 authorized_keys && echo 'arquivo de chaves reescrito'"
+
+      - name: 7/7 · PROVA FINAL — a nova ainda entra, a velha é RECUSADA
+        run: |
+          set -euo pipefail
+          # (a) O estado final tem de ser testado depois da reescrita. Até a versão anterior
+          # deste arquivo, a última vez que a chave nova era exercitada era ANTES de mexer no
+          # arquivo — ou seja, nada verificava o que ficou gravado.
+          sleep 10
+          ssh -o LogLevel=ERROR nova "echo 'a chave nova continua entrando depois da reescrita'"
+
+          # (b) A prova de que a fechadura mudou é NEGATIVA — e precisa ser a recusa
+          # explícita do servidor, não a mera ausência de sucesso. `ssh` também sai com erro
+          # por timeout, DNS e corte de IP pela hospedagem: aceitar qualquer falha como
+          # "revogada" faria um workflow verde declarar paga uma dívida ainda aberta.
+          echo "--- tentando entrar com a chave ANTIGA (o esperado é ser RECUSADO) ---"
+          if SAIDA="$(ssh -o LogLevel=ERROR antiga "echo ainda entro" 2>&1)"; then
+            echo "!! A CHAVE ANTIGA AINDA ENTRA. A rotação NÃO se completou."
+            echo "!! Cópia intacta em ~/.ssh/authorized_keys.bak-${CARIMBO}"
+            exit 1
+          fi
+          printf '%s\n' "$SAIDA"
+          printf '%s' "$SAIDA" | grep -q 'Permission denied' || {
+            echo "!! INCONCLUSIVO: o acesso falhou, mas não por chave recusada (acima)."
+            echo "!! Provavelmente rede ou corte de IP pela hospedagem. NÃO considere revogada;"
+            echo "!! rode de novo daqui a alguns minutos — o passo 6 é repetível."
+            exit 1
+          }
+          echo ""
+          echo "REVOGADA: o servidor recusou a chave antiga, com a chave nova funcionando."
+          echo ""
+          echo "FALTAM DOIS PASSOS, e são do dono. Até o primeiro, o Deploy está QUEBRADO —"
+          echo "ele ainda tenta entrar com a chave que acabou de ser revogada:"
+          echo "  gh secret set DEPLOY_SSH_KEY < ~/.ssh/med_deploy_2"
+          echo "  gh secret delete DEPLOY_SSH_KEY_NOVA"
+          echo "E então rodar o Deploy, que é a prova de ponta a ponta."
+
+      - name: Limpar as chaves do runner
+        if: always()
+        run: rm -f "$HOME/.ssh/chave_antiga" "$HOME/.ssh/chave_nova" "$HOME/.ssh/config" "$HOME"/*.pub
