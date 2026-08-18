@@ -47,6 +47,65 @@ gh secret set DEPLOY_SSH_KEY < caminho/da/chave/privada
 A chave privada é a mesma que já funcionava (`~/.ssh/medconsultoria_deploy`). O caminho do
 app e a porta 1992 **não** são segredo e ficam escritos no próprio workflow.
 
+**Os três já estão postos** (17/08/2026). Confira com `gh secret list`.
+
+### Trocar a chave do servidor — o workflow "Rotacionar chave de deploy" (ADR-114)
+
+Chave de servidor se troca quando vaza, quando alguém sai da equipe, ou de tempos em tempos
+por higiene. **Gerar uma chave nova não revoga a antiga**: quem revoga é apagar a linha dela
+do arquivo de chaves autorizadas do servidor. É o passo que mais se esquece, e é o único que
+importa.
+
+A troca **não se faz do laptop** (§0.9 do CLAUDE.md global). Roda no GitHub, pelo mesmo
+motivo do deploy — e por um a mais: o runner já tem a chave antiga funcionando, então ele se
+autoriza sozinho, sem ninguém abrir SSH à mão.
+
+**Passo 1 — o dono gera o par, no terminal do VS Code** (não pelo chat: chave privada não
+passa por conversa — foi assim que a de 17/08 vazou). O `-N ""` diz "sem senha de chave", e é
+obrigatório: o runner não tem como digitar senha, e uma chave protegida faria o workflow
+travar esperando. O nome do comentário (`-C`) é livre e não influencia nada — a revogação
+casa pelo conteúdo da chave, não pelo apelido.
+
+```
+ssh-keygen -t ed25519 -C "deploy-workspace-med-2026" -f ~/.ssh/med_deploy_2 -N ""
+gh secret set DEPLOY_SSH_KEY_NOVA < ~/.ssh/med_deploy_2
+```
+
+**Passo 2 — Actions → "Rotacionar chave de deploy" → Run workflow**, digitando `ROTACIONAR`.
+Não há mais nada a preencher: o workflow descobre sozinho qual linha remover, derivando a
+identidade da chave antiga do próprio segredo `DEPLOY_SSH_KEY`.
+
+**Passo 3 — promover a nova a oficial. Entre a revogação e este comando o Deploy está
+quebrado** (ele ainda aponta para a chave que acabou de ser revogada), então não publique
+nesse intervalo:
+
+```
+gh secret set DEPLOY_SSH_KEY < ~/.ssh/med_deploy_2
+gh secret delete DEPLOY_SSH_KEY_NOVA
+```
+
+**Passo 4 — rodar o Deploy.** É a prova de ponta a ponta: publicou, logo a chave nova serve.
+
+**A ordem dentro do workflow é deliberada:** autoriza a nova → prova que a nova entra → remove
+a velha → prova que a nova **continua** entrando e que a velha é **recusada**. Falhou antes da
+remoção, o acesso antigo continua intacto e é só rodar de novo. O caminho contrário tranca
+todo mundo do lado de fora se a chave nova tiver qualquer defeito. O arquivo de chaves do
+servidor é copiado antes de ser editado (`~/.ssh/authorized_keys.bak-<carimbo>`, no servidor).
+
+**Por que só um segredo, e nenhum campo para digitar:** a revisão de segurança da ADR-114
+mostrou que as duas comodidades que existiam ali — informar o comentário da chave a revogar e
+mandar a pública num segredo separado — eram justamente os dois caminhos para desastre. A
+pública é derivada da privada dentro do workflow, e a chave a revogar é identificada pelo
+corpo dela. Não sobrou nada para o dono errar.
+
+**Três recusas que parecem defeito e não são:** chave privada com senha (refaça com `-N ""`);
+chave nova idêntica à antiga; ou o `authorized_keys` do servidor não bater com a conta
+esperada (o workflow reprova em vez de gravar). Nenhuma delas mexe no servidor.
+
+**E se o resultado for "INCONCLUSIVO"** no último passo: o acesso falhou, mas não por chave
+recusada — quase sempre é a hospedagem cortando o IP do runner. **Não** considere revogada;
+espere alguns minutos e rode de novo. O workflow foi feito para ser repetível.
+
 ### Duas armadilhas que a primeira publicação revelou (ADR-113)
 
 As duas existiam havia meses e só apareceram num ambiente limpo. Se voltarem, é aqui que se olha:

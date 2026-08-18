@@ -1691,3 +1691,58 @@ Junto veio um ganho de segurança: um apelido `deploy` na configuração de SSH 
 **Verificado — a publicação passou e foi conferida de fora, não pelo relatório do workflow:** `No pending migrations to apply` · ensaio de boot **16 portas ouvindo** · `restart.txt marcado em 2026-08-17 17:52:33` · `/health` → `{"status":"ok"}` · `/`, `/credenciamentos` e `/comecar` → **200**, medidos por `curl` daqui. Na tela: página de login renderiza **sem a faixa "AMBIENTE LOCAL"** (a prova de que o pacote publicado é o de produção) e **zero erros de console**.
 
 **No ar desde 17/08/2026 às 17:52** — ADR-108, ADR-109, ADR-110 e ADR-112 publicados.
+
+---
+
+## ADR-114 — A troca da chave do servidor virou workflow, porque o passo que revoga é o que se esquece ⏳
+
+**Data:** 18/08/2026 · **Estado:** ferramenta pronta e revisada; a execução depende do dono (passo 1 gera o par).
+
+### O problema
+
+Em 17/08/2026 a chave **privada** de deploy foi parar numa conversa — uma seleção de arquivo no editor, que joga o conteúdo no contexto do mesmo jeito que colar. Ninguém a usou. Mas chave privada é a senha do servidor, e a premissa de que só o dono a tinha deixou de valer. A dívida ficou aberta por um dia.
+
+### A parte que quase todo mundo erra
+
+**Gerar uma chave nova não revoga a antiga.** As duas passam a valer ao mesmo tempo. O que revoga é apagar a linha da velha do arquivo de chaves autorizadas do servidor — um passo manual, invisível, sem retorno visual, e por isso o mais esquecido de toda a rotação. Uma rotação "concluída" sem ele é teatro: o vazamento continua exatamente tão explorável quanto era.
+
+Foi para tornar **esse** passo obrigatório e verificável que a troca virou arquivo em vez de receita.
+
+### A decisão
+
+`.github/workflows/rotacionar-chave-deploy.yml`, gatilho `workflow_dispatch` com confirmação digitada, `concurrency: deploy-producao` **compartilhado com o deploy** — rotacionar a chave no meio de uma publicação deixaria o passo seguinte dela sem acesso.
+
+Roda no GitHub pela regra do §0.9 (nenhuma janela administra servidor a partir do laptop) e por uma razão específica desta tarefa: **o runner já tem a chave antiga funcionando, então ele se autoriza sozinho.** Ninguém precisa abrir SSH à mão, nem colar chave em painel, nem pedir que o dono edite arquivo de servidor — que era o ponto onde a receita anterior morria.
+### A ordem, que é metade do projeto
+
+autoriza a nova → **prova que a nova entra** → só então remove a velha → **prova que a nova continua entrando e que a velha é recusada**.
+
+Falhar antes da remoção não custa nada: o acesso antigo continua intacto e é só rodar de novo. O caminho contrário — remover primeiro — tranca todo mundo do lado de fora se a chave nova tiver um dedo trocado, e aí a saída é o suporte da hospedagem. O arquivo de chaves é copiado antes da edição (`authorized_keys.bak-<carimbo>`).
+
+### A outra metade: quatro coisas que a revisão de segurança pegou antes da primeira execução
+
+O desenho acima estava certo e mesmo assim a implementação tinha **três desfechos ruins**, todos terminando em workflow **verde**. Vale registrar, porque a lição não é sobre SSH — é sobre o que "verde" prova.
+
+**1. Remover pelo comentário da chave apagava a chave nova junto.** Comentário é apelido: texto livre, casado por substring. A guarda comparava igualdade exata, o que não impede prefixo. E o pior é que a **própria documentação induzia o erro** — quando o workflow recusava por comentário repetido, ela mandava "refaça com um `-C` diferente", e a reação natural é sufixar. `claude-deploy-homolog` + `claude-deploy-homolog-2` → as duas linhas somem; sobra a chave pessoal do dono, então o arquivo não fica vazio, a guarda `[ -s ]` passa e o `mv` executa. O rollback anunciado mora **dentro do servidor, alcançável só pelo SSH que acabou de sumir**. Reproduzido com chaves de verdade antes de corrigir: casar por comentário deixou **1** chave de 3; casar pelo corpo deixou **2**, as certas.
+
+A correção foi trocar a identidade usada: casa-se pelo **corpo** da chave (o base64), derivado da própria privada antiga dentro do workflow. Corpo de chave não se repete, não é apelido e ninguém digita.
+
+**2. O campo de texto livre era execução de comando no servidor de produção.** Ele era interpolado dentro de um `ssh "... grep -vF '$COMENTARIO' ..."`; uma aspa simples fechava a moldura e o resto virava comando, rodando como o usuário de deploy, ao lado do arquivo de variáveis com chave OpenAI, senha de SMTP e credencial do MySQL. Repositório privado limita quem dispara — mas o `environment: producao` tem aprovação humana, e o revisor aprova **um campo de texto**, não um diff. A injeção passaria exatamente pelo portão que existe para barrá-la. **O campo deixou de existir**; a única entrada é a palavra de confirmação.
+
+**3. A prova negativa falhava aberto.** `if ssh antiga; then falhou; fi` lê *qualquer* erro como "revogada" — inclusive timeout. E este projeto **sabe** que a TineHost corta o IP do runner (quinta cicatriz da ADR-113); essa era a sétima conexão da execução, e o `2>/dev/null` jogava fora justamente a mensagem que distinguiria recusa de queda. Desfecho: comentário errado → nada removido → hospedagem corta o IP → o workflow imprime "REVOGADA", fecha verde, o dono apaga o segredo antigo, e **a chave vazada continua valendo com a dívida marcada como paga**. Agora exige-se `Permission denied` no texto do erro; qualquer outra falha é **INCONCLUSIVO** e reprova.
+
+**4. Nada testava o estado final.** A chave nova era exercitada só *antes* da reescrita do arquivo. Um passo 7 a testa depois — é o que transforma um lockout silencioso em falha ruidosa com o backup ainda alcançável.
+
+Sumiu também o segredo `DEPLOY_PUBKEY_NOVA`: a pública é derivada da privada (`ssh-keygen -y`), o que elimina de uma vez um segredo a administrar, a classe de erro "mandei a privada no lugar da pública", e um comentário de chave com `$(…)` sendo expandido pelo runner.
+
+### O que isto ensina, e é o mesmo da ADR-113
+
+**Verde só prova que nenhum comando deu erro.** Os três desfechos acima produziam verde — dois deixando o dono sem servidor, o terceiro declarando paga uma dívida intacta. O que separa "rodou" de "funcionou" é uma verificação escrita ao contrário: o passo 7 falha **se conseguir entrar**. Ferramenta de segurança sem pelo menos uma asserção negativa vira teatro exatamente no dia em que for necessária.
+
+E, específico desta: **ferramenta de segurança sem revisão adversarial não é ferramenta de segurança.** Esta foi escrita com cuidado, comentada, com backup e ordem defensiva — e ainda assim tinha um caminho para lockout que nascia da própria documentação que a acompanhava.
+
+### O que fica de errado enquanto isto não roda
+
+Nada muda sozinho. A chave exposta em 17/08 continua valendo até o passo 6 rodar. O workflow é a ferramenta; a dívida só fecha na execução — e o sinal de que fechou é o Deploy publicar com a chave nova.
+
+**Passo a passo do dono em `docs/DEPLOY.md` §0.**
