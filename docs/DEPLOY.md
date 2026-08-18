@@ -60,15 +60,30 @@ A troca **não se faz do laptop** (§0.9 do CLAUDE.md global). Roda no GitHub, p
 motivo do deploy — e por um a mais: o runner já tem a chave antiga funcionando, então ele se
 autoriza sozinho, sem ninguém abrir SSH à mão.
 
-**Passo 1 — o dono gera o par, no terminal do VS Code** (não pelo chat: chave privada não
-passa por conversa — foi assim que a de 17/08 vazou). O `-N ""` diz "sem senha de chave", e é
-obrigatório: o runner não tem como digitar senha, e uma chave protegida faria o workflow
-travar esperando. O nome do comentário (`-C`) é livre e não influencia nada — a revogação
-casa pelo conteúdo da chave, não pelo apelido.
+> **Já foi feita uma vez, em 18/08/2026** (ADR-114): a chave exposta em 17/08 foi revogada e
+> substituída pela `deploy-workspace-med-2026-08-18`. O roteiro abaixo é para a **próxima**.
 
+> ⚠️ **O terminal do dono é o PowerShell, não o bash.** O operador `<` (mandar arquivo para
+> dentro de um comando) **não existe** no PowerShell — ele responde
+> `The '<' operator is reserved for future use`. Use sempre a coluna PowerShell.
+
+**Passo 1 — gerar o par.** O `-N ""` diz "sem senha de chave", e é obrigatório: o runner não
+tem como digitar senha, e uma chave protegida travaria o workflow esperando. O comentário
+(`-C`) é livre e não influencia nada — a revogação casa pelo **conteúdo** da chave, nunca pelo
+apelido.
+
+PowerShell (o terminal do VS Code):
+
+```powershell
+ssh-keygen -t ed25519 -C "deploy-workspace-med" -f "$HOME\.ssh\med_deploy_3" -N '""'
+Get-Content "$HOME\.ssh\med_deploy_3" -Raw | gh secret set DEPLOY_SSH_KEY_NOVA
 ```
-ssh-keygen -t ed25519 -C "deploy-workspace-med-2026" -f ~/.ssh/med_deploy_2 -N ""
-gh secret set DEPLOY_SSH_KEY_NOVA < ~/.ssh/med_deploy_2
+
+Git Bash / Linux / macOS, se for o caso:
+
+```bash
+ssh-keygen -t ed25519 -C "deploy-workspace-med" -f ~/.ssh/med_deploy_3 -N ""
+gh secret set DEPLOY_SSH_KEY_NOVA < ~/.ssh/med_deploy_3
 ```
 
 **Passo 2 — Actions → "Rotacionar chave de deploy" → Run workflow**, digitando `ROTACIONAR`.
@@ -79,8 +94,8 @@ identidade da chave antiga do próprio segredo `DEPLOY_SSH_KEY`.
 quebrado** (ele ainda aponta para a chave que acabou de ser revogada), então não publique
 nesse intervalo:
 
-```
-gh secret set DEPLOY_SSH_KEY < ~/.ssh/med_deploy_2
+```powershell
+Get-Content "$HOME\.ssh\med_deploy_3" -Raw | gh secret set DEPLOY_SSH_KEY
 gh secret delete DEPLOY_SSH_KEY_NOVA
 ```
 

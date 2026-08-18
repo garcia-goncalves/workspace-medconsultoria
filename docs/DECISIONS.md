@@ -1694,9 +1694,9 @@ Junto veio um ganho de segurança: um apelido `deploy` na configuração de SSH 
 
 ---
 
-## ADR-114 — A troca da chave do servidor virou workflow, porque o passo que revoga é o que se esquece ⏳
+## ADR-114 — A troca da chave do servidor virou workflow, porque o passo que revoga é o que se esquece ✅
 
-**Data:** 18/08/2026 · **Estado:** ferramenta pronta e revisada; a execução depende do dono (passo 1 gera o par).
+**Data:** 18/08/2026 · **Estado:** EXECUTADA em 18/08/2026 às 16:06 (BRT). A chave vazada em 17/08 não abre mais o servidor.
 
 ### O problema
 
@@ -1741,8 +1741,21 @@ Sumiu também o segredo `DEPLOY_PUBKEY_NOVA`: a pública é derivada da privada 
 
 E, específico desta: **ferramenta de segurança sem revisão adversarial não é ferramenta de segurança.** Esta foi escrita com cuidado, comentada, com backup e ordem defensiva — e ainda assim tinha um caminho para lockout que nascia da própria documentação que a acompanhava.
 
-### O que fica de errado enquanto isto não roda
+### A execução, com a evidência lida — não o "verde"
 
-Nada muda sozinho. A chave exposta em 17/08 continua valendo até o passo 6 rodar. O workflow é a ferramenta; a dívida só fecha na execução — e o sinal de que fechou é o Deploy publicar com a chave nova.
+Rodada em **18/08/2026 às 16:06 (BRT)**, execução `32174706059`. O que o servidor respondeu, passo a passo:
 
-**Passo a passo do dono em `docs/DEPLOY.md` §0.**
+- chave a revogar: `SHA256:PmxUPsJcWmU+9ng5Ec0BP/pRgcvxE6RxWoXGNcsBoYU` (`claude-deploy-homolog`, a de 17/08)
+- chave instalada: `SHA256:9MO02c3F90xqhxjZWlhV+klqVfQu9DueV6TZsN51iE8` (`deploy-workspace-med-2026-08-18`)
+- cópia de rollback: `~/.ssh/authorized_keys.bak-20260818-190605` · **4 chaves antes**
+- depois de autorizar a nova: 5 · **linhas casando com a antiga: 1** (a aritmética que a versão revisada exige) · **restaram 4**
+- prova positiva depois da reescrita: `a chave nova continua entrando depois da reescrita`
+- prova negativa: **`Permission denied (publickey,gssapi-keyex,gssapi-with-mic,password)`**
+
+As outras 3 chaves da conta ficaram intactas — era exatamente o que o casamento por corpo, e não por apelido, existia para garantir.
+
+**Prova de ponta a ponta:** o segredo `DEPLOY_SSH_KEY` foi promovido para a chave nova e o **Deploy** rodou em seguida (execução `32174834781`): ensaio de boot com **16 portas ouvindo**, `restart.txt marcado em 2026-08-18 16:16:26`, `/health` → `{"status":"ok"}`, `/` e `/credenciamentos` → **200**. Conferido de fora depois, por `curl` daqui: `/health` ok e `/`, `/credenciamentos`, `/comecar` → 200.
+
+**A dívida de 17/08 está fechada.** O que sobrou de trabalho é higiene, não risco: apagar as cópias `authorized_keys.bak-*` do servidor quando alguém for lá por outro motivo.
+
+**Passo a passo do dono em `docs/DEPLOY.md` §0** — e agora com os comandos em **PowerShell**, que é o terminal que ele usa de fato. A primeira tentativa falhou com `The '<' operator is reserved for future use` porque a receita estava escrita em sintaxe de Linux: o `<` não existe no PowerShell. Documentação que assume o terminal errado é documentação que não funciona.
