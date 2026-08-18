@@ -1,6 +1,6 @@
 # DECISIONS.md — Architecture Decision Records
 
-Registro das decisões arquiteturais importantes. Cada ADR: **Contexto → Opções → Decisão → Consequências**. Ao tomar uma nova decisão relevante, adicione um ADR (não edite os antigos; se um for revertido, marque como *Substituído por ADR-n*).
+Registro das decisões arquiteturais importantes. Cada ADR: **Contexto → Opções → Decisão → Consequências**. Ao tomar uma nova decisão relevante, adicione um ADR (não edite os antigos; se um for revertido, marque como _Substituído por ADR-n_).
 
 Status: ✅ Aceito · 🔄 Substituído · 💤 Proposto.
 
@@ -11,6 +11,7 @@ Status: ✅ Aceito · 🔄 Substituído · 💤 Proposto.
 **Contexto:** app interno com um único cliente web (mais o Portal, também React). Prioridade em DX, produtividade e poucos bugs de contrato, com equipe pequena.
 
 **Opções:**
+
 - REST + OpenAPI (contrato explícito, mais boilerplate, tipos gerados).
 - GraphQL (poderoso, mas overhead para um só cliente interno).
 - **tRPC** (o front importa o tipo do router do back; zero geração de código).
@@ -223,14 +224,15 @@ Status: ✅ Aceito · 🔄 Substituído · 💤 Proposto.
 
 ## ADR-22 — Situação do cliente = placar do funil (automática; cliente nunca vira lead) ✅
 
-**Contexto:** a "Situação comercial" (PROSPECT/NEGOCIACAO/ATIVO/PERDIDO) era um dropdown manual na ficha que não conversava com o funil — dois lugares dizendo o estado da relação, podendo divergir. Pior: misturava *estágio do negócio* (prospecção/negociação) com *status do relacionamento* (cliente/perdido). O dono, corretamente, apontou a confusão: **"cliente não vira lead"**.
+**Contexto:** a "Situação comercial" (PROSPECT/NEGOCIACAO/ATIVO/PERDIDO) era um dropdown manual na ficha que não conversava com o funil — dois lugares dizendo o estado da relação, podendo divergir. Pior: misturava _estágio do negócio_ (prospecção/negociação) com _status do relacionamento_ (cliente/perdido). O dono, corretamente, apontou a confusão: **"cliente não vira lead"**.
 
-**Modelo mental correto:** **Lead = uma OPORTUNIDADE (negócio); Cliente = o cadastro (permanente).** Um cliente pode ter várias oportunidades ao longo do tempo. Um cliente **nunca** "vira lead"; o que existe é *abrir uma nova oportunidade para um cliente existente* (upsell) — ele segue cliente.
+**Modelo mental correto:** **Lead = uma OPORTUNIDADE (negócio); Cliente = o cadastro (permanente).** Um cliente pode ter várias oportunidades ao longo do tempo. Um cliente **nunca** "vira lead"; o que existe é _abrir uma nova oportunidade para um cliente existente_ (upsell) — ele segue cliente.
 
 **Decisão:** a Situação vira o **placar do funil** (fonte da verdade = funil), mantida automaticamente e **somente-leitura** na ficha:
+
 - `reconciliarSituacaoCliente(clienteId)` recalcula a situação a partir das oportunidades do cliente e roda a cada evento de funil (mover/avançar etapa, converter, perder, reabrir, desistir/retomar pelo Portal, nova oportunidade).
 - **Regra de ouro:** cliente **ATIVO nunca é rebaixado** — quem já é cliente (ganhou um negócio ou foi cadastrado direto) segue ATIVO mesmo com uma oportunidade nova aberta. Para quem ainda não é cliente: oportunidade aberta → NEGOCIACAO (se na etapa de negociação) senão PROSPECT; só perdida → PERDIDO.
-- Botão **"Nova oportunidade"** na ficha (`leads.novaOportunidade`) abre um novo negócio no funil para um cliente existente, com confirmação que deixa claro: *o cliente continua cliente*.
+- Botão **"Nova oportunidade"** na ficha (`leads.novaOportunidade`) abre um novo negócio no funil para um cliente existente, com confirmação que deixa claro: _o cliente continua cliente_.
 - Removidos o `clientes.setSituacao` e o dropdown manual (não há mais como divergir).
 
 **Consequências:** um só estado, sempre coerente, sem o usuário mexer na mão; a confusão "cliente virou lead" desaparece. Perde-se o ajuste manual do rótulo — aceitável, pois o funil é a verdade. Churn de cliente ATIVO (inativar) é um conceito separado, futuro. (Correção de borda: `maxParamLength: 5000` no Fastify — o batch tRPC da ficha passava de 100 chars no path e o find-my-way devolvia 414.)
@@ -242,6 +244,7 @@ Status: ✅ Aceito · 🔄 Substituído · 💤 Proposto.
 **Contexto:** ao abrir uma "Nova oportunidade" para um cliente existente (ADR-22), o negócio nascia vazio — o sistema não sabia o que o cliente queria, então o card do funil e o checklist saíam sem os serviços. E não havia como o próprio cliente sinalizar o que precisa.
 
 **Decisão:** a oportunidade passa a nascer sabendo **quais serviços** o cliente quer, por dois caminhos:
+
 - **Interno (ficha do cliente):** o botão "Nova oportunidade" abre um diálogo que escolhe os **serviços** (+ valor/observação). `leads.novaOportunidade` conecta os `Servico`, e `criarOportunidadeParaCliente` semeia o checklist (`seedPassosSeVazio` + `reconciliarPassosAuto`) — o card e as tarefas já nascem com os passos de cada serviço, e o passo automático "Confirmar os serviços" já vem concluído.
 - **Autosserviço (Portal):** nova seção "O que você precisa?" no Portal lista o catálogo (`servicos.publicos`) e o cliente escolhe o que precisa. `portal.solicitarServicos` → `solicitarServicosPeloCliente`: adiciona os serviços ao negócio aberto (dedup) **ou** abre uma nova oportunidade no funil, sincroniza o checklist, reconcilia a situação e **avisa a equipe** (`servico_solicitado`, notificação + e-mail). O Portal mostra o que já foi pedido (`resumo.servicosAtuais`).
 
@@ -258,6 +261,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** a página Clientes listava TODO cadastro — inclusive **prospects** (leads que ganham uma conta Cliente para acesso ao Portal ainda ficam como PROSPECT/NEGOCIACAO). Isso trazia vocabulário de funil (filtros "Prospecção/Negociação/Perdidos") para dentro de Clientes e confundia: não dava para saber onde termina o Funil e começa o Clientes. E não havia como **ativar/desativar** um cliente (churn).
 
 **Decisão:** separar de vez.
+
 - **Funil de vendas** = todos os leads/prospects/oportunidades. Prospecção e Negociação são **etapas do funil**.
 - **Clientes** = só quem já é cliente. Dois estados: **ATIVO** e **INATIVO** (toggle manual na ficha, com confirmação). `situacaoComercial` ganhou o valor `INATIVO` (campo String — sem migração). `listClientes`/`resumoClientes` filtram para `[ATIVO, INATIVO]`; os filtros da página viram **Todos/Ativos/Inativos**.
 - **Integração:** ganhar no funil (converter) → vira Cliente **ATIVO** (aparece em Clientes). Da ficha, "Nova oportunidade" abre um negócio no Funil. Perder → fica nos "Perdidos" do Funil (não polui Clientes). `reconciliarSituacaoCliente` nunca mexe em ATIVO/INATIVO (cliente é gerido na mão); uma **vitória reativa** até um cliente inativo.
@@ -274,6 +278,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** vários fluxos disparavam e-mail ao cliente/lead **automaticamente**, sem a equipe escolher — cadastrar um cliente já mandava o acesso ao Portal; converter um lead já mandava boas-vindas; solicitar assinatura já enviava o link. A equipe queria **controle** ("sempre perguntar se quer enviar e-mail ou não"). Além disso, notou-se que um cliente (Acme Saude) estava sem **nenhum serviço contratado** — sintoma de que "serviços contratados" é derivado só dos leads ganhos, e um lead pode ser convertido sem serviço marcado.
 
 **Decisão — padrão único de confirmação com checkbox:** o diálogo imperativo (`useConfirm`) ganhou uma variante `confirmar()` com um **checkbox opcional**, devolvendo `{ confirmado, marcado }`. Onde uma ação da equipe mandaria e-mail ao cliente/lead, abre-se um pop-up "Confirmar? ☑ enviar e-mail" e o back-end só envia se marcado. Aplicado a:
+
 - **Criar cliente** (`clientes.create` → `createCliente(..., enviarAcessoPortal)`): pop-up ao salvar + checkbox "Enviar dados de acesso ao Portal por e-mail" (padrão marcado quando há e-mail).
 - **Converter lead** (`leads.convert` → `convertLead(..., enviarEmail)`): pop-up + checkbox "Enviar boas-vindas e acesso ao Portal"; se o lead **não tem serviço**, o pop-up **avisa** (⚠️) que o cliente nascerá sem serviço contratado (não bloqueia — decisão do dono).
 - **Solicitar assinatura** (`assinaturas.solicitar(..., avisarPorEmail)`): checkbox "Enviar o link por e-mail"; se não marcar, o link fica no painel do documento ("Abrir link") para envio manual.
@@ -291,6 +296,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** os "serviços contratados" eram derivados dos leads ganhos (não havia vínculo direto cliente↔serviço, nem como ligar/desligar por cliente). Cada serviço, na prática, exige coisas diferentes (credenciamento → documentos dos médicos; site → briefing) e o cliente precisava de um jeito de **enviar arquivos** — que a app não tinha (nenhuma infraestrutura de upload).
 
 **Decisão (Fase 1A):**
+
 - **`ClienteServico`** (novo) é a **fonte da verdade** dos serviços contratados: cliente + serviço + status (ATIVO/CANCELADO) + origem (MANUAL/FUNIL) + valor + datas + quem cancelou. Modelo **híbrido** de contratação: a **equipe liga/desliga direto** na ficha (origem MANUAL, com confirmação e opt-in de e-mail ao cliente); ganhar no funil gera as contratações (origem FUNIL, via `convertLead` + backfill dos já convertidos); o **cliente cancela** um serviço pelo Portal (avisa a equipe). A ficha mostra o catálogo com os contratados ligados.
 - **`ServicoRequisito`** (novo): exigências por serviço (checklist), tipo **DOCUMENTO** (o cliente envia um arquivo) — o tipo **BRIEFING** (formulário online) fica para a Fase 1B. Editável pela Thaís na página Serviços (ícone de prancheta). A app **nasce com exemplos inteligentes** por serviço (`seedRequisitosSeVazio`, casados por palavra-chave), editáveis — a Thaís (que sabe os detalhes) ajusta em vez de criar do zero.
 - **Upload de arquivos** (novo): `@fastify/multipart` + armazenamento **em pasta no servidor** (`UPLOADS_DIR`, default `storage/uploads`), fora do tRPC. Endpoint `POST /upload` (campos antes do arquivo) e `GET /arquivos/:id` (stream) — **autenticados por cookie**, com **checagem de posse** (CLIENTE só grava/baixa no próprio `clienteId`; equipe, qualquer um). Allowlist de tipos (PDF, imagem, Word, Excel), 20 MB, nome em disco por UUID (anti-traversal/colisão). `Arquivo` (novo) guarda só metadados + caminho relativo.
@@ -306,6 +312,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o catálogo tinha 4 serviços genéricos ("Desenvolvimento e Marketing" juntos) e só 4 modelos de documento. O dono pediu para refletir a oferta REAL da MedConsultoria (fonte: `brand/` — Apresentação oficial — + medconsultoria.com.br) e ter "todos os documentos possíveis", fáceis de criar/editar.
 
 **Decisão:**
+
 - **`Servico` ganhou `categoria` e `valor`** (migração `servico_categoria_valor`). O catálogo foi reorganizado nos **5 pilares/categorias** e os serviços ficaram **granulares**, separando **Desenvolvimento × Marketing**:
   - **Gestão** → Gestão Operacional
   - **Faturamento** → Faturamento
@@ -324,11 +331,12 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o tipo `BRIEFING` de `ServicoRequisito` existia (ADR-26) mas não era funcional. O dono ampliou o pedido: **qualquer documento que não exija upload, o cliente deve conseguir preencher ONLINE (na tela)** — e ainda ter a opção de **baixar**. "Todas as opções possíveis."
 
 **Decisão:** um sistema de **formulários online reutilizáveis** (migração `formularios_online`):
+
 - **`Formulario`** (título + descrição) → **`FormularioCampo`** (pergunta com `tipo`: TEXTO_CURTO/TEXTO_LONGO/ESCOLHA/MULTIPLA/NUMERO/SIM_NAO/DATA, obrigatório, opções, ajuda, ordem). Reutilizável em vários serviços. `ServicoRequisito` ganhou `formularioId` (quando `tipo=BRIEFING`).
 - **`FormularioResposta`** (por cliente + requisito; `respostas` JSON; status RASCUNHO|ENVIADO). O requisito BRIEFING fica **atendido** quando há resposta ENVIADA.
 - **Cliente preenche online no Portal** (`BriefingDialog`): renderiza cada campo pelo tipo, salva **rascunho** ou **envia** (avisa a equipe), e tem o botão **Baixar** (imprime/gera PDF pelo navegador) — o cliente escolhe fazer na tela ou baixar.
 - **Equipe vê as respostas na ficha** (`RespostaBriefingDialog`, só-leitura + baixar).
-- **Construtor sem código** — a página **Documentos** ganhou a aba **Formulários** (`FormulariosPanel`, junto de Documentos e Modelos): cria/edita formulários e campos (com arraste para ordenar). A aba **Exigências** de um serviço permite marcar um item como **Briefing** e escolher o formulário. A app nasce com **3 briefings prontos** (site, identidade visual, redes sociais), ligados aos serviços correspondentes, editáveis. *(Decisão do dono: os formulários ficam em Documentos, não numa página à parte.)*
+- **Construtor sem código** — a página **Documentos** ganhou a aba **Formulários** (`FormulariosPanel`, junto de Documentos e Modelos): cria/edita formulários e campos (com arraste para ordenar). A aba **Exigências** de um serviço permite marcar um item como **Briefing** e escolher o formulário. A app nasce com **3 briefings prontos** (site, identidade visual, redes sociais), ligados aos serviços correspondentes, editáveis. _(Decisão do dono: os formulários ficam em Documentos, não numa página à parte.)_
 
 **Consequências:** o cliente resolve tudo pela tela (upload de arquivo OU preenchimento online), com download quando quiser. O onboarding de serviços como site/branding/redes vira autoexplicativo. Reaproveita o componente de arraste (ADR/DnD) e o padrão de notificação. **Pendente:** **IA em mais pontos** da aplicação.
 
@@ -339,6 +347,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o dono achou a página **Documentos confusa** ("o usuário não vai entender") e pediu **documentos inteligentes** — a proposta, por exemplo, deveria puxar **todos os serviços e preços** da Med para facilitar o preenchimento, tudo editável e o mais automático possível.
 
 **Decisão:**
+
 - **`Servico.valor`** vira o **preço de referência** de cada serviço (editável na ficha do serviço). `listServicosAtivos` passou a retornar `valor`.
 - **Proposta inteligente** (`documentos.criarProposta`): um construtor (**"Nova proposta"** em Documentos) onde você escolhe o cliente e **marca os serviços** (o preço vem do catálogo e é **editável** ali, com quantidade); o **total é calculado sozinho**; o documento nasce com uma **tabela de serviços + preços + total** formatada, como RASCUNHO editável (ligado ao tipo PROPOSTA, então empurra o funil ao ser enviado). Opcionalmente, a **IA escreve a apresentação** (a partir do cliente + serviços).
 - **Clareza da página**: cada aba (Documentos / Modelos / Formulários) ganhou uma **linha explicando o que é**; as ações ficaram explícitas (**Nova proposta** em destaque, **Novo documento** a partir de modelo, **Resumir reunião** com IA).
@@ -352,6 +361,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** com a `OPENAI_API_KEY` configurada, o dono pediu IA "em todos os pontos onde fizer sentido", de forma agressiva, para deixar a app inteligente e fácil.
 
 **Decisão:** expandir a camada de IA (`aiService` OpenAI gpt-4o-mini) com sugestões em pontos-chave, **todas no padrão "a IA propõe, você aprova"** (nada é aplicado/enviado sozinho). Novos métodos em `ia.service`/`ia.router` (`funcionarioProcedure`, gated por `isAiEnabled`):
+
 - **Serviços → "Sugerir com IA"** (`sugerirRequisitos`): propõe o checklist de documentos de um serviço; cada sugestão tem um "+ Adicionar".
 - **Formulários → "Sugerir perguntas"** (`sugerirCampos`): gera os campos de um briefing a partir do título; "+ Adicionar" por pergunta.
 - **Ficha do cliente → "Resumir com IA"** (`resumirCliente`): resumo do cliente (serviços, situação, projetos, reuniões, oportunidades) + próximos passos, a partir de dados REAIS (não inventa).
@@ -368,6 +378,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o dono achou a página Serviços confusa ("muito botão") — cada card tinha 5 ícones crípticos (ativar, exigências, passos, editar, remover; só tooltip), ~60 botões na página. E o diálogo de Exigências só tinha 2 tipos (Documento e Briefing), mas o cliente às vezes precisa só **mandar uma informação escrita** (sem anexar arquivo nem um formulário inteiro). A página "é usada em vários lugares; precisa ser inteligente, integrada e elegante, fácil de entender e mexer".
 
 **Decisão:**
+
 - **Card limpo:** cada serviço mostra nome + valor + descrição + **contadores clicáveis** ("N exigências · N passos", que abrem a aba certa) + **um** botão **"Configurar"**. Fim dos 5 ícones. `listServicos` passou a devolver `_count { requisitos, passos }`.
 - **Diálogo único com abas** (`ServicoConfigDialog`): **Detalhes · Exigências · Passos**, consolidando os 3 diálogos antigos. Ativar/Desativar e Remover moraram para dentro da aba **Detalhes** (não poluem o card). Novo serviço continua num diálogo enxuto de criação.
 - **3º tipo de exigência — `INFORMACAO`** ("Informação: o cliente escreve uma resposta na tela"): o seletor de tipo virou 3 botões explicados (📎 Documento · ✍️ Informação · 📝 Formulário). Uma exigência `INFORMACAO` **reaproveita todo o fluxo de briefing**: ao criá-la, o back-end gera automaticamente um **formulário interno** (`Formulario.interno = true`) de **pergunta única** (`TEXTO_LONGO`) e liga o `formularioId` ao requisito. O cliente responde na tela pelo Portal (mesmo `BriefingDialog`); a equipe vê na ficha (mesmo `RespostaBriefingDialog`). Remover o requisito apaga o formulário interno junto. Formulários internos **não** aparecem no catálogo de Formulários (`listFormularios` filtra `interno: false`).
@@ -384,6 +395,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o dono notou que a página Serviços mostrava o valor sem formatação BRL (input `type="number"` cru, ex.: `1453.88` em vez de `R$ 1.453,88`) e pediu para revisar **toda a app** e padronizar tudo que é valor/data/telefone/documento. Auditoria (3 subagentes) revelou: (a) nenhum valor totalmente cru, mas **7 formatadores `brl` locais duplicados** + 2 `brlCompact` e **2 inputs de dinheiro em `type="number"`**; (b) **13 formatadores de data locais divergentes** (uns com ano, outros sem; risco de fuso — só o Sistema fixava `America/Sao_Paulo`) — porém já todos em pt-BR, sem ISO cru; (c) **7 exibições realmente cruas de telefone/CPF/CNPJ** (ex.: `11999990000`, `12345678000100`) em Clientes (lista + ficha).
 
 **Decisão:** um ponto único por tipo, e todas as telas passam a importar dele.
+
 - **Dinheiro:** `formatBRL` (já existia em `lib/masks`) para exibição + `MoneyInput` para entrada; novo `formatBRLCompact` (KPIs "R$ 1,5k"). Removidos os 7 `brl`/2 `brlCompact` locais; inputs de valor (Serviços × 2, Proposta) migrados para `MoneyInput`.
 - **Data/hora:** novo `lib/format-date.ts` com `dataHora` (10/07/2026 14:39), `data` (10/07/2026), `dataCurta` (10/07), `hora` (14:39), `dataUTC` (date-only de vencimento/prazo, sem deslocar o dia) e `haQuanto` (tempo relativo) — **todas fixando o fuso `America/Sao_Paulo`** (elimina o risco de o horário depender do fuso do navegador). Os ~13 helpers locais foram removidos e substituídos; rótulos de calendário "por extenso" (dia-da-semana/mês) ficaram como estão.
 - **Telefone/CPF/CNPJ:** exibições passam por `maskTelefone`/`maskCpfCnpj` (já existiam, só eram usados nos inputs). As 7 exibições cruas em `ClientesListPage`/`ClienteDetailPage` foram corrigidas.
@@ -397,6 +409,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o modelo tinha um único `Servico.valor` (fixo). O dono explicou que os serviços têm cenários variados: o **valor de referência pode ser 1x (avulso) ou recorrente (mensal)**; e o serviço de **Faturamento** pode ser cobrado como **% do faturamento do cliente** (sozinho, ou somado a um valor fixo) — a % também podendo ser avulsa ou mensal. Depois esclareceu: **só o Faturamento** tem a opção de %; os demais serviços só têm valor fixo (com recorrência).
 
 **Decisão:** precificação em dois componentes independentes no `Servico`:
+
 - **Valor fixo** — `valor Float?` + `valorRecorrencia PrecoRecorrencia @default(AVULSO)` (para TODOS os serviços).
 - **% do faturamento** — `percentual Float?` (ex.: 5 = 5%) + `percentualRecorrencia PrecoRecorrencia @default(MENSAL)`. No **schema** o campo existe para qualquer serviço, mas na **UI a seção de % só aparece quando a categoria é "Faturamento"** (reativo, via `useWatch` da categoria).
 - Novo enum `PrecoRecorrencia { AVULSO, MENSAL }` (distinto do `Recorrencia` da Agenda). Migração `servico_precificacao`.
@@ -405,7 +418,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 
 **Consequências:** o catálogo cobre os cenários reais de cobrança da Med sem inventar tabela nova (2 pares campo+recorrência no próprio Servico). `listServicos`/`listServicosAtivos` expõem os novos campos; a Proposta trata `valor` nulo como 0 (Faturamento entra por valor digitado). A cobrança efetiva por % (aplicar 5% sobre o faturamento real de cada cliente) não é calculada aqui — isto é a **precificação de referência do catálogo**; billing por cliente fica para depois. Testado: typecheck 5/5 + ao vivo (card "5% do faturamento/mês" e "R$ 500,00 + 5% do faturamento/mês"; % aparece só no Faturamento; salvar/zerar persiste; migração aplicada e banco vivo backfillado).
 
-**Refinamento (arquitetura em 3 camadas — decidido com o dono):** a recorrência avulso/mensal é uma **decisão comercial**, não um atributo do catálogo. Então: no **Serviço** ela vira só uma **"cobrança padrão" (sugestão)** que pré-preenche a proposta (rótulo e texto de UI ajustados; card e defaults inalterados); a escolha *de verdade*, editável, vive na **Proposta** (por item: valor + avulso/mensal + %) e nos **Serviços Contratados** do cliente (`ClienteServico`). O **%** é tratado como **sempre mensal** (removido o seletor de recorrência do % na UI; `percentualRecorrencia` fica MENSAL).
+**Refinamento (arquitetura em 3 camadas — decidido com o dono):** a recorrência avulso/mensal é uma **decisão comercial**, não um atributo do catálogo. Então: no **Serviço** ela vira só uma **"cobrança padrão" (sugestão)** que pré-preenche a proposta (rótulo e texto de UI ajustados; card e defaults inalterados); a escolha _de verdade_, editável, vive na **Proposta** (por item: valor + avulso/mensal + %) e nos **Serviços Contratados** do cliente (`ClienteServico`). O **%** é tratado como **sempre mensal** (removido o seletor de recorrência do % na UI; `percentualRecorrencia` fica MENSAL).
 
 **Etapa 1 (feita) — `ClienteServico` ganhou a precificação:** `valorRecorrencia`/`percentual`/`percentualRecorrencia` (migração `cliente_servico_precificacao`), **herdados do `Servico` ao contratar** e **editáveis na ficha** (nova mutation `clientes.atualizarContratacao`; diálogo "Preço · <serviço>" no card "Serviços contratados", com % só no Faturamento). A ficha mostra o preço de cada contratado (`formatPreco` → "R$ 3.500,00/mês"). Contratações existentes backfilladas. Testado ao vivo (exibir, editar/persistir, herança ao contratar).
 
@@ -420,6 +433,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** auditoria profunda (3 subagentes) mostrou o módulo Projetos maduro internamente (kanban, timer, checklist, comentários, participantes, onboarding automático, notificações, dashboard, busca, IA), mas com duas lacunas para "100% + inteligente": o **Portal do cliente** só mostrava nome/status/nº de tarefas dos projetos (sem progresso e sem o mais importante — o que o cliente precisa fazer), e o **status do projeto nunca mudava sozinho**.
 
 **Decisão:**
+
 - **Portal (projeção segura, nunca reusa `listProjetos`/`getProjeto` internos):** `portal.resumo` passou a devolver `projetos` com **progresso** (concluídos/total/%) + **previsão** + **próxima reunião**, e uma nova lista **`aguardandoVoce`** = cartões em `AGUARDANDO_CLIENTE` dos projetos do cliente (só `titulo`, `prazo`, nome do projeto). O `PortalHome` ganhou o card **"O que depende de você"** (destaque âmbar, com CTA para o Suporte) e a seção "Seus projetos" com barra de progresso. Nada interno vaza (sem responsável, participantes, timer, valores) — mesmo padrão de `servicosDoClientePortal`.
 - **Automação (`cards.service.moveCard`):** ao mover um cartão, `reconciliarStatusProjeto` **auto-conclui** o projeto quando todos os cartões ficam em Concluído e **reabre** (volta a ATIVO) se algum sair de Concluído — registrado no histórico (`projeto.concluido`/`projeto.reaberto`). Concluir um cartão também **encerra as sessões de tempo (timer) abertas** dele. O `move` no front invalida `projetos.get/list` + `clientes.relacionados` para refletir na hora; o detalhe do projeto mostra a pílula de status.
 - **Ficha do cliente:** a lista de projetos ganhou **barra de progresso** (concluídos/total), via `relacionadosCliente` expondo o status dos cartões.
@@ -433,6 +447,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** feedback do dono na página Projetos: (1) o cartão só arrastava/abria pela alcinha de bolinhas (`GripVertical`); ele quer pegar/clicar em **qualquer lugar** do cartão; (2) os títulos das colunas eram confusos (`Inbox`, `A Fazer`, `Em andamento`, `Aguardando Cliente`, `Aguardando Operadora`) — "Aguardando Operadora" o mais confuso; pediu para eu **estudar e decidir** os melhores títulos e a lógica; (3) quer que, **ao contratar um serviço na ficha**, o sistema **crie automaticamente os cartões** do(s) serviço(s) no projeto.
 
 **Decisão:**
+
 - **Cartão inteiro = alça + clique:** o `KanbanCard` aplica `attributes`/`listeners` do dnd-kit e o `onClick` no **contêiner do card** (removida a alça). Como o `PointerSensor` usa `activationConstraint: { distance: 6 }`, um clique curto **abre** o cartão e um movimento **arrasta** — padrão Trello.
 - **Colunas reformuladas (fluxo em etapas):** de 6 para **5** colunas claras — **A fazer** (uniu `Inbox`+`A Fazer`) · **Em andamento** · **Aguardando cliente** · **Aguardando terceiros** (renomeado de `Aguardando Operadora` — cobre operadora/órgão/externo, sem jargão) · **Concluído**. Enum `CardStatus` reduzido/renomeado (`A_FAZER, EM_ANDAMENTO, AGUARDANDO_CLIENTE, AGUARDANDO_TERCEIROS, CONCLUIDO`), default `A_FAZER`. Migração `card_status_workflow` (dados: `INBOX`→`A_FAZER`; sem linhas em `AGUARDANDO_OPERADORA`). `AGUARDANDO_CLIENTE` foi mantido (alimenta o Portal — ADR-34).
 - **Automação (auto-card por serviço):** `garantirCardDoServicoContratado(clienteId, servicoNome, ator)` (projetos.service) é chamado por `ativarServicoCliente` — ao **contratar um serviço na ficha**, garante um projeto do cliente e cria um cartão "A fazer" com o nome do serviço (idempotente por título; reabre o projeto se estava concluído; cria o projeto se não existir). Complementa a automação de onboarding da conversão (que já cria um cartão por serviço).
@@ -446,6 +461,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o dono quer que, ao fechar o negócio/contratar um serviço, os cartões do projeto nasçam prontos **com o checklist do serviço**, e que **ações do cliente ou da equipe movam os cartões e marquem o checklist sozinhos** — automático e manual, "bem inteligente e integrado".
 
 **Decisão:**
+
 - **Modelo:** `Card.servicoId` (liga o cartão ao serviço de origem) e `ChecklistItem.requisitoId` (marca um item como **entrega do cliente**). Migração `card_servico_checklist_requisito`.
 - **Checklist do cartão de serviço = entregas do cliente + passos:** ao gerar o cartão (na contratação `ativarServicoCliente` e na conversão `convertLead` — ambos via `garantirCardDoServicoContratado`→`criarCardDoServico`), o checklist recebe **as exigências obrigatórias do serviço** (itens do cliente, `requisitoId`, marcados conforme o que já foi entregue) **+ os passos configurados do serviço** (itens da equipe). No painel do cartão os itens do cliente aparecem com o selo **"cliente"** e são só-leitura.
 - **Status automático (`reconciliarStatusCard`):** entrega de cliente pendente → **Aguardando cliente**; tudo feito → **Concluído**; algo feito → **Em andamento**; nada → **A fazer**. Nunca mexe em "Aguardando terceiros" (coluna manual). Concluir todos os cartões auto-conclui o projeto (`reconciliarStatusProjeto`, ADR-34, agora centralizado em `projetos.service`).
@@ -460,6 +476,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o dono (leigo) quer a página Projetos "a mais inteligente da atualidade": um serviço contratado pode virar **vários cartões** (tarefas) em etapas diferentes, e **cada cartão deve ter o checklist que faz sentido para aquela tarefa** — não um cartão único com tudo junto (como no ADR-36). Escolheu, entre as opções, "vários cartões + eu (assistente) monto os roteiros + editor para ajustar".
 
 **Decisão:**
+
 - **Modelo:** `Servico.roteiro Json?` — o roteiro de execução do serviço = lista de **tarefas**, cada uma com um **checklist**: `[{ titulo, itens: string[] }]`. Migração `servico_roteiro`. (Simples e sem tabelas novas; a config é um template, não precisa ser relacional.)
 - **Roteiros dos 10 serviços** escritos (defaults inteligentes por serviço — ex.: Site = Planejamento · Design · Desenvolvimento · Publicação), aplicados ao banco vivo e ao seed do código (`ROTEIROS_SERVICO` em `servicos.service`).
 - **Automação (`criarCardsDoServico`, substitui o card único do ADR-36):** ao contratar/converter um serviço, cria **1 cartão "Do cliente — <serviço>"** (checklist = exigências obrigatórias, marcam-se sozinhas — ADR-36) **+ 1 cartão por tarefa do roteiro** (checklist = itens da tarefa, a equipe marca). Fallback: sem roteiro e sem exigências → 1 cartão com o nome do serviço. Cada cartão tem `servicoId`; idempotente por serviço. Todo o restante da automação do ADR-36 continua (auto-check das entregas do cliente, auto-move por checklist, auto-conclusão do projeto).
@@ -476,6 +493,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** ao contratar o serviço "Faturamento" do cliente TineHost, o projeto nasceu chamado **"Onboarding — TineHost"** (genérico) e a conversão do lead ainda criava um cartão "Briefing inicial e alinhamento" **sem checklist**. O dono pediu para **padronizar os nomes** dos projetos, entender qual projeto é de qual cliente/serviço, ver o que está **atrasado/prioritário** e eliminar cartões órfãos. Escolheu, entre as opções, **"Um projeto por serviço — '&lt;Serviço&gt; — &lt;Cliente&gt;'"**.
 
 **Decisão:**
+
 - **Modelo:** `Projeto.servicoId String?` + relação `Servico.projetos` (migração `projeto_servico`, `onDelete: SetNull`). Um projeto = **um serviço contratado** do cliente; nulo em projetos gerais/manuais.
 - **`garantirCardDoServicoContratado` (projetos.service)** agora é **projeto-por-serviço**: procura o projeto por `clienteId + servicoId`; se não existe, cria **"&lt;Serviço&gt; — &lt;Cliente&gt;"** (com `servicoId`, herda o responsável do cliente), registra `projeto.criado` e semeia os cartões do roteiro (ADR-37). Idempotente. Retorna o `projetoId`.
 - **Conversão de lead (`convertLead`)** deixou de criar o projeto "Onboarding" + o cartão "Briefing": agora faz um **loop pelos serviços do lead** criando um projeto por serviço; sem serviços → fallback **"Projeto — &lt;Cliente&gt;"** (geral, sem cartões prontos).
@@ -494,6 +512,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Decisão (modelo):** `EventoParticipante` (join Evento×User, `@@unique([eventoId,userId])`) — membros da equipe além do dono; `Evento.clienteConfirmadoEm` (confirmação de presença pelo Portal) e `Evento.lembreteClienteEnviado` (lembrete por e-mail ao cliente). Migração `evento_participantes_confirmacao`.
 
 **Backend:**
+
 - `listEventos` — escopo agora **EMPRESA + dono + participante**; a ocorrência traz `projeto{id,nome}`, `cliente{id,nome}`, `dono{id,nome}`, `participantes[]`, `projetoId`, `clienteConfirmadoEm`.
 - `createEvento`/`updateEvento` — aceitam `participanteIds` (substitui o conjunto); ao **reagendar** (mudou o início) zera `clienteConfirmadoEm` + rearma os dois lembretes e, com `avisarCliente`, reenvia o e-mail `reuniao_agendada` com o novo horário.
 - `verificarConflitos` — sobreposição na agenda do usuário (usa a expansão de recorrência); alimenta o aviso do formulário.
@@ -504,6 +523,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 - **E-mails:** novos templates `lembrete_reuniao_cliente` (transacional) e `presenca_confirmada` (notificação, categoria em `EMAIL_CATEGORIAS`).
 
 **Frontend:**
+
 - **Grade de horários (Dia/Semana)** — `TimeGrid` com 24h roláveis (auto-rola às 7h), colunas por dia, blocos posicionados por horário e altura pela duração, layout de **colunas para sobreposição**, **faixa de dia inteiro**, **linha vermelha do "agora"**, clicar em faixa vazia cria evento no horário, e **arrastar o bloco reagenda** (vertical = hora, horizontal = dia na Semana; snap 15 min; só eventos não recorrentes; trava anti-clique-fantasma).
 - **KPIs** (Hoje · Próximos 7 dias · Próxima reunião · Aguardando confirmação) + **filtros** (busca, escopo Empresa/Pessoal, tipo, responsável) + botão **Resumo IA**.
 - **Form** ganhou **Projeto** (Combobox, prioriza os do cliente) e **Participantes** (pills da equipe), **aviso de conflito** em tempo real, e re-aviso ao cliente ao remarcar. Linha/chips mostram duração, projeto, **link à ficha do cliente**, ícone de recorrência, selo de confirmação e nº de participantes.
@@ -539,7 +559,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 
 **Decisão — backend:** `mensagens.service` reescrito: `criarChamado` (protocolo), `listChamadosDoCliente` (abertos + histórico), `resolverChamado`/`reabrirChamado`/`setChamadoPrioridade`, `editarMensagem`/`apagarMensagem`, `fixar`/`silenciar`/`arquivar`/`apagarConversa`, `listConversas` (fixadas no topo, arquivadas à parte, flags por usuário). **Portal** (`portal.suporte`) virou helpdesk: `listChamados`, `abrir` (assunto + 1ª mensagem, avisa a equipe), `mensagens(conversaId)` e `enviar(conversaId)` — todos escopados ao `clienteId` da sessão (isolamento testado). A **ficha** (`clientes.chamados`) lista os tickets do cliente e leva ao Mensagens (deep-link via `sessionStorage`).
 
-**Decisão — frontend:** `MensagensPage` com **menu (⋮)** por conversa (fixar/silenciar/arquivar/apagar), **aba Arquivadas**, e **dois eixos de filtro separados**: categorias (Todas/Diretas/Grupos/Clientes/Leads = *quem*) numa linha e um segmentado **Ativas × Histórico** (*estado* — Histórico mostra SÓ os chamados resolvidos, com contador). Cabeçalho do ticket com **Resolver/Reabrir** + status + prioridade + protocolo; **editar/apagar** a própria mensagem (hover) com selo "editada" e lápide. Resolver/reabrir faz **push em tempo real** aos participantes (equipe + Portal atualizam sozinhos). `NovaConversaDialog` abre chamado em 2 passos (cliente → assunto + prioridade). `ConversaInfoDialog` com prioridade + apagar. Novo `PortalSuporte` (lista de chamados + "Abrir chamado" + thread por ticket) substitui o chat único no Portal.
+**Decisão — frontend:** `MensagensPage` com **menu (⋮)** por conversa (fixar/silenciar/arquivar/apagar), **aba Arquivadas**, e **dois eixos de filtro separados**: categorias (Todas/Diretas/Grupos/Clientes/Leads = _quem_) numa linha e um segmentado **Ativas × Histórico** (_estado_ — Histórico mostra SÓ os chamados resolvidos, com contador). Cabeçalho do ticket com **Resolver/Reabrir** + status + prioridade + protocolo; **editar/apagar** a própria mensagem (hover) com selo "editada" e lápide. Resolver/reabrir faz **push em tempo real** aos participantes (equipe + Portal atualizam sozinhos). `NovaConversaDialog` abre chamado em 2 passos (cliente → assunto + prioridade). `ConversaInfoDialog` com prioridade + apagar. Novo `PortalSuporte` (lista de chamados + "Abrir chamado" + thread por ticket) substitui o chat único no Portal.
 
 **Consequências:** um helpdesk de verdade (protocolo, prioridade, resolver/reabrir, histórico) integrado ao chat interno; e todas as ações que faltavam (apagar/editar/fixar/silenciar/arquivar). typecheck 5/5; **self-test 17/17** (protocolo sequencial, histórico, resolver/reabrir + reabertura automática pelo Portal, isolamento entre clientes, editar/apagar mensagem com lápide, fixar/silenciar/arquivar, apagar grupo) + build do web OK. **Obs.:** o MCP do navegador continuou indisponível (precisa `/mcp` para reconectar) — a validação **visual** ficou pendente; a lógica está toda coberta por self-test.
 
@@ -598,6 +618,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o Financeiro era só uma lista crua de contas. A principal usuária (Thaís, ADMIN/dona) é leiga, bagunçada e **mistura empresa com vida pessoal** — "nunca sabe o que precisa pagar ou receber". Objetivo: a página mais clara e automática do app.
 
 **Decisões:**
+
 1. **Carteiras (Empresa × Pessoal).** Novo enum Prisma `Escopo { EMPRESA PESSOAL }`; `Conta`/`Categoria` ganharam `escopo` + `donoId`. **EMPRESA** = livros da Med, compartilhada entre ADMIN/ROOT. **PESSOAL** = **privada por usuário** (`donoId`; só o dono vê — os devs NÃO veem a vida particular da Thaís). Seletor no topo **Empresa · Pessoal · Tudo**. `whereCarteira()` filtra (TUDO = empresa + a pessoal do próprio); toda mutação **re-checa posse** (`contaComPosse`/`categoriaComPosse` → FORBIDDEN se pessoal de outro). Categorias-semente separadas: empresa (Honorários/Aluguel/…) e pessoal (Casa/Mercado/Cartão/Saúde/… — semeadas por usuário no 1º acesso).
 2. **"Precisa de você" (herói da página).** `contas.agendaFinanceira(carteira)` agrupa as pendentes em **Vencidas · Vence hoje · Esta semana**, a pagar (vermelho) e a receber (verde), com marcar-paga 1-clique; vazio = "Tudo em dia 🎉". Resolve o "nunca sei o que pagar/receber".
 3. **Recorrência DE VERDADE.** O campo `Conta.recorrencia` existia mas nada o materializava. Agora: novo `recorrenteId` (âncora da série) + `recorrenciaAte`. Ao **marcar paga** uma recorrente, a **próxima ocorrência é criada sozinha** (`gerarProximaOcorrencia`, dedup por série+vencimento); + rede de segurança `garantirProximasRecorrencias()` no loop de lembretes (só materializa a partir da última QUITADA — não empilha pendentes). Sem cron (mesmo padrão `setInterval` do `reminders.ts`).
@@ -611,7 +632,8 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o app cresceu e a principal usuária (Thaís, leiga) se perdia — menu grande com páginas parecidas, jargão e "não sei por onde começar". Alinhado com o dono por conversa + mockup clicável. Princípio: **separar "o que uso todo dia" de "o que configuro uma vez e o sistema usa sozinho".**
 
 **Decisões (3 fases, feitas):**
-1. **Menu em 2 grupos.** *Dia a dia:* Início · Vendas · Clientes · Projetos · Agenda · Mensagens · Financeiro. *Configuração:* **Ajustes** (ADMIN) · Sistema (ROOT). Nova página `/ajustes` (`features/ajustes/AjustesPage.tsx`) = hub que junta os painéis administrativos que saíram do menu (**Serviços, Documentos e modelos, Mensagens automáticas, Equipe e acessos, E-mails enviados**). Renomes (rótulo só; rotas iguais): Dashboard→**Início**, Funil de vendas→**Vendas**, Usuários→**Equipe e acessos**, Comunicações→**Mensagens automáticas**. `usePageTitle`/`EXTRA_TITLES` (prefixo) e `CommandPalette` alinhados.
+
+1. **Menu em 2 grupos.** _Dia a dia:_ Início · Vendas · Clientes · Projetos · Agenda · Mensagens · Financeiro. _Configuração:_ **Ajustes** (ADMIN) · Sistema (ROOT). Nova página `/ajustes` (`features/ajustes/AjustesPage.tsx`) = hub que junta os painéis administrativos que saíram do menu (**Serviços, Documentos e modelos, Mensagens automáticas, Equipe e acessos, E-mails enviados**). Renomes (rótulo só; rotas iguais): Dashboard→**Início**, Funil de vendas→**Vendas**, Usuários→**Equipe e acessos**, Comunicações→**Mensagens automáticas**. `usePageTitle`/`EXTRA_TITLES` (prefixo) e `CommandPalette` alinhados.
 2. **Documentos deixa de ser página do dia a dia.** A geração de **proposta/documento passa a acontecer na ficha do cliente** (`ClienteDetailPage`, card "Documentos MedConsultoria" com botões que abrem `PropostaBuilderDialog`/`NovoDocumentoDialog` com nova prop **`clienteFixo`** — cliente pré-escolhido, campo escondido). Modelos ficam em Ajustes. `/documentos` continua vivo (FUNCIONARIO, via Ajustes/busca).
 3. **Fim do jargão em Serviços + bússola no Início.** Abas do `ServicoConfigDialog` reenquadradas por linha do tempo (mantendo as `chave`): **Detalhes · Para vender** (passos do funil) **· O cliente envia** (exigências) **· A equipe faz** (roteiro/tarefas); contadores idem. O **Início** ganhou uma **frase-resumo do dia** no cabeçalho ("{data} · N compromissos · N tarefas suas · N contas vencendo") somando-se ao "Precisa da sua atenção" e "Plano do dia com IA" que já eram a bússola.
 
@@ -624,11 +646,13 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Insight-chave:** como o PDF já é impressão do navegador, uma **moldura branded única que serve tela E impressão** dá **PDF idêntico ao preview (WYSIWYG)**, sem engine de PDF no servidor — **resolve a pendência de exportação de PDF em hospedagem compartilhada**.
 
 **Fase A — Fundação bonita (feita):**
+
 1. **`DocumentoBranded`** (`apps/web/src/features/documentos/DocumentoBranded.tsx`): folha **A4 branded** — logo `/logo.png` + faixa verde + selo do tipo + nº/data/cliente + rodapé da marca; corpo **Markdown→HTML via `marked`** (nova dep no web; GFM p/ tabelas e checklists; **HTML bruto desligado + `sanitize()`** remove `script/style/iframe/on*/javascript:`). Tokens espelham `email-template.ts` (verde #30AD73, azuis #002463/#003591, Montserrat). Exporta `DocumentoBranded` (tela), `documentoBrandedHtml()`, `DOC_STYLES`, `renderMarkdown()`, **`imprimirDocumento()`** (janela `@page A4` + print = PDF WYSIWYG) e **`baixarWordDocumento()`** (.doc do mesmo HTML).
 2. **`DocumentoDetailPage`**: `<pre>` → `DocumentoBranded` (leitura); **edição = Textarea Markdown + preview branded ao vivo lado a lado**; PDF/Word usam as funções branded. **`PortalDocumentoModal`** idem (o cliente vê bonito). Órfão `apps/web/src/lib/exportar.ts` **removido**.
 3. **`documentos.service.ts`**: `criarProposta` emite **Markdown com tabela** (Serviços × Investimento); `render()` **escapa HTML nos valores** das `{{var}}` (dados do cliente nunca injetam HTML).
 
 **Fase B — Catálogo completo (feita):**
+
 - **5 novos `TipoModelo`** (enum Prisma + `documento.ts` + labels, migração `documentos_tipos_novos` via MODO PAUSA): **PAUTA_REUNIAO** (antes da reunião, ≠ ATA depois), **PAUTA_POSTAGEM** (calendário editorial em tabela), **RECIBO**, **DIAGNOSTICO**, **PLANO_ACAO** (13 tipos no total).
 - **`modelos.service.ts:DEFAULTS` reescrito** com **18 modelos-semente em Markdown rico** (títulos, listas, tabelas): Proposta comercial, Proposta de credenciamento, Contrato, Escopo, Ata, Pauta de reunião, Onboarding, Checklist de credenciamento, Briefings (site/identidade/redes), Pauta de postagem (calendário), Relatórios (faturamento/glosas, gerencial mensal, desempenho de marketing), Diagnóstico, Plano de ação, Recibo — ancorados nos serviços reais da Med e nas normas do CFM.
 - **Semeadura inteligente** (`listModelos`): cria os que faltam e **atualiza para Markdown os modelos-semente nunca editados** (`updatedAt ≈ createdAt`, janela 1,5 s) — **preserva edições da equipe**. Os novos tipos aparecem sozinhos no seletor (itera `TIPO_MODELO_LABEL`), sem precisar de atalhos por tipo na ficha.
@@ -636,6 +660,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Segurança:** Markdown sem HTML bruto + `sanitize()` (XSS por construção); valores de `{{var}}` escapados. **Verificado ao vivo (Playwright):** 19 modelos listados com os 6 novos tipos; gerada uma **Pauta de postagem** → moldura linda com o calendário em tabela (cabeçalho azul-escuro) → doc de teste removido. typecheck 5/5 + build OK.
 
 **Fase C — Proposta digital: aceite/recusa online (feita):**
+
 - **Campos no `Documento`** (migração `proposta_aceite_online`, colunas nullable): `propostaToken @unique`, `propostaStatus` (PENDENTE|ACEITA|RECUSADA), `propostaHash` (sha256 no envio), `propostaSolicitadaEm/RespondidaEm/RespIp/MotivoRecusa`. Optou-se por **campos próprios** (não reusar `Assinatura`) — aceite é ação única, não multi-signatário.
 - **Módulo `propostas`** (`apps/api/src/modules/propostas/*`, montado como `propostas`): `habilitar` (`funcionarioProcedure` — congela o hash, gera token, avança o funil p/ "proposta", opcionalmente e-mail ao cliente), `doDocumento` (status p/ o painel), `porToken`/`responder` (**`publicProcedure`** — link público). `responder` valida integridade (hash), é **idempotente**, grava IP/quando: **aceite** avança o funil p/ "negociação" + notifica a equipe (`proposta_aceita`); **recusa** grava o motivo + notifica (`proposta_recusada`). 3 templates novos (1 transacional ao cliente + 2 notificações) + 2 categorias opt-out.
 - **Web:** página pública **`/proposta/{token}`** (`PropostaPublicaPage`, roteada no `App.tsx` antes do gate, como `/assinar/`) = moldura branded + botões grandes **Aceitar/Recusar** (recusa exige motivo); **`PropostaAceiteCard`** na `DocumentoDetailPage` (só p/ tipo PROPOSTA — habilitar/reenviar, copiar link, estado aceita/recusada+motivo, aviso de conteúdo alterado); **Portal** (`PortalHome`) mostra "Propostas para você" com link ao mesmo `/proposta/{token}` (resumo ganhou `propostas` pendentes por cliente).
@@ -647,10 +672,11 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o dono, testando, notou inconsistências e pediu que eu **decidisse como especialista** e refatorasse: (1) onde cada documento tem assinatura × aceite × nada; (2) páginas com larguras diferentes (a de documento abria estreita); (3) documentos em A4; (4) scroll desnecessário dentro do documento; (5) breadcrumbs em toda a app.
 
 **Decisões:**
-1. **Matriz de interação por documento** (`DOC_INTERACAO` em `packages/shared/src/schemas/documento.ts`): **assinatura** — **só o Contrato** (único vínculo jurídico formal, Lei 14.063/2020) · **aceite** (Proposta — concordância comercial, 1 clique) · **nenhum** (Escopo, relatórios, ata, pautas, diagnóstico, plano, onboarding, checklist, recibo, e **Briefing** que o cliente **preenche** online no Portal). A `DocumentoDetailPage` renderiza `AssinaturasCard`, `PropostaAceiteCard` ou nada conforme o tipo (sem modelo = nenhum). **Lógica escolhida:** *um ato por documento* — proposta se aceita, contrato se assina, o resto se lê/entrega/preenche. O **Escopo é anexo** da proposta/contrato (o vínculo já vem pela proposta aceita + contrato assinado), então não tem assinatura própria — menos fricção/menos passos (alinha com "menos estresse pra Thaís"; se um dia precisar de um acordo avulso assinado, usa-se o tipo Contrato). Resolve também, de forma sistêmica, "Solicitar assinatura" aparecendo na proposta.
+
+1. **Matriz de interação por documento** (`DOC_INTERACAO` em `packages/shared/src/schemas/documento.ts`): **assinatura** — **só o Contrato** (único vínculo jurídico formal, Lei 14.063/2020) · **aceite** (Proposta — concordância comercial, 1 clique) · **nenhum** (Escopo, relatórios, ata, pautas, diagnóstico, plano, onboarding, checklist, recibo, e **Briefing** que o cliente **preenche** online no Portal). A `DocumentoDetailPage` renderiza `AssinaturasCard`, `PropostaAceiteCard` ou nada conforme o tipo (sem modelo = nenhum). **Lógica escolhida:** _um ato por documento_ — proposta se aceita, contrato se assina, o resto se lê/entrega/preenche. O **Escopo é anexo** da proposta/contrato (o vínculo já vem pela proposta aceita + contrato assinado), então não tem assinatura própria — menos fricção/menos passos (alinha com "menos estresse pra Thaís"; se um dia precisar de um acordo avulso assinado, usa-se o tipo Contrato). Resolve também, de forma sistêmica, "Solicitar assinatura" aparecendo na proposta.
 2. **Largura única:** o `AppLayout` já centraliza tudo em `max-w-[1600px]`; **nenhuma página impõe largura própria** na raiz. Removido o único fora do padrão (`mx-auto max-w-4xl` da `DocumentoDetailPage`). `max-w-*` internos (leitura, chat, folha do doc) permanecem.
 3. **Folha A4 + sem scroll:** `DocumentoBranded` usa a **proporção A4** (`aspect-[210/297]`) numa **escala de tela confortável** (`max-w-[640px]`, não o A4 real de 794px — que ficava "gigante") — aparece **inteira por padrão** mesmo com pouco conteúdo e cresce quando há mais — com sombra de página, centralizada num canvas; a leitura perde o `max-h/overflow` próprio — rola a **página** (`<main>`). Editor mantém scroll independente (correto). **Impressão/PDF = A4 real** pelo `@page A4` de `imprimirDocumento` (independente da largura de tela; WYSIWYG do ADR-47).
-4. **Breadcrumbs (`components/layout/Breadcrumbs.tsx`):** caminho no cabeçalho do shell (no lugar do `<h1>`), semântico/acessível (`nav[aria-label]`, `ol`, Home, chevron `aria-hidden`, `aria-current`), `hidden md:flex`. Trilha derivada da rota (`trailFor`, reaproveita os grupos do menu; páginas de Ajustes ganham o pai *Ajustes*); fichas publicam o nome do registro via `useDynamicCrumb(nome)` (contexto). `activeOptions={{ exact:true }}` nos Links evita o TanStack duplicar `aria-current`. `<title>` da aba acompanha a página.
+4. **Breadcrumbs (`components/layout/Breadcrumbs.tsx`):** caminho no cabeçalho do shell (no lugar do `<h1>`), semântico/acessível (`nav[aria-label]`, `ol`, Home, chevron `aria-hidden`, `aria-current`), `hidden md:flex`. Trilha derivada da rota (`trailFor`, reaproveita os grupos do menu; páginas de Ajustes ganham o pai _Ajustes_); fichas publicam o nome do registro via `useDynamicCrumb(nome)` (contexto). `activeOptions={{ exact:true }}` nos Links evita o TanStack duplicar `aria-current`. `<title>` da aba acompanha a página.
 
 **Verificado ao vivo (Playwright):** breadcrumb `Início / Clientes / Acme Saúde` e `Início / Ajustes / Documentos / {título}` (um só `aria-current`); doc em largura cheia com folha A4 (794px) centralizada e **sem scroll interno** (só o `<main>` rola); matriz — Proposta→aceite, Contrato→assinatura, Ata→nenhum. Dados de teste limpos. typecheck 5/5 + build OK.
 
@@ -659,6 +685,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o dono achou a página **Documentos** confusa — 3 abas de jargão parecido (**Documentos** = os já criados · **Modelos** = textos-base · **Formulários** = briefings) misturavam operacional com configuração. E o **Editar** de um documento estava cru (só um textarea + dica de Markdown).
 
 **Decisões (alinhadas com o dono via mockup de opções):**
+
 1. **Separar arquivo × configuração** (mesma lógica do menu, ADR-46 "dia a dia × configuração"):
    - **`/documentos` = o ARQUIVO** de todos os documentos gerados — **busca** (título/cliente) + **filtros** (cliente · tipo · status), tabela única. **Volta ao menu "Dia a dia"** (é consulta operacional — "cadê aquele contrato?"). A geração por cliente continua na ficha; os botões Novo documento/Nova proposta/Resumir reunião seguem aqui por conveniência.
    - **Modelos** → nova página **`/modelos`** (`ModelosPage`) e **Briefings/Formulários** → nova página **`/formularios`** (`FormulariosPage`), ambas **em Ajustes** (config, `RoleGuard ADMIN`). O card único "Documentos e modelos" do Ajustes virou **dois**: "Modelos de documento" e "Briefings e formulários". `AppLayout` (item Documentos no dia a dia + `EXTRA_TITLES`), `Breadcrumbs` (Documentos = seção; modelos/formularios = filhos de Ajustes) e `CommandPalette` alinhados.
@@ -673,6 +700,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** três botões competiam ("Novo documento" genérico/cru, "Nova proposta" inteligente, "Resumir reunião" que só fazia o "depois" e confundia). O dono pediu **um** ponto de criação inteligente e ajuda de reunião **antes e depois** — e reforçou que eu devo **criticar e propor o melhor**, não só acatar.
 
 **Decisões (alinhadas via perguntas):**
+
 1. **"Novo documento" único e type-aware** (`NovoDocumentoDialog` reescrito; botão sem "+"): ao escolher o modelo, o formulário se adapta ao **tipo** —
    - **Proposta** → o construtor de serviços (catálogo com preço/qtd/recorrência/%, prazo, condições, total automático + IA na apresentação) — extraído em `PropostaServicosPicker`; absorve a antiga "Nova proposta".
    - **Ata** → colar anotações → IA resume em ata (absorve o "Resumir reunião"; áudio fica para a fase seguinte).
@@ -690,6 +718,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o status dos documentos vivia em eixos separados e incoerentes — `StatusDocumento` (rascunho/revisão/aprovado/enviado) × `propostaStatus` (aceite) × assinatura — e cada tela mostrava um diferente (página/ficha = `d.status`; funil = assinado/aguardando; Portal = nada). A faixa de atenção era frágil (baseada em `updatedAt`) e a página estava crua. O dono pediu tudo coerente, integrado e automatizado.
 
 **Decisões:**
+
 1. **Situação única e coerente** (`situacaoDocumento()` em `packages/shared`): funde fluxo interno + aceite da proposta + assinatura numa só situação — **Rascunho · Em revisão · Aprovado · Enviado · Aguardando aceite · Aceita · Recusada · Aguardando assinatura · Assinado** (o desfecho com o cliente prevalece). Cada situação traz `variant` (cor) e `atencao` (REVISAR | AGUARDANDO_CLIENTE). **Fonte única usada em toda a app:** arquivo, detalhe do documento, e **ficha do cliente** (a query `relacionados` passou a trazer `propostaStatus/assinatura/tipo`). Removidos os `statusVar`/`docStatusVar` locais.
 2. **Página Documentos definitiva:** tabela com 5 colunas (**Documento · Cliente · Tipo · Situação · Atualizado**); busca + filtros de **cliente, tipo e situação**; faixa **"Precisa de atenção" persistente** = contadores clicáveis por motivo (**para revisar** = Em revisão; **aguardando o cliente** = aceite/assinatura; **rascunhos parados** = `createdAt` > 7d). Persistente porque baseada em estados **estáveis** (não em `updatedAt`).
 3. **Geração automática por evento → REVISÃO** (tudo integrado): ao mover um lead para **"Proposta"** gera uma **proposta** dos serviços do lead (`gerarPropostaAutoParaLead`); ao mover para **"Negociação"** OU **na conversão** gera um **contrato** (`gerarContratoAutoParaLead`, reusa `gerarParaLead`). Ambos **nascem EM_REVISÃO** (a equipe valida antes de enviar), ligam ao passo do funil e **notificam o responsável** (`documento_revisao`). Não duplicam (guard por `leadPasso`). Gancho `docsAoEntrarEtapa` em `moveLead`/`avancarEtapa` + `convertLead`, por **import dinâmico** (evita circular leads↔documentos); best-effort.
@@ -702,6 +731,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** havia **dois sistemas paralelos** chamados "briefing": modelos de documento **tipo BRIEFING** (texto com `{{campos}}`, geram um documento) e o sistema de **formulários interativos** (`Formulario`/`FormularioCampo`, o cliente responde na tela) — este último numa página/rota separada (`/formularios`, card "Briefings e formulários" no Ajustes). O dono: **Briefing = o formulário interativo**, tudo **dentro de Modelos**, sem card separado.
 
 **Decisões:**
+
 1. **Briefing = formulário interativo.** Removidos os 3 modelos de texto tipo BRIEFING das `DEFAULTS` (`modelos.service`) e **desativados** os existentes na semente (`updateMany BRIEFING ativo=false` para os não-editados). Os briefings passam a ser os `Formulario` já semeados (site/identidade/redes, com campos TEXTO/ESCOLHA/MÚLTIPLA/SIM_NÃO/NÚMERO/DATA).
 2. **Construtor dentro de Modelos.** `CamposDialog`/`FormularioDialog` (o construtor sem código: adiciona/edita perguntas por tipo — input/listbox/checkbox —, opções, obrigatório, arrastar p/ ordenar, "Sugerir perguntas" por IA) **exportados** de `FormulariosPanel.tsx` e usados na `ModelosPage`. O grupo **"O cliente envia"** mostra os briefings interativos (card abre o construtor) + o checklist de documentos; botão **"Novo briefing"**.
 3. **Rota/página/card separados removidos:** apagada `FormulariosPage` + rota `/formularios`; card "Briefings e formulários" fora do Ajustes; breadcrumb/`EXTRA_TITLES` limpos; BRIEFING tirado do seletor de "Novo modelo". O cliente continua preenchendo pelo Portal (`BriefingDialog`) e a ligação `ServicoRequisito(BRIEFING)→Formulario` segue igual.
@@ -713,6 +743,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o "Novo documento" (ADR-50) já resumia reunião a partir de **texto** colado. O dono pediu para fechar a fase seguinte: **falar/gravar o áudio da reunião** e a IA transcrever, "em todos os documentos que fizer sentido (Ata, Pauta, etc.)".
 
 **Decisões:**
+
 1. **Transcrição por Whisper** (`whisper-1`, `language: "pt"`) no mesmo provedor OpenAI já usado (ADR-6). `aiService.transcrever(buffer, filename)` em `apps/api/src/lib/ai.ts` (usa `toFile` do SDK). Custo baixo (~US$ 0,006/min); aprovação humana permanece (a transcrição vira **rascunho editável**, nunca envio automático).
 2. **Rota fora do tRPC** (multipart não passa pelo tRPC): `POST /transcrever` em `apps/api/src/http/uploads.ts` — **só equipe** (CLIENTE bloqueado), exige IA configurada (412 se não), aceita `audio/*`|`video/*`, limite 20 MB herdado do `@fastify/multipart`, devolve `{ texto }`. Proxy `/transcrever` no `vite.config.ts` (dev).
 3. **Componente reutilizável** `AudioTranscricao.tsx` (features/documentos): **Gravar** (microfone via `MediaRecorder`) **ou Enviar áudio** (arquivo); mostra estados gravando/transcrevendo/erro; devolve o texto por `onTexto(texto)`. Ligado no `NovoDocumentoDialog` nos 3 modos que fazem sentido — **Ata** (anexa às anotações), **Pauta** (anexa aos tópicos) e **Gerar com IA** (anexa às instruções) —, sempre com o helper `anexar()` (concatena preservando o que já havia). Só aparece com IA disponível.
@@ -722,11 +753,13 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 ## ADR-54 — Cada documento gerado espelha o seu modelo (proposta comercial ≠ credenciamento; fim dos marcadores crus) ✅
 
 **Contexto:** o dono notou na página **Documentos** que a **Proposta de credenciamento** saía **igual à Proposta comercial**. Análise profunda das duas páginas revelou 3 causas + 2 bugs de geração:
+
 1. **Apresentação genérica compartilhada:** `criarProposta` injetava a MESMA abertura ("A MedConsultoria cuida de todos os processos…") em toda proposta — a primeira coisa que se lê era idêntica, e o **formulário** também (mesmo seletor de serviços). O corpo do credenciamento até tinha seções extras, mas o "bater o olho" dizia "igual".
 2. **`gerarParaLead(tipo="proposta")`** (botão "Gerar proposta" no painel do lead) fazia `render(corpo,{})` sem preencher `{{servicos}}`/`{{apresentacao}}` → documento nascia com os **literais crus `[servicos]`/`[apresentacao]`**.
 3. **`gerarContratoAutoParaLead`** (contrato automático) caía no mesmo `render(corpo,{})` → contrato com **`[objeto]`/`[valor]`/`[prazo]`/`[foro]` crus**.
 
 **Decisões:**
+
 1. **Apresentação type-aware:** a abertura genérica só é montada quando o **modelo tem `{{apresentacao}}`**. O modelo **Proposta de credenciamento** passou a trazer a **própria abertura** no corpo (sem `{{apresentacao}}`) — específica de credenciamento ("Sabemos que se credenciar junto às operadoras…") — então as duas propostas são diferentes desde a 1ª linha. O checkbox "IA escreve a apresentação" (NovoDocumentoDialog) só aparece para modelos que têm `{{apresentacao}}`.
 2. **`gerarParaLead(proposta)`** agora delega ao **mesmo construtor** (`criarProposta`) usando os serviços do lead (tabela + investimento reais) — nunca deixa `{{servicos}}` cru.
 3. **`gerarParaLead(contrato)`** **pré-preenche** as variáveis com o que já se sabe: `objeto` = lista dos serviços do lead; `valor`/`prazo`/`foro` com padrões editáveis (referem a proposta aprovada; vigência 12 meses; foro do domicílio da CONTRATANTE).
@@ -742,6 +775,7 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 **Contexto:** o dono apontou que (a) no **Novo documento**, escolher "Proposta comercial" vs "Proposta de credenciamento" mostrava um **formulário idêntico** (mesmo seletor de serviços) — nada dizia que os documentos eram diferentes; e (b) os **previews estavam "muito grandes"**, fora da proporção A4. Análise: o `DocumentoBranded` usava `aspect-[210/297]`, que **força a folha a UMA página A4** — conteúdo longo (credenciamento) **vazava** para fora da folha branca (parecia gigante/quebrado); conteúdo curto virava folha alta e vazia.
 
 **Decisões:**
+
 1. **Preview A4 com altura natural + multipágina** (`DocumentoBranded`): removido o `aspect-ratio` forçado. Novos **`PREVIEW_STYLES`** (só-tela, **separados do `DOC_STYLES`** que a impressão usa): folha com **largura A4** confortável (`--doc-w: 620px`), **altura natural** (curto = folha curta; longo = cresce, nunca corta), **margens proporcionais** (8.5% × 7.6% ≈ 18mm × 16mm) e **linhas-guia de página** a cada altura A4 (`repeating-linear-gradient` em `--doc-h = --doc-w × 297/210`) → mostra "**mais de uma folha**". **Impressão inalterada e A4 real:** `imprimirDocumento` usa só `DOC_STYLES` + `@page { size:A4; margin:18mm 16mm }` + `.doc-sheet{padding:0}` (os estilos de tela NÃO vazam para o PDF/Word).
 2. **"Novo documento" com PRÉVIA do modelo** (`NovoDocumentoDialog`, agora modal `2xl`): ao escolher o modelo, o diálogo abre em **2 colunas** — formulário à esquerda e **preview A4 ao vivo do modelo à direita** (via `previewModelo`, com chip do que o documento faz por `DOC_INTERACAO`). Assim **comercial × credenciamento ficam visivelmente diferentes na hora de criar** (o de credenciamento mostra "Sabemos que se credenciar…", "O que é o credenciamento", operadoras…). `previewModelo` (antigo `previewCorpo` local da `ModeloDetailPage`) foi **exportado do `DocumentoBranded`** e reusado nas duas telas. Novo tamanho de modal **`2xl` (max-w-6xl)**.
 
@@ -754,6 +788,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** mesmo com o conteúdo já distinto (ADR-54/55), o **formulário de criação** da Proposta de credenciamento ainda era o **mesmo** da comercial — "Serviços da proposta" (catálogo). O dono: credenciamento **não** tem "serviços da proposta"; precisa de coisas que façam sentido — **selecionar as operadoras** a credenciar, o investimento etc.
 
 **Decisões:**
+
 1. **O modelo declara o que precisa (data-driven):** a Proposta de credenciamento passou a ter o marcador **`{{operadoras}}`** no corpo (substituiu a lista fixa de operadoras). O diálogo detecta `modelo.corpo.includes("{{operadoras}}")` → é credenciamento → mostra o **formulário de operadoras** (`CredenciamentoPicker`); senão, o catálogo de serviços (`PropostaServicosPicker`). Extensível: qualquer modelo futuro com `{{operadoras}}` ganha o formulário.
 2. **`CredenciamentoPicker` (novo):** multisseleção de **operadoras** (lista real `OPERADORAS_COMUNS` em `@app/shared`: Unimed, Bradesco Saúde, SulAmérica, Amil, Hapvida NotreDame, Porto Seguro… + **adicionar outras** como chips) + **investimento por operadora** (`MoneyInput`) com **total ao vivo** (valor × nº operadoras).
 3. **Schema/geração:** `criarPropostaSchema` — `itens` virou opcional (`.default([])`) + novos `operadoras?: string[]` e `valorPorOperadora?`; refine exige **serviços OU operadoras**. `criarProposta` tem **duas trilhas**: credenciamento → `{{operadoras}}` recebe a lista e `{{servicos}}` recebe um bloco **## Investimento** por operadora (sem tabela de "Serviços propostos"); comercial → catálogo como antes. **Prévia ao vivo** injeta as operadoras já marcadas no preview.
@@ -765,6 +800,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono apontou (a) previews **bugados** — "páginas coladas" e "conteúdo espremido"; (b) na Proposta de credenciamento, só dava para **incluir** operadoras (não editar/excluir); (c) pediu formulários próprios para **Recibo** e **Plano de ação** (como o do credenciamento). Diagnóstico do preview (medição ao vivo): o `DocumentoBranded` desenhava a quebra de página com `repeating-linear-gradient` numa altura fixa de 620px, mas a folha renderizava a ~485px em colunas estreitas → linha na posição errada + conteúdo espremido; e a "quebra" era só uma linha (páginas coladas).
 
 **Decisões:**
+
 1. **Preview com PAGINAÇÃO REAL** (`DocumentoBranded` reescrito): mede (camada oculta `.doc-measure`) o cabeçalho/título/blocos/rodapé e **distribui em folhas A4 separadas** (`useLayoutEffect`), cada uma com altura A4 e **espaço entre elas** (não mais "coladas"); cabeçalho só na 1ª folha, rodapé na última (ou folha própria). Um **`zoom`** (via `ResizeObserver`, máx. 1) encolhe o conjunto para caber na largura **sem espremer** (o texto quebra igual em qualquer largura). Impressão **inalterada** (A4 real: `@page A4` + só `DOC_STYLES`). Substitui o `aspect-ratio`/gradiente do ADR-55.
 2. **Recibo — formulário próprio** (modo `RECIBO`): valor (`MoneyInput`) + forma de pagamento (select) + "referente a"; **valor por extenso automático** (`valorPorExtenso` em `lib/masks` — regras pt-BR do "e"/"de reais", validado). Gera via `createDocumento` (variáveis `valor`/`valor_extenso`/`referente`/`forma_pagamento`).
 3. **Plano de ação — formulário próprio** (`PlanoAcaoFields`, modo `PLANO`): objetivo + **linhas de ação dinâmicas** (ação·responsável·prazo, adicionar/excluir) + indicadores. As linhas viram a tabela Markdown `{{acoes}}` (o modelo trocou a tabela fixa de 3 linhas por `{{acoes}}`).
@@ -778,6 +814,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono queria **editar o nome** e **excluir permanentemente** as operadoras da Proposta de credenciamento (a lista era uma constante fixa `OPERADORAS_COMUNS` — só dava para incluir) e pediu que **todos** os documentos ficassem inteligentes (não só Proposta/Recibo/Plano).
 
 **Decisões:**
+
 1. **Catálogo de operadoras persistente** (igual ao de Origens): novo model **`Operadora`** (id/nome/ordem), **semeado** com `OPERADORAS_COMUNS` na 1ª leitura; sub-router **`documentos.operadoras`** (`list`/`criar`/`renomear`/`remover`) e `operadoras.service`. **Exclusão é permanente** (hard delete — o nome só é copiado para o texto do documento, sem FK). O `CredenciamentoPicker` foi reescrito: cada operadora é uma linha com **checkbox** (selecionar p/ a proposta), **lápis** (renomear), **lixeira** (excluir permanente, com confirmação) + adicionar nova ao catálogo. A seleção da proposta (nomes) acompanha renomeações/exclusões.
 2. **Todos os documentos inteligentes** — **`SmartCampos`**: o modo "Preencher campos" (usado por Escopo, Diagnóstico, Onboarding, Checklist, Relatórios, Pauta de postagem…) deixou de ser inputs sem rótulo e virou um formulário **type-aware**: rótulo legível (`total_faturado`→"Total faturado") + tipo inferido pelo nome — **dinheiro** (`MoneyInput`: valor/total/faturado/glosado…), **percentual** (placeholder "3,5%"), **texto longo** (`Textarea`: objetivo/motivos/ações/observações…) ou texto. O **preview injeta os campos preenchidos ao vivo**.
 
@@ -788,6 +825,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono relatou (a) o modal "Novo documento" com **scroll gigante**; (b) **Agenda Dia/Semana** com scroll de página (regressão — antes só rolava por dentro); (c) o modo **Lista** da Agenda vira um scrollão quando há muitos eventos; (d) **Pauta de postagem** deveria ter linhas dinâmicas; (e) uma varredura geral de scroll.
 
 **Decisões:**
+
 1. **Cadeia de scroll do shell (raiz de vários problemas):** no `AppLayout`, o `<main>` era `overflow-y-auto` **e** o container flex crescia com o conteúdo (`min-height:auto`), então páginas com `h-full` não eram limitadas → rolava a página inteira. Agora **`<main>` é o VIEWPORT** (`flex min-h-0 flex-1 overflow-hidden`) e o **container interno é o scroll** (`flex-1 min-h-0 overflow-y-auto`). Efeito: páginas "cabe na tela" (`flex h-full flex-col` — Agenda, Clientes, Projetos, Documentos, Financeiro…) **fecham na tela com scroll só por dentro**; páginas naturais (Início) rolam pelo container. Verificado nas 6 páginas.
 2. **Scroll gigante do modal = camada de medição:** a `.doc-measure` do `DocumentoBranded` (paginação, ADR-57) era `position:absolute` com a altura do documento inteiro (~1400px) — e o `scrollHeight` conta filhos absolutos que transbordam, inflando o corpo do modal/preview. Mudou para **`position:fixed`** (desacopla do scroll de qualquer ancestral). Modal do credenciamento: scroll caiu de ~824px para ~81px.
 3. **Agenda — modo Lista inteligente:** navegação rápida por **mês + ano** (dropdowns) que troca o período, **cabeçalhos de dia FIXOS** (sticky) com nº do dia/semana/contagem, **auto-scroll até hoje** ao abrir, contadores, e tudo dentro de um scroll interno (cabe na tela). Substitui a lista de cards soltos que exigia rolar muito.
@@ -801,6 +839,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono pediu (a) **dia/mês/ANO em tudo** (ex.: 26/03/2026 — havia lugares só com dia/mês) + nomes por extenso onde couber; (b) verificar **todos os CRUDs** da app e garantir **confirmações + Salvar/Cancelar** ("à prova de falhas"); (c) melhor Agenda.
 
 **Decisões:**
+
 1. **Datas centralizadas com ano:** em `lib/format-date`, **removido `dataCurta`** (era "10/07" sem ano) → todo mundo usa **`data` = dd/mm/aaaa**; adicionados **`dataExtenso`** ("10 de julho de 2026") e **`diaSemana`** ("sexta-feira, 10 de julho de 2026") para os pontos amigáveis. Substituído em Projetos, Clientes, Ficha, Portal, Mensagens (troca `dataCurta`→`data`, coluna estreita alargada). **Agenda**: título do Dia por extenso com ano, Semana = "dd/mm/aaaa – dd/mm/aaaa", KPI e cabeçalho da Lista com ano. **Dashboard**: "hoje" por extenso + labels com ano. Backend (e-mails/IA) já usava dd/mm/aaaa.
 2. **Auditoria de CRUD (3 subagentes em paralelo, read-only)** cobrindo CRM/Portal · Projetos/Agenda/Financeiro · Documentos/Serviços/Mensagens/Config. Resultado: a esmagadora maioria já correta (rotas completas, sem mutation morta relevante, destrutivas com `useConfirm`, diálogos com footer Salvar/Cancelar, `MutationCache.onError` global cobre erros). **Lacunas corrigidas:**
    - Remover **foto do Portal** (`PortalHome`) agora **confirma**.
@@ -818,6 +857,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono viu que (a) na **Vendas**, os cards **não andavam sozinhos** ao concluir as tarefas — só o botão manual "Avançar" movia; (b) no **Financeiro → Categorias**, clicar "Adicionar" **já gravava** sem precisar confirmar — ele quer que tudo só salve ao clicar em Salvar/Concluir.
 
 **Decisões:**
+
 1. **Card do funil trabalha sozinho** — `avancarSeChecklistCompleto(leadId, userId)` (leads.service): quando **todos os passos obrigatórios da etapa** estão concluídos, o lead avança para a próxima etapa — **só para frente**, nunca em lead perdido/convertido, e em **cascata** (segue avançando se a próxima já estiver cumprida; ao entrar em cada etapa semeia o checklist, gera Proposta/Contrato e reconcilia os passos derivados). Gatilhos:
    - **Usuário/equipe:** `togglePasso` chama o auto-avanço ao CONCLUIR um passo e devolve `{ avancou }` → o front (`LeadDetailPanel`) invalida o board e mostra **toast** "Card movido para 'X' 🎉".
    - **Sistema/cliente:** ao **assinar** um documento (`assinaturas.service.reconciliarLeadDoDocumento`), reconcilia + auto-avança (o `userId` é opcional; ações do sistema não geram documento no salto). Continua o auto-avanço por evento já existente (proposta/contrato **enviado** → etapa; proposta **aceita** → Negociação).
@@ -830,6 +870,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono pediu para **replicar o salvamento explícito (staging)** do CategoriasDialog (ADR-61) nos outros gerenciadores — **Origens de lead** e **Operadoras** — e "CRUD completo e profissional em tudo".
 
 **Decisões:**
+
 1. **OrigensDialog com staging:** criar/renomear/ativar-desativar/remover/**reordenar (arraste)** só mexem numa lista LOCAL; nada persiste até **"Salvar alterações"** (que aplica exclusões → cria as novas [mapeando id provisório → id real] → renomeia/ativa as alteradas → grava a ordem final com `reordenar`). "Cancelar" descarta. Selo "novo" nas não-salvas.
 2. **Operadoras — separação de responsabilidades:** a gestão do catálogo saiu de dentro do `CredenciamentoPicker` para um diálogo dedicado **`OperadorasDialog`** (staging: adicionar/renomear/excluir + Salvar). O `CredenciamentoPicker` virou **só seleção** (checkboxes das operadoras) + botão **"Gerenciar operadoras"** que abre o diálogo. Assim a seleção da proposta e a edição permanente do catálogo não se misturam.
 3. **Modal-sobre-modal (Esc):** "Gerenciar operadoras" abre por cima do "Novo documento". Um **único listener global de Esc** + uma **pilha de `onClose`** no `Modal` fazem o Esc fechar **só o modal do topo** (o último aberto), sem perder o de baixo. (O `onClose` via ref evita re-registrar a cada render.)
@@ -841,6 +882,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono pediu uma revisão profunda de toda a app (UX/UI/DX, responsivo), começando pelo Header e Menu, com autonomia para implementar o melhor. Base já sólida; foram refinamentos.
 
 **Decisões (`AppLayout` + `Breadcrumbs`):**
+
 1. **Menu "Ajustes" acende nas páginas-filhas:** `itemAtivo(pathname, to)` (destaque manual, substitui `activeProps` do TanStack) — "Ajustes" fica ativo em `/servicos`, `/usuarios`, `/emails`, `/emails-enviados`, `/modelos`, `/configuracoes` (via `AJUSTES_FILHOS`). Antes nenhum item acendia nessas rotas (sensação de "me perdi"). `aria-current="page"` no item ativo.
 2. **Header mobile mostra o título da página:** o breadcrumb é `hidden md:flex` (some no celular) → no mobile o header agora exibe o **nome da página** (`pageTitle`) + a busca vira **ícone** (abre a command palette). No desktop, a busca proeminente centralizada segue igual.
 3. **A11y/polish:** atalho da busca **ciente do SO** (⌘K no Mac, Ctrl K no resto — `ATALHO_BUSCA`); `aria-keyshortcuts` na busca; **foco visível** (`focus-visible:ring`) nos links do menu e botões do header; `aria-label` nos botões de ícone.
@@ -852,6 +894,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** 2ª etapa da revisão página a página (após Header/Menu). O dono pediu que o **Início** deixe o usuário **escolher o que mostra**, **recolher/expandir cada componente**, com **layout automático** e a página **se adaptando a cada usuário** — "profissional, completa, inteligente e integrada", com autonomia total.
 
 **Decisões (`DashboardPage.tsx`):**
+
 1. **Cada bloco vira um _widget_** com identidade estável (`WidgetId`), título, ícone, grupo (`dia` × `gestao`), largura (`span` 1/2) e `render()`. A ordem/disponibilidade continua **role-aware** (a Gestão só existe para ADMIN/ROOT; "Saúde do sistema" e Atividade só entram quando os dados vêm; "Seu dia com a IA" só quando `ia.disponivel`). Blocos: Ações rápidas, Precisa da atenção, Seu dia com a IA, Indicadores do dia, Minhas tarefas, Sua agenda, Saúde do sistema, Financeiro, Funil, Projetos, Carga da equipe, Clientes, Documentos, Atividade recente.
 2. **Contêiner único `WidgetCard`** com cabeçalho padronizado (ícone + título + link "Ver tudo" opcional + botão **recolher/expandir** com chevron `aria-label`/`title`). Quando recolhido, o corpo some — o header permanece (e o link continua clicável).
 3. **Menu "Personalizar"** (botão no `PageHeader`, dropdown com _click-outside_ igual ao NotificationBell): checkboxes por widget **agrupados** em "Meu dia" e "Gestão da empresa" + **"Padrão"** (aparece só quando há personalização) para restaurar tudo. Widget desmarcado é ocultado.
@@ -865,6 +908,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** 3ª etapa da revisão página a página. O **Funil de vendas** (`LeadsPipelinePage`) já é uma das telas mais maduras (funil inteligente, auto-avanço por checklist, staging de Origens, conversão, perdidos, KPIs, busca+filtro). Avaliação: sólida — só faltavam microajustes de **clareza para leigo**, não refatoração.
 
 **Decisões (`LeadsPipelinePage.tsx`):**
+
 1. **Placeholder de coluna ciente do contexto:** quando há **busca/filtro ativo**, a coluna vazia diz **"Sem resultados nesta etapa"** (antes dizia sempre "Arraste um lead para cá" — confuso ao filtrar, pois arrastar não é o ponto). Sem filtro, mantém "Arraste um lead para cá". `Column` recebe `filtrando`.
 2. **Botão "Limpar" de um clique** ao lado do contador "X de Y leads" — zera busca **e** filtro de responsável juntos (ícone `X`). Some quando não há filtro ativo.
 
@@ -875,6 +919,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** 4ª etapa da revisão. **Clientes** — a **lista** (`ClientesListPage`) já é excelente (KPIs, busca, filtros-chip com contagem, filtro por responsável, cards↔tabela, contato rápido, convite Portal, empty states) e a **ficha** (`ClienteDetailPage`) idem (2 colunas trabalho×referência, serviços/projetos/documentos Med×cliente/anotações/suporte/contatos/agenda/financeiro/e-mails, datas dd/mm/aaaa, confirmações em toda ação destrutiva, IA "Resumir", breadcrumb dinâmico). Avaliação: **ficha não precisa de nada**; lista só faltava a mesma affordance de "Limpar" que padronizei no funil (ADR-65).
 
 **Decisões (`ClientesListPage.tsx`):**
+
 1. **Botão "Limpar"** na barra de filtros — aparece quando há busca **ou** situação **ou** responsável ativos (`filtrando`); zera os três de uma vez (`limpar`).
 2. **"Limpar filtros" no estado vazio filtrado** — quando existem clientes mas os filtros escondem todos, o `EmptyState` agora oferece um botão para limpar (antes só oferecia "Novo cliente" no caso de base realmente vazia).
 
@@ -885,6 +930,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** 5ª etapa. **Projetos** — a **lista** (`ProjetosListPage`) já é excelente (KPIs Ativos/Pausados/Concluídos/Com atraso, busca, filtros-chip com contagem, filtro por responsável, cards↔tabela, **ordenação por urgência** — atrasados/entrega vencida primeiro, empty states) e a **ficha** (`ProjetoDetailPage`) idem (equipe/participantes, resumo status+cliente+progresso+atrasos+entrega, kanban dnd 5 colunas, painel do cartão, breadcrumb dinâmico). Avaliação: **ficha não precisa de nada**; lista só faltava a affordance "Limpar" (padrão dos ADR-65/66).
 
 **Decisões (`ProjetosListPage.tsx`):**
+
 1. **Botão "Limpar"** na barra — aparece quando há busca/status/responsável ativos (`filtrando`); zera os três (`limpar`).
 2. **"Limpar filtros" no estado vazio filtrado** — o antes-só-texto "Nenhum projeto para os filtros escolhidos." ganhou o botão para limpar.
 
@@ -895,6 +941,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** 6ª etapa. **Agenda** — a mais complexa (5 visões Lista/Dia/Semana/Mês/Ano; `TimeGrid` com linha do "agora" + arraste-para-reagendar; KPIs Hoje/7 dias/Próxima reunião/Aguardando confirmação; filtros busca+escopo+tipo+responsável; Resumo IA; navegação Hoje/‹/›). Já era excelente (ADR-39 + ADR-59 Lista redefinida). Avaliação: **nenhuma mudança funcional**; só duas inconsistências visuais com o resto do CRM.
 
 **Decisões (`AgendaPage.tsx`):**
+
 1. **Ícone de lupa no campo de busca** — o input era um `<input>` cru sem ícone; agora tem a lupa à esquerda (`pl-9`), igual a Vendas/Clientes/Projetos.
 2. **"Limpar filtros" padronizado** — era um link de texto puro; virou botão com borda + ícone `X` (mesmo padrão do "Limpar" das outras telas). A Agenda **já limpava** todos os filtros (busca+escopo+tipo+responsável) num clique — só faltava a affordance visual.
 
@@ -905,6 +952,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono viu um conflito de horário na Agenda sem ter sido avisado de forma visível e pediu uma **lógica de ALERTA** para conflitos "e outras coisas", revisando o app inteiro para "não esquecer de avisar nada". Duas explorações mapearam o estado atual: a base de avisos é boa mas **fragmentada** (sino `notificar()` + varredura proativa a cada 10 min + chips "Precisa da sua atenção" recalculados no Início), e o **conflito de horário só existia como aviso no formulário** de evento — não aparecia na grade, não checava a agenda dos participantes, não tinha contador. **Decisão de escopo (com o dono):** fazer **conflito primeiro** (tornar visível na tela + checar participantes + contador), **só avisando, nunca bloqueando**; as demais lacunas viram Fase 2. Reaproveitar a base existente — **sem** criar modelo `Alerta` novo (complexidade especulativa).
 
 **Decisões:**
+
 1. **`verificarConflitos` agora checa a agenda dos PARTICIPANTES** (`agenda.service.ts`) — antes o `participanteIds` era aceito mas ignorado. Faz loop por `[organizador, ...participantes]`, dedup por ocorrência (eventos compartilhados atribuídos a "você", pessoais ao participante), e retorna `participante` (nome de quem conflita, `null` = você). O form (`EventoFormDialog`) passa `participanteIds` e o banner mostra "{Fulano} já tem …" ou "Você já tem …". **Continua só AVISO** — botão Salvar nunca desabilita.
 2. **Conflito VISÍVEL na grade do calendário** (`AgendaPage.tsx`): helper `conflitosNoDia` (sobreposição real par-a-par de eventos com hora no mesmo dia) → `conflitoIds` (Set) sobre o período visível. Marca com **anel âmbar + ⚠**: nos blocos do `TimeGrid` (Dia/Semana), nos chips do `MesView` (via `EventoChip conflito`) e num badge "⚠ conflito" nas linhas do `ListaView`. **Banner-contador** acima do calendário: "N eventos com conflito de horário neste período" (todas as visões menos Ano).
 
@@ -917,6 +965,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono pediu a Fase 2, disse que **não confiou muito** no aviso de conflito (só via calendário/form) e quis a app **blindada contra erro do usuário e de sistema**. Decisão: reaproveitar a base (scanProativo + chips do Início + sino) — **sem** modelo `Alerta` novo — e reforçar o conflito tornando-o **proativo** (não depende de abrir a Agenda).
 
 **Decisões:**
+
 1. **Chips no "Precisa da sua atenção" (Início)** — 3 novos, imediatamente visíveis (`dashboard.service.ts` + `DashboardPage.tsx`): **conflito de horário na agenda** (todos os papéis; `contarConflitos` sobre hoje+7d da agenda visível), **contas a vencer (7 dias)** e **projetos parados +14d** (gestão). Antes só existiam como número solto.
 2. **Varredura proativa (sino) estendida** (`reminders.ts` `scanProativo`) — 4 alertas novos, deduplicados por entidade (`unico`), cada `notificar` protegido com `.catch` (uma falha não derruba o scan): **`conflito_agenda`** (dono + participantes dos eventos concretos dos próximos 7 dias → o conflito chega no sino, não depende de olhar o calendário), **`projeto_parado`** (responsável ou admins), **`projeto_sem_responsavel`** (admins), **`upsell_oportunidade`** (responsável ou admins). Removido o `return` antecipado quando não há admins (os alertas por responsável/dono rodam mesmo assim; contas/docs já toleram lista vazia). Templates registrados em `emails.registry.ts` (in-app; fora de `EMAIL_TIPOS` = sem e-mail).
 3. **Ícones do sino** (`NotificationBell.tsx`) — mapa `META` completo: cada tipo (lead_convertido, proposta_aceita, servico_solicitado, presenca_confirmada, conta_a_vencer, etc.) + os novos ganharam ícone/cor próprios (antes caíam no sino genérico).
@@ -939,6 +988,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** 7ª etapa da revisão página a página. O dono disse que Mensagens estava "muito crua". A página é **funcionalmente rica** (busca, abas de categoria, arquivadas, histórico de chamados resolvidos, fixar/silenciar/arquivar/apagar, editar/apagar mensagem, resolver/reabrir chamado, tempo real por Socket.IO, deep-link da ficha) — o que faltava era **acabamento de chat**.
 
 **Decisões (`MensagensPage.tsx`):**
+
 1. **Balões recebidos legíveis** — antes eram `bg-card` (branco) sobre `bg-muted/10` (quase branco) → praticamente invisíveis. Agora: fundo da thread mais presente (`bg-muted/30`) + balões da equipe com **borda** (`border-border/60 bg-card`), balões do cliente com tom próprio (`bg-brand-blueText/10 + borda`), enviados em `bg-primary`.
 2. **Separadores de dia** — chip central "Hoje/Ontem/dd-mm-aaaa" (`diaLabel`) quando muda o dia entre mensagens.
 3. **Agrupamento** — mensagens consecutivas do mesmo autor (<5 min, mesmo dia): nome só na 1ª, avatar só na última (com _spacer_ p/ alinhar), espaçamento menor (`mt-0.5` vs `mt-2`) e **cauda** no balão (`rounded-br-md`/`rounded-bl-md`) só na última.
@@ -952,6 +1002,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** 8ª etapa. **Documentos** é uma área muito madura (faixa "Precisa de atenção" persistente com pills clicáveis, busca + filtros cliente/tipo/situação, `situacaoDocumento` coerente na tabela; a **ficha** tem folha A4 branded, card de aceite com trilha de auditoria, exportar PDF/Word, editor). Avaliação: **lista e ficha polidas** — só faltava a affordance "Limpar" (padrão dos ADR-65/66/67/73). Modelos e Formulários/Briefings ficam sob **Ajustes** no menu → revisados na etapa de Ajustes.
 
 **Decisões (`DocumentosPage.tsx`):**
+
 1. **Botão "Limpar"** na barra — aparece quando há busca/cliente/tipo/situação ativos (`filtrando`); zera os quatro (`limpar`).
 2. **"Limpar filtros" no estado vazio filtrado** — o `EmptyState` "Nenhum documento encontrado" ganhou o botão.
 
@@ -972,6 +1023,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** 10ª etapa. O **hub Ajustes** (`AjustesPage`) e as filhas foram revisados um a um. Quase tudo já é **maduro e excelente** — Serviços (catálogo agrupado por categoria + Configurar + arrastar), Modelos de documento (agrupado por ciclo VENDER/FECHAR/O CLIENTE ENVIA/REUNIÃO/ENTREGAR, briefings integrados), Mensagens automáticas (lista + editor + prévia ao vivo brandada, abas), Configurações (perfil/senha/notificações por e-mail). Só havia **rótulos desatualizados** de renames antigos + falta do "Limpar" numa tela com filtros.
 
 **Decisões:**
+
 1. **`UsuariosPage`** — o H1 ainda dizia "**Usuários & acessos**", mas menu/hub/breadcrumb já eram "**Equipe e acessos**". Alinhado (+ botão do estado vazio "Novo usuário" → "Convidar usuário").
 2. **`EmailsAdminPage`** — o H1 ainda dizia "**Comunicações**" (nome antigo); menu/hub/breadcrumb já eram "**Mensagens automáticas**". Alinhado.
 3. **`EmailsEnviadosMonitorPage`** — tem 4 filtros (status/tipo/período/busca) mas não tinha reset; adicionado **botão "Limpar"** (aparece quando algo difere do padrão: status≠todos, tipo, busca, ou período≠7d).
@@ -1003,6 +1055,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Auditoria — o que já FUNCIONA (sólido):** conversão lead→cliente (cliente + ClienteServico + 1 projeto/serviço com roteiro + conta a receber + kickoff na Agenda + Portal + contrato em revisão); cadeia de fulfillment (upload/briefing → checklist → card → projeto, bidirecional); auto-avanço do funil por checklist; recorrência do Financeiro sem cron; situação do cliente = reflexo do funil. **Lacunas encontradas:** (1) aceite de proposta NÃO gerava contrato; (2) cancelar serviço não propagava (projeto/cobrança seguiam); (3) contratar serviço na ficha não gerava cobrança; (4) % do faturamento nunca vira conta (mantido).
 
 **Decisões implementadas:**
+
 1. **Contrato automático ao aceitar** — `responder` (aceite, `propostas.service`) passou a chamar `gerarContratoAutoParaLead` (resolve o lead pelo `clienteId`; autor = `criadoPorId` da proposta; import dinâmico p/ evitar ciclo). O contrato **nasce EM_REVISÃO** e notifica o responsável (`documento_revisao`) — reaproveita a máquina que já existia (só não era chamada no aceite). Idempotência reforçada: não duplica se já houver contrato do cliente.
 2. **Cláusulas por serviço** — novo campo **`Servico.clausulasContrato`** (migração `20260714114941_add_servico_clausulas`), semeado com textos profissionais dos 10 serviços (`CLAUSULAS_SERVICOS` em `servicos.service`), **backfill idempotente** em `seedIfEmpty` (só onde NULL). O construtor do contrato (`gerarParaLead`, ramo contrato) monta o `{{objeto}}` = cada serviço contratado **+ suas cláusulas** (robusto: usa `{{objeto}}` que existe em todo contrato, sem depender de re-seed do modelo). UI: aba **Detalhes** dos Serviços ganhou o campo "Cláusulas do contrato" (schema `updateServicoSchema`/`createServicoSchema` + `atualizarServico`).
 3. **Gap 2 — cancelar serviço propaga:** `cancelarServicoCliente` **pausa o projeto** daquele serviço (`clienteId+servicoId` → PAUSADO). A cobrança NÃO é apagada automaticamente porque a "Mensalidade" **agrega vários serviços** (Conta não tem `servicoId`) — apagar tiraria a dos outros; a equipe revisa.
@@ -1016,6 +1069,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono achou o Portal "cru e sem design" e pediu: (a) lugar para o cliente **fazer upload dos seus documentos** (RG, CPF, CRM… que os serviços exigem); (b) **diferenciar** "Documentos da MedConsultoria" (proposta/contrato/briefing) × "Documentos do cliente" (RG/CPF…) sem confundir; (c) **tirar a foto do topo** e pôr no **header** (config de perfil); (d) refinar todo o Portal — profissional, elegante, inteligente. **Descoberta:** o backend já suportava tudo — `/upload` grava no cadastro do próprio cliente do Portal (seguro, `user.clienteId`), aceita upload **geral** (sem serviço/requisito → contexto "Geral"), e `portal.arquivos`/`portal.removerArquivo` já existiam. Faltava só a UI.
 
 **Decisões:**
+
 1. **Header profissional** (`PortalLayout` reescrito): header sticky com blur; a foto saiu do corpo e virou um **menu de perfil** (`ProfileMenu`) no canto — avatar+nome → dropdown (nome/e-mail, **"Alterar foto"** abre modal com `AvatarUpload`, **"Sair"**). Fundo da página `bg-muted/30`.
 2. **"Seus documentos"** (novo `PortalMeusDocumentos`): card com **"Enviar um documento"** (upload geral, `campos={{}}`) + lista de tudo que o cliente enviou (`portal.arquivos`), com selo Você/MedConsultoria e remover (só os do cliente). Espelha o `DocumentosClienteCard` do lado-equipe.
 3. **Separação clara:** o card antigo "Documentos" virou **"Documentos da MedConsultoria"** + subtítulo "Propostas, contratos e atas que preparamos para você"; logo abaixo, **"Seus documentos"** + subtítulo "Os documentos que você envia para nós — RG, CPF, CRM…". Selo dos arquivos do cliente = "Você" / "MedConsultoria".
@@ -1030,6 +1084,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Causa do bug (corrigida antes):** o `Modal` (position:fixed) estava sendo renderizado **dentro do `<header>`**, que tem `backdrop-blur` — um ancestral com `backdrop-filter`/`filter`/`transform` reposiciona descendentes `position:fixed` para dentro da sua caixa, prendendo o modal. **Fix:** o `EditarPerfilModal` passou a ser renderizado no **corpo do `PortalLayout`**, fora do header. O menu do header virou `ProfileMenu` (avatar+nome → **Editar perfil** / **Sair**).
 
 **Decisões:**
+
 1. **Escopo LGPD no backend** (`portal.service.ts`): `meusDados(clienteId)` retorna só o subconjunto seguro (`nome`, `tipo`, `documento`, `email`, `telefone`) e `atualizarMeusDados(clienteId, userId, dados)` grava **apenas esses campos** — sempre escopado ao `ctx.clienteId` da sessão (o cliente nunca alcança outro cadastro). Sincroniza `User.nome` (nome de exibição do Portal) com o cadastro e registra `ActivityLog` `cliente.dados_atualizados_portal` (trilha de retificação). Nunca expõe responsável, situação comercial nem observações da equipe.
 2. **Schema dedicado** (`packages/shared/schemas/cliente.ts`): `portalMeusDadosSchema` (subconjunto do cadastro; reaproveita `clienteTipoEnum`/`emailOpcional`/`textoOpcional`). Endpoints `portal.meusDados` (query) e `portal.atualizarMeusDados` (mutation) com `portalProcedure`.
 3. **UI** (`EditarPerfilModal` expandido, `size="lg"`): foto/logotipo (`AvatarUpload`) + seção **"Seus dados cadastrais"** com Nome (rótulo muda "Nome da empresa/clínica"×"Nome completo" pelo tipo), Tipo (PJ/PF), CPF/CNPJ (`MaskedInput` `maskCpfCnpj`, rótulo e placeholder pelo tipo), E-mail e Telefone (`MaskedInput` `maskTelefone`) + **nota LGPD** (Lei nº 13.709/2018) com ícone de cadeado. Salvar invalida `auth.me`/`portal.meusDados`/`portal.resumo`.
@@ -1043,6 +1098,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Diagnóstico:** só a Proposta era inteligente; o resto caía em campos genéricos. Ao escolher o cliente, só nome/e-mail/CPF-CNPJ/telefone eram aproveitados — os **serviços contratados com preços reais** (`ClienteServico`), as **cláusulas** e a **proposta aceita** eram ignorados. O contrato automático usava textos genéricos ("Conforme os valores da proposta…").
 
 **Decisões (4 fases, todas FEITAS):**
+
 1. **Persistência estruturada** — nova coluna **`Documento.itens Json?`** (migração `20260714130226_add_documento_itens`): os itens (serviço + valor + recorrência + %) por trás do Markdown. `criarProposta` (comercial) e `criarContrato` gravam. É o que permite o aceite saber o que sincronizar.
 2. **Motor de contexto** (`documentos.service.ts`): `itensDoCliente(clienteId)` resolve os serviços do cliente por prioridade **ClienteServico ATIVO (valores reais) → serviços do lead ativo (catálogo) → vazio**; `contextoClienteDoc({clienteId,tipo})` (query tRPC `documentos.contextoCliente`) devolve itens + investimento agregado + proposta aceita + **sugestões** (valor mensal, lista de serviços, "referente"). Reaproveita o helper único `montarServicos(itens, servicos)` (extraído da proposta) para tabela + investimento.
 3. **Contrato inteligente** — `criarContrato` (schema `criarContratoSchema`; router `documentos.criarContrato`): monta `{{objeto}}` (cada serviço + preço + **cláusula** `Servico.clausulasContrato`), tabela real de `{{valor}}`, `{{prazo}}` a partir de **Vigência** (6/12/24/36 meses) e `{{foro}}`. No dialog, o modo **CONTRATO** reusa o `PropostaServicosPicker` (prop `titulo="Serviços do contrato"`) **pré-marcado** pelo contexto do cliente; prévia A4 ao vivo.
@@ -1052,6 +1108,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Verificado ao vivo (Playwright, Root):** (a) Contrato + Clinica Vida Plena → pré-marcou "Gestão Operacional" R$ 3.500/mês; gerado com `{{objeto}}`=serviço+cláusula real, `## Valor` = "Mensal R$ 3.500,00/mês", `## Prazo` = "12 (doze) meses…", dados do cliente reais (CNPJ/e-mail). (b) Fluxo ponta-a-ponta: criei proposta p/ Acme (Gestão de redes sociais R$ 1.800/mês) → habilitei aceite → aceitei no link público → **ClienteServico criado** (ATIVO, FUNIL, 1.800, MENSAL) → Contrato+Acme já puxou o serviço aceito com o valor real. (c) Recibo + Clinica Vida Plena → valor/refente/por-extenso auto. **Modelos:** os 15 modelos de texto auditados — todos coerentes e ligados ao seu handler; nenhum conteúdo precisou mudar (o ganho foi no motor). typecheck 5/5; dados de teste removidos; navegador 1920×1080.
 
 **Refinamentos (follow-up do dono):**
+
 1. **Cláusulas dos serviços em seção própria** — o dono não via as cláusulas (ficavam concatenadas no Objeto). Agora o `{{objeto}}` é só a **lista** enxuta (serviço + preço) e as cláusulas viram a **Cláusula 9 "Condições específicas dos serviços"** via novo marcador **`{{clausulas_servicos}}`** — cada serviço contratado como `### Nome` + sua cláusula (`Servico.clausulasContrato`, editável em Ajustes → Serviços; serviço sem cláusula recebe texto neutro). **Personalizado automaticamente pelo que o cliente contratou** (só os serviços dele entram — não polui com cláusulas de serviços não contratados). `criarContrato` + `gerarParaLead` (fallback) + a prévia do dialog montam a seção; o template CONTRATO ganhou a seção 9 (re-seed automático, `editadoManualmente=false`). **GOTCHA:** o re-seed só roda quando `documentos.modelos.list` é consultado; se o tsx-watch não recarregou o `modelos.service.ts`, reiniciar via MODO PAUSA.
 2. **Contrato automático para cliente já convertido** — no aceite do Acme o contrato não gerava porque `gerarContratoAutoParaLead` **exigia lead ativo** (`convertidoEmClienteId: null`), e o Acme já é convertido. Novo **`gerarContratoAutoParaCliente(clienteId, userId, {leadId?})`** gera **a partir do cliente** (não do lead); `gerarContratoAutoParaLead` virou atalho que delega. O aceite (`propostas.service`) chama o gerador por cliente direto. **Recibo NÃO é gerado no aceite** (recibo = valor recebido; seria falso antes do pagamento) — fica a 1 clique com valor auto-preenchido; alternativa oferecida ao dono: gerar uma cobrança no Financeiro no aceite (não implementado, aguardando decisão). **Verificado:** aceite de proposta do Acme (Gestão Operacional + Faturamento) → **contrato gerado automaticamente EM_REVISÃO** com Objeto=lista e **Cláusula 9 com `### Gestão Operacional` e `### Faturamento`** (cada uma com sua cláusula) + 2 ClienteServico sincronizados. typecheck 5/5; dados de teste removidos.
 
@@ -1060,6 +1117,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono não gostou do scroll acontecer **dentro de um container interno** (o `<main>` era o viewport e o conteúdo rolava por dentro) — quis o **scroll normal do navegador** (a janela rola, barra na borda direita).
 
 **Decisão (só no `AppLayout.tsx`):** a cadeia de scroll foi trocada por scroll de janela:
+
 - Raiz `flex h-screen` → **`flex min-h-screen`** (cresce com o conteúdo).
 - **Sidebar** e **cabeçalho** ficam fixos via **`sticky`** (aside: `sticky top-0 h-screen self-start`; header: `sticky top-0 z-30`) — acompanham a rolagem.
 - Coluna de conteúdo perdeu o `overflow-hidden`; o `<main>` perdeu `min-h-0/flex-col/overflow-hidden` (virou `flex-1`); o **container interno** perdeu `flex-1/min-h-0/overflow-y-auto` (virou só `mx-auto max-w-[1600px] p-…`, altura natural). Sem nenhum `overflow` na cadeia → **a janela (documentElement) rola**.
@@ -1073,6 +1131,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** após o ADR-82 (scroll de janela global), o dono viu que **Mensagens** e **Agenda** ficaram ruins: o chat/agenda deve ter **painéis de altura fixa com scroll INTERNO** (a página não pode rolar), como era antes. Além disso, pediu na Mensagens um **divisor vertical arrastável** entre a lista de conversas e as mensagens (estilo WhatsApp).
 
 **Decisões:**
+
 1. **Exceção por rota no `AppLayout`** (`telaCheia = pathname.startsWith("/mensagens") || pathname.startsWith("/agenda")`): para essas rotas o `<main>` volta a ser o viewport — **`h-[calc(100dvh-4rem)] overflow-hidden`** (altura = tela − cabeçalho h-16; necessário porque a raiz é `min-h-screen` e sem altura fixa a coluna cresceria e a janela rolaria) + container `flex-1 min-h-0 overflow-hidden`. A própria página (`h-full`) preenche e rola por dentro. Todas as outras rotas seguem no scroll de janela (ADR-82).
 2. **Divisor arrastável** (`MensagensPage`): a lista de conversas ganhou largura ajustável via CSS var `--lista-w` (`md:w-[var(--lista-w)]`); novo elemento divisor (`cursor-col-resize`, só desktop) com handler `iniciarRedimensionar` (pointerdown → pointermove na window, clamp **240–560px**, `userSelect/cursor` travados durante o arraste). Largura **persistida** em `localStorage` (`mensagens:larguraLista`); **duplo-clique** reseta para 320px. Thread ganhou `min-w-0` para encolher direito.
 
@@ -1083,6 +1142,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** a hospedagem (TineHost, LiteSpeed/lsnode) **não faz upgrade de WebSocket** — o suporte confirmou que só numa VPS — e ainda bufferiza o long-polling do Socket.IO, então o tempo real do Socket.IO não chegava em produção. O tempo real do app é pequeno (chat de Mensagens, Suporte e sininho); o resto (Início/Sistema/Vendas) já era por polling.
 
 **Decisão:** entregar o tempo real por **POLLING** (`refetchInterval`), o mesmo caminho HTTP curto que o proxy já entrega sem bufferizar. **Não contratamos VPS.**
+
 - `apps/web/src/lib/socket.ts`: `POLL` (intervalos num lugar só) + `REALTIME_SOCKET_ENABLED = !import.meta.env.PROD || VITE_REALTIME === "1"`.
 - Socket.IO fica **desligado no build de produção** (ligado só em dev/testes, onde funciona) — senão abriria conexões long-poll penduradas no LiteSpeed. Cada `useEffect` de socket respeita o gate.
 - Intervalos: Mensagens 4s (conversa aberta) / 8s (lista); Suporte 6–15s; sininho 20s.
@@ -1095,6 +1155,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** os dados jurídicos da empresa (razão social, CNPJ, endereço, foro) estavam engessados/nulos no código (`institucional.ts`) — só a Thaís pode fornecê-los. O dono pediu tudo **configurável pela tela, nada engessado**.
 
 **Decisões:**
+
 1. Modelo `IdentidadeInstitucional` (linha única, `id: "default"`), migração aditiva. A **fonte da verdade vira o banco**; as constantes de `institucional.ts` viram padrão/fallback.
 2. Módulo `apps/api/src/modules/identidade/`: `get` (funcionarioProcedure) + `atualizar` (adminProcedure). `getIdentidade()` semeia a linha na 1ª leitura (upsert) com os dados de contato reais; jurídicos começam **null** — ninguém inventa CNPJ.
 3. `qualificacaoContratada(d?)`/`rodapeInstitucional(d?)` (shared) aceitam os dados do banco; marcador `**[A PREENCHER]**` só quando vazio. `documentos.service.ts` (contrato manual e auto do lead) lê CONTRATADA e foro do banco.
@@ -1107,6 +1168,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** app no ar em produção, mas sem backup automático nem monitoramento — a única pendência de infra do CLAUDE.md §12 ainda aberta. Hospedagem compartilhada (TineHost, sem painel de backup gerenciado para o banco da app).
 
 **Decisões** (scripts versionados em `scripts/server/`, instalados em `~/domains/.../ops/`, agendados no cron do usuário — preservando o cron pré-existente de outro domínio):
+
 1. **Backup diário** (`backup-db.sh`, 03:00 BRT): `mysqldump --single-transaction --quick` + gzip, **rotação de 14 dias**. Parse do `DATABASE_URL` via Node (lida com URL-encoding na senha); `set +u` ao redor do `activate` do CloudLinux (não é nounset-safe). Testado (gerou dump de 20K).
 2. **Health-check + auto-restart** (`healthcheck.sh`, a cada 5 min): `curl /health`; 2 falhas → `touch tmp/restart.txt` (lsnode respawna). Cobre app **travado**, não queda do host.
 3. **Instalador idempotente** (`install-cron.sh`): só anexa o que falta ao crontab.
@@ -1118,6 +1180,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono quer a SISTEMA como cockpit completo do ROOT e ser avisado quando o sistema cair. **Verificação antes de construir:** o ROOT **já recebe e-mail** de incidentes (`notificarRoot`) e de erros novos/regressões (`notificarRootErro`) — tipos `incidente`/`erro` são emailáveis (`minRole: ROOT`, templates no `emails.registry`). Só faltava (a) visibilidade dos backups/reinícios e (b) o aviso quando o app está **totalmente fora** (aí o próprio app não envia e-mail).
 
 **Decisões:**
+
 1. **Aba "Operação"** (`SistemaPage`, `sistema.operacao` — rootProcedure): backups automáticos (último/quantidade/espaço + **"Fazer backup agora"** que executa `OPS_DIR/backup-db.sh`), reinícios do health-check (tail do `health.log`) e estado dos alertas (e-mail real? quais tipos vão ao ROOT). Caminhos por `BACKUPS_DIR`/`OPS_DIR` (env do servidor); no dev degrada para "disponível no servidor".
 2. **Alerta de app-fora** no `healthcheck.sh` (cron): ao detectar queda + restart, envia e-mail ao ROOT via **sendmail local** — funciona MESMO com o app fora (o ponto cego de qualquer monitor interno). Cooldown de 30 min (não spamma).
 3. **Não** adicionamos monitor externo pago (UptimeRobot) nem APM — desnecessário para ferramenta interna; o combo health-check-que-reinicia-e-avisa + monitores do host cobrem o caso real. Monitor externo fica como recomendação opcional ao dono (queda total do host).
@@ -1129,6 +1192,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** o dono quer um lugar para a equipe **delegar/pedir coisas entre si** ("me resolve isso"), no estilo Projetos mas para pedidos interpessoais. Requisito nº 1: **não confundir** o usuário. **Verificação antes de construir:** o app já tinha "tarefa" parcial no model `Card` (preso a um `Projeto`, com `responsavel/prazo/prioridade/status` e `notificar("tarefa_atribuida")`). A decisão de arquitetura: **reusar `Card` vs criar `Tarefa` novo**.
 
 **Decisões:**
+
 1. **Model `Tarefa` NOVO** (não estender `Card`). Reusar `Card` exigiria tornar `projetoId` opcional, adicionar "quem pediu" e mexer no kanban (colunas, auto-conclusão do projeto, links `/projetos/$id`, scan) — **borraria a fronteira Projetos×Tarefas** que o próprio requisito pede manter clara. Campos: `criadoPor`/`responsavel` (obrigatórios), `prazo?`, `prioridade` (BAIXA/NORMAL/ALTA), `status` (PENDENTE/FAZENDO/CONCLUIDA), `cliente?`/`projeto?` (contexto opcional). Fronteira: **Projetos** = entrega do cliente · **Tarefas** = pedido entre pessoas · **Agenda** = hora marcada · **Mensagens** = conversa.
 2. **UI a prova de leigo:** abas **Comigo** (sou responsável) / **Deleguei** (eu pedi) / **Da equipe** (só ADMIN+) + filtro Abertas/Concluídas/Todas. Módulo tRPC `tarefas` em `funcionarioProcedure` (exclui o Portal). Notificações próprias `tarefa_delegada`/`tarefa_concluida` (emailáveis, no `emails.registry`); rota da entidade `tarefa` → `/tarefas`. Botão **"Delegar tarefa"** na ficha do cliente e no projeto (nasce com contexto).
 3. **Início unifica o "o que tenho hoje":** widget **"Pedidos comigo"** (→ /tarefas) + chip de atenção "pedido(s) atrasado(s) comigo". O widget/KPI de cards de projeto foi renomeado "Minhas tarefas" → **"Meus cartões"** (desfaz o choque de nome com a nova seção).
@@ -1138,11 +1202,12 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 
 ## ADR-89 — Múltiplos ROOTs + root primordial imutável ✅
 
-> *Registrado retroativamente em 03/08/2026: a feature foi ao ar no PR #73 (28/07) sem virar ADR.*
+> _Registrado retroativamente em 03/08/2026: a feature foi ao ar no PR #73 (28/07) sem virar ADR._
 
 **Contexto:** o dono precisa que Thiago e André tenham acesso ROOT nominal (auditoria: saber **quem** fez o quê), mas o RBAC anterior (ADR-43) proibia atribuir papel igual ou acima do próprio — nenhum ROOT conseguia criar outro ROOT. O risco oposto é pior: se todos os roots forem rebaixados/excluídos, **a aplicação fica sem super-admin e sem como voltar** (não há console de recuperação numa hospedagem compartilhada).
 
 **Decisões:**
+
 1. **ROOT pode atribuir qualquer papel, inclusive ROOT** — `assertPodeAtribuir` ganhou `if (atorRole === "ROOT") return;`. A hierarquia estrita do ADR-43 continua valendo para ADMIN e abaixo.
 2. **Um root primordial imutável** (`config.ROOT_PROTEGIDO_EMAIL`, padrão `root@medconsultoria.com.br`): não pode ser rebaixado, desativado nem excluído — nem por outro ROOT, nem por si mesmo. É a garantia de que sempre existe uma porta de entrada. Os **demais** roots são livremente alteráveis entre si.
 3. **Escolhido e-mail de config, não uma flag no banco.** Uma coluna `protegido` seria editável por quem tivesse acesso ao banco (e um `UPDATE` errado destrava a proteção sem deixar rastro); a config vive no `.env` do servidor, fora do alcance da aplicação.
@@ -1155,9 +1220,11 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** varredura de 03/08/2026 procurando o que ainda faltava para a aplicação estar realmente sólida. Três defeitos reais, dois deles invisíveis até alguém se machucar.
 
 **Decisões:**
+
 1. **Chave de nome do seed é POR PESSOA, não por papel.** O seed lia `process.env["SEED_" + role + "_NOME"]`, então o único `SEED_ROOT_NOME` do servidor batizou de **"Administrador"** os dois roots nominais criados em 28/07 (Thiago e André) — duas contas com o mesmo nome, e uma auditoria "quem aprovou isso?" não distingue ninguém. Agora cada membro tem `chaveNome` própria (`SEED_ROOT2_NOME`, `SEED_ROOT3_NOME`…), espelhando o `chaveEmail` que já era por pessoa. Compatível: `root@` e Thaís mantêm as chaves antigas.
 
    > **Correção de 03/08 (registro anterior estava errado):** afirmei aqui que os **três** roots tinham virado "Administrador". Eram **dois**. O `root@` foi criado bem antes, quando essa variável ainda não valia para ele, e sempre se chamou **"Root"** — conferido na tela `/usuarios` em produção. Confundi o **papel** "Administrador" (que aparece na coluna Papel da Thaís, cargo ADMIN) com o **nome** de conta. Consequência prática: nenhuma — a variável no `.env` do servidor é hoje **letra morta**, porque o seed só cria quem não existe, o `root@` existe, e ele **não pode ser excluído** (ADR-89), logo nunca será recriado.
+
 2. **A recorrência MENSAL ancora no dia da PRIMEIRA conta da série.** O ADR anterior clampava a partir da ocorrência **anterior**, então uma série do dia 31 virava 28/02 e ficava **presa no dia 28 para sempre** (aluguel/salário do fim do mês adiantava 3 dias, todo mês, em silêncio). `proximo()` recebe `diaAncora`; gerar e reverter usam a mesma âncora, senão a reversão não acha a linha. Fevereiro voltou a ser exceção pontual.
    **Duas consequências, ambas desejadas e sem migration:** (a) séries que já degradaram em produção **se curam sozinhas** na próxima geração (a âncora vem da conta origem, que nunca mudou); (b) mover **uma** ocorrência de dia ("esse mês pago dia 15") deixou de redefinir a série inteira — o ajuste pontual é pontual, e o mês seguinte volta ao dia combinado. Antes, cada adiamento manual virava a nova regra em silêncio.
 3. **Tipo de aviso é validado pelo compilador.** `EMAIL_TEMPLATES` era anotado `: Record<string, TemplateMeta>` — a anotação **alargava as chaves para `string`**, o que fazia `EmailTemplateChave` (o mecanismo de segurança que já existia) resolver para `string` e não proteger nada; era tipo morto, usado em lugar nenhum. Trocado por `satisfies`, que valida o objeto **e** preserva as chaves literais. `notificar(tipo)` passou a exigir `EmailTemplateChave`: um tipo sem template agora **não compila**, em vez de explodir em runtime e derrubar o scan proativo. Lookups por chave externa (CRUD de templates do admin, coluna do banco) usam o helper `templateDe(chave: string)`, que continua validando em runtime.
@@ -1172,6 +1239,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 **Contexto:** as contas nascem com uma senha que **outra pessoa** escolheu — o seed usa a mesma `SEED_ROOT_PASSWORD` para todo mundo, e o ADMIN digita a senha ao criar um usuário pela tela. Combinava-se "troque no primeiro login" e ninguém trocava: em 03/08/2026 confirmei que os dois ROOTs provisionados em 28/07 **ainda estavam com a senha inicial**, seis dias depois. Combinado que depende de memória humana não é controle.
 
 **Decisões:**
+
 1. **`User.senhaTrocadaEm DateTime?`** — nulo significa "a pessoa nunca definiu a própria senha". Preenchido pelas **três** funções em que quem escolhe a senha é o dono da conta: `changePassword`, `aceitarConvite` e `redefinirSenha`.
 2. **Escolhido `senhaTrocadaEm` (data) e não uma marca booleana `senhaProvisoria`.** Com booleana eu teria que **adivinhar** quais contas já existentes estão provisórias — ou cravar e-mails numa migration, que envelhece mal. Com a data nula por padrão, toda conta interna que nunca trocou é convidada **uma vez** e o problema se extingue sozinho, sem backfill e sem lista hardcoded. De brinde, fica o registro de **quando** cada pessoa definiu a senha.
 3. **Só papéis internos.** `precisaTrocarSenha()` (em `packages/shared`, uma fonte de verdade para front e back) exige `role !== "CLIENTE"`: o cliente do Portal já escolhe a senha dele ao aceitar o convite — incomodá-lo seria ruído puro.
@@ -1190,6 +1258,7 @@ Refina o "A4 na tela" do ADR-48 (que forçava `aspect-[210/297]` a uma folha) �
 Verificado empiricamente: revertendo a correção, o teste de integração acusa `expected [...3 itens] to have a length of 2` e o `groupBy` devolve um grupo com `_count: 2`.
 
 **Decisões:**
+
 1. **A geração procura INCLUSIVE as apagadas.** Achando uma sucessora soft-deletada para a data alvo, **ressuscita** (`deletedAt: null, pago: false, pagoEm: null`) em vez de criar outra linha. Vale por si só, independente da constraint: antes, cada ciclo desmarcar/marcar deixava uma órfã apagada acumulando na tabela.
 2. **A correção vai ao ar ANTES da constraint**, em PR separado. Invertendo a ordem, o próprio ciclo marcar/desmarcar continuaria gerando duplicatas entre um deploy e outro — e a migration falharia no meio do `migrate deploy`.
 3. **A constraint só entra depois de contar as duplicatas SEM filtrar `deletedAt`.** O `0` da primeira consulta não vale como aval; a pergunta certa é outra.
@@ -1201,11 +1270,12 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 **Contexto:** a pendência aberta desde o PR #72, agora com o caminho livre — o ADR-92 tirou o impedimento (a geração ressuscita a apagada em vez de duplicar a data) e a contagem em produção, **sem** filtrar `deletedAt`, deu **0 grupos duplicados**.
 
 **O que a investigação revelou antes de aplicar:**
+
 1. **A origem da série NÃO tem `recorrenteId` nulo** — `createConta` grava `recorrenteId = próprio id` (linha "a 1ª conta da série é a âncora"). Logo toda a série compartilha o mesmo `recorrenteId` e o índice cobre a série inteira, origem incluída. Conta não-recorrente fica com nulo e **fora** do índice (o MySQL trata NULL como distinto).
-2. **`updateConta` deixava o vencimento colidir em silêncio.** Puxar uma parcela para a data de uma irmã criava duas ocorrências no mesmo dia — hoje isso passa sem reclamar. Com o índice, viraria um `P2002` cru na cara do usuário. Agora o erro é traduzido: *"Já existe uma parcela desta série com este vencimento — inclusive se ela foi excluída. Escolha outra data."* A menção ao excluído não é detalhe: a irmã pode estar soft-deletada e **invisível na tela**, e sem isso a mensagem não faria sentido.
+2. **`updateConta` deixava o vencimento colidir em silêncio.** Puxar uma parcela para a data de uma irmã criava duas ocorrências no mesmo dia — hoje isso passa sem reclamar. Com o índice, viraria um `P2002` cru na cara do usuário. Agora o erro é traduzido: _"Já existe uma parcela desta série com este vencimento — inclusive se ela foi excluída. Escolha outra data."_ A menção ao excluído não é detalhe: a irmã pode estar soft-deletada e **invisível na tela**, e sem isso a mensagem não faria sentido.
 3. **O banco de DEV tinha uma duplicata real de 28/07/2026** — três linhas "Vivo", todas soft-deletadas, mesmo vencimento (05/09). É o ADR-92 documentado em dado real: cada ciclo marcar/desmarcar deixou uma órfã. Limpeza feita **só em dev**, mantendo a mais antiga (a que a geração ressuscitaria); produção não precisou de nada.
 
-**Decisão:** `@@unique([recorrenteId, vencimento])`. A migration foi escrita à mão e aplicada com `migrate deploy` — o `migrate dev` recusa rodar não-interativo ao criar índice único (avisa que *pode* falhar, sem saber se falharia).
+**Decisão:** `@@unique([recorrenteId, vencimento])`. A migration foi escrita à mão e aplicada com `migrate deploy` — o `migrate dev` recusa rodar não-interativo ao criar índice único (avisa que _pode_ falhar, sem saber se falharia).
 
 **Por que valeu a pena mesmo com a causa-raiz já corrigida:** a constraint não conserta bug, ela **impede que a próxima versão do código reintroduza um**. Foi tentando aplicá-la que apareceram os itens 2 e 3 acima — nenhum deles estava no radar.
 
@@ -1282,6 +1352,7 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 6. **Varredura de anexos temporários órfãos, por data de modificação (24 h).** Quem anexa um arquivo e desiste, cancela ou fecha o navegador sem enviar deixava até 20 MB por arquivo (`TAMANHO_MAX`, `lib/storage.ts`) para sempre em `uploads/email-tmp/<userId>` — crescimento ilimitado disparável pelo próprio usuário, em hospedagem compartilhada. `limparAnexosTempOrfaos` (`http/email-anexo.ts`) roda ao subir o servidor e depois a cada hora, apaga o que passou de `PRAZO_ANEXO_TEMP_MS` (24 h) medido pelo `mtime`, confinado a `BASE/email-tmp` (travessia de caminho fechada pela mesma validação de `caminhoTemp` usada no download). 24 h é generoso de propósito: a pessoa pode deixar a tela de escrever aberta um bom tempo antes de enviar.
 
 **Achados de segurança e engenharia que não apareceriam num teste de tela feliz** (revisão por tarefa, `Opus` nas de maior risco — envio real, anexo, apagar rascunho):
+
 - O snippet do plano tinha **3 defeitos reais**, todos pegos antes do merge: duplo-escape no cabeçalho da citação (`&amp;lt;` visível para o destinatário); PASSO 3 do envio marcando `\Answered` pela caixa de **envio** em vez da caixa **dona** da mensagem original (falharia calado com 2+ caixas plugadas); e o stream de download de anexo devolvido **para fora** do `comCaixa` — anexo acima de ~64 KB chegaria cortado, em silêncio, porque a conexão IMAP fecha quando o callback retorna.
 - Download de anexo cancelado no meio pendurava a conexão IMAP (a promessa só escutava `end`/`error`; abortar emite `close`) até reiniciar o processo — corrigido com `finished()` filtrando `ERR_STREAM_PREMATURE_CLOSE`.
 - Teto agregado de 25 MB por envio (`LIMITE_ANEXOS_BYTES`, `envio.service.ts:20`) — sem ele, 20 anexos de 20 MB virariam ~530 MB de base64 num Buffer só, no mesmo processo que serve a tela (ADR-2).
@@ -1302,13 +1373,13 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 14. **O envio que conclui depois de a tela fechar** não fecha mais a composição seguinte: os callbacks da mutação rodam desmontados. Sem a guarda, um envio lento fechava o e-mail que a pessoa já tinha começado e levava junto o texto ainda não salvo.
 15. **Cota de disco por pessoa (~200 MB) nos anexos temporários**, guarda de **UIDPLUS antes de apagar rascunho** (sem a extensão o imapflow degrada para `EXPUNGE` cego, que apaga TODA mensagem `\Deleted` da pasta — era o único item da fase com perda de e-mail) e `requireTLS` no SMTP. A ausência de allowlist de MIME no anexo é **deliberada e está escrita no código**: anexo de e-mail aceita qualquer tipo, e a execução já está fechada no download.
 
-**Testes que passavam com o bug de volta: TRÊS**, todos medidos reintroduzindo o defeito fora do repo. É a lição de engenharia da fase, junto com a do §3.0: *teste que não reprova o defeito é pior que teste nenhum, porque a regressão volta com a bateria verde.*
+**Testes que passavam com o bug de volta: TRÊS**, todos medidos reintroduzindo o defeito fora do repo. É a lição de engenharia da fase, junto com a do §3.0: _teste que não reprova o defeito é pior que teste nenhum, porque a regressão volta com a bateria verde._
 
 **Verificado (05/08, HEAD `7716929`):** API 186 de unidade · web 106 · `e2e` **82/82** (inclusive `a11y-axe`, que cobre o `modal.tsx` compartilhado pela app) · `pnpm lint` 0 erros · typecheck 6/6 sem cache. **Em tela**, na app rodando: anexo baixado pela tela (200, `octet-stream`+`nosniff`+`attachment`, 75.962 bytes com assinatura PNG íntegra) · Responder com destinatário, `Re:` e citação com procedência · rascunho aparecendo **uma vez só** apesar de duas gravações · envio recusado (400) mantendo o rascunho no servidor com o texto intacto.
 
 ## ADR-97 — E-mail: a conversa com o cliente aparece na ficha (Bloco 2, fase 2D‑1) ✅
 
-**Contexto:** o ADR‑95 prometeu *"a caixa é privada, a correspondência com o cliente é da empresa"* e entregou só a primeira metade. Quem abria a ficha do cliente via um card **"E‑mails enviados"** que mostrava exclusivamente `EmailEnviado` — o log dos disparos automáticos de template. Nada do que a equipe escreve em `/email` chegava ali, porque o módulo da caixa não chama `registrarEmailEnviado` (e isso é proposital: ADR‑96 §3.6). Plano em `docs/superpowers/plans/2026-08-05-email-2d1-ficha-do-cliente.md`, branch `feat/email-ficha-do-cliente`. O levantamento contra o código desmentiu duas premissas do plano original: **o card não era novo** (existia em `ClienteDetailPage` e em `LeadDetailPanel`) e **`EmailMensagem.particular` já existia no banco sem uma linha de código que o escrevesse** — a válvula de privacidade estava prevista desde o ADR‑95 e nunca tinha sido implementada.
+**Contexto:** o ADR‑95 prometeu _"a caixa é privada, a correspondência com o cliente é da empresa"_ e entregou só a primeira metade. Quem abria a ficha do cliente via um card **"E‑mails enviados"** que mostrava exclusivamente `EmailEnviado` — o log dos disparos automáticos de template. Nada do que a equipe escreve em `/email` chegava ali, porque o módulo da caixa não chama `registrarEmailEnviado` (e isso é proposital: ADR‑96 §3.6). Plano em `docs/superpowers/plans/2026-08-05-email-2d1-ficha-do-cliente.md`, branch `feat/email-ficha-do-cliente`. O levantamento contra o código desmentiu duas premissas do plano original: **o card não era novo** (existia em `ClienteDetailPage` e em `LeadDetailPanel`) e **`EmailMensagem.particular` já existia no banco sem uma linha de código que o escrevesse** — a válvula de privacidade estava prevista desde o ADR‑95 e nunca tinha sido implementada.
 
 **Decisões:**
 
@@ -1317,12 +1388,12 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 3. **Endereço da casa nunca vira chave do JOIN — por endereço E por domínio** (`casa.ts`). `Cliente.email` e `Contato.email` são graváveis por **qualquer** FUNCIONARIO, e o cliente do Portal edita o próprio e‑mail: sem esta trava, quem escolhe a chave da consulta é quem edita o cadastro. A primeira versão comparava só endereços exatos (`User.email` + `CaixaEmail.email`/`usuario`) e **a revisão de segurança a derrubou**: `comercial@`, `contato@`, `financeiro@`, um apelido (`thiago@` ao lado de `thiago.garcia@`) e um `fulano+algo@` não têm conta nem caixa plugada e passavam — bastava pôr um deles num cliente descartável para ler, pela ficha, metadado e trecho da correspondência da equipe. Agora **todo endereço em domínio da casa é recusado**; provedor público (gmail, outlook, uol…) **nunca** vira domínio da casa, senão plugar um Gmail um dia apagaria da ficha todo cliente com Gmail. Consequência aceita: cliente cadastrado com e‑mail `@medconsultoria.com.br` não casa com nada — cliente de verdade tem e‑mail de fora, e o preço de recusá‑lo é uma ficha vazia, não uma caixa alheia aberta. O filtro `role: { not: CLIENTE }` continua: **o cliente do Portal também é `User`** e sem ele a ficha de todo cliente com Portal ficaria vazia. Caixa desplugada e usuário desativado seguem contando (endereço que um dia foi da casa não se recicla como chave).
 4. **Ficam fora da ficha, sempre:** `particular = true`; **Lixeira, Spam e Rascunhos** (`DRAFTS` importa: o rascunho grava sozinho a cada 5 s desde o ADR‑96 — sem excluí‑lo vazaria e‑mail meio escrito, inclusive o que a pessoa pensou melhor e não mandou); e as **duplicatas** por `messageId` (a mesma mensagem existe na caixa de quem mandou e na de cada colega que recebeu), mantendo a mais antiga.
 5. **A válvula: `email.marcarParticular`, só o dono da caixa.** A posse vai no `where` do próprio `updateMany` — não numa leitura antes dele —, então para quem não é dono não existe caminho em que algo seja gravado; `count === 0` responde `FORBIDDEN`, indistinguível de "não existe" (responder `NOT_FOUND` para um id alheio já contaria que ele existe). Marcar **uma** cópia esconde **todas** as cópias daquele `messageId`: esconder só a cópia de quem marcou deixaria a do colega na ficha, com o mesmo assunto e o mesmo trecho — a válvula não valvularia nada.
-6. **A válvula tem volta, e ela mora na caixa.** A ficha só *tira* (`Tirar da ficha`); *devolver* é em `/email`, na caixa de quem é dono — `abrirMensagem` passou a devolver `particular` e a tela ganhou o botão nos dois sentidos. Sem isso, marcar como particular seria de mão única na app inteira: desfazer exigiria mexer no banco.
+6. **A válvula tem volta, e ela mora na caixa.** A ficha só _tira_ (`Tirar da ficha`); _devolver_ é em `/email`, na caixa de quem é dono — `abrirMensagem` passou a devolver `particular` e a tela ganhou o botão nos dois sentidos. Sem isso, marcar como particular seria de mão única na app inteira: desfazer exigiria mexer no banco.
 7. **Falha ao ler a caixa não derruba a ficha.** `conversaDoCliente` junta as duas fontes ordenadas por data; se a parte da caixa falhar (rede IMAP indireta, índice sincronizando), o card ainda mostra o log automático e avisa por `caixaIndisponivel`. E o **erro de verdade é visível** (`QueryError` com "tentar de novo") — os cards da ficha até aqui só tratavam o vazio, e um card silenciosamente vazio faz a equipe concluir que não houve conversa nenhuma com o cliente.
-8. **Um card, duas fontes, selo por origem** (`EmailsDoClienteCard`, com `EmailsDoLeadLista` para o painel do lead): *"Enviado pelo sistema"* × *"Caixa de \<pessoa\>"*. Sem o selo, e‑mail automático e correspondência de gente viram a mesma coisa na leitura. `emailsEnviados.doCliente`/`.doLead` (as procedures) **saíram** — ficaram sem consumidor; os serviços `listPorCliente`/`listPorLead` continuam vivos, chamados pelo `vinculo` e pelo Portal.
+8. **Um card, duas fontes, selo por origem** (`EmailsDoClienteCard`, com `EmailsDoLeadLista` para o painel do lead): _"Enviado pelo sistema"_ × _"Caixa de \<pessoa\>"_. Sem o selo, e‑mail automático e correspondência de gente viram a mesma coisa na leitura. `emailsEnviados.doCliente`/`.doLead` (as procedures) **saíram** — ficaram sem consumidor; os serviços `listPorCliente`/`listPorLead` continuam vivos, chamados pelo `vinculo` e pelo Portal.
 
 9. **O histórico automático fazia o MESMO JOIN sem trava — e o Portal lê essa metade.** Segundo bloqueante da revisão: `listPorCliente`/`listPorLead` (`enviados.service.ts`) casavam por `OR: [{ clienteId }, { para: cliente.email }]`, e `para` sai do cadastro. Pelo lado interno, um funcionário punha `root@medconsultoria.com.br` no cliente e via os transacionais do ROOT; pelo lado **externo**, que é pior, o cliente do Portal edita o próprio e‑mail (`portal.service.ts`) e `portal.emails` chama a mesma função — alguém de fora da empresa listaria assunto, tipo, data e falha dos e‑mails mandados a uma conta interna. É o mesmo defeito do `6dc7583` visto de outro ângulo: aquele fix tirou o **corpo**, este tira a **chave escolhível**. Agora o `para` só vale como chave quando o endereço **não é da casa** (`chaveDeEndereco`); o vínculo gravado pelo servidor (`clienteId`/`leadId`) continua valendo sempre. Manter o `para` para endereços de fora preserva o histórico de quem trocou de e‑mail depois de já ter recebido.
-10. **`marcarParticular` é idempotente.** No MySQL o driver conta linhas *alteradas*, não *casadas*: regravar o mesmo valor (dois cliques, duas abas, o botão de `/email` fora de sincronia com a ficha) devolvia `count === 0` e o **dono da caixa** levava "só quem é dono pode marcar". A conferência extra usa o mesmo critério de posse do `UPDATE`, então para quem não é dono ela também não acha nada — o `FORBIDDEN` continua sem contar se o id existe.
+10. **`marcarParticular` é idempotente.** No MySQL o driver conta linhas _alteradas_, não _casadas_: regravar o mesmo valor (dois cliques, duas abas, o botão de `/email` fora de sincronia com a ficha) devolvia `count === 0` e o **dono da caixa** levava "só quem é dono pode marcar". A conferência extra usa o mesmo critério de posse do `UPDATE`, então para quem não é dono ela também não acha nada — o `FORBIDDEN` continua sem contar se o id existe.
 11. **Tirar e devolver deixam rastro** (`ActivityLog`: `email_tirado_da_ficha` / `email_devolvido_a_ficha`). A válvula esconde a mensagem da empresa inteira a partir da cópia de uma pessoa — sem registro, ela é também alavanca de encobrimento. O log guarda **quem, qual mensagem e para qual lado**; nunca assunto nem trecho, senão o painel do ROOT viraria outra porta para o conteúdo que a fase decidiu não expor. É best‑effort: falhar ao registrar não impede alguém de proteger o que é seu.
 12. **Limite conhecido, escrito de propósito:** a propagação do "particular" entre as cópias é por `messageId`. Mensagem sem `Message-ID` (servidor fora do padrão) não agrupa com ninguém, então marcar esconde só aquela cópia. É raro e o preço de agrupar por assunto+data seria esconder mensagens diferentes.
 
@@ -1330,13 +1401,13 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 
 **Fora desta fatia (2D‑2 e 2D‑3):** anexo de e‑mail vira documento do cliente com um clique (`EmailAnexo.arquivoId` já existe) e e‑mail de desconhecido vira lead com um clique.
 
-**A revisão de segurança (obrigatória nesta fase) achou dois BLOQUEANTES e os dois eram a mesma falha vista de dois lados: a chave do JOIN era um campo que o atacante escreve.** Estão nos itens 3 e 9. Vale como lição da fase: *proteger uma consulta e deixar a irmã sem trava não protege nada* — quem quer ler procura o caminho que sobrou, e aqui o caminho que sobrou era o único aberto a alguém de fora da empresa.
+**A revisão de segurança (obrigatória nesta fase) achou dois BLOQUEANTES e os dois eram a mesma falha vista de dois lados: a chave do JOIN era um campo que o atacante escreve.** Estão nos itens 3 e 9. Vale como lição da fase: _proteger uma consulta e deixar a irmã sem trava não protege nada_ — quem quer ler procura o caminho que sobrou, e aqui o caminho que sobrou era o único aberto a alguém de fora da empresa.
 
 **Verificado:** `@app/api` 240 testes de unidade (`casa.test.ts` novo, 9) · `@app/web` 111 · typecheck 6/6 sem cache · `pnpm lint` 0 erros · `e2e` **84/84** no banco isolado, com `email-ficha-cliente.spec.ts` novo (nenhum e2e tocava a ficha do cliente até aqui) cobrindo o selo, o particular que não aparece e a ida-e-volta da válvula.
 
 ## ADR-98 — A senha de desenvolvimento sai do repositório e passa a ser rotacionável ✅
 
-**Contexto:** um handoff da janela de configuração do agente (05/08/2026) avisou que a senha de seed de desenvolvimento (`SEED_ROOT_PASSWORD`) estava em texto puro em 8 arquivos de memória versionados em outro repositório, com o valor preso no histórico do git de lá, e pediu: *"troque o valor no `.env` e reexecute o seed"*. **Duas coisas não fechavam.** Primeira: o seed **preserva de propósito** a senha de conta existente (`prisma/seed.ts` — "só CRIA quem falta"), então reexecutá‑lo não troca hash nenhum; `pnpm acessos` confirmou as 4 contas internas ainda entrando com a senha antiga depois de qualquer reexecução. Segunda, e maior: o mesmo valor estava **neste** repositório, embutido como fallback em `e2e/auth.setup.ts`, `e2e/auth-flows.spec.ts` e nas duas ocorrências de `SEED_ROOT_PASSWORD`/`E2E_PASSWORD` do `ci.yml` — trocar só o `.env` deixaria o valor circulando aqui e, pior, **quebraria a suíte e2e local em silêncio**, porque em desenvolvimento ela dependia justamente daquele literal (o `playwright.config.ts` não carregava o `.env`).
+**Contexto:** um handoff da janela de configuração do agente (05/08/2026) avisou que a senha de seed de desenvolvimento (`SEED_ROOT_PASSWORD`) estava em texto puro em 8 arquivos de memória versionados em outro repositório, com o valor preso no histórico do git de lá, e pediu: _"troque o valor no `.env` e reexecute o seed"_. **Duas coisas não fechavam.** Primeira: o seed **preserva de propósito** a senha de conta existente (`prisma/seed.ts` — "só CRIA quem falta"), então reexecutá‑lo não troca hash nenhum; `pnpm acessos` confirmou as 4 contas internas ainda entrando com a senha antiga depois de qualquer reexecução. Segunda, e maior: o mesmo valor estava **neste** repositório, embutido como fallback em `e2e/auth.setup.ts`, `e2e/auth-flows.spec.ts` e nas duas ocorrências de `SEED_ROOT_PASSWORD`/`E2E_PASSWORD` do `ci.yml` — trocar só o `.env` deixaria o valor circulando aqui e, pior, **quebraria a suíte e2e local em silêncio**, porque em desenvolvimento ela dependia justamente daquele literal (o `playwright.config.ts` não carregava o `.env`).
 
 **Decisões:**
 
@@ -1345,7 +1416,7 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 3. **`pnpm senha:rotacionar`** (`scripts/rotacionar-senha-seed.ts`) faz o que o seed não faz: sorteia o valor, grava a linha do `.env` e reescreve o `passwordHash` no banco. **Nunca imprime o valor** — nem em sucesso, nem em erro: quem quiser ver abre a linha do `.env`. Imprimir jogaria o segredo no terminal, no scrollback e no transcript de quem estivesse assistindo.
 4. **O critério é "quem ainda usa a senha atual", não uma lista de e-mails.** O script confere o hash de cada conta contra a senha que está saindo e troca exatamente as que casam. Isso pega de uma vez as contas semeadas **e** as de exemplo do `demo-seed` (uma lista fixa esqueceria as segundas), e **deixa intacta quem já definiu senha própria** — daí não ser preciso mexer em `senhaTrocadaEm` (ADR‑91): quem escolheu a sua não é afetado, quem não escolheu continua sendo cobrado no 1º acesso. O UPDATE é **um só** (`id: { in: [...] }`): não existe desfecho com metade das contas numa senha e metade em outra.
 5. **A trava de ambiente não pode ser "o host é localhost".** Foi a primeira versão, e ela estava **errada**: em produção o banco também é local (`mysql://…@localhost:3306`, `DEPLOY.md`), então o script rodando no servidor por SSH passaria a trava e reescreveria a senha dos 3 ROOTs e da ADMIN de produção para um valor aleatório gravado num `.env` que ninguém lê — perda de acesso ROOT, recuperável só por "Esqueci minha senha". Agora a trava é a **mesma do `demo-seed`** (`podeRodarDemoSeed`, pura e testada), alimentada com o **`NODE_ENV` lido do arquivo** — é o `NODE_ENV=production` do `.env` de lá que separa os dois ambientes, não o host. O banco alvo é impresso antes de qualquer escrita.
-6. **Desfazer sem deixar cópia do segredo.** O `.env` é gravado antes de tocar o banco e, se qualquer passo seguinte falhar, é **restaurado a partir do conteúdo em memória** — o estado intermediário (arquivo novo × hash antigo) é o único em que *nada* autentica. A primeira versão fazia backup em arquivo: um `.env.rotacao.bak` com a senha antiga **e** com `SMTP_PASS`/`OPENAI_API_KEY`/`SESSION_SECRET` de brinde, que um `Ctrl+C` deixaria em disco para sempre. Ele não entrava no git (`.gitignore: .env.*`) nem no pacote de deploy, mas backup de segredo esquecido é o mesmo problema com outro nome.
+6. **Desfazer sem deixar cópia do segredo.** O `.env` é gravado antes de tocar o banco e, se qualquer passo seguinte falhar, é **restaurado a partir do conteúdo em memória** — o estado intermediário (arquivo novo × hash antigo) é o único em que _nada_ autentica. A primeira versão fazia backup em arquivo: um `.env.rotacao.bak` com a senha antiga **e** com `SMTP_PASS`/`OPENAI_API_KEY`/`SESSION_SECRET` de brinde, que um `Ctrl+C` deixaria em disco para sempre. Ele não entrava no git (`.gitignore: .env.*`) nem no pacote de deploy, mas backup de segredo esquecido é o mesmo problema com outro nome.
 7. **Leitura pelo `dotenv`, não por regex própria** (nos dois arquivos novos). O parser improvisado que já se repete em 4 scripts deste repo devolve o `\r` **dentro do valor** em arquivo CRLF — e o `.env.example` é CRLF. Numa máquina Windows (esta), a suíte e2e falharia em todo login e a rotação abortaria sempre: a ferramenta escrita para este sistema operacional não funcionaria nele. Chave repetida também é recusada: o `dotenv` usa a última linha e um `replace` trocaria a primeira, deixando app e banco com senhas diferentes.
 
 **O que isto NÃO resolve, e é do dono:** as mesmas 4 contas existem **em produção**. Se o `.env` do servidor tem o valor vazado e alguma delas nunca definiu senha própria (o `root@` primordial é o candidato: ninguém o usa para entrar), a senha vazada entra como ROOT em produção. Rotacionar aqui não alcança lá — e consultar o banco de produção é bloqueado por regra.
@@ -1356,7 +1427,7 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 
 ## ADR-99 — Fases 2D‑2 e 2D‑3: o e‑mail vira trabalho (anexo → documento do cliente, remetente → lead) ✅
 
-**Contexto:** com a 2D‑1 (ADR‑97) a correspondência já *aparecia* na ficha, mas ainda não *virava* nada. Os dois buracos estavam nomeados desde o desenho: o anexo que chega por e‑mail continuava exigindo baixar no computador e subir de novo pela ficha, e quem escrevia pela primeira vez não entrava no funil sem alguém redigitar nome e e‑mail. O campo `EmailAnexo.arquivoId` já existia no schema desde o Bloco 1 — **morto, sem nenhum código que o escrevesse**.
+**Contexto:** com a 2D‑1 (ADR‑97) a correspondência já _aparecia_ na ficha, mas ainda não _virava_ nada. Os dois buracos estavam nomeados desde o desenho: o anexo que chega por e‑mail continuava exigindo baixar no computador e subir de novo pela ficha, e quem escrevia pela primeira vez não entrava no funil sem alguém redigitar nome e e‑mail. O campo `EmailAnexo.arquivoId` já existia no schema desde o Bloco 1 — **morto, sem nenhum código que o escrevesse**.
 
 **Decisões:**
 
@@ -1367,7 +1438,7 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 5. **A allowlist de tipo vale aqui, ao contrário do anexo de SAÍDA (ADR‑96).** Parece incoerência e não é: o anexo de saída é o que a pessoa precisa mandar (`.zip`, `.dwg`, `.p7s`) e nunca é servido pelo nosso domínio; o anexo que vira **documento do cliente** entra num acervo que o Portal serve com o `Content-Type` do banco, então o que ele aceita é o que `/upload` aceita — PDF, imagem, Word e Excel. O `Content-Type` do e‑mail vem com parâmetros (`application/pdf; name="…"`), então a comparação é sobre a parte base, em minúsculas.
 6. **Gravar DENTRO do `comCaixa`** — a mesma lição que a rota de download já tinha pago: a conexão IMAP fecha quando o callback retorna e `download()` resolve depois do **primeiro pedaço**, com o resto ainda vindo pelo socket. Devolver o stream para fora e gravar depois entregaria arquivo cortado. E o teto de 20 MB é conferido **pelo que foi para o disco**, não pelo `tamanho` do índice: aquele é metadado do servidor de e‑mail e pode mentir; acima do teto, a gravação é desfeita em vez de deixar arquivo órfão no acervo.
 7. **`enviadoPorTipo: "EQUIPE"`, ainda que o arquivo tenha vindo do cliente.** O campo responde "por qual porta entrou", e a porta é a caixa de alguém da casa. Marcar `CLIENTE` dispararia o aviso de "cliente enviou documento" para a equipe inteira toda vez que alguém arquivasse um anexo antigo.
-8. **O lead nascido de e‑mail não mente sobre a própria origem.** `createLead` ganhou um terceiro parâmetro opcional (`rastreioPronto`); sem ele, todo lead vindo de outra porta gravaria *"Cadastrado manualmente no sistema"* no campo que existe justamente para responder de onde a pessoa apareceu. A deduplicação é a mesma da captação pelo site: só lead **ativo** bloqueia (apagado ou já convertido não impede negócio novo).
+8. **O lead nascido de e‑mail não mente sobre a própria origem.** `createLead` ganhou um terceiro parâmetro opcional (`rastreioPronto`); sem ele, todo lead vindo de outra porta gravaria _"Cadastrado manualmente no sistema"_ no campo que existe justamente para responder de onde a pessoa apareceu. A deduplicação é a mesma da captação pelo site: só lead **ativo** bloqueia (apagado ou já convertido não impede negócio novo).
 9. **A chave do vínculo é o que a pessoa VÊ ou o que NÓS escrevemos — nunca um cabeçalho de terceiro.** Foi o **BLOQUEANTE** achado pela revisão de segurança, e é a mesma classe de erro do ADR‑97 (a chave da consulta escolhida por quem não deveria), agora vinda de fora da empresa: `EmailEndereco` guarda também `CC`, `CCO` e `RESPONDER_A`, escritos por **quem manda** e **invisíveis na tela**. Enquanto todos eles eram chave, qualquer estranho sem conta nenhuma escolhia em qual cliente o arquivo dele ia parar — bastava mandar um anexo com `Reply-To: financeiro@clientealvo.com.br` para o documento entrar naquela ficha marcado `enviadoPorTipo: "EQUIPE"`, ou seja, **com a procedência da MedConsultoria**, num canal que o cliente confia (fatura falsa com outro PIX é o roteiro óbvio). Agora: mensagem na pasta **`SENT`** (fato do servidor, não cabeçalho) usa os destinatários, porque quem os escreveu foi alguém da equipe; **qualquer outra usa só o remetente**, que é o que a tela mostra ao lado do botão. Forjar o `From` continua possível em e‑mail, mas aí a decisão do humano é **informada** — com `Cc`/`Reply-To` não havia nada para ler.
 10. **O teto de tamanho corta o stream no meio do caminho**, não depois de o arquivo estar no disco (`Transform` com contador), e o `tamanho` do índice serve só para **recusar rápido**, nunca para autorizar. Quem manda o e‑mail escolhe o tamanho, e um único processo Node serve API + SPA num plano compartilhado: disco cheio derruba a app inteira. `salvarArquivo` passou a **apagar o parcial** quando a origem morre no meio (vale para todos os chamadores, não só para este).
 11. **Assunto de e‑mail marcado como particular não reaparece pelo rastreio do lead.** A válvula do ADR‑97 não pode ser esvaziada por uma porta lateral: o rastreio é lido pela equipe inteira, e o assunto foi justamente o que o dono da caixa escondeu. O lead ainda pode ser criado — quem clica é o dono, e nome e e‑mail são o negócio.
@@ -1395,28 +1466,28 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 Levantados na varredura que gerou as ADR‑100/101/102. Ficaram de fora por serem decisão de produto
 ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescoberto do zero.
 
-| Achado | Por que não foi feito agora |
-| ------ | --------------------------- |
-| **Dinheiro em `Float`** — `Servico.valor`/`percentual`, `ClienteServico.valor`/`percentual` e `Lead.valorEstimado` são `Float` (só `Conta.valor` é `Decimal`). Eles são somados em JS e o resultado vai para o **texto do contrato** e para a conta a receber: três serviços podem somar `1621.0000000000002`. | Migration de tipo + trocar as somas em `leads.service.ts` e `documentos.service.ts`. Escopo médio, mexe em dinheiro e em documento assinado — merece branch e revisão própria, não pegar carona. |
-| **Trecho do e-mail na ficha** — qualquer FUNCIONARIO pode pôr um endereço externo no cadastro de um cliente e ler, pela ficha, os 200 caracteres iniciais das mensagens que a equipe trocou com aquele endereço. | O ADR‑97 **escolheu** mostrar o trecho à equipe. Estreitar (ex.: trecho só ADMIN+) é mudança de produto, do dono. Vale junto registrar em `ActivityLog` a troca de `Cliente.email`/`Contato.email` — hoje trocar a chave da consulta não deixa rastro. |
-| **Token de assinatura do cliente visível ao funcionário** (`assinaturas.doDocumento`) — permite assinar em nome do cliente, e a trilha grava o IP de quem assinou como se fosse o dele. | É o mesmo token do botão "Abrir link", funcionalidade documentada ("você escolhe se envia por e‑mail ou copia o link daqui"). Restringir muda o fluxo de trabalho e o valor probatório é assunto jurídico — decisão do dono. |
-| **Índice de `Notificacao`** — a consulta do sino filtra por `userId` e ordena por `createdAt`, e o índice é `(userId, lida)`: sobra filesort. Roda em polling, para toda sessão aberta. | Volume atual é baixo e não há expurgo de notificação antiga. Vale entrar junto da próxima migration, não sozinha. |
-| **`CaixaEmail.assinatura`** — lido no envio, escrito por ninguém: a assinatura por caixa está pela metade desde o ADR‑96. | Precisa de campo na tela de plugar/editar caixa; é funcionalidade nova, não conserto. |
-| **`clientes.excluirDefinitivo` e `clientes.arquivarNota`** — existem no back, sem botão. | Decidir se viram tela ou saem do código. |
-| **Suíte `@app/web` intermitente** — uma execução a partir da raiz deu 8/12 arquivos e 4 erros; não reproduziu nas tentativas seguintes (rodando dentro de `apps/web` sempre passou). | Precisa de repetição para pegar o padrão. Fica registrado para não ser tratado como novidade quando reaparecer na CI. |
-| **`/avatar/:userId`** serve a foto de qualquer usuário para qualquer sessão, inclusive cliente do Portal. | Enumeração de fotos da equipe. Risco baixo, mas é fronteira do Portal — vale fechar quando alguém tocar o módulo. |
+| Achado                                                                                                                                                                                                                                                                                                         | Por que não foi feito agora                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Dinheiro em `Float`** — `Servico.valor`/`percentual`, `ClienteServico.valor`/`percentual` e `Lead.valorEstimado` são `Float` (só `Conta.valor` é `Decimal`). Eles são somados em JS e o resultado vai para o **texto do contrato** e para a conta a receber: três serviços podem somar `1621.0000000000002`. | Migration de tipo + trocar as somas em `leads.service.ts` e `documentos.service.ts`. Escopo médio, mexe em dinheiro e em documento assinado — merece branch e revisão própria, não pegar carona.                                                       |
+| **Trecho do e-mail na ficha** — qualquer FUNCIONARIO pode pôr um endereço externo no cadastro de um cliente e ler, pela ficha, os 200 caracteres iniciais das mensagens que a equipe trocou com aquele endereço.                                                                                               | O ADR‑97 **escolheu** mostrar o trecho à equipe. Estreitar (ex.: trecho só ADMIN+) é mudança de produto, do dono. Vale junto registrar em `ActivityLog` a troca de `Cliente.email`/`Contato.email` — hoje trocar a chave da consulta não deixa rastro. |
+| **Token de assinatura do cliente visível ao funcionário** (`assinaturas.doDocumento`) — permite assinar em nome do cliente, e a trilha grava o IP de quem assinou como se fosse o dele.                                                                                                                        | É o mesmo token do botão "Abrir link", funcionalidade documentada ("você escolhe se envia por e‑mail ou copia o link daqui"). Restringir muda o fluxo de trabalho e o valor probatório é assunto jurídico — decisão do dono.                           |
+| **Índice de `Notificacao`** — a consulta do sino filtra por `userId` e ordena por `createdAt`, e o índice é `(userId, lida)`: sobra filesort. Roda em polling, para toda sessão aberta.                                                                                                                        | Volume atual é baixo e não há expurgo de notificação antiga. Vale entrar junto da próxima migration, não sozinha.                                                                                                                                      |
+| **`CaixaEmail.assinatura`** — lido no envio, escrito por ninguém: a assinatura por caixa está pela metade desde o ADR‑96.                                                                                                                                                                                      | Precisa de campo na tela de plugar/editar caixa; é funcionalidade nova, não conserto.                                                                                                                                                                  |
+| **`clientes.excluirDefinitivo` e `clientes.arquivarNota`** — existem no back, sem botão.                                                                                                                                                                                                                       | Decidir se viram tela ou saem do código.                                                                                                                                                                                                               |
+| **Suíte `@app/web` intermitente** — uma execução a partir da raiz deu 8/12 arquivos e 4 erros; não reproduziu nas tentativas seguintes (rodando dentro de `apps/web` sempre passou).                                                                                                                           | Precisa de repetição para pegar o padrão. Fica registrado para não ser tratado como novidade quando reaparecer na CI.                                                                                                                                  |
+| **`/avatar/:userId`** serve a foto de qualquer usuário para qualquer sessão, inclusive cliente do Portal.                                                                                                                                                                                                      | Enumeração de fotos da equipe. Risco baixo, mas é fronteira do Portal — vale fechar quando alguém tocar o módulo.                                                                                                                                      |
 
 ---
 
 ## ADR-100 — Quem escolhe o endereço escolhe o que a consulta devolve (fechando a chave envenenável) ✅
 
-**Contexto:** auditoria de segurança de 05/08/2026, disparada pelo pedido do dono de garantir a aplicação inteira. O ADR‑97 documentou, com todas as letras, que o endereço do cadastro é **chave de consulta** do histórico de e‑mail (`chaveDeEndereco` em `emails/enviados.service.ts`; `clientesPorEnderecos` em `email/acoes.service.ts`) e que por isso *"bastava pôr `root@…` no cadastro para listar, de dentro do Portal, os transacionais mandados a uma conta interna"*. A trava criada na época — `ehDaCasa` — barra endereço **do nosso domínio**. Ela nunca barrou o endereço **de outro cliente**, e o Portal deixava o próprio cliente gravar o campo (`portalMeusDadosSchema`, ADR‑80, "direito de retificação").
+**Contexto:** auditoria de segurança de 05/08/2026, disparada pelo pedido do dono de garantir a aplicação inteira. O ADR‑97 documentou, com todas as letras, que o endereço do cadastro é **chave de consulta** do histórico de e‑mail (`chaveDeEndereco` em `emails/enviados.service.ts`; `clientesPorEnderecos` em `email/acoes.service.ts`) e que por isso _"bastava pôr `root@…` no cadastro para listar, de dentro do Portal, os transacionais mandados a uma conta interna"_. A trava criada na época — `ehDaCasa` — barra endereço **do nosso domínio**. Ela nunca barrou o endereço **de outro cliente**, e o Portal deixava o próprio cliente gravar o campo (`portalMeusDadosSchema`, ADR‑80, "direito de retificação").
 
 **A falha, reproduzida em teste antes de qualquer correção:** o cliente A abre "Editar perfil" no Portal, grava no próprio cadastro o e‑mail do cliente B e passa a enxergar, em `portal.emails`, tudo o que a empresa mandou para B — destinatário, assunto, tipo de mensagem, data, status e motivo de falha. O corpo continua protegido; o metadado atravessa a fronteira entre clientes, que é justamente a fronteira que o Portal existe para manter. O mesmo campo é a chave que decide de quem é o cliente ao guardar um anexo recebido: pondo no cadastro o endereço de um terceiro que escreve para a empresa, o cliente A se torna o **único** candidato e o anexo daquele terceiro vira documento dele, baixável pelo Portal.
 
 **Decisões:**
 
-1. **O Portal não grava mais o e‑mail do cadastro.** O campo saiu do `portalMeusDadosSchema` — é o *schema* que derruba o campo, não a boa vontade da tela: quem ataca não usa a tela. Nome, tipo, CPF/CNPJ e telefone continuam editáveis; a retificação do e‑mail passa a ser pedida à equipe, que é quem tem o histórico para saber o que aquela troca significa. A tela do Portal mostra o endereço em campo desabilitado, dizendo em português onde pedir a troca — campo que some sem explicação vira chamado de suporte.
+1. **O Portal não grava mais o e‑mail do cadastro.** O campo saiu do `portalMeusDadosSchema` — é o _schema_ que derruba o campo, não a boa vontade da tela: quem ataca não usa a tela. Nome, tipo, CPF/CNPJ e telefone continuam editáveis; a retificação do e‑mail passa a ser pedida à equipe, que é quem tem o histórico para saber o que aquela troca significa. A tela do Portal mostra o endereço em campo desabilitado, dizendo em português onde pedir a troca — campo que some sem explicação vira chamado de suporte.
 2. **A trava fica no servidor, não na tela.** O serviço `atualizarMeusDados` deixou de aceitar `email` na assinatura, e o teste chama o **schema** com um payload hostil antes de chamar o serviço, exatamente como um atacante faria.
 3. **Freio no "esqueci minha senha", contado por CAIXA e não por IP.** O endpoint é anônimo, dispara e‑mail real e só tinha o rate‑limit global de 300/min por IP — e quem sofre não é quem pede, é o dono da caixa. Teto de 3 por hora por endereço. Contar por IP não protegeria nada (trocar de IP é trivial e o alvo é a caixa). Ao estourar, a resposta continua `{ ok: true }`: qualquer outra resposta viraria um detector de "esta conta existe", derrubando a anti‑enumeração que o endpoint já tinha.
 
@@ -1453,7 +1524,6 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 **O que continua fora, por escopo e não por defeito** (nenhuma ADR afirmou que existiam): mover/excluir mensagem e marcar como não lida; escolher a caixa remetente ao responder com duas caixas plugadas; autocomplete de destinatário; IA para redigir resposta; selo de cliente/lead na lista; corpo com formatação. Some-se o campo `CaixaEmail.assinatura`, **lido no envio e escrito por ninguém** — a assinatura por caixa está pela metade desde o ADR-96 e segue inalcançável.
 
 **Verificado:** `@app/web` 121 testes (eram 116) — 5 novos são de regressão exatamente dos defeitos acima, inclusive "erro não pode virar tela de boas-vindas"; typecheck limpo; `pnpm lint` sem erro novo.
-
 
 ## ADR-103 — Credenciamento por PESSOA: a lista real de documentos, a triagem e o Portal por médico (Bloco A) ✅
 
@@ -1521,13 +1591,13 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 
 ## ADR-106 — O Painel de Credenciamentos: a visão que tirava a Thaís da planilha ✅
 
-**Contexto:** os Blocos A, B e C entregaram o credenciamento por pessoa, com preço por cruzamento, documento fiel ao papel e cobrança no sucesso — e a ADR-105 costurou as telas. Faltava, ainda assim, a pergunta que ela faz **de manhã**: *o que travou?* O andamento só existia dentro da ficha de cada cliente, um por vez. Para saber o que estava parado, era abrir cliente por cliente e somar de cabeça — ou seja, manter a planilha paralela. Um sistema que obriga a planilha ao lado não substituiu o caos: virou mais um lugar para olhar.
+**Contexto:** os Blocos A, B e C entregaram o credenciamento por pessoa, com preço por cruzamento, documento fiel ao papel e cobrança no sucesso — e a ADR-105 costurou as telas. Faltava, ainda assim, a pergunta que ela faz **de manhã**: _o que travou?_ O andamento só existia dentro da ficha de cada cliente, um por vez. Para saber o que estava parado, era abrir cliente por cliente e somar de cabeça — ou seja, manter a planilha paralela. Um sistema que obriga a planilha ao lado não substituiu o caos: virou mais um lugar para olhar.
 
 **Decisões:**
 
 1. **Uma tela transversal, `/credenciamentos`, no menu em Negócio.** Uma linha por cruzamento médico × operadora, de **todos** os clientes. O ADR-94 pedia no máximo 4 itens por grupo e Negócio passou a ter 5: credenciamento é o principal serviço da casa e é uso diário — deixá-lo fora do menu, só no Ctrl+K, seria cumprir a regra e falhar no motivo dela. O limite que continua sendo lei, e testado, é **o menu não rolar** (`e2e/menu-sem-scroll.spec.ts`, verde nos três tamanhos com o item novo).
 
-2. **A tela abre pelo que está travado, não pelo mais recente.** Ordenação: quem precisa de atenção primeiro e, dentro de cada grupo, o parado há mais tempo. É o contrário do padrão de quase toda listagem daqui, e é deliberado — a ordenação *é* a resposta à pergunta dela.
+2. **A tela abre pelo que está travado, não pelo mais recente.** Ordenação: quem precisa de atenção primeiro e, dentro de cada grupo, o parado há mais tempo. É o contrário do padrão de quase toda listagem daqui, e é deliberado — a ordenação _é_ a resposta à pergunta dela.
 
 3. **O prazo é 60 dias, e veio da Thaís.** A proposta inicial de engenharia era 30; ela corrigiu em 11/08/2026 ("a partir de 60 dias precisamos ficar de olho"). É o prazo real de resposta das operadoras. Fica **editável em Ajustes → Dados da empresa** (`IdentidadeInstitucional.credenciamentoPrazoDias`, migração `20260811204308`), porque operadora muda de ritmo e ela não deve precisar de alteração de código para ajustar.
 
@@ -1537,7 +1607,7 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 
 6. **Mudar a situação pelo painel usa a MESMA `mudarStatusCredenciamento` da ficha.** O diálogo (`MudarStatusDialog`) foi exportado e passou a pedir o mínimo de que precisa, em vez de a célula inteira da grade. Um segundo caminho faria as travas de dinheiro — negado não vira aprovado, aprovar cria a conta a receber e falha junto se a conta falhar — viverem em dois lugares. Regra de dinheiro escrita duas vezes são dois relógios: nunca se sabe qual está certo.
 
-7. **Médico desativado continua na lista, marcado "fora da lista"** — a mesma decisão da ADR-105, aplicada de novo aqui: filtrar por `ativo: true` no painel apagaria exatamente quem foi desativado *para* preservar o processo e a cobrança que ele sustenta. Verificado na tela.
+7. **Médico desativado continua na lista, marcado "fora da lista"** — a mesma decisão da ADR-105, aplicada de novo aqui: filtrar por `ativo: true` no painel apagaria exatamente quem foi desativado _para_ preservar o processo e a cobrança que ele sustenta. Verificado na tela.
 
 8. **Os totais descrevem o que está na tela, não o banco.** Um resumo que ignora o filtro ativo faz somar peras com maçãs sem perceber.
 
@@ -1572,6 +1642,7 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 **Publicado em produção em 12/08/2026 às 14:06** — ensaio de boot OK (16 portas ouvindo), `restart.txt` marcado, smoke `{"status":"ok"}`; `/` e `/credenciamentos` conferidos de fora, HTTP 200. Sem migração nova (`No pending migrations to apply`), o que fez deste o deploy de menor risco possível.
 
 **Armadilhas registradas:**
+
 - **⛔ Dois `./deploy.sh` simultâneos se sabotam — e o sintoma parece defeito de código.** O deploy passa de 2 minutos e **parece travado**; o comando foi colado duas vezes e **os dois falharam**, sem nada de errado no artefato. Disputam o **mesmo `/tmp/boot-teste.log`** do servidor, a **mesma porta** do `node app.cjs` e os **mesmos `node_modules`** do `prisma generate` (o segundo travou o Node ali). Uma execução limpa em seguida passou de primeira. **O sintoma que identifica:** ensaio reportando `0` com `--- erros ---` e **nada embaixo** — lista de erros vazia é evidência apagada por concorrência, não app quebrado. **Rollback correto é o PRIMEIRO snapshot da rodada**: do segundo em diante ele já foi tirado depois de outro deploy sobrescrever arquivos, e restauraria um estado misturado. E resolva no mesmo dia: o passo 3 grava os arquivos novos **antes** do ensaio, então um deploy reprovado deixa a produção rodando o código velho de memória com o disco já trocado — e o healthcheck reiniciaria com ele.
 - **A instalação falha no Windows com `ERR_PNPM_ENOENT ... plugin-react_tmp_NNNN`** quando o override mexe numa dependência do Vite e a pasta do pacote fica meio-desmontada. Pausar a app **não** basta. O que destrava: `rm -rf node_modules/@vitejs` e `pnpm install` de novo.
 - **`flows-financeiro.spec.ts` ("marcar paga, filtrar e excluir") é instável na suíte cheia** e passa 10/10 sozinho. Falhou uma vez, passou nas duas rodadas seguintes — instabilidade do teste, não defeito do código. Se voltar a falhar, é ali que se deve olhar antes de culpar a mudança.
@@ -1592,7 +1663,7 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 
 2. **A estimativa do funil só provisiona se sobrou algo além do credenciamento** — ou se o lead nem escolheu serviço. Lead **só** de credenciamento não gera conta nenhuma na conversão.
 
-3. **No caso misturado, a conta avisa em vez de calar.** Lead com credenciamento **e** outro serviço continua provisionando o outro serviço, e a observação da conta passa a dizer: *"O credenciamento NÃO está neste valor: o honorário dele só vira conta quando a operadora aprova."* A estimativa do funil normalmente embute o credenciamento; sem essa frase a Thaís revisaria um número contaminado achando que estava conferido.
+3. **No caso misturado, a conta avisa em vez de calar.** Lead com credenciamento **e** outro serviço continua provisionando o outro serviço, e a observação da conta passa a dizer: _"O credenciamento NÃO está neste valor: o honorário dele só vira conta quando a operadora aprova."_ A estimativa do funil normalmente embute o credenciamento; sem essa frase a Thaís revisaria um número contaminado achando que estava conferido.
 
 **Verificado na tela, não só no teste:** lead "Dr. Só Credenciamento / Clínica Prova ADR-104", único serviço credenciamento, **R$ 12.000,00** de estimativa. Depois de converter: cliente criado, projeto criado, reunião de kickoff criada, e o card Financeiro da ficha diz **"Nenhuma conta vinculada."**. Antes desta correção o mesmo caminho criava R$ 12.000,00 a receber. Testes: 8 casos novos em `conversao-provisao-financeira.test.ts` (inclusive o misturado e o comparador de nome insensível a caixa/espaço).
 
@@ -1602,7 +1673,7 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 
 ## ADR-109 — "Alguém concluiu um projeto" era ninguém ✅
 
-**Data:** 2026-08-17 · **Contexto:** o widget **Atividade recente** do Início mostrava linhas como *"Alguém concluiu um projeto"* e *"Alguém reabriu um projeto"*, com avatar de gente. Não havia gente: `reconciliarStatusProjeto` conclui e reabre o projeto **sozinho** quando o último cartão fecha ou sai de "Concluído", e grava o histórico com `userId: null`.
+**Data:** 2026-08-17 · **Contexto:** o widget **Atividade recente** do Início mostrava linhas como _"Alguém concluiu um projeto"_ e _"Alguém reabriu um projeto"_, com avatar de gente. Não havia gente: `reconciliarStatusProjeto` conclui e reabre o projeto **sozinho** quando o último cartão fecha ou sai de "Concluído", e grava o histórico com `userId: null`.
 
 **Decisões:**
 
@@ -1713,6 +1784,7 @@ Foi para tornar **esse** passo obrigatório e verificável que a troca virou arq
 `.github/workflows/rotacionar-chave-deploy.yml`, gatilho `workflow_dispatch` com confirmação digitada, `concurrency: deploy-producao` **compartilhado com o deploy** — rotacionar a chave no meio de uma publicação deixaria o passo seguinte dela sem acesso.
 
 Roda no GitHub pela regra do §0.9 (nenhuma janela administra servidor a partir do laptop) e por uma razão específica desta tarefa: **o runner já tem a chave antiga funcionando, então ele se autoriza sozinho.** Ninguém precisa abrir SSH à mão, nem colar chave em painel, nem pedir que o dono edite arquivo de servidor — que era o ponto onde a receita anterior morria.
+
 ### A ordem, que é metade do projeto
 
 autoriza a nova → **prova que a nova entra** → só então remove a velha → **prova que a nova continua entrando e que a velha é recusada**.
@@ -1729,9 +1801,9 @@ A correção foi trocar a identidade usada: casa-se pelo **corpo** da chave (o b
 
 **2. O campo de texto livre era execução de comando no servidor de produção.** Ele era interpolado dentro de um `ssh "... grep -vF '$COMENTARIO' ..."`; uma aspa simples fechava a moldura e o resto virava comando, rodando como o usuário de deploy, ao lado do arquivo de variáveis com chave OpenAI, senha de SMTP e credencial do MySQL. Repositório privado limita quem dispara — mas o `environment: producao` tem aprovação humana, e o revisor aprova **um campo de texto**, não um diff. A injeção passaria exatamente pelo portão que existe para barrá-la. **O campo deixou de existir**; a única entrada é a palavra de confirmação.
 
-**3. A prova negativa falhava aberto.** `if ssh antiga; then falhou; fi` lê *qualquer* erro como "revogada" — inclusive timeout. E este projeto **sabe** que a TineHost corta o IP do runner (quinta cicatriz da ADR-113); essa era a sétima conexão da execução, e o `2>/dev/null` jogava fora justamente a mensagem que distinguiria recusa de queda. Desfecho: comentário errado → nada removido → hospedagem corta o IP → o workflow imprime "REVOGADA", fecha verde, o dono apaga o segredo antigo, e **a chave vazada continua valendo com a dívida marcada como paga**. Agora exige-se `Permission denied` no texto do erro; qualquer outra falha é **INCONCLUSIVO** e reprova.
+**3. A prova negativa falhava aberto.** `if ssh antiga; then falhou; fi` lê _qualquer_ erro como "revogada" — inclusive timeout. E este projeto **sabe** que a TineHost corta o IP do runner (quinta cicatriz da ADR-113); essa era a sétima conexão da execução, e o `2>/dev/null` jogava fora justamente a mensagem que distinguiria recusa de queda. Desfecho: comentário errado → nada removido → hospedagem corta o IP → o workflow imprime "REVOGADA", fecha verde, o dono apaga o segredo antigo, e **a chave vazada continua valendo com a dívida marcada como paga**. Agora exige-se `Permission denied` no texto do erro; qualquer outra falha é **INCONCLUSIVO** e reprova.
 
-**4. Nada testava o estado final.** A chave nova era exercitada só *antes* da reescrita do arquivo. Um passo 7 a testa depois — é o que transforma um lockout silencioso em falha ruidosa com o backup ainda alcançável.
+**4. Nada testava o estado final.** A chave nova era exercitada só _antes_ da reescrita do arquivo. Um passo 7 a testa depois — é o que transforma um lockout silencioso em falha ruidosa com o backup ainda alcançável.
 
 Sumiu também o segredo `DEPLOY_PUBKEY_NOVA`: a pública é derivada da privada (`ssh-keygen -y`), o que elimina de uma vez um segredo a administrar, a classe de erro "mandei a privada no lugar da pública", e um comentário de chave com `$(…)` sendo expandido pelo runner.
 
@@ -1773,11 +1845,11 @@ O aviso do GitHub caiu de **42 para 19** entre 12 e 18/08 sem que ninguém tives
 ### O resultado: nenhuma das 19 alcança produção
 
 | Severidade | Total | Produção | Desenvolvimento |
-|---|---|---|---|
-| Crítica | 6 | **0** | 6 |
-| Alta | 7 | **0** | 7 |
-| Moderada | 3 | **0** | 3 |
-| Baixa | 3 | **0** | 3 |
+| ---------- | ----- | -------- | --------------- |
+| Crítica    | 6     | **0**    | 6               |
+| Alta       | 7     | **0**    | 7               |
+| Moderada   | 3     | **0**    | 3               |
+| Baixa      | 3     | **0**    | 3               |
 
 `pnpm audit --prod` **sem corte de nível** (não só `--audit-level high`, que é o da CI) devolve `No known vulnerabilities found`. As 6 críticas são todas do `vitest`; as altas são `brace-expansion`, `js-yaml`, `vite` e `playwright` — nenhum deles resolvido por `pnpm why --prod`.
 
@@ -1817,7 +1889,7 @@ O bundle sobe **sem lockfile** e é instalado lá com `npm install --omit=dev` (
 
 ### O que se descobriu
 
-A ADR-115 anotou, no fim, que o bundle subia **sem lockfile** e era instalado com `npm install --omit=dev`, e que **o npm não lê `pnpm.overrides`**. Ela classificou isso como risco *futuro e silencioso*: "hoje isto não abre buraco nenhum — nenhum desses pacotes tem alerta aberto".
+A ADR-115 anotou, no fim, que o bundle subia **sem lockfile** e era instalado com `npm install --omit=dev`, e que **o npm não lê `pnpm.overrides`**. Ela classificou isso como risco _futuro e silencioso_: "hoje isto não abre buraco nenhum — nenhum desses pacotes tem alerta aberto".
 
 **Essa parte estava errada, e a medição mostra o quanto.** Montando o `package.json` do artefato exatamente como o bundle o monta e mandando o npm resolver a árvore:
 
@@ -1840,14 +1912,36 @@ Ou seja: entre 12/08 e hoje, a CI dizia `pnpm audit --prod` = **0** e a produç�
 
 ### A prova
 
-| | antes | depois |
-|---|---|---|
-| `deepmerge-ts` que o servidor instala | **7.1.5 / 7.1.6** | **8.0.1** |
-| `npm audit --omit=dev` na árvore do servidor | **5 falhas ALTAS** | **0** |
-| Pacotes com versão travada no artefato | 0 (sem lockfile) | **261** |
+|                                              | antes              | depois    |
+| -------------------------------------------- | ------------------ | --------- |
+| `deepmerge-ts` que o servidor instala        | **7.1.5 / 7.1.6**  | **8.0.1** |
+| `npm audit --omit=dev` na árvore do servidor | **5 falhas ALTAS** | **0**     |
+| Pacotes com versão travada no artefato       | 0 (sem lockfile)   | **261**   |
 
 ### O que isto ensina
 
 **Auditar o ambiente que monta não é auditar o ambiente que roda.** É a terceira vez esta semana que os dois discordam em silêncio — o `esbuild` que só existia no laptop (ADR-113), os overrides que só valiam no monorepo (aqui), e a chave de deploy que o runner já tinha (ADR-114). O padrão é sempre o mesmo: uma verificação verde feita no lugar errado.
 
 E, de novo, a lição da ADR-114 na forma dela: **a ADR-115 concluiu "inofensivo" a partir de uma lista que ela mesma tinha montado, sem medir.** Bastava rodar o `npm` uma vez com o `package.json` do artefato. O verde só prova que nada deu erro; a medição é o que prova que a coisa é o que se diz.
+
+### A revisão adversarial, e o que ela mudou
+
+Antes de mesclar, a mudança passou por revisão adversarial — a mesma disciplina que a ADR-114 estabeleceu depois do workflow de rotação que terminava verde por três caminhos errados. Ela encontrou **três defeitos reais** que a implementação original tinha, e **um alarme falso**. Os dois merecem registro.
+
+**Real, e o mais grave: o código de saída estava sendo mascarado.** Os comandos do passo 5/7 eram `ssh deploy "npm install ... 2>&1 | tail -3"`. O `| tail` roda no shell **remoto**, que não tem `pipefail` — o código que volta é o do `tail`, **sempre 0**. O `set -euo pipefail` do passo é do shell do runner e não alcança lá dentro. Com `npm install` isso já escondia falha; com `npm ci` fica **destrutivo**, porque ele apaga o `node_modules` antes de instalar: um `npm ci` que morresse deixaria o servidor sem `node_modules`, sem Prisma Client e sem migration, com o deploy **seguindo em frente** e só o ensaio de boot reclamando no fim. Provado: `sh -c 'false | tail -3'` sai **0**; `sh -c '{ false; } || { exit 1; }'` sai **1**. Todos os comandos remotos passaram a redirecionar para arquivo e a devolver `exit 1` de verdade — no `deploy.yml` **e** no `deploy.sh`.
+
+**Real: não havia rollback para o `node_modules`.** O snapshot do passo 3/7 é `tar --exclude=node_modules` — restaurá-lo não devolve a pasta. Agora, antes do `npm ci`, a pasta é copiada por **hardlink** (`cp -al`, custo perto de zero em disco e em tempo) e restaurada se o `npm ci` falhar.
+
+**Real: o pnpm aceita uma sintaxe de chave que o npm ignora em silêncio.** `"pai>filho": "^x"` é a forma que a documentação do pnpm recomenda para escopar um override a um caminho; no npm ela não casa com pacote nenhum e vira **no-op**. Seria a mesma armadilha desta ADR entrando pela porta dos fundos. O módulo passou a **falhar o build** ao encontrar `>` ou `<` numa chave, com teste que prova a recusa.
+
+**Real, e já corrigido antes da revisão chegar:** o portão da CI audita um lockfile e o deploy publica **outro** — o passo 1/7 monta o artefato de novo, re-resolvendo contra o registro num outro momento. Por isso o conferidor e o audit rodam **também dentro do `deploy.yml`**, sobre o mesmo lock que vai ser enviado.
+
+**Alarme falso, e vale dizer por quê:** a revisão afirmou que o override `deepmerge-ts@7` só alcançava a instância hoisted, e que `html-to-text/node_modules/deepmerge-ts` continuava em 7.1.6. **Não se reproduz.** O lockfile do artefato tem **uma única** entrada de `deepmerge-ts`, em **8.0.1**, sem cópia aninhada; `npm audit --omit=dev` sai 0; e o portão novo passou no runner limpo do GitHub, que é um terceiro medidor, independente do laptop. A reprodução da revisão provavelmente montou o `package.json` sem os overrides. **Revisão adversarial se confere como qualquer outra afirmação** — inclusive quando ela é a que está dizendo "não mescle".
+
+### A prova de que o portão prova alguma coisa
+
+`npm audit` responde `found 0 vulnerabilities` e sai **0** também quando a árvore está **vazia** — o verde-falso da lição da ADR-114, na forma exata. Por isso o audit foi para dentro do `scripts/conferir-artefato.mjs`, que lê o número da própria saída dele (`metadata.dependencies.prod`) e **reprova se forem menos de 150** dependências auditadas. Hoje são **227**. E o conferidor foi testado pelo lado que interessa: removendo os overrides do artefato à mão, ele sai **1** listando os sete que sumiram.
+
+### A dívida que fica anotada
+
+`sanitize-html@2.17.7` e `cookie@2.0.1` declaram `engines: node >=22`, e o servidor roda **Node 20**. Hoje é só aviso (o npm não recusa por engine sem `engine-strict=true`), e esses pacotes já estão instalados em produção. Cogitou-se mandar um arquivo de configuração do npm com `engine-strict=false` dentro do artefato, e a ideia foi **descartada**: o envio é `tar`, que sobrepõe por nome, e um arquivo nosso apagaria um homônimo com credencial que porventura exista no servidor — seria trocar um risco teórico por um concreto. Fica como higiene: ou subir o Node do servidor, ou fixar essas duas dependências.

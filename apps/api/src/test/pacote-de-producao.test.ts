@@ -40,6 +40,22 @@ describe("pacote de produção (o package.json que vai para o servidor)", () => 
     }
   });
 
+  // Achado da revisão adversarial da ADR-116: o pnpm aceita `pai>filho`, o npm ignora essa chave
+  // em SILÊNCIO. Se alguém fechar um CVE assim, a CI vai a zero e o servidor instala a
+  // vulnerável. O build tem de PARAR — e este teste é quem garante que ele para.
+  it("RECUSA montar o pacote se um override usar sintaxe que só o pnpm entende", () => {
+    const comSintaxeDoPnpm = {
+      raiz: { pnpm: { overrides: { "mailparser>html-to-text": "^9.0.6" } } },
+      api,
+      db,
+    };
+    expect(() => montarPacoteDeProducao(comSintaxeDoPnpm)).toThrow(/pai>filho|silêncio/i);
+  });
+
+  it("a raiz de hoje passa nessa conferência (nenhum override usa `pai>filho`)", () => {
+    expect(() => montarPacoteDeProducao({ raiz, api, db })).not.toThrow();
+  });
+
   it("declara o start e os comandos de Prisma que o deploy executa", () => {
     expect(pacote.scripts.start).toBe("node server.js");
     expect(pacote.scripts["prisma:generate"]).toContain("prisma generate");

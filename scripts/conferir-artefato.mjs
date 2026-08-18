@@ -7,6 +7,7 @@
 //
 // Uso: node scripts/conferir-artefato.mjs   (depois de `pnpm build:deploy`)
 import { readFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -60,4 +61,43 @@ if (falhas.length) {
   console.error("✗ o artefato NÃO está pronto para ser auditado nem publicado:\n  " + falhas.join("\n  "));
   process.exit(1);
 }
-console.log("✓ artefato conferido — pode auditar");
+// 6) O AUDIT, aqui dentro e não num passo separado — para que a prova de que ele auditou
+// alguma coisa fique colada nele. `npm audit` responde "found 0 vulnerabilities" e sai 0
+// também com uma árvore VAZIA; o número que desmente isso vem da própria saída dele
+// (`metadata.dependencies.prod`). Achado da revisão adversarial da ADR-116.
+let auditoria;
+try {
+  auditoria = execFileSync("npm", ["audit", "--omit=dev", "--json"], {
+    cwd: dist,
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+    shell: process.platform === "win32",
+  });
+} catch (e) {
+  // `npm audit` sai diferente de 0 quando ENCONTRA falha — a saída JSON vem no stdout do erro.
+  auditoria = e.stdout ?? "";
+  if (!auditoria) {
+    console.error("✗ o `npm audit` não rodou (nem JSON devolveu):", e.message);
+    process.exit(1);
+  }
+}
+
+const relatorio = JSON.parse(auditoria);
+const auditadas = relatorio.metadata?.dependencies?.prod ?? 0;
+if (auditadas < 150) {
+  console.error(`✗ o audit olhou apenas ${auditadas} dependências de produção — árvore vazia ou curta.`);
+  console.error("  Um `found 0 vulnerabilities` sobre nada não prova nada (lição da ADR-114).");
+  process.exit(1);
+}
+console.log(`  ✓ ${auditadas} dependências de produção realmente auditadas`);
+
+const graves = Object.entries(relatorio.metadata?.vulnerabilities ?? {}).filter(
+  ([nivel, n]) => (nivel === "high" || nivel === "critical") && n > 0,
+);
+if (graves.length) {
+  console.error("✗ falha ALTA ou CRÍTICA no que o SERVIDOR vai instalar: " + graves.map(([n, q]) => `${q} ${n}`).join(", "));
+  console.error("  Rode `npm audit --omit=dev` em apps/api/dist para ver os caminhos.");
+  process.exit(1);
+}
+
+console.log("✓ artefato conferido e auditado — pode publicar");

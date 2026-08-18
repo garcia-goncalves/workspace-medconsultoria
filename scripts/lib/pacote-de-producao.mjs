@@ -13,6 +13,30 @@
 // 8.0.1 e o `npm audit --omit=dev` sai em 0. Por isso os overrides são copiados VERBATIM: nada
 // de traduzir, nada de escolher quais valem. Override que existe na raiz existe no servidor.
 
+// O pnpm aceita uma sintaxe de chave que o npm NÃO entende: `pai>filho` (e `pai>filho>neto`),
+// que a própria documentação do pnpm recomenda para escopar um override a um caminho. No npm
+// essa chave não casa com pacote nenhum — vira **no-op silencioso**. O caminho de falha é o
+// mesmo que a ADR-116 fechou, só que pela porta dos fundos: alguém escreve
+// `"mailparser>html-to-text": "^9.0.6"` para fechar um CVE, o `pnpm audit --prod` da CI vai a
+// zero, o artefato leva a chave inútil e o servidor instala a vulnerável.
+// Por isso o módulo NÃO copia essa forma — ele **falha o build**. Barrar em cima da mesa é o
+// único jeito de a pessoa descobrir; ignorar seria repetir o erro.
+// Achado da revisão adversarial da própria ADR-116.
+const SO_DO_PNPM = /[<>]/;
+
+const conferirOverrides = (overrides) => {
+  const incompativeis = Object.keys(overrides).filter((chave) => SO_DO_PNPM.test(chave));
+  if (incompativeis.length) {
+    throw new Error(
+      "pnpm.overrides com sintaxe que o npm ignora em silêncio (`pai>filho`): " +
+        incompativeis.join(", ") +
+        ". No artefato de produção use a forma `nome` ou `nome@faixa`, que os dois entendem — " +
+        "senão o override vale no monorepo e NÃO vale no servidor (ADR-116).",
+    );
+  }
+  return { ...overrides };
+};
+
 const semWorkspace = (deps) => Object.fromEntries(Object.entries(deps ?? {}).filter(([, v]) => !String(v).startsWith("workspace:")));
 
 /**
@@ -39,6 +63,6 @@ export function montarPacoteDeProducao({ raiz, api, db }) {
       "prisma:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
     },
     dependencies,
-    overrides: { ...(raiz.pnpm?.overrides ?? {}) },
+    overrides: conferirOverrides(raiz.pnpm?.overrides ?? {}),
   };
 }

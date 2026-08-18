@@ -73,12 +73,8 @@ jobs:
       # árvore está limpa quanto quando NÃO HÁ árvore. Este passo prova que há o que auditar — lockfile
       # com centenas de pacotes, lock casando com o package.json, e TODO override da raiz presente.
       # Provado que reprova: removendo os overrides do artefato à mão, ele sai 1 listando os 7.
-      - name: O artefato está inteiro e carrega os overrides da raiz?
+      - name: Portão — o artefato está inteiro, carrega os overrides e passa no audit
         run: node scripts/conferir-artefato.mjs
-
-      - name: Portão — nenhuma falha ALTA no que o SERVIDOR instala (lockfile do artefato)
-        working-directory: apps/api/dist
-        run: npm audit --omit=dev --audit-level high
 
   e2e:
     runs-on: ubuntu-latest
