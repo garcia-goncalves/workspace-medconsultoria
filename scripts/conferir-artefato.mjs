@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(root, "apps/api/dist");
+const NO_WINDOWS = process.platform === "win32";
+const NPM = NO_WINDOWS ? "npm.cmd" : "npm";
 const falhas = [];
 const ok = [];
 
@@ -43,10 +45,13 @@ else ok.push("lock e package.json batem");
 
 // 4) TODO override da raiz chegou ao artefato. É a proteção que o npm do servidor não herda
 // sozinha, e a que faltava até 18/08/2026.
+// A chave é traduzida de `nome@faixa` (pnpm) para `nome` (npm) — ver o comentário longo em
+// scripts/lib/pacote-de-producao.mjs. Aqui conferimos pelo nome traduzido e pelo VALOR.
 const daRaiz = raiz.pnpm?.overrides ?? {};
 const noArtefato = pkg.overrides ?? {};
 for (const [chave, valor] of Object.entries(daRaiz)) {
-  if (noArtefato[chave] !== valor) falhas.push(`override "${chave}" da raiz não chegou ao artefato`);
+  const nome = chave.replace(/(?!^)@[^@/]+$/, "");
+  if (noArtefato[nome] !== valor) falhas.push(`override "${chave}" da raiz não chegou ao artefato`);
 }
 if (Object.keys(daRaiz).length === 0) falhas.push("a raiz não tem pnpm.overrides — confira se o package.json foi lido certo");
 else if (!falhas.length) ok.push(`${Object.keys(daRaiz).length} overrides copiados da raiz`);
@@ -61,13 +66,39 @@ if (falhas.length) {
   console.error("✗ o artefato NÃO está pronto para ser auditado nem publicado:\n  " + falhas.join("\n  "));
   process.exit(1);
 }
+// 5.5) ⛔ A CHECAGEM QUE FALTAVA, E QUE CUSTOU UMA PUBLICAÇÃO QUEBRADA (18/08/2026, 17:53).
+// O conferidor provava que o lock tinha árvore, que os overrides chegaram e que o audit saía
+// em 0 — três coisas verdadeiras — e nenhuma delas exercitava o `npm ci`, que é o ÚNICO
+// comando que roda no servidor. O lock estava internamente inconsistente com o package.json
+// (arestas pedindo `deepmerge-ts` 7.x, árvore com a 8.0.1) e só o `npm ci` percebe isso.
+// Ele parou o deploy no passo 5/7, depois do artefato já enviado. `--dry-run` não escreve nada
+// e roda em ~1s: é a asserção que faltava, na lição da ADR-114 (verde tem de PROVAR algo).
+try {
+  execFileSync(NPM, ["ci", "--omit=dev", "--dry-run", "--no-audit", "--no-fund"], {
+    cwd: dist,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    shell: NO_WINDOWS,
+  });
+  console.log("  ✓ o `npm ci` do servidor aceita este lockfile (ensaiado a seco)");
+} catch (e) {
+  const saida = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+  const linhas = saida.split(/\r?\n/).filter((l) => /npm error/.test(l) && !/EBADENGINE/.test(l));
+  const motivo = linhas.slice(0, 6).join("\n  ");
+  console.error(
+    "✗ o `npm ci` RECUSARIA este artefato no servidor — o deploy morreria no passo 5/7:\n  " +
+      (motivo || e.message),
+  );
+  process.exit(1);
+}
+
 // 6) O AUDIT, aqui dentro e não num passo separado — para que a prova de que ele auditou
 // alguma coisa fique colada nele. `npm audit` responde "found 0 vulnerabilities" e sai 0
 // também com uma árvore VAZIA; o número que desmente isso vem da própria saída dele
 // (`metadata.dependencies.prod`). Achado da revisão adversarial da ADR-116.
 let auditoria;
 try {
-  auditoria = execFileSync("npm", ["audit", "--omit=dev", "--json"], {
+  auditoria = execFileSync(NPM, ["audit", "--omit=dev", "--json"], {
     cwd: dist,
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,

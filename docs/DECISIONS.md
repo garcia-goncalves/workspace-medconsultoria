@@ -1945,3 +1945,47 @@ Antes de mesclar, a mudança passou por revisão adversarial — a mesma discipl
 ### A dívida que fica anotada
 
 `sanitize-html@2.17.7` e `cookie@2.0.1` declaram `engines: node >=22`, e o servidor roda **Node 20**. Hoje é só aviso (o npm não recusa por engine sem `engine-strict=true`), e esses pacotes já estão instalados em produção. Cogitou-se mandar um arquivo de configuração do npm com `engine-strict=false` dentro do artefato, e a ideia foi **descartada**: o envio é `tar`, que sobrepõe por nome, e um arquivo nosso apagaria um homônimo com credencial que porventura exista no servidor — seria trocar um risco teórico por um concreto. Fica como higiene: ou subir o Node do servidor, ou fixar essas duas dependências.
+
+---
+
+## ADR-117 — A ADR-116 estava certa no diagnóstico e errada na sintaxe: o `npm ci` recusou o artefato ✅
+
+**Data:** 18/08/2026 · **Corrige:** a tradução de overrides da ADR-116 e o rollback destrutivo do passo 5/7 · **Custo:** uma publicação falha e ~2h com a produção sem `node_modules`
+
+### O que aconteceu
+
+A publicação disparada às **17:53** falhou no **passo 5/7**. A mensagem do servidor:
+
+```
+npm error `npm ci` can only install packages when your package.json and package-lock.json are in sync.
+npm error Missing: deepmerge-ts@7.1.6 from lock file
+```
+
+Reproduzido no laptop com o **mesmo npm 10.8.2** do servidor: é determinístico, não foi azar do runner.
+
+### Por que o artefato da ADR-116 não servia
+
+A ADR-116 afirmou que "a sintaxe `nome@faixa` do pnpm é entendida igual pelo npm", apoiada em duas medições verdadeiras: com `"deepmerge-ts@7": "^8.0.0"` o `npm install` resolve **8.0.1** e o `npm audit --omit=dev` sai **0**. As duas passam. **Nenhuma das duas exercita o `npm ci`** — que é o único comando que roda no servidor.
+
+No npm, `nome@faixa` é **seletor de pai** ("dentro de `deepmerge-ts@7`, troque tal dependência"), não "substitua `deepmerge-ts` 7 por 8". A resolução hoistava a 8.0.1 assim mesmo, mas as arestas gravadas no lock continuavam pedindo 7.x (`@prisma/config` fixa `7.1.5`; `html-to-text` pede `^7.1.5`). O `npm install` tolera; o `npm ci`, que confere lock contra `package.json` **antes** de instalar, recusa.
+
+**A revisão adversarial da ADR-116 tinha apontado exatamente isto** — `html-to-text` continuando em 7.x — e foi descartada como "alarme falso" porque a conferência olhou o **lockfile** (onde a 8.0.1 aparece sozinha) em vez de **rodar o `npm ci`**. A lição não é "confie na revisão": é que a refutação também precisa do comando certo. Olhar o artefato não prova o que o servidor faz com ele.
+
+### A correção
+
+**1. A chave é traduzida, não copiada.** `scripts/lib/pacote-de-producao.mjs` converte `nome@faixa` → `nome` ao montar o artefato. Medido: com a chave traduzida o `npm ci` aceita (**260 pacotes**) e a árvore resolvida é **idêntica — 0 diferenças em 260 pacotes**. A tradução muda o que o lock *declara*, não o que é *instalado*. A tradução perde o escopo por major, então **duas faixas do mesmo pacote com valores diferentes passam a falhar o build** em vez de virar uma escolha silenciosa.
+
+**2. O conferidor passou a ensaiar o `npm ci` a seco.** Ele provava três coisas verdadeiras — lock com árvore, overrides presentes, audit em 0 — e nenhuma tocava o comando do servidor. Agora roda `npm ci --omit=dev --dry-run` dentro de `apps/api/dist`: não escreve nada, custa ~1s, e é a asserção que faltava.
+
+### O defeito que transformou uma falha limpa em incidente
+
+O passo 5/7 preservava o `node_modules` por hardlink **em `/tmp`** — que na TineHost é **outro dispositivo**. O `cp -al` respondeu `Invalid cross-device link` e o deploy imprimiu *"sem node_modules previo - nada a preservar"*, **que era falso**: a pasta existia. Em seguida, o socorro do `npm ci` fazia `rm -rf node_modules` **antes** de conferir se havia cópia, e o `|| true` engolia a restauração que não aconteceu.
+
+Resultado: a produção ficou **sem `node_modules`**. O site continuou respondendo porque o processo Node já estava carregado em memória — teria morrido no primeiro restart. Duas correções, no `deploy.yml` **e** no `deploy.sh`:
+
+- a cópia vai para `~/nm-antes`, no mesmo sistema de arquivos do app (onde os snapshots já moram), com queda para cópia real (`cp -a`) se o hardlink falhar;
+- **sem cópia conferida, não se apaga nada** — o socorro deixa o `node_modules` velho no lugar e diz isso em voz alta.
+
+### O padrão que se repete nesta série
+
+ADR-114: verde que não provava nada. ADR-116: audit numa árvore que não era a de produção. ADR-117: portão que checava tudo, menos o comando que roda lá. **Toda vez, a ferramenta media algo verdadeiro e adjacente.** A pergunta que fecha o buraco é sempre a mesma: *o que exatamente o servidor executa, e eu executei isso?*

@@ -265,6 +265,11 @@ O que ele executa:
    sem lock, o servidor re-resolvia a árvore e **ignorava os `pnpm.overrides` da raiz**: foi assim que
    `deepmerge-ts` 7.1.x (falha ALTA, ADR-112) ficou em produção com a CI verde. O `npm ci` **apaga
    `node_modules`** antes de instalar — é ~1 minuto com a produção servindo enquanto a pasta é refeita.
+   🛟 **A rede de segurança (ADR-117):** antes do `npm ci`, o `node_modules` atual é copiado por
+   hardlink para `~/nm-antes` — em `~`, e **não em `/tmp`**, que na TineHost é outro dispositivo
+   (`cp -al` falha com *Invalid cross-device link*). Se o `npm ci` falhar, a pasta anterior volta.
+   **Sem cópia conferida, o deploy não apaga o `node_modules`** — em 18/08/2026 ele apagou, e a
+   produção ficou sem dependências servindo só pelo processo que já estava carregado em memória.
 5. **Ensaio de boot** (`node app.cjs` por 15 s) com a produção ainda no ar servindo a versão antiga. Não subiu? O script **para aqui** e não reinicia nada.
 6. Restart + conferência da data do `tmp/restart.txt` + smoke test do `/health`.
 

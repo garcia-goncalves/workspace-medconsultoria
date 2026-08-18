@@ -164,11 +164,22 @@ jobs:
           # E a rede de segurança: o snapshot do passo 3/7 é `--exclude=node_modules`, então ele
           # NÃO devolve a pasta. Uma cópia por HARDLINK custa ~zero em disco e em tempo, e é o
           # que permite voltar ao estado anterior se o `npm ci` morrer no meio.
-          PRESERVAR="cp -al node_modules /tmp/nm-antes && echo 'node_modules preservado (hardlink)'"
-          remoto "cd '$DEPLOY_PATH' && rm -rf /tmp/nm-antes && { $PRESERVAR ; } || echo 'sem node_modules previo - nada a preservar'"
+          #
+          # ⛔ DUAS CORREÇÕES DE 18/08/2026, e a segunda é a que machucou de verdade:
+          # (a) a cópia ia para `/tmp`, que na TineHost é OUTRO dispositivo — `cp -al` respondeu
+          #     "Invalid cross-device link" e a mensagem impressa foi "sem node_modules previo -
+          #     nada a preservar", que era FALSA: a pasta existia. O destino agora fica em `~`,
+          #     no mesmo sistema de arquivos do app (é onde os snapshots já moram), e há queda
+          #     para cópia real (`cp -a`) se o hardlink falhar por qualquer outro motivo.
+          # (b) o socorro fazia `rm -rf node_modules` ANTES de conferir se havia cópia, e o
+          #     `|| true` engolia a restauração que não aconteceu. Com a cópia falhando em (a),
+          #     um `npm ci` que recusasse o lockfile deixava a produção SEM node_modules — foi
+          #     exatamente o que ocorreu às 17:56. Agora: sem cópia conferida, NÃO se apaga nada.
+          PRESERVAR="{ cp -al node_modules ~/nm-antes || cp -a node_modules ~/nm-antes ; } && echo 'node_modules preservado'"
+          remoto "cd '$DEPLOY_PATH' && rm -rf ~/nm-antes && { $PRESERVAR ; } || echo 'sem node_modules previo - nada a preservar'"
 
           CI="npm ci --omit=dev > /tmp/npm-ci.log 2>&1"
-          SOCORRO="echo '!! npm ci FALHOU - restaurando o node_modules anterior'; tail -30 /tmp/npm-ci.log; rm -rf node_modules; cp -al /tmp/nm-antes node_modules 2>/dev/null || true; exit 1"
+          SOCORRO="echo '!! npm ci FALHOU'; tail -30 /tmp/npm-ci.log; if [ -d ~/nm-antes ]; then rm -rf node_modules && { cp -al ~/nm-antes node_modules || cp -a ~/nm-antes node_modules ; } && echo '>> node_modules ANTERIOR restaurado - a producao segue na versao velha'; else echo '>> SEM copia de seguranca: node_modules foi DEIXADO como estava, nada foi apagado'; fi; exit 1"
           remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && { $CI ; } || { $SOCORRO ; }"
 
           GEN="npm run prisma:generate > /tmp/prisma-gen.log 2>&1"
