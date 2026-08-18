@@ -123,7 +123,7 @@ Nada bloqueia o deploy **técnico** de homologação. Bloqueiam o **uso comercia
 ## 7. Plano de homologação
 
 **Fase 0 — pré-requisitos:** rotacionar credenciais · confirmar Node ≥ 20 · criar §3.
-**Fase 1 — subir:** `pnpm build:deploy` → enviar `apps/api/dist/` → `.env` → `npm install --omit=dev` → `npx prisma migrate deploy` → `node prisma/seed.js` → **`node preflight.mjs`** (não siga se falhar).
+**Fase 1 — subir:** `pnpm build:deploy` → enviar `apps/api/dist/` → `.env` → `npm ci --omit=dev` → `npx prisma migrate deploy` → `node prisma/seed.js` → **`node preflight.mjs`** (não siga se falhar).
 **Fase 2 — dados de teste:** criar **pela interface** 1 cliente, 1 lead, 1 projeto, 1 conta e 1 documento. **Não importar base real** (LGPD).
 **Fase 3 — validar:** §9 e §10.
 **Fase 4 — promover:** só com a §10 inteira marcada.
@@ -154,7 +154,7 @@ Nada bloqueia o deploy **técnico** de homologação. Bloqueiam o **uso comercia
 
 **Durante**
 - [ ] Bundle enviado · [ ] `.env` conferido (`WEB_ORIGIN` com `https://` e domínio exato)
-- [ ] `npm install --omit=dev` · [ ] `prisma migrate deploy` · [ ] seed (só no 1º)
+- [ ] `npm ci --omit=dev` · [ ] `prisma migrate deploy` · [ ] seed (só no 1º)
 - [ ] **`node preflight.mjs` — TUDO ok** (se falhar, pare)
 - [ ] App reiniciado pelo painel
 

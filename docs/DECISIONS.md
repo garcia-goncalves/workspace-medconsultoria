@@ -1808,3 +1808,46 @@ O bundle sobe **sem lockfile** e é instalado lá com `npm install --omit=dev` (
 ### O que isto ensina
 
 **O portão da CI responde "passa ou não passa", não "por quê".** Ele estava certo e continuou certo — mas quem lê "0 vulnerabilidades" não sabe se é porque não há, ou porque a pergunta foi mal feita. A diferença entre as duas só aparece abrindo pacote por pacote, e vale fazer isso quando o número se mexe sozinho.
+
+---
+
+## ADR-116 — O servidor instalava uma falha ALTA que a CI dizia estar fechada ✅
+
+**Data:** 18/08/2026 · **Fecha:** a dívida latente que a ADR-115 deixou anotada · **Corrige:** uma conclusão da própria ADR-115
+
+### O que se descobriu
+
+A ADR-115 anotou, no fim, que o bundle subia **sem lockfile** e era instalado com `npm install --omit=dev`, e que **o npm não lê `pnpm.overrides`**. Ela classificou isso como risco *futuro e silencioso*: "hoje isto não abre buraco nenhum — nenhum desses pacotes tem alerta aberto".
+
+**Essa parte estava errada, e a medição mostra o quanto.** Montando o `package.json` do artefato exatamente como o bundle o monta e mandando o npm resolver a árvore:
+
+```
+npm audit --omit=dev
+5 high severity vulnerabilities
+  deepmerge-ts  7.1.5, 7.1.6   ← GHSA-ggr8-5vv4-36mx (exaustão de pilha)
+```
+
+`deepmerge-ts` é o pacote da **ADR-112** — a primeira falha que o portão da CI pegou sozinho, fechada em 12/08 com o override escopado `"deepmerge-ts@7": "^8.0.0"`. Ele **está** na árvore de produção por dois caminhos independentes (`mailparser → html-to-text` e `prisma → @prisma/config`), e o override que o protegia **nunca chegou ao servidor**. A ADR-115 conferiu os quatro overrides que olhou (`fast-uri`, `find-my-way`, `socket.io-parser`, `postcss`) e não olhou este.
+
+Ou seja: entre 12/08 e hoje, a CI dizia `pnpm audit --prod` = **0** e a produção rodava com a falha **ALTA** aberta. As duas afirmações eram sobre **árvores diferentes**, e ninguém tinha percebido que a distância entre elas já era real.
+
+### O que mudou
+
+1. **O artefato leva os overrides.** `scripts/lib/pacote-de-producao.mjs` (módulo novo, com teste) monta o `package.json` de produção e copia `pnpm.overrides` da raiz **verbatim** para `overrides` do npm. A sintaxe de chave escopada por major (`nome@faixa`) é entendida **igual** pelos dois — conferido na mão: com `"deepmerge-ts@7": "^8.0.0"` o npm resolve `8.0.1`. Copiar verbatim é decisão: nada de traduzir, nada de escolher quais valem. Override que existe na raiz existe no servidor, inclusive os que hoje não mudam nada.
+2. **O artefato leva `package-lock.json`.** Gerado no build (`npm install --package-lock-only --omit=dev`), 261 pacotes travados. Sem rede, o bundle **falha** — de propósito: artefato sem lockfile é artefato cujo conteúdo ninguém conferiu.
+3. **O servidor instala com `npm ci --omit=dev`**, não `npm install`. O `ci` não re-resolve nada e **recusa rodar** se o lock discordar do `package.json`. Preço conhecido e aceito: o `npm ci` apaga `node_modules` antes de instalar, então há ~1 minuto com a produção servindo enquanto a pasta é refeita. O processo em execução já tem seus módulos carregados; o snapshot (passo 3/7) e o ensaio de boot (passo 6/7) cobrem o resto.
+4. **A CI monta o artefato de verdade e o audita.** `pnpm -w build` virou `pnpm build:deploy`, e entrou um portão novo rodando **dentro de `apps/api/dist`**: `npm audit --omit=dev --audit-level high`. O portão antigo (`pnpm audit --prod`) fica: ele responde pelo monorepo. O novo responde pelo servidor. Eram justamente os dois que discordavam.
+
+### A prova
+
+| | antes | depois |
+|---|---|---|
+| `deepmerge-ts` que o servidor instala | **7.1.5 / 7.1.6** | **8.0.1** |
+| `npm audit --omit=dev` na árvore do servidor | **5 falhas ALTAS** | **0** |
+| Pacotes com versão travada no artefato | 0 (sem lockfile) | **261** |
+
+### O que isto ensina
+
+**Auditar o ambiente que monta não é auditar o ambiente que roda.** É a terceira vez esta semana que os dois discordam em silêncio — o `esbuild` que só existia no laptop (ADR-113), os overrides que só valiam no monorepo (aqui), e a chave de deploy que o runner já tinha (ADR-114). O padrão é sempre o mesmo: uma verificação verde feita no lugar errado.
+
+E, de novo, a lição da ADR-114 na forma dela: **a ADR-115 concluiu "inofensivo" a partir de uma lista que ela mesma tinha montado, sem medir.** Bastava rodar o `npm` uma vez com o `package.json` do artefato. O verde só prova que nada deu erro; a medição é o que prova que a coisa é o que se diz.

@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       confirmar:
-        description: 'Digite PUBLICAR (em maiúsculas) para confirmar'
+        description: "Digite PUBLICAR (em maiúsculas) para confirmar"
         required: true
         type: string
 
@@ -61,6 +61,17 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm build:deploy
+
+      # O artefato só sai daqui se estiver inteiro (ADR-116). Sem `package-lock.json` o `npm ci`
+      # do passo 5 falha no servidor — com o `node_modules` JÁ APAGADO. Barrar aqui é barato;
+      # descobrir lá é produção parada. E o `npm audit` confirma que o que vai subir está limpo
+      # ANTES de subir, não só no PR que originou o commit.
+      - name: 1b/7 · O artefato está inteiro? (lockfile, overrides, sem workspace:)
+        run: node scripts/conferir-artefato.mjs
+
+      - name: 1c/7 · Nenhuma falha ALTA no que o servidor vai instalar
+        working-directory: apps/api/dist
+        run: npm audit --omit=dev --audit-level high
 
       # QUINTA CICATRIZ (17/08/2026, primeira publicação por aqui): os passos 2 e 3 conectaram
       # e o 4 morreu com "connect to host ... port 1992: Connection timed out" — sem sequer
@@ -145,7 +156,17 @@ jobs:
         run: |
           set -euo pipefail
           remoto() { ssh -o LogLevel=ERROR deploy "$@"; }
-          remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && npm install --omit=dev 2>&1 | tail -3"
+          # `npm ci`, NUNCA `npm install` (ADR-116, 18/08/2026). O artefato agora leva
+          # `package-lock.json` gerado no build, e o `ci` instala EXATAMENTE aquela lista —
+          # sem re-resolver nada, e recusando rodar se o lock discordar do package.json.
+          # Com `npm install` sem lock, o servidor resolvia a arvore do zero e ignorava os
+          # `pnpm.overrides` da raiz: em 18/08/2026 isso punha `deepmerge-ts` 7.1.x (falha
+          # ALTA, ADR-112) em producao com a CI verde.
+          # Preco conhecido: `npm ci` APAGA node_modules antes de instalar. Por ~1 minuto a
+          # producao serve com a pasta sendo refeita. O processo em execucao ja tem seus
+          # modulos carregados, e o ensaio de boot (passo 6) e o snapshot (passo 3) cobrem o
+          # resto. Determinismo vale esse minuto.
+          remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && npm ci --omit=dev 2>&1 | tail -3"
           remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && npm run prisma:generate 2>&1 | tail -2"
           remoto "cd '$DEPLOY_PATH' && source $NODE_VENV && npm run prisma:deploy 2>&1 | tail -3"
 
