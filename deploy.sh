@@ -64,11 +64,13 @@ echo "==> 4/6 Dependências de produção (dentro do virtualenv; ver nota 2)"
 # volta é o do `tail`, sempre 0, e a falha passa despercebida; (b) o `npm ci` APAGA o
 # node_modules antes de instalar, e o snapshot do passo 2/6 é `--exclude=node_modules`, ou seja
 # não devolve a pasta. Daí o hardlink de socorro.
-PRESERVAR="cp -al node_modules /tmp/nm-antes && echo 'node_modules preservado (hardlink)'"
-remoto "cd '${DEPLOY_PATH}' && rm -rf /tmp/nm-antes && { ${PRESERVAR} ; } || echo 'sem node_modules previo'"
+# `/tmp` na TineHost é outro dispositivo (`cp -al` = "Invalid cross-device link"), e o socorro
+# apagava a pasta antes de conferir se havia cópia. Corrigido em 18/08/2026 — ver deploy.yml.
+PRESERVAR="{ cp -al node_modules ~/nm-antes || cp -a node_modules ~/nm-antes ; } && echo 'node_modules preservado'"
+remoto "cd '${DEPLOY_PATH}' && rm -rf ~/nm-antes && { ${PRESERVAR} ; } || echo 'sem node_modules previo'"
 
 CI_CMD="npm ci --omit=dev > /tmp/npm-ci.log 2>&1"
-SOCORRO="echo '!! npm ci FALHOU - restaurando o node_modules anterior'; tail -30 /tmp/npm-ci.log; rm -rf node_modules; cp -al /tmp/nm-antes node_modules 2>/dev/null || true; exit 1"
+SOCORRO="echo '!! npm ci FALHOU'; tail -30 /tmp/npm-ci.log; if [ -d ~/nm-antes ]; then rm -rf node_modules && { cp -al ~/nm-antes node_modules || cp -a ~/nm-antes node_modules ; } && echo '>> node_modules ANTERIOR restaurado'; else echo '>> SEM copia de seguranca: node_modules foi DEIXADO como estava'; fi; exit 1"
 remoto "cd '${DEPLOY_PATH}' && source ${DEPLOY_NODE_VENV} && { ${CI_CMD} ; } || { ${SOCORRO} ; }"
 
 echo "==> 5/6 Prisma Client e migrations (conexões separadas; ver nota 3)"

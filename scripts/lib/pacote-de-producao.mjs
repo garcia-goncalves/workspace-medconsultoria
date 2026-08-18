@@ -8,10 +8,26 @@
 // com a falha ALTA de exaustão de pilha que a ADR-112 havia fechado em desenvolvimento.
 // A CI verde estava certa sobre o monorepo e errada sobre produção.
 //
-// A boa notícia é que a sintaxe de chave do pnpm (`nome@faixa`, escopo por major) é entendida
-// igual pelo npm — conferido empiricamente: com `"deepmerge-ts@7": "^8.0.0"` o npm resolve
-// 8.0.1 e o `npm audit --omit=dev` sai em 0. Por isso os overrides são copiados VERBATIM: nada
-// de traduzir, nada de escolher quais valem. Override que existe na raiz existe no servidor.
+// ⛔ CORREÇÃO DE 18/08/2026 (a publicação das 17:53 falhou por isto). A primeira versão desta
+// ADR afirmava que `nome@faixa` era "entendida igual pelo npm", com base em duas medições que
+// de fato passam: o `npm install` resolve `deepmerge-ts` 8.0.1 e o `npm audit --omit=dev` sai
+// em 0. As duas são verdadeiras e as duas são insuficientes — nenhuma exercita o `npm ci`,
+// que é o comando que roda no servidor.
+//
+// No npm, `nome@faixa` é SELETOR DE PAI ("dentro de deepmerge-ts@7, troque tal dependência"),
+// não "substitua deepmerge-ts 7 por 8". A resolução do `npm install` hoistava a 8.0.1 assim
+// mesmo, mas as arestas gravadas no lock continuavam pedindo 7.x — e o `npm ci`, que confere
+// lock contra package.json antes de instalar, RECUSA:
+//     npm error Missing: deepmerge-ts@7.1.6 from lock file
+// Reproduzido no laptop com o mesmo npm 10.8.2 do servidor, e no servidor. Determinístico.
+//
+// Por isso a chave é TRADUZIDA para a forma que o npm entende (`nome`). Medido: com a chave
+// traduzida o `npm ci` aceita (260 pacotes) e a árvore resolvida é **idêntica, 0 diferenças**
+// em 260 pacotes — a tradução muda só o que o lock declara, não o que é instalado.
+//
+// E a revisão adversarial da ADR-116 estava CERTA ao apontar `html-to-text` pedindo 7.x; foi
+// descartada como alarme falso porque a conferência olhou o lock (onde a 8.0.1 aparece sozinha)
+// em vez de rodar `npm ci`. Lição registrada: só o comando que roda em produção prova produção.
 
 // O pnpm aceita uma sintaxe de chave que o npm NÃO entende: `pai>filho` (e `pai>filho>neto`),
 // que a própria documentação do pnpm recomenda para escopar um override a um caminho. No npm
@@ -34,7 +50,21 @@ const conferirOverrides = (overrides) => {
         "senão o override vale no monorepo e NÃO vale no servidor (ADR-116).",
     );
   }
-  return { ...overrides };
+  // pnpm: `nome@faixa` escopa por major do PRÓPRIO pacote. npm: a mesma chave escopa pelo PAI.
+  // Traduzir é obrigatório; sem isso o `npm ci` do servidor recusa o lockfile.
+  const traduzidos = {};
+  for (const [chave, valor] of Object.entries(overrides)) {
+    const nome = chave.replace(/(?!^)@[^@/]+$/, "");
+    if (nome in traduzidos && traduzidos[nome] !== valor) {
+      throw new Error(
+        `pnpm.overrides tem duas faixas para "${nome}" (${chave} e outra) com valores diferentes. ` +
+          "O npm não sabe escopar por major do próprio pacote, então a tradução seria ambígua — " +
+          "resolva na raiz antes de publicar (ADR-116).",
+      );
+    }
+    traduzidos[nome] = valor;
+  }
+  return traduzidos;
 };
 
 const semWorkspace = (deps) => Object.fromEntries(Object.entries(deps ?? {}).filter(([, v]) => !String(v).startsWith("workspace:")));
