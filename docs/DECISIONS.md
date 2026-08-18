@@ -1759,3 +1759,52 @@ As outras 3 chaves da conta ficaram intactas — era exatamente o que o casament
 **A dívida de 17/08 está fechada.** O que sobrou de trabalho é higiene, não risco: apagar as cópias `authorized_keys.bak-*` do servidor quando alguém for lá por outro motivo.
 
 **Passo a passo do dono em `docs/DEPLOY.md` §0** — e agora com os comandos em **PowerShell**, que é o terminal que ele usa de fato. A primeira tentativa falhou com `The '<' operator is reserved for future use` porque a receita estava escrita em sintaxe de Linux: o `<` não existe no PowerShell. Documentação que assume o terminal errado é documentação que não funciona.
+
+---
+
+## ADR-115 — As 19 vulnerabilidades do aviso do GitHub, conferidas pacote a pacote (e uma divergência dev↔produção que ninguém tinha visto) ✅
+
+**Data:** 18/08/2026 · **Estado:** auditado; nada a corrigir em produção. Duas dívidas de higiene registradas.
+
+### Por que reauditar se o portão da CI estava verde
+
+O aviso do GitHub caiu de **42 para 19** entre 12 e 18/08 sem que ninguém tivesse mexido nas dependências. A conclusão da ADR-107 — "são todas de ferramenta de desenvolvimento e não vão ao ar" — continuava sendo repetida, mas ela tinha sido tirada de um portão verde, não de uma conferência pacote a pacote. Número que muda sozinho é motivo para reconferir, não para reafirmar.
+
+### O resultado: nenhuma das 19 alcança produção
+
+| Severidade | Total | Produção | Desenvolvimento |
+|---|---|---|---|
+| Crítica | 6 | **0** | 6 |
+| Alta | 7 | **0** | 7 |
+| Moderada | 3 | **0** | 3 |
+| Baixa | 3 | **0** | 3 |
+
+`pnpm audit --prod` **sem corte de nível** (não só `--audit-level high`, que é o da CI) devolve `No known vulnerabilities found`. As 6 críticas são todas do `vitest`; as altas são `brace-expansion`, `js-yaml`, `vite` e `playwright` — nenhum deles resolvido por `pnpm why --prod`.
+
+### A prova que vale mais que o `pnpm why`: o que o artefato carrega
+
+`scripts/bundle-deploy.mjs` monta o pacote de produção com **`apps/api` + `packages/db` e nada mais** — do SPA vai só o build estático já compilado. O artefato publicado declara 21 dependências (`fastify`, `@trpc/server`, `prisma`, `openai`, `imapflow`, `nodemailer`, `sanitize-html`, `zod`…), e **nenhum pacote alertado está nessa lista**.
+
+Isso também explica o ruído: o Dependabot lê o `pnpm-lock.yaml`, **não entende workspaces do pnpm**, e por isso marca `vite`/`vitest`/`esbuild` como `runtime`. Lendo os arquivos de manifesto certos, ele mesmo os classifica como desenvolvimento. O alarme de "6 críticas em produção" é um artefato da ferramenta, não do nosso código.
+
+### O caso `brace-expansion`, que era o candidato de verdade
+
+Quatro dos sete alertas altos são dele, e ele **está** na árvore de produção — o que faria qualquer um concluir que passou. Não passou, e a razão é a decisão da ADR-107: convivem **1.1.16, 2.1.2 e 5.0.9**, as faixas vulneráveis param em `<2.1.4`, e a que vai ao ar é a **5.0.9** (via `@fastify/static → glob → minimatch`). As duas vulneráveis vêm exclusivamente do `eslint` e do `typescript-eslint`. O override **escopado por major** (`brace-expansion@5`) fez exatamente o que existia para fazer — um override sem escopo teria arrastado as três.
+
+### O achado novo: os overrides do pnpm não valem no servidor
+
+O bundle sobe **sem lockfile** e é instalado lá com `npm install --omit=dev` (`deploy.yml`, passo 5). **O npm não lê `pnpm.overrides`.** Ou seja, os overrides da raiz que protegem dependências de produção (`fast-uri`, `find-my-way`, `socket.io-parser`, `postcss`) **não se aplicam ao que roda em produção**, e o `pnpm audit --prod` da CI audita uma árvore que não é exatamente a instalada no servidor.
+
+**Hoje isto não abre buraco nenhum** — nenhum desses pacotes tem alerta aberto, e no caso do `brace-expansion` a proteção nem depende do override: o `minimatch@10.2.5` já declara a major 5 por conta própria, então o npm chegaria nela sozinho. O risco é **futuro e silencioso**: no dia em que um override escopado for a única coisa segurando uma versão segura numa dependência de produção, a CI ficará verde e o servidor instalará a vulnerável. É o mesmo formato de armadilha do `esbuild` da ADR-113 — o ambiente que monta e o ambiente que roda discordando sem avisar.
+
+**Como se fecha, quando for a hora:** gerar um `package-lock.json` junto do bundle e trocar o passo 5 para `npm ci --omit=dev`. Não foi feito hoje de propósito: mexe no caminho de publicação que acabou de estabilizar depois de três tentativas em 17/08, e merece uma rodada própria com ensaio de boot olhado de perto.
+
+### O que fica pendente, e é higiene, não risco
+
+- **`vitest` 2.1.8 → 3.x** limpa as 6 críticas e leva junto `vite`/`esbuild` transitivos. É bump de **major** do executor de testes, com 352 testes de unidade e 87 e2e atrás — não é chore, é tarefa.
+- **`eslint` / `typescript-eslint`** limpam os 4 alertas de `brace-expansion`.
+- **Ruído que não nos alcança:** `playwright`, `js-yaml`, `@eslint/plugin-kit` e os `esbuild` de dev server.
+
+### O que isto ensina
+
+**O portão da CI responde "passa ou não passa", não "por quê".** Ele estava certo e continuou certo — mas quem lê "0 vulnerabilidades" não sabe se é porque não há, ou porque a pergunta foi mal feita. A diferença entre as duas só aparece abrindo pacote por pacote, e vale fazer isso quando o número se mexe sozinho.
