@@ -6,6 +6,7 @@ import { listEventos } from "../agenda/agenda.service.js";
 import { resumo as financeiroResumo } from "../financeiro/contas.service.js";
 import { listStages } from "../pipeline/pipeline.service.js";
 import { saude } from "../sistema/sistema.service.js";
+import { emReaisOu } from "../../lib/dinheiro.js";
 
 const DIA = 86_400_000;
 
@@ -258,7 +259,7 @@ async function montarGestao(hojeInicio: Date, em7: Date, d7: Date, d14: Date, d3
   const etapaMap = new Map(leadsPorEtapa.map((e) => [e.pipelineStageId, e]));
   const funilEtapas = stages.map((s) => {
     const e = etapaMap.get(s.id);
-    return { nome: s.nome, count: e?._count._all ?? 0, valor: e?._sum.valorEstimado ?? 0 };
+    return { nome: s.nome, count: e?._count._all ?? 0, valor: emReaisOu(e?._sum.valorEstimado) };
   });
   const funilTotal = funilEtapas.reduce((acc, e) => acc + e.count, 0);
   const funilValor = funilEtapas.reduce((acc, e) => acc + e.valor, 0);

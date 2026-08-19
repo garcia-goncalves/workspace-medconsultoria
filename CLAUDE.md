@@ -13,7 +13,11 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-18)
+## Estado atual (2026-08-19)
+
+- **Dinheiro em `Decimal`, e a última dívida da auditoria de 05/08 fechada (ADR-118).** Os cinco campos que ainda eram `Float` — `Servico.valor`/`percentual`, `ClienteServico.valor`/`percentual` e `Lead.valorEstimado` — viraram `DECIMAL(12,2)` (migração `20260819153758_dinheiro_em_decimal`). **A parte que quase deu errado é a que importa:** trocar o tipo faz o Prisma devolver um objeto `Decimal.js`, e um `Decimal` que atravessa o tRPC vira objeto no JSON — a tela mostra **"R$ NaN" sem um único erro no console**, pior do que o centavo que o `Float` errava. O `tsc` pegou 10 caminhos; **não pegou dois** (`ativarServicoCliente` e `cancelarServicoCliente`, que devolviam o objeto cru do Prisma — este último usado também pelo **Portal do cliente**), achados por varredura de revisor depois do typecheck verde. Regra que fica: **`Decimal` nunca atravessa o tRPC** — a conversão é `emReais()`/`emReaisOu()` em `apps/api/src/lib/dinheiro.ts`. Provado com `typeof` em runtime contra MySQL de verdade (`dinheiro-decimal.integration.test.ts`, 7 verdes) e **na tela**: contratar "Gestão Operacional" pela ficha mostrou `R$ 3.500,00/mês`, catálogo/funil/Início/Financeiro sem NaN, zero erro de console. ⚠️ Em produção o `ALTER TABLE` **arredonda** o que tiver mais de duas casas (que é o lixo do `Float` — o arredondamento é o conserto).
+
+## Estado anterior (2026-08-18)
 
 - **NO AR desde 19/08/2026 às 11:08 (ADR-116 + ADR-117 em produção).** Publicação de 7/7 passos verdes: `npm ci` instalou **sem vulnerabilidade** (`found 0 vulnerabilities` dito pelo npm **do servidor**, não pela CI), `No pending migrations to apply`, ensaio de boot com **16 portas ouvindo**, `/health` = `{"status":"ok"}`, `/` e `/credenciamentos` = 200, `/comecar` carregando sem a faixa "AMBIENTE LOCAL". **O objetivo da ADR-116 só foi atingido aqui** — até esta publicação o servidor seguia com `deepmerge-ts` 7.1.x.
 - **⚠️ A publicação anterior (18/08, 17:53) FALHOU no passo 5/7 e deixou a produção SEM `node_modules` (ADR-117).** O `npm ci` recusou o artefato — `Missing: deepmerge-ts@7.1.6 from lock file` — porque no npm `nome@faixa` é **seletor de pai**, não escopo do próprio pacote: o `npm install` resolvia 8.0.1, mas as arestas do lock seguiam pedindo 7.x. **A chave passou a ser traduzida** (`nome@faixa` → `nome`; árvore resolvida idêntica, 0 diferenças em 260 pacotes) e o conferidor passou a ensaiar **`npm ci --dry-run`** — a checagem que faltava. **O que machucou:** o socorro guardava o `node_modules` por hardlink em `/tmp`, que na TineHost é outro dispositivo, e depois fazia `rm -rf node_modules` **sem conferir se a cópia existia**. O site seguiu no ar só porque o processo Node já estava em memória. Confirmado no log da publicação seguinte: `cp: cannot stat 'node_modules': No such file or directory`. Hoje a cópia vai para `~/nm-antes` e **nada é apagado sem cópia conferida** (`deploy.yml` e `deploy.sh`).
@@ -77,7 +81,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-117). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-118). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

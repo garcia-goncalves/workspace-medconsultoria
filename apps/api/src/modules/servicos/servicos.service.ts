@@ -1,5 +1,7 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
+import { emReais } from "../../lib/dinheiro.js";
+import { Prisma } from "@prisma/client";
 
 /**
  * Catálogo inicial COMPLETO — os serviços reais da MedConsultoria com detalhes,
@@ -403,19 +405,35 @@ async function seedIfEmpty() {
   }
 }
 
+/**
+ * Dinheiro do catálogo sai do banco em `Decimal` e chega à tela em `number` (ADR-118).
+ * Todo caminho que devolve um `Servico` passa por aqui — se um novo esquecer, o `valor`
+ * chega ao navegador como objeto e o `formatBRL` mostra "R$ NaN".
+ */
+const mapServico = <
+  T extends { valor: Prisma.Decimal | number | null; percentual: Prisma.Decimal | number | null },
+>(
+  s: T,
+) => ({
+  ...s,
+  valor: emReais(s.valor),
+  percentual: emReais(s.percentual),
+});
+
 /** Todos os serviços (gestão) — inclui inativos + contagens de exigências e passos. */
 export async function listServicos() {
   await seedIfEmpty();
-  return prisma.servico.findMany({
+  const servicos = await prisma.servico.findMany({
     orderBy: [{ ativo: "desc" }, { ordem: "asc" }],
     include: { _count: { select: { requisitos: true, passos: true } } },
   });
+  return servicos.map(mapServico);
 }
 
 /** Serviços ativos para o formulário público / cadastro (sem dados sensíveis). */
 export async function listServicosAtivos() {
   await seedIfEmpty();
-  return prisma.servico.findMany({
+  const servicos = await prisma.servico.findMany({
     where: { ativo: true },
     orderBy: { ordem: "asc" },
     select: {
@@ -429,6 +447,7 @@ export async function listServicosAtivos() {
       percentualRecorrencia: true,
     },
   });
+  return servicos.map(mapServico);
 }
 
 export async function criarServico(input: {
@@ -441,18 +460,20 @@ export async function criarServico(input: {
   percentualRecorrencia?: "AVULSO" | "MENSAL";
 }) {
   const max = await prisma.servico.aggregate({ _max: { ordem: true } });
-  return prisma.servico.create({
-    data: {
-      nome: input.nome.trim(),
-      descricao: input.descricao?.trim() || null,
-      categoria: input.categoria?.trim() || null,
-      valor: input.valor ?? null,
-      valorRecorrencia: input.valorRecorrencia ?? "AVULSO",
-      percentual: input.percentual ?? null,
-      percentualRecorrencia: input.percentualRecorrencia ?? "MENSAL",
-      ordem: (max._max.ordem ?? -1) + 1,
-    },
-  });
+  return mapServico(
+    await prisma.servico.create({
+      data: {
+        nome: input.nome.trim(),
+        descricao: input.descricao?.trim() || null,
+        categoria: input.categoria?.trim() || null,
+        valor: input.valor ?? null,
+        valorRecorrencia: input.valorRecorrencia ?? "AVULSO",
+        percentual: input.percentual ?? null,
+        percentualRecorrencia: input.percentualRecorrencia ?? "MENSAL",
+        ordem: (max._max.ordem ?? -1) + 1,
+      },
+    }),
+  );
 }
 
 export async function atualizarServico(
@@ -480,7 +501,7 @@ export async function atualizarServico(
   if (dados.clausulasContrato !== undefined) data.clausulasContrato = dados.clausulasContrato?.trim() || null;
   if (dados.ativo !== undefined) data.ativo = dados.ativo;
   try {
-    return await prisma.servico.update({ where: { id }, data });
+    return mapServico(await prisma.servico.update({ where: { id }, data }));
   } catch {
     throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado." });
   }

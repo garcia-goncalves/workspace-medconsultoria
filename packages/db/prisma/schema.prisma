@@ -385,9 +385,9 @@ model Servico {
   categoria String? // agrupa o catálogo: Gestão | Faturamento | Networking | Desenvolvimento | Marketing
   // Precificação flexível: um serviço pode ter valor fixo e/ou % do faturamento do cliente,
   // e cada componente pode ser avulso (1x) ou mensal (recorrente). Ambos opcionais.
-  valor                 Float? // valor fixo de referência (opcional)
+  valor                 Decimal?         @db.Decimal(12, 2) // valor fixo de referência (opcional)
   valorRecorrencia      PrecoRecorrencia @default(AVULSO)
-  percentual            Float? // % sobre o faturamento do cliente, ex.: 5 = 5% (opcional)
+  percentual            Decimal?         @db.Decimal(12, 2) // % sobre o faturamento do cliente, ex.: 5 = 5% (opcional)
   percentualRecorrencia PrecoRecorrencia @default(MENSAL)
   // Roteiro do projeto: as TAREFAS (cada uma vira um cartão) e o checklist de cada uma,
   // criadas automaticamente quando o serviço é contratado. JSON: [{ titulo, itens: [] }].
@@ -423,9 +423,9 @@ model ClienteServico {
   origem           String    @default("MANUAL") // MANUAL | FUNIL
   // O que o cliente REALMENTE paga (herdado do serviço ao contratar; editável). Mesma
   // estrutura da precificação do catálogo (ADR-33): valor fixo + recorrência, e % mensal.
-  valor                 Float?
+  valor                 Decimal?         @db.Decimal(12, 2)
   valorRecorrencia      PrecoRecorrencia @default(AVULSO)
-  percentual            Float?
+  percentual            Decimal?         @db.Decimal(12, 2)
   percentualRecorrencia PrecoRecorrencia @default(MENSAL)
   observacao       String?   @db.Text
   contratadoEm     DateTime  @default(now())
@@ -672,7 +672,7 @@ model Lead {
   origem                String?
   // Rastreio de atribuição (UTM/referrer capturados na captação) — de onde veio.
   rastreio              String?   @db.Text
-  valorEstimado         Float? // estimativa comercial (não é contábil — ver Financeiro/Fase 4)
+  valorEstimado         Decimal?  @db.Decimal(12, 2) // estimativa comercial (não é contábil — ver Financeiro/Fase 4)
   observacoes           String?   @db.Text
   ordem                 Int       @default(0) // posição dentro da coluna
   pipelineStageId       String

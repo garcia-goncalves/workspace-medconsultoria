@@ -322,6 +322,17 @@ MVP + evolução completos, **no ar em produção** (TineHost, https://workspace
 
 ---
 
+## 12.4. Dinheiro no banco (ADR-118)
+
+Todo campo de dinheiro é `Decimal @db.Decimal(12,2)` — não sobrou nenhum `Float`. **E o `Decimal`
+para no servidor:** a função de serviço converte para `number` com `emReais()`/`emReaisOu()`
+(`apps/api/src/lib/dinheiro.ts`) antes de devolver ao tRPC. `Decimal` que chega ao navegador vira
+objeto no JSON e a tela mostra "R$ NaN", **sem erro nenhum no console** — pior que o centavo que o
+`Float` errava. O typecheck não pega o vazamento quando o retorno não tem tipo declarado; a prova é
+`typeof` em runtime (`dinheiro-decimal.integration.test.ts`).
+
+---
+
 ## 12.5. Publicação e segurança de dependências (ADR-107 … ADR-117)
 
 Série que este índice não cobria — o detalhe vive em `docs/DECISIONS.md` e `docs/DEPLOY.md`.
