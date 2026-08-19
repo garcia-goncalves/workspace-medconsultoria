@@ -9,6 +9,7 @@ import type {
 } from "@app/shared";
 import { SITUACOES_CLIENTE } from "@app/shared";
 import { garantirAcessoPortal, convidarUsuario, reenviarConvite } from "../usuarios/usuarios.service.js";
+import { emReais } from "../../lib/dinheiro.js";
 
 /** "" ou espaços → null; caso contrário, texto aparado. */
 const clean = (v?: string | null): string | null => {
@@ -220,7 +221,7 @@ export async function relacionadosCliente(clienteId: string, isAdmin: boolean) {
       id: l.id,
       origem: l.origem,
       rastreio: l.rastreio,
-      valorEstimado: l.valorEstimado,
+      valorEstimado: emReais(l.valorEstimado),
       createdAt: l.createdAt,
       convertidoEm: l.convertidoEm,
       servicos: l.servicos,

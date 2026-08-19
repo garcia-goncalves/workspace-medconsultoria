@@ -4,6 +4,7 @@ import { hasRoleLevel, type Role } from "@app/shared";
 import { aiService } from "../../lib/ai.js";
 import { isAiEnabled } from "../../config.js";
 import { listEventos } from "../agenda/agenda.service.js";
+import { emReaisOu } from "../../lib/dinheiro.js";
 
 /** Persona da assistente do Workspace — guia de uso + apoio geral, em PT-BR. */
 const SYSTEM = `Você é a assistente virtual do "Workspace MedConsultoria", o sistema operacional interno da consultoria MedConsultoria (não é um SaaS).
@@ -241,7 +242,7 @@ export async function sugerirProximoPassoLead(leadId: string): Promise<string> {
   const ctx = [
     `Lead: ${lead.nome}${lead.empresa ? ` (${lead.empresa})` : ""}. Etapa atual: ${lead.pipelineStage.nome}.`,
     `Serviços de interesse: ${lead.servicos.map((s) => s.nome).join(", ") || "não definidos"}.`,
-    lead.valorEstimado ? `Valor estimado: R$ ${lead.valorEstimado.toLocaleString("pt-BR")}.` : "Sem valor estimado.",
+    lead.valorEstimado ? `Valor estimado: R$ ${emReaisOu(lead.valorEstimado).toLocaleString("pt-BR")}.` : "Sem valor estimado.",
     lead.passos.length ? `Passos pendentes: ${lead.passos.map((p) => p.titulo).join("; ")}.` : "Sem passos pendentes registrados.",
     lead.observacoes ? `Observações: ${lead.observacoes}` : "",
   ].filter(Boolean).join("\n");

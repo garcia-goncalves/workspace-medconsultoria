@@ -410,8 +410,8 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 
 **Decisão:** precificação em dois componentes independentes no `Servico`:
 
-- **Valor fixo** — `valor Float?` + `valorRecorrencia PrecoRecorrencia @default(AVULSO)` (para TODOS os serviços).
-- **% do faturamento** — `percentual Float?` (ex.: 5 = 5%) + `percentualRecorrencia PrecoRecorrencia @default(MENSAL)`. No **schema** o campo existe para qualquer serviço, mas na **UI a seção de % só aparece quando a categoria é "Faturamento"** (reativo, via `useWatch` da categoria).
+- **Valor fixo** — `valor Float?` + `valorRecorrencia PrecoRecorrencia @default(AVULSO)` (para TODOS os serviços). *(O tipo virou `Decimal(12,2)` na ADR-118.)*
+- **% do faturamento** — `percentual Float?` (ex.: 5 = 5%) *(hoje `Decimal(12,2)` — ADR-118)* + `percentualRecorrencia PrecoRecorrencia @default(MENSAL)`. No **schema** o campo existe para qualquer serviço, mas na **UI a seção de % só aparece quando a categoria é "Faturamento"** (reativo, via `useWatch` da categoria).
 - Novo enum `PrecoRecorrencia { AVULSO, MENSAL }` (distinto do `Recorrencia` da Agenda). Migração `servico_precificacao`.
 - **Rótulo único** `formatPreco` (em `lib/masks`): monta "R$ 1.800,00/mês", "5% do faturamento/mês" ou "R$ 500,00 + 5% do faturamento/mês" — mostrado no card. Config: componente reutilizável `PrecoFields` (valor fixo com `MoneyInput` + seletor Avulso/Mensal; e, só p/ Faturamento, o % com seletor). Corrigido: limpar o valor grava `null` (permite alternar entre "% puro" e "fixo + %").
 - **Recorrências semeadas** por realidade: Gestão Operacional e os de Marketing recorrentes (redes/conteúdo/tráfego) = **mensal**; projetos (site, identidade, manual, credenciamento, negociação) = **avulso**; **Faturamento = 5% mensal** (sem valor fixo por padrão).
@@ -1468,7 +1468,7 @@ ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescobe
 
 | Achado                                                                                                                                                                                                                                                                                                         | Por que não foi feito agora                                                                                                                                                                                                                            |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Dinheiro em `Float`** — `Servico.valor`/`percentual`, `ClienteServico.valor`/`percentual` e `Lead.valorEstimado` são `Float` (só `Conta.valor` é `Decimal`). Eles são somados em JS e o resultado vai para o **texto do contrato** e para a conta a receber: três serviços podem somar `1621.0000000000002`. | Migration de tipo + trocar as somas em `leads.service.ts` e `documentos.service.ts`. Escopo médio, mexe em dinheiro e em documento assinado — merece branch e revisão própria, não pegar carona.                                                       |
+| ~~**Dinheiro em `Float`**~~ — **RESOLVIDO na ADR-118 (19/08/2026):** os cinco campos viraram `Decimal(12,2)`. Era: `Servico.valor`/`percentual`, `ClienteServico.valor`/`percentual` e `Lead.valorEstimado` em `Float` (só `Conta.valor` era `Decimal`). Eles são somados em JS e o resultado vai para o **texto do contrato** e para a conta a receber: três serviços podem somar `1621.0000000000002`. | Migration de tipo + trocar as somas em `leads.service.ts` e `documentos.service.ts`. Escopo médio, mexe em dinheiro e em documento assinado — merece branch e revisão própria, não pegar carona.                                                       |
 | **Trecho do e-mail na ficha** — qualquer FUNCIONARIO pode pôr um endereço externo no cadastro de um cliente e ler, pela ficha, os 200 caracteres iniciais das mensagens que a equipe trocou com aquele endereço.                                                                                               | O ADR‑97 **escolheu** mostrar o trecho à equipe. Estreitar (ex.: trecho só ADMIN+) é mudança de produto, do dono. Vale junto registrar em `ActivityLog` a troca de `Cliente.email`/`Contato.email` — hoje trocar a chave da consulta não deixa rastro. |
 | **Token de assinatura do cliente visível ao funcionário** (`assinaturas.doDocumento`) — permite assinar em nome do cliente, e a trilha grava o IP de quem assinou como se fosse o dele.                                                                                                                        | É o mesmo token do botão "Abrir link", funcionalidade documentada ("você escolhe se envia por e‑mail ou copia o link daqui"). Restringir muda o fluxo de trabalho e o valor probatório é assunto jurídico — decisão do dono.                           |
 | **Índice de `Notificacao`** — a consulta do sino filtra por `userId` e ordena por `createdAt`, e o índice é `(userId, lida)`: sobra filesort. Roda em polling, para toda sessão aberta.                                                                                                                        | Volume atual é baixo e não há expurgo de notificação antiga. Vale entrar junto da próxima migration, não sozinha.                                                                                                                                      |
@@ -1993,3 +1993,38 @@ ADR-114: verde que não provava nada. ADR-116: audit numa árvore que não era a
 ### Desfecho
 
 Publicado em **19/08/2026 às 11:08**, 7 de 7 passos verdes. O passo 5/7 abriu com `cp: cannot stat 'node_modules': No such file or directory` — **a confirmação, pelo próprio servidor, de que a pasta estava mesmo faltando desde a véspera**. Depois: `npm ci` com `found 0 vulnerabilities` dito pelo npm **do servidor** (não pela CI), `No pending migrations to apply`, ensaio de boot com **16 portas ouvindo**, `/health` = `{"status":"ok"}`, `/` e `/credenciamentos` = 200, `/comecar` sem a faixa "AMBIENTE LOCAL". **O objetivo da ADR-116 — fechar a falha ALTA na árvore que roda em produção — só se completou aqui.**
+
+---
+
+## ADR-118 — Dinheiro em `Decimal`: o `Float` perdia centavo, e o conserto quase colocou "R$ NaN" na tela ✅
+
+**Data:** 19/08/2026 · **Status:** implementado, na `main` · **Escopo:** `Servico.valor`/`percentual`, `ClienteServico.valor`/`percentual`, `Lead.valorEstimado`
+
+### O problema
+
+Cinco campos de dinheiro eram `Float` — apontado como dívida na auditoria de 05/08 e adiado de propósito (ADR-100..102). `Float` é ponto flutuante **binário**: R$ 0,10 não existe exatamente ali. Somar três serviços podia dar `1621.0000000000002`, e esse número ia para **o texto do contrato** e para **a conta a receber**. `Conta.valor` e `Credenciamento.valor` já eram `Decimal`; estes cinco tinham ficado para trás.
+
+Migration `20260819153758_dinheiro_em_decimal`: os cinco viram `DECIMAL(12, 2)`, o mesmo tipo do resto do dinheiro do sistema. Teto de R$ 99.999.999.999,99 — folga de sobra, e ainda dentro do inteiro seguro do JavaScript depois de convertido.
+
+### O que quase deu errado — e é a parte que importa
+
+Trocar o tipo no banco **não é** o trabalho; é o começo dele. O Prisma passa a devolver um objeto `Decimal.js` no lugar de um número, e um `Decimal` que atravessa o tRPC até o navegador vira **objeto no JSON**: a tela mostra "R$ NaN", sem um único erro no console. Isso é pior do que o defeito que estávamos consertando — o `Float` errava no centavo, o `Decimal` vazado apaga o valor inteiro.
+
+O `tsc` pegou **10** desses caminhos. Não pegou outros dois, porque o valor saía por retorno sem tipo declarado:
+
+- `ativarServicoCliente` — o `return cs` cru do `upsert`, exposto como mutation `clientes.ativarServico`. Contratar um serviço com preço devolveria o `Decimal` para a tela.
+- `cancelarServicoCliente` — mesmo `return` cru, e este tem **dois** consumidores: a equipe e o **Portal do cliente**.
+
+Os dois foram achados por uma varredura de revisor **depois** do typecheck verde. A lição é a mesma da série ADR-114/116/117: *o portão verde mediu algo verdadeiro e adjacente*. Typecheck verde prova que os tipos casam, não que o `Decimal` ficou no servidor.
+
+### A regra que fica
+
+**`Decimal` nunca atravessa o tRPC.** A conversão acontece na função de serviço, com `emReais()` / `emReaisOu()` (`apps/api/src/lib/dinheiro.ts`) — o mesmo padrão que `mapConta` já usava no Financeiro. Todo caminho que devolve um `Servico` passa por `mapServico`; quem devolve `ClienteServico` ou `Lead` converte no retorno.
+
+### Como foi provado
+
+Não pela tipagem, que já foi enganada uma vez. `dinheiro-decimal.integration.test.ts` roda contra MySQL de verdade e checa com **`typeof` em runtime** que cada função de serviço devolve `number`, e que R$ 1.234,56 volta ao centavo depois de ida e volta pelo banco (7 testes, verdes). Na tela, com o app local: catálogo em `/servicos` (R$ 3.500,00/mês, 5% do faturamento), funil em `/leads` (somas por coluna), Início, Financeiro e a ficha do cliente — e o caminho que vazava, exercido de verdade: **contratar "Gestão Operacional" pela ficha mostrou "R$ 3.500,00/mês"**, cancelar voltou ao estado anterior, zero erro de console.
+
+### Armadilha da migration em produção
+
+`ALTER TABLE ... MODIFY ... DECIMAL(12,2)` **arredonda** o que estiver gravado com mais de duas casas — que é exatamente o lixo que o `Float` produzia, então o arredondamento é o conserto, não um efeito colateral. Mas é **irreversível pelo dado**: valor acima do teto faria a migration falhar. Conferido antes de publicar; em produção o comando é `migrate deploy`, que não roda seed.

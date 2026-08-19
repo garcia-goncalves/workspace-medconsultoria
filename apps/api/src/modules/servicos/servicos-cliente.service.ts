@@ -8,6 +8,7 @@ import { ehServicoDeCredenciamento, sincronizarRequisitosCredenciamento } from "
 import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js";
 import { garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { config } from "../../config.js";
+import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 
 /**
  * Visão agregada dos serviços de um cliente (ficha): o catálogo ativo, com o status
@@ -67,9 +68,9 @@ export async function servicosDoCliente(clienteId: string) {
         ? {
             status: c.status,
             origem: c.origem,
-            valor: c.valor,
+            valor: emReais(c.valor),
             valorRecorrencia: c.valorRecorrencia,
-            percentual: c.percentual,
+            percentual: emReais(c.percentual),
             percentualRecorrencia: c.percentualRecorrencia,
             contratadoEm: c.contratadoEm,
             canceladoEm: c.canceladoEm,
@@ -140,8 +141,8 @@ export async function ativarServicoCliente(
     !jaContratado &&
     (opts.origem ?? "MANUAL") === "MANUAL" &&
     !ehServicoDeCredenciamento(servico?.nome) &&
-    servico?.valor &&
-    servico.valor > 0
+    servico != null &&
+    emReaisOu(servico.valor) > 0
   ) {
     try {
       const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } });
@@ -153,7 +154,7 @@ export async function ativarServicoCliente(
         data: {
           tipo: "RECEBER",
           descricao: `${mensal ? "Mensalidade" : "Serviço"}: ${servico.nome} — ${cliente?.nome ?? "cliente"}`,
-          valor: servico.valor,
+          valor: emReaisOu(servico.valor),
           vencimento,
           clienteId,
           recorrencia: mensal ? "MENSAL" : "NENHUMA",
@@ -183,7 +184,9 @@ export async function ativarServicoCliente(
       }).catch(() => {});
     }
   }
-  return cs;
+  // Dinheiro sai em número, nunca em Decimal (ADR-118) — a resposta desta mutation vai
+  // direto para a tela (e, no cancelamento, também para o Portal do cliente).
+  return { ...cs, valor: emReais(cs.valor), percentual: emReais(cs.percentual) };
 }
 
 /**
@@ -276,7 +279,9 @@ export async function cancelarServicoCliente(
       ).catch(() => {});
     }
   }
-  return cs;
+  // Dinheiro sai em número, nunca em Decimal (ADR-118) — a resposta desta mutation vai
+  // direto para a tela (e, no cancelamento, também para o Portal do cliente).
+  return { ...cs, valor: emReais(cs.valor), percentual: emReais(cs.percentual) };
 }
 
 /** Edita o preço/cobrança de um serviço CONTRATADO (o que o cliente realmente paga). */
@@ -299,7 +304,8 @@ export async function atualizarContratacaoCliente(
   if (dados.percentual !== undefined) data.percentual = dados.percentual ?? null;
   if (dados.percentualRecorrencia !== undefined) data.percentualRecorrencia = dados.percentualRecorrencia;
   if (dados.observacao !== undefined) data.observacao = dados.observacao?.trim() || null;
-  return prisma.clienteServico.update({ where: { clienteId_servicoId: { clienteId, servicoId } }, data });
+  const atualizado = await prisma.clienteServico.update({ where: { clienteId_servicoId: { clienteId, servicoId } }, data });
+  return { ...atualizado, valor: emReais(atualizado.valor), percentual: emReais(atualizado.percentual) };
 }
 
 /**

@@ -25,6 +25,7 @@ import { listModelos } from "./modelos.service.js";
 import { getIdentidade } from "../identidade/identidade.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { isAiEnabled } from "../../config.js";
+import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 
 type ClienteMin = {
   nome: string;
@@ -449,10 +450,10 @@ async function itensDoCliente(clienteId: string): Promise<{ itens: ItemContexto[
         servicoId: c.servico.id,
         nome: c.servico.nome,
         categoria: c.servico.categoria,
-        valor: c.valor ?? 0,
+        valor: emReaisOu(c.valor),
         quantidade: 1,
         recorrencia: (c.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-        percentual: c.servico.categoria === "Faturamento" ? c.percentual ?? null : null,
+        percentual: c.servico.categoria === "Faturamento" ? emReais(c.percentual) : null,
       })),
     };
   }
@@ -469,10 +470,10 @@ async function itensDoCliente(clienteId: string): Promise<{ itens: ItemContexto[
         servicoId: s.id,
         nome: s.nome,
         categoria: s.categoria,
-        valor: s.valor ?? 0,
+        valor: emReaisOu(s.valor),
         quantidade: 1,
         recorrencia: (s.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-        percentual: s.categoria === "Faturamento" ? s.percentual ?? null : null,
+        percentual: s.categoria === "Faturamento" ? emReais(s.percentual) : null,
       })),
     };
   }
@@ -664,10 +665,10 @@ export async function gerarPropostaAutoParaLead(leadId: string, userId: string) 
   const clienteId = await garantirClienteDoLead(lead, userId);
   const itens = lead.servicos.map((s) => ({
     servicoId: s.id,
-    valor: s.valor ?? 0,
+    valor: emReaisOu(s.valor),
     quantidade: 1,
     recorrencia: (s.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-    percentual: s.categoria === "Faturamento" ? s.percentual ?? null : null,
+    percentual: s.categoria === "Faturamento" ? emReais(s.percentual) : null,
   }));
 
   const doc = await criarProposta({ clienteId, itens, usarIA: false }, userId);
@@ -782,10 +783,10 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
   if (tipo === "proposta") {
     const itens = lead.servicos.map((s) => ({
       servicoId: s.id,
-      valor: s.valor ?? 0,
+      valor: emReaisOu(s.valor),
       quantidade: 1,
       recorrencia: (s.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-      percentual: s.categoria === "Faturamento" ? s.percentual ?? null : null,
+      percentual: s.categoria === "Faturamento" ? emReais(s.percentual) : null,
     }));
     const doc = await criarProposta({ clienteId, itens, usarIA: false }, ator.id);
     await prisma.leadPasso.updateMany({ where: { leadId, acaoDoc: "proposta", documentoId: null }, data: { documentoId: doc.id } });

@@ -10,6 +10,8 @@ import { planejarProvisaoDaConversao } from "../servicos/credenciamento.service.
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { config } from "../../config.js";
 import type { Role } from "@app/shared";
+import { emReais, emReaisOu } from "../../lib/dinheiro.js";
+import { Prisma } from "@prisma/client";
 
 const clean = (v?: string | null): string | null => {
   const t = v?.trim();
@@ -328,7 +330,7 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
 
     const cumprida: Record<string, boolean> = {
       servicos: lead._count.servicos > 0,
-      valor: lead.valorEstimado != null && lead.valorEstimado > 0,
+      valor: emReaisOu(lead.valorEstimado) > 0,
       ...marco,
     };
 
@@ -445,7 +447,7 @@ export async function getLeadDetalhe(id: string) {
     email: lead.email,
     telefone: lead.telefone,
     origem: lead.origem,
-    valorEstimado: lead.valorEstimado,
+    valorEstimado: emReais(lead.valorEstimado),
     observacoes: lead.observacoes,
     rastreio: deOndeVeio,
     clienteId: lead.clienteId,
@@ -623,6 +625,16 @@ export async function avancarEtapa(leadId: string, userId: string) {
   return { ok: true, para: { id: proxima.id, nome: proxima.nome } };
 }
 
+/**
+ * Dinheiro do funil sai do banco em `Decimal` e chega à tela em `number` (ADR-118).
+ * Todo caminho que devolve um `Lead` passa por aqui — inclusive o retorno das mutations,
+ * que hoje ninguém lê na tela, mas que amanhã alguém lê num `onSuccess`.
+ */
+const mapLead = <T extends { valorEstimado: Prisma.Decimal | number | null }>(l: T) => ({
+  ...l,
+  valorEstimado: emReais(l.valorEstimado),
+});
+
 /** Leads ativos (não removidos, não convertidos, não perdidos) para o board. */
 export async function listLeads() {
   const leads = await prisma.lead.findMany({
@@ -639,14 +651,14 @@ export async function listLeads() {
     },
   });
   return leads.map(({ clientePortal, ...l }) => ({
-    ...l,
+    ...mapLead(l),
     portalAtivo: (clientePortal?._count.usuariosPortal ?? 0) > 0,
   }));
 }
 
 /** Leads perdidos (para o relatório de ganho/perda e a reabertura). */
-export function listPerdidos() {
-  return prisma.lead.findMany({
+export async function listPerdidos() {
+  const perdidos = await prisma.lead.findMany({
     where: { deletedAt: null, NOT: { perdidoEm: null } },
     orderBy: { perdidoEm: "desc" },
     take: 50,
@@ -655,6 +667,7 @@ export function listPerdidos() {
       pipelineStage: { select: { nome: true, cor: true } },
     },
   });
+  return perdidos.map(mapLead);
 }
 
 /**
@@ -1030,7 +1043,7 @@ export async function createLead(input: CreateLeadInput, userId: string, rastrei
     const contato = lead.empresa ? `${lead.nome} · ${lead.empresa}` : lead.nome;
     void notificar(lead.responsavelId, "lead_atribuido", { contato }, { entidadeTipo: "lead", entidadeId: lead.id }).catch(() => {});
   }
-  return lead;
+  return mapLead(lead);
 }
 
 export async function updateLead(input: UpdateLeadInput, userId: string) {
@@ -1072,7 +1085,7 @@ export async function updateLead(input: UpdateLeadInput, userId: string) {
   if (rest.servicoIds !== undefined || rest.valorEstimado !== undefined) {
     await reconciliarPassosAuto(lead.id);
   }
-  return lead;
+  return mapLead(lead);
 }
 
 /**
@@ -1213,8 +1226,8 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
     vencimento.setHours(12, 0, 0, 0);
 
     const { avulso, mensal, percentuais, temCredenciamento, usarEstimativa } = planejarProvisaoDaConversao(
-      lead.servicos,
-      lead.valorEstimado,
+      lead.servicos.map((s) => ({ ...s, valor: emReais(s.valor), percentual: emReais(s.percentual) })),
+      emReais(lead.valorEstimado),
     );
     const obsPct = percentuais.length ? ` Cobranças por % (variam com o faturamento do mês): ${percentuais.join("; ")}.` : "";
     // O credenciamento fica de fora de qualquer valor provisionado aqui; se ele veio junto
@@ -1236,7 +1249,7 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
         data: { userId, acao: "conta.criada", entidadeTipo: "cliente", entidadeId: clienteId, dados: { origem: "conversao_lead", avulso, mensal } },
       });
     } else if (usarEstimativa) {
-      await criarConta(lead.valorEstimado!, "NENHUMA", `Contrato — ${nomeCliente}`, `Provisionado na conversão do lead a partir da estimativa do funil.${obsPct}${obsCred} Revise o valor e o vencimento.`);
+      await criarConta(emReaisOu(lead.valorEstimado), "NENHUMA", `Contrato — ${nomeCliente}`, `Provisionado na conversão do lead a partir da estimativa do funil.${obsPct}${obsCred} Revise o valor e o vencimento.`);
       await prisma.activityLog.create({
         data: { userId, acao: "conta.criada", entidadeTipo: "cliente", entidadeId: clienteId, dados: { origem: "conversao_lead" } },
       });

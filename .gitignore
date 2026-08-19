@@ -67,3 +67,6 @@ apps/api/bundle-*.tar.gz
 
 # Claude Code - configurações locais
 .claude/settings.local.json
+
+# Sobra de build interrompido do tsup (arquivo temporario, as vezes de 0 byte)
+tsup.config.bundled_*.mjs
