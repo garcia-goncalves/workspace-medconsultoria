@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { cnpjOpcional } from "./cliente.js";
 
 const emailOpcional = z.union([z.string().trim().toLowerCase().email("E-mail inválido"), z.literal("")]);
 const textoOpcional = z.string().trim().max(2000).optional().or(z.literal(""));
@@ -11,7 +12,13 @@ const valorOpcional = z.preprocess(
 
 export const createLeadSchema = z.object({
   nome: z.string().trim().min(1, "Informe o nome"),
+  // A CONTA que vai nascer na conversão (razão social / nome da clínica). `nome` é a
+  // PESSOA com quem se fala. Todo cliente da Med é PJ — ADR-119.
   empresa: textoOpcional,
+  // Opcional de propósito: no primeiro contato nem sempre se tem o CNPJ em mãos. Quando
+  // vem preenchido, é validado por dígito verificador e viaja pronto para a ficha do
+  // cliente na conversão, sem ninguém redigitar.
+  cnpj: cnpjOpcional.optional(),
   email: emailOpcional.optional(),
   telefone: textoOpcional,
   origem: textoOpcional,

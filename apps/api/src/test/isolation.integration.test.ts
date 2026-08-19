@@ -18,8 +18,8 @@ let arqB: string;
 
 beforeAll(async () => {
   expect(process.env.DATABASE_URL, "os testes devem usar o banco _test").toContain("_test");
-  const a = await prisma.cliente.create({ data: { nome: `${PFX}-A`, tipo: "PJ" } });
-  const b = await prisma.cliente.create({ data: { nome: `${PFX}-B`, tipo: "PJ" } });
+  const a = await prisma.cliente.create({ data: { nome: `${PFX}-A` } });
+  const b = await prisma.cliente.create({ data: { nome: `${PFX}-B` } });
   clienteA = a.id;
   clienteB = b.id;
 

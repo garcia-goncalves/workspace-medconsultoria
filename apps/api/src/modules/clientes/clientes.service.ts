@@ -30,7 +30,7 @@ export async function listClientes(search?: string) {
             OR: [
               { nome: { contains: s } },
               { email: { contains: s } },
-              { documento: { contains: s } },
+              { cnpj: { contains: s } },
             ],
           }
         : {}),
@@ -39,11 +39,10 @@ export async function listClientes(search?: string) {
     select: {
       id: true,
       nome: true,
-      tipo: true,
       situacaoComercial: true,
       email: true,
       telefone: true,
-      documento: true,
+      cnpj: true,
       responsavelId: true,
       createdAt: true,
       responsavel: { select: { nome: true } },
@@ -265,8 +264,7 @@ export async function createCliente(
   const cliente = await prisma.cliente.create({
     data: {
       nome: input.nome.trim(),
-      tipo: input.tipo,
-      documento: clean(input.documento),
+      cnpj: clean(input.cnpj),
       email: clean(input.email),
       telefone: clean(input.telefone),
       observacoes: clean(input.observacoes),
@@ -288,8 +286,7 @@ export async function updateCliente(input: UpdateClienteInput) {
   const { id, ...rest } = input;
   const data: Record<string, unknown> = {};
   if (rest.nome !== undefined) data.nome = rest.nome.trim();
-  if (rest.tipo !== undefined) data.tipo = rest.tipo;
-  if (rest.documento !== undefined) data.documento = clean(rest.documento);
+  if (rest.cnpj !== undefined) data.cnpj = clean(rest.cnpj);
   if (rest.email !== undefined) data.email = clean(rest.email);
   if (rest.telefone !== undefined) data.telefone = clean(rest.telefone);
   if (rest.observacoes !== undefined) data.observacoes = clean(rest.observacoes);

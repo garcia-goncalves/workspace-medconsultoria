@@ -9,7 +9,7 @@ import { Input } from "../../../components/ui/input";
 import { MaskedInput } from "../../../components/ui/masked-input";
 import { MoneyInput } from "../../../components/ui/money-input";
 import { Autocomplete } from "../../../components/ui/autocomplete";
-import { maskTelefone } from "../../../lib/masks";
+import { maskTelefone, maskCNPJ } from "../../../lib/masks";
 import { Label } from "../../../components/ui/label";
 import { Textarea } from "../../../components/ui/textarea";
 import { Combobox } from "../../../components/ui/combobox";
@@ -19,6 +19,7 @@ export interface LeadEditavel {
   id: string;
   nome: string;
   empresa: string | null;
+  cnpj: string | null;
   email: string | null;
   telefone: string | null;
   origem: string | null;
@@ -62,6 +63,7 @@ export function LeadFormDialog({
         ? {
             nome: lead.nome,
             empresa: lead.empresa ?? "",
+            cnpj: lead.cnpj ?? "",
             email: lead.email ?? "",
             telefone: lead.telefone ?? "",
             origem: lead.origem ?? "",
@@ -70,7 +72,7 @@ export function LeadFormDialog({
             responsavelId: lead.responsavelId ?? "",
             servicoIds: lead.servicoIds,
           }
-        : { nome: "", empresa: "", email: "", telefone: "", origem: "", observacoes: "", responsavelId: "", servicoIds: [] },
+        : { nome: "", empresa: "", cnpj: "", email: "", telefone: "", origem: "", observacoes: "", responsavelId: "", servicoIds: [] },
     );
   }, [open, lead, reset]);
 
@@ -109,9 +111,19 @@ export function LeadFormDialog({
             {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
           </div>
           <div className="space-y-1">
-            <Label htmlFor="empresa">Empresa</Label>
+            <Label htmlFor="empresa" hint="Razão social ou nome da clínica. É esta a conta que nasce quando o lead vira cliente.">
+              Empresa / clínica
+            </Label>
             <Input id="empresa" autoComplete="organization" {...register("empresa")} />
           </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="cnpj" hint="CNPJ da clínica. Pode ficar em branco agora — no primeiro contato nem sempre se tem o número.">
+            CNPJ
+          </Label>
+          <MaskedInput id="cnpj" autoComplete="off" placeholder="00.000.000/0000-00" format={maskCNPJ} {...register("cnpj")} />
+          {errors.cnpj && <p className="text-xs text-destructive">{errors.cnpj.message}</p>}
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

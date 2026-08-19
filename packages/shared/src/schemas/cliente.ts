@@ -1,11 +1,20 @@
 import { z } from "zod";
+import { validarCNPJ } from "../cnpj.js";
 
-export const clienteTipoEnum = z.enum(["PF", "PJ"]);
-export type ClienteTipo = z.infer<typeof clienteTipoEnum>;
-export const CLIENTE_TIPO_LABEL: Record<ClienteTipo, string> = {
-  PF: "Pessoa física",
-  PJ: "Pessoa jurídica",
-};
+/**
+ * **Todo cliente da MedConsultoria é pessoa jurídica** — os clientes são médicos e clínicas,
+ * e todos têm CNPJ (ADR-119). Por isso não existe `tipo` de pessoa nem campo de CPF: não há
+ * escolha a fazer na tela, e o banco não tem onde guardar PF.
+ *
+ * O CNPJ é OPCIONAL (nem sempre se tem o número no primeiro contato) mas, quando preenchido,
+ * é VALIDADO por dígito verificador — antes daqui a aplicação só aplicava máscara e aceitava
+ * "11.111.111/1111-11".
+ */
+export const cnpjOpcional = z
+  .string()
+  .trim()
+  .max(20)
+  .refine((v) => v === "" || validarCNPJ(v), { message: "CNPJ inválido — confira os números" });
 
 /**
  * Situação da relação comercial da conta (Cliente). PROSPECT/NEGOCIACAO/PERDIDO são
@@ -40,8 +49,7 @@ const textoOpcional = z.string().trim().max(2000).optional().or(z.literal(""));
 
 export const createClienteSchema = z.object({
   nome: z.string().trim().min(1, "Informe o nome"),
-  tipo: clienteTipoEnum.default("PJ"),
-  documento: textoOpcional,
+  cnpj: cnpjOpcional.optional(),
   email: emailOpcional.optional(),
   telefone: textoOpcional,
   observacoes: textoOpcional,
@@ -70,8 +78,7 @@ export type UpdateClienteInput = z.infer<typeof updateClienteSchema>;
  */
 export const portalMeusDadosSchema = z.object({
   nome: z.string().trim().min(1, "Informe o nome").max(160),
-  tipo: clienteTipoEnum,
-  documento: textoOpcional,
+  cnpj: cnpjOpcional.optional(),
   telefone: textoOpcional,
 });
 export type PortalMeusDadosInput = z.infer<typeof portalMeusDadosSchema>;

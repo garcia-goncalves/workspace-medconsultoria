@@ -13,6 +13,7 @@ import type {
 } from "@app/shared";
 import type { TipoModelo } from "@app/shared";
 import {
+  formatarCNPJ,
   formatarNumeroProposta,
   NUMERO_PROPOSTA_INICIAL,
   qualificacaoContratada,
@@ -30,7 +31,7 @@ import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 type ClienteMin = {
   nome: string;
   email: string | null;
-  documento: string | null;
+  cnpj: string | null;
   telefone: string | null;
 } | null;
 
@@ -65,7 +66,12 @@ function render(corpo: string, variaveis: Record<string, string>, cliente: Clien
   if (cliente) {
     ctx["cliente.nome"] = cliente.nome;
     ctx["cliente.email"] = cliente.email ?? "";
-    ctx["cliente.documento"] = cliente.documento ?? "";
+    // Sai formatado (11.222.333/0001-81), não como foi digitado — é isto que vai impresso
+    // no contrato. `cliente.documento` continua valendo como APELIDO: modelos salvos antes
+    // da ADR-119 usam esse nome, e renomear em silêncio deixaria o campo vazio no papel.
+    const cnpjFormatado = formatarCNPJ(cliente.cnpj);
+    ctx["cliente.cnpj"] = cnpjFormatado;
+    ctx["cliente.documento"] = cnpjFormatado;
     ctx["cliente.telefone"] = cliente.telefone ?? "";
   }
   ctx["data"] = new Date().toLocaleDateString("pt-BR");
@@ -122,7 +128,7 @@ export async function createDocumento(input: CreateDocumentoInput, userId: strin
   const cliente = clienteId
     ? await prisma.cliente.findUnique({
         where: { id: clienteId },
-        select: { nome: true, email: true, documento: true, telefone: true },
+        select: { nome: true, email: true, cnpj: true, telefone: true },
       })
     : null;
 
@@ -199,7 +205,7 @@ function montarServicos(itens: ItemServico[], servicos: ServicoInfo[]): { tabela
 export async function criarProposta(input: CriarPropostaInput, userId: string) {
   const clienteId = input.clienteId?.trim() || null;
   const cliente = clienteId
-    ? await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true, email: true, documento: true, telefone: true } })
+    ? await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true, email: true, cnpj: true, telefone: true } })
     : null;
 
   // Prazo/condições/observações entram nos dois formatos.
@@ -488,7 +494,7 @@ async function itensDoCliente(clienteId: string): Promise<{ itens: ItemContexto[
 export async function contextoClienteDoc(input: ContextoClienteDocInput) {
   const cliente = await prisma.cliente.findUnique({
     where: { id: input.clienteId },
-    select: { nome: true, tipo: true, documento: true, email: true, telefone: true },
+    select: { nome: true, cnpj: true, email: true, telefone: true },
   });
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
 
@@ -555,7 +561,7 @@ function textoVigencia(meses: number): string {
 export async function criarContrato(input: CriarContratoInput, userId: string) {
   const cliente = await prisma.cliente.findUnique({
     where: { id: input.clienteId },
-    select: { nome: true, email: true, documento: true, telefone: true },
+    select: { nome: true, email: true, cnpj: true, telefone: true },
   });
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
 
@@ -652,6 +658,7 @@ export async function gerarPropostaAutoParaLead(leadId: string, userId: string) 
       id: true,
       nome: true,
       empresa: true,
+      cnpj: true,
       email: true,
       telefone: true,
       observacoes: true,
@@ -745,7 +752,7 @@ export async function gerarContratoAutoParaCliente(clienteId: string, userId: st
 export async function gerarContratoAutoParaLead(leadId: string, userId: string) {
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, deletedAt: null, perdidoEm: null },
-    select: { id: true, nome: true, empresa: true, email: true, telefone: true, observacoes: true, responsavelId: true, clienteId: true },
+    select: { id: true, nome: true, empresa: true, cnpj: true, email: true, telefone: true, observacoes: true, responsavelId: true, clienteId: true },
   });
   if (!lead) return;
   const clienteId = lead.clienteId ?? (await garantirClienteDoLead(lead, userId));
@@ -770,7 +777,7 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, deletedAt: null },
     select: {
-      id: true, nome: true, empresa: true, email: true, telefone: true, observacoes: true, responsavelId: true, clienteId: true,
+      id: true, nome: true, empresa: true, cnpj: true, email: true, telefone: true, observacoes: true, responsavelId: true, clienteId: true,
       servicos: { select: { id: true, nome: true, valor: true, valorRecorrencia: true, percentual: true, categoria: true, clausulasContrato: true } },
     },
   });
@@ -799,7 +806,7 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
 
   const cliente = await prisma.cliente.findUnique({
     where: { id: clienteId },
-    select: { nome: true, email: true, documento: true, telefone: true },
+    select: { nome: true, email: true, cnpj: true, telefone: true },
   });
 
   // CONTRATO: pré-preenche os campos com o que já sabemos (objeto = serviços do lead; valor/
@@ -935,7 +942,7 @@ export async function gerarComIA(input: GerarComIAInput, userId: string) {
   const cliente = clienteId
     ? await prisma.cliente.findUnique({
         where: { id: clienteId },
-        select: { nome: true, email: true, documento: true, telefone: true },
+        select: { nome: true, email: true, cnpj: true, telefone: true },
       })
     : null;
 
@@ -945,7 +952,7 @@ export async function gerarComIA(input: GerarComIAInput, userId: string) {
     modelo.corpo,
     "",
     cliente
-      ? `Cliente: ${cliente.nome}${cliente.email ? ` (${cliente.email})` : ""}${cliente.documento ? ` — ${cliente.documento}` : ""}.`
+      ? `Cliente: ${cliente.nome}${cliente.email ? ` (${cliente.email})` : ""}${cliente.cnpj ? ` — CNPJ ${formatarCNPJ(cliente.cnpj)}` : ""}.`
       : "Cliente: não informado.",
     `Data de hoje: ${new Date().toLocaleDateString("pt-BR")}.`,
     "",

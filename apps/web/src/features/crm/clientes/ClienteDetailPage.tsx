@@ -26,8 +26,7 @@ import {
   situacaoDocumento,
   EVENTO_TIPO_LABEL,
   SITUACAO_COMERCIAL_LABEL,
-  CLIENTE_TIPO_LABEL,
-  type ClienteTipo,
+  formatarCNPJ,
   CHAMADO_STATUS_LABEL,
   hasRoleLevel,
   type SituacaoComercial,
@@ -38,7 +37,7 @@ import { trpc } from "../../../lib/trpc";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { MaskedInput } from "../../../components/ui/masked-input";
-import { maskTelefone, maskCpfCnpj, formatBRL } from "../../../lib/masks";
+import { maskTelefone, formatBRL } from "../../../lib/masks";
 import { dataHora, dataUTC, data } from "../../../lib/format-date";
 import { Textarea } from "../../../components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "../../../components/ui/card";
@@ -206,7 +205,6 @@ export function ClienteDetailPage() {
           <div className="min-w-0">
             <h1 className="truncate text-2xl font-semibold text-primary">{c.nome}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <Badge>{CLIENTE_TIPO_LABEL[c.tipo as ClienteTipo]}</Badge>
               <Badge variant={situacaoVar[c.situacaoComercial as SituacaoComercial]}>
                 {SITUACAO_COMERCIAL_LABEL[c.situacaoComercial as SituacaoComercial]}
               </Badge>
@@ -497,10 +495,10 @@ export function ClienteDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2.5 text-sm">
-              {c.documento && (
+              {c.cnpj && (
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">CPF/CNPJ</span>
-                  <span className="font-medium">{maskCpfCnpj(c.documento)}</span>
+                  <span className="text-muted-foreground">CNPJ</span>
+                  <span className="font-medium">{formatarCNPJ(c.cnpj)}</span>
                 </div>
               )}
               <div className="flex items-center justify-between gap-2">
@@ -788,8 +786,7 @@ export function ClienteDetailPage() {
         cliente={{
           id: c.id,
           nome: c.nome,
-          tipo: c.tipo,
-          documento: c.documento,
+          cnpj: c.cnpj,
           email: c.email,
           telefone: c.telefone,
           observacoes: c.observacoes,

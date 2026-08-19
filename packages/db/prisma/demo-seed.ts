@@ -54,10 +54,13 @@ async function main() {
     stages = await prisma.pipelineStage.findMany({ orderBy: { ordem: "asc" } });
   }
 
+  // Todo cliente é pessoa jurídica (ADR-119). Os CNPJs são FALSOS mas VÁLIDOS no dígito
+  // verificador — com número inválido, editar um cliente de demonstração passaria a ser
+  // recusado pela validação nova, e a demo pareceria quebrada.
   const clientes = [
-    { nome: "Clínica Bem Estar", tipo: "PJ" as const, email: "contato@bemestar.com.br", telefone: "(11) 3222-1000", documento: "11.222.333/0001-44" },
-    { nome: "Consultório Dr. Almeida", tipo: "PF" as const, email: "almeida@consultorio.com.br", telefone: "(11) 98888-7777" },
-    { nome: "Hospital Santa Luz", tipo: "PJ" as const, email: "administrativo@santaluz.com.br", telefone: "(11) 3555-2000", documento: "44.555.666/0001-77" },
+    { nome: "Clínica Bem Estar", email: "contato@bemestar.com.br", telefone: "(11) 3222-1000", cnpj: "11.222.333/0001-81" },
+    { nome: "Consultório Dr. Almeida", email: "almeida@consultorio.com.br", telefone: "(11) 98888-7777", cnpj: "22.333.444/0001-81" },
+    { nome: "Hospital Santa Luz", email: "administrativo@santaluz.com.br", telefone: "(11) 3555-2000", cnpj: "44.555.666/0001-81" },
   ];
   for (const c of clientes) {
     const existe = await prisma.cliente.findFirst({ where: { nome: c.nome } });
@@ -65,8 +68,8 @@ async function main() {
   }
 
   const leads = [
-    { nome: "Dra. Fernanda", empresa: "Clínica Sorriso", email: "fernanda@sorriso.com", origem: "Indicação", valorEstimado: 8000, stage: 0 },
-    { nome: "Carlos Mendes", empresa: "MedLar Home Care", email: "carlos@medlar.com", origem: "Site", valorEstimado: 15000, stage: 0 },
+    { nome: "Dra. Fernanda", empresa: "Clínica Sorriso", cnpj: "55.666.777/0001-81", email: "fernanda@sorriso.com", origem: "Indicação", valorEstimado: 8000, stage: 0 },
+    { nome: "Carlos Mendes", empresa: "MedLar Home Care", cnpj: "66.777.888/0001-81", email: "carlos@medlar.com", origem: "Site", valorEstimado: 15000, stage: 0 },
     { nome: "Paula Ribeiro", empresa: "Instituto Vida", email: "paula@vida.org", origem: "Evento", valorEstimado: 22000, stage: 1 },
     { nome: "Dr. Nogueira", empresa: "Cardio Center", email: "nogueira@cardio.com", origem: "Indicação", valorEstimado: 40000, stage: 2 },
     { nome: "Amanda Costa", empresa: "Rede Saúde+", email: "amanda@saudemais.com", origem: "LinkedIn", valorEstimado: 60000, stage: 3 },

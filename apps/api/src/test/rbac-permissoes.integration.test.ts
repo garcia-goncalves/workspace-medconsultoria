@@ -33,7 +33,7 @@ beforeAll(async () => {
   users.admin = await mk("ADMIN");
   users.root = await mk("ROOT");
 
-  const mkCli = async (suf: string) => (await prisma.cliente.create({ data: { nome: `${PFX}-${suf}`, tipo: "PJ" } })).id;
+  const mkCli = async (suf: string) => (await prisma.cliente.create({ data: { nome: `${PFX}-${suf}` } })).id;
   cliArch = await mkCli("arch");
   cliVinc = await mkCli("vinc");
   cliLimpo = await mkCli("limpo");

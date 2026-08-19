@@ -40,7 +40,7 @@ beforeAll(async () => {
     data: { nome: `${PFX}-u`, email: `${PFX}@example.test`, passwordHash: await hashPassword("x"), role: "ADMIN" },
   });
   atorId = u.id;
-  const cliente = await prisma.cliente.create({ data: { nome: `${PFX}-clinica`, tipo: "PJ" } });
+  const cliente = await prisma.cliente.create({ data: { nome: `${PFX}-clinica` } });
   clienteId = cliente.id;
 
   const s = await criarServico({ nome: `${PFX}-servico`, valor: 1234.56, percentual: 7.5, categoria: "Faturamento" });

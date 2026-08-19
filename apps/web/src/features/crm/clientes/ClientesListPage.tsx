@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { cn } from "@app/ui";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
-import { maskTelefone, maskCpfCnpj } from "../../../lib/masks";
+import { maskTelefone } from "../../../lib/masks";
 import { data } from "../../../lib/format-date";
 import { Input } from "../../../components/ui/input";
 import { Button } from "../../../components/ui/button";
@@ -36,7 +36,7 @@ import { EmptyState } from "../../../components/ui/empty-state";
 import { Skeleton, TableSkeleton } from "../../../components/ui/skeleton";
 import { QueryError } from "../../../components/ui/query-error";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
-import { SITUACAO_COMERCIAL_LABEL, type SituacaoComercial } from "@app/shared";
+import { SITUACAO_COMERCIAL_LABEL, formatarCNPJ, type SituacaoComercial } from "@app/shared";
 import { ClienteFormDialog } from "./ClienteFormDialog";
 import { ConviteLinkDialog } from "../../configuracoes/ConviteLinkDialog";
 import type { ConviteResultado } from "../../configuracoes/UsuarioFormDialog";
@@ -140,8 +140,8 @@ function ClienteCard({ c, onOpen, onConvidarPortal }: { c: ClienteItem; onOpen: 
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold text-foreground group-hover:text-primary">{c.nome}</div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {c.tipo === "PJ" ? <Building2 className="h-3 w-3" /> : <UserIcon className="h-3 w-3" />}
-            <span className="truncate">{c.documento ? maskCpfCnpj(c.documento) : c.tipo}</span>
+            <Building2 className="h-3 w-3" />
+            <span className="truncate">{c.cnpj ? formatarCNPJ(c.cnpj) : "CNPJ não informado"}</span>
           </div>
         </div>
         <Badge variant={situacaoVar[c.situacaoComercial as SituacaoComercial]}>
@@ -258,7 +258,7 @@ export function ClientesListPage() {
     const base = clientes.data ?? [];
     if (!q) return base;
     return base.filter((c) =>
-      [c.nome, c.email, c.documento, c.telefone].some((v) => v?.toLowerCase().includes(q)),
+      [c.nome, c.email, c.cnpj, c.telefone].some((v) => v?.toLowerCase().includes(q)),
     );
   }, [clientes.data, search]);
 
@@ -322,7 +322,7 @@ export function ClientesListPage() {
             autoComplete="off"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nome, e-mail, documento…"
+            placeholder="Buscar por nome, e-mail, CNPJ…"
             className="pl-9"
           />
         </div>
@@ -462,7 +462,7 @@ export function ClientesListPage() {
                     </span>
                     <div className="min-w-0">
                       <div className="truncate font-medium text-primary">{c.nome}</div>
-                      <div className="truncate text-xs text-muted-foreground">{c.documento ? maskCpfCnpj(c.documento) : c.tipo}</div>
+                      <div className="truncate text-xs text-muted-foreground">{c.cnpj ? formatarCNPJ(c.cnpj) : "CNPJ não informado"}</div>
                     </div>
                   </div>
                 </TD>

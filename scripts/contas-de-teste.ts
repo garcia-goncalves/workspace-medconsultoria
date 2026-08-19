@@ -56,7 +56,7 @@ async function main() {
     });
     clientePortal ??= await prisma.cliente.findFirst({ where: { deletedAt: null }, orderBy: { createdAt: "asc" } });
     clientePortal ??= await prisma.cliente.create({
-      data: { nome: "Clínica de Teste", tipo: "PJ", email: "cliente@teste.local", telefone: "(11) 90000-0000" },
+      data: { nome: "Clínica de Teste", cnpj: "77.888.999/0001-81", email: "cliente@teste.local", telefone: "(11) 90000-0000" },
     });
 
     for (const c of CONTAS) {

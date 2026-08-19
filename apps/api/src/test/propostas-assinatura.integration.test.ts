@@ -17,7 +17,7 @@ async function criarDoc(titulo: string, conteudo: string) {
 
 beforeAll(async () => {
   expect(process.env.DATABASE_URL).toContain("_test");
-  const c = await prisma.cliente.create({ data: { nome: `${PFX}-cli`, tipo: "PJ", email: `${PFX}-cli@example.test` } });
+  const c = await prisma.cliente.create({ data: { nome: `${PFX}-cli`, email: `${PFX}-cli@example.test` } });
   clienteId = c.id;
   const u = await prisma.user.create({
     data: { nome: `${PFX}-ator`, email: `${PFX}-ator@example.test`, passwordHash: await hashPassword("x"), role: "FUNCIONARIO" },
