@@ -1950,7 +1950,7 @@ Antes de mesclar, a mudança passou por revisão adversarial — a mesma discipl
 
 ## ADR-117 — A ADR-116 estava certa no diagnóstico e errada na sintaxe: o `npm ci` recusou o artefato ✅
 
-**Data:** 18/08/2026 · **Corrige:** a tradução de overrides da ADR-116 e o rollback destrutivo do passo 5/7 · **Custo:** uma publicação falha e ~2h com a produção sem `node_modules`
+**Data:** 18/08/2026 · **Corrige:** a tradução de overrides da ADR-116 e o rollback destrutivo do passo 5/7 · **Custo:** uma publicação falha e ~20h com a produção sem `node_modules` (18/08 17:56 → 19/08 11:08)
 
 ### O que aconteceu
 
@@ -1989,3 +1989,7 @@ Resultado: a produção ficou **sem `node_modules`**. O site continuou responden
 ### O padrão que se repete nesta série
 
 ADR-114: verde que não provava nada. ADR-116: audit numa árvore que não era a de produção. ADR-117: portão que checava tudo, menos o comando que roda lá. **Toda vez, a ferramenta media algo verdadeiro e adjacente.** A pergunta que fecha o buraco é sempre a mesma: *o que exatamente o servidor executa, e eu executei isso?*
+
+### Desfecho
+
+Publicado em **19/08/2026 às 11:08**, 7 de 7 passos verdes. O passo 5/7 abriu com `cp: cannot stat 'node_modules': No such file or directory` — **a confirmação, pelo próprio servidor, de que a pasta estava mesmo faltando desde a véspera**. Depois: `npm ci` com `found 0 vulnerabilities` dito pelo npm **do servidor** (não pela CI), `No pending migrations to apply`, ensaio de boot com **16 portas ouvindo**, `/health` = `{"status":"ok"}`, `/` e `/credenciamentos` = 200, `/comecar` sem a faixa "AMBIENTE LOCAL". **O objetivo da ADR-116 — fechar a falha ALTA na árvore que roda em produção — só se completou aqui.**
