@@ -160,6 +160,13 @@ está aberto? (3) veja as últimas linhas de `scripts/.keepalive.log`.
 > aplicação, mas engana feio — você testa numa tela e confere na outra, e as duas discordam.
 > Aconteceu em 05/08/2026. A saída é ficar com **um** vigia só: `touch scripts/.keepalive-pause`,
 > fechar os dois, apagar a pausa e ligar de novo. Pode pedir a mim, é um minuto.
+>
+> **Repetiu em 19/08/2026, por outra causa:** o vigia é ligado com `nohup`, então ele **sobrevive
+> a fechar a janela do VS Code** — e no dia seguinte o novo vigia encontra a 4310 ocupada pelo
+> vigia de ontem. Sintoma que identifica: a 4310 responde 200 mas o painel diz que nada está no
+> ar, e a 4319 fica muda por um tempo. Não adianta matar só a tela: procure **todos** os processos
+> com `keep-alive.mjs` no comando (o caminho deles é relativo, então filtrar pelo nome do projeto
+> não os encontra) e derrube todos antes de subir de novo.
 
 > 💡 **O `/health` da API responde, mas `http://localhost:4319` sozinho devolve 404.** Está certo:
 > a raiz da API não tem página — quem tem tela é a 4310. Não confunda esse 404 com aplicação fora
