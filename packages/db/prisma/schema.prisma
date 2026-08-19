@@ -204,17 +204,13 @@ model Incidente {
 // CRM (Fase 1)
 // ─────────────────────────────────────────────────────────────
 
-enum ClienteTipo {
-  PF
-  PJ
-}
-
 /// Cliente da MedConsultoria — espinha dorsal do sistema.
 model Cliente {
   id            String      @id @default(cuid())
   nome          String
-  tipo          ClienteTipo @default(PJ)
-  documento     String? // CPF ou CNPJ
+  // Todo cliente da Med é pessoa jurídica — médico e clínica são PJ (ADR-119). Por isso
+  // não existe campo "tipo": não há PF a distinguir, e o documento é sempre CNPJ.
+  cnpj          String? // sempre CNPJ (aceita o formato alfanumérico de 2026)
   email         String?
   telefone      String?
   observacoes   String?     @db.Text
@@ -666,7 +662,10 @@ model ServicoPasso {
 model Lead {
   id                    String    @id @default(cuid())
   nome                  String
+  // Razão social / nome da clínica. Todo cliente da Med é PJ (ADR-119): esta é a conta
+  // que vai nascer na conversão; `nome` é a PESSOA com quem se fala.
   empresa               String?
+  cnpj                  String? // CNPJ da clínica, opcional no 1º contato (ADR-119)
   email                 String?
   telefone              String?
   origem                String?

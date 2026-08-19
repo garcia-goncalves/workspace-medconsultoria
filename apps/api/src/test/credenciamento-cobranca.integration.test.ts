@@ -33,7 +33,7 @@ beforeAll(async () => {
   });
   ator = { id: u.id };
 
-  const cliente = await prisma.cliente.create({ data: { nome: `${PFX}-clinica`, tipo: "PJ" } });
+  const cliente = await prisma.cliente.create({ data: { nome: `${PFX}-clinica` } });
   clienteId = cliente.id;
 
   const prof = await prisma.profissional.create({

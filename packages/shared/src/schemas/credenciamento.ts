@@ -94,7 +94,13 @@ export type UpdateProfissionalInput = z.infer<typeof updateProfissionalSchema>;
 /** Anos de formado exigidos pelas operadoras. Regra do negócio, ditada pelo dono. */
 export const ANOS_MINIMOS_DE_FORMADO = 5;
 
-export type RegraTriagem = "R1" | "R2" | "R3" | "R4" | "R5" | "R6";
+/**
+ * A R1 ("cliente pessoa física é inapto") foi APOSENTADA na ADR-119: todo cliente da Med é
+ * pessoa jurídica e o banco não tem mais onde guardar PF, então a regra nunca dispararia.
+ * A numeração das outras NÃO foi corrida de propósito — R2…R6 são citadas assim na ADR-103
+ * e no material da Thaís; renumerar faria a documentação antiga apontar para a regra errada.
+ */
+export type RegraTriagem = "R2" | "R3" | "R4" | "R5" | "R6";
 
 /**
  * `INAPTO` = fato que papelada nenhuma resolve hoje — a Thaís não vende.
@@ -118,7 +124,6 @@ export type MotivoTriagem = {
 export type ResultadoTriagem = { veredito: VereditoTriagem; motivos: MotivoTriagem[] };
 
 export type EntradaTriagem = {
-  cliente: { tipo: "PF" | "PJ" };
   clinica: { alvaraFuncionamento: boolean; alvaraVigilancia: boolean; cnes: boolean };
   profissionais: { id: string; nome: string; anoFormatura?: number | null; tituloEspecialista: boolean }[];
   /** Injetável para o teste não depender do calendário. */
@@ -134,15 +139,6 @@ export type EntradaTriagem = {
 export function triarCredenciamento(entrada: EntradaTriagem): ResultadoTriagem {
   const anoAtual = entrada.anoAtual ?? new Date().getFullYear();
   const motivos: MotivoTriagem[] = [];
-
-  if (entrada.cliente.tipo !== "PJ") {
-    motivos.push({
-      regra: "R1",
-      nivel: "INAPTO",
-      texto: "Credenciamento só existe para pessoa jurídica — este cadastro é pessoa física.",
-      pedido: null,
-    });
-  }
 
   if (!entrada.clinica.alvaraFuncionamento) {
     motivos.push({
@@ -248,18 +244,16 @@ export function chaveDaVaga(requisitoId: string, profissionalId: string | null, 
  * vaga por médico, e "frente e verso" vira duas. É o que impede uma clínica com dois
  * médicos de aparecer com 100% tendo entregue metade da papelada.
  *
- * Só entram as **obrigatórias** (o opcional não é dívida) e, para cliente pessoa física,
- * os documentos de empresa ficam de fora — não existem.
+ * Só entram as **obrigatórias** — o opcional não é dívida. Os documentos de escopo EMPRESA
+ * entram sempre: todo cliente é pessoa jurídica (ADR-119).
  */
 export function vagasCredenciamento(entrada: {
   requisitos: RequisitoParaVaga[];
   profissionais: { id: string }[];
-  tipoCliente: "PF" | "PJ";
 }): VagaCredenciamento[] {
   const vagas: VagaCredenciamento[] = [];
   for (const r of entrada.requisitos) {
     if (!r.obrigatorio) continue;
-    if (r.escopo === "EMPRESA" && entrada.tipoCliente !== "PJ") continue;
 
     const donos: (string | null)[] = r.escopo === "PROFISSIONAL" ? entrada.profissionais.map((p) => p.id) : [null];
     const lados: (LadoArquivo | null)[] = r.frenteVerso ? ["FRENTE", "VERSO"] : [null];
@@ -281,7 +275,6 @@ export function vagasCredenciamento(entrada: {
 export function progressoCredenciamento(entrada: {
   requisitos: RequisitoParaVaga[];
   profissionais: { id: string }[];
-  tipoCliente: "PF" | "PJ";
   enviados: { requisitoId: string; profissionalId?: string | null; lado?: LadoArquivo | null }[];
 }): { total: number; atendidas: number; faltam: number; percentual: number; vagas: VagaCredenciamento[] } {
   const vagas = vagasCredenciamento(entrada);

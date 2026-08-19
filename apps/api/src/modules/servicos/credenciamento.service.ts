@@ -415,7 +415,7 @@ export async function credenciamentoDoCliente(clienteId: string) {
   await sincronizarRequisitosCredenciamento().catch(() => {});
 
   const [cliente, profissionais, servico] = await Promise.all([
-    prisma.cliente.findUnique({ where: { id: clienteId }, select: { id: true, nome: true, tipo: true } }),
+    prisma.cliente.findUnique({ where: { id: clienteId }, select: { id: true, nome: true } }),
     prisma.profissional.findMany({ where: { clienteId, ativo: true }, orderBy: { nome: "asc" } }),
     prisma.servico.findFirst({ where: { nome: NOME_SERVICO_CREDENCIAMENTO }, select: { id: true } }),
   ]);
@@ -471,10 +471,7 @@ export async function credenciamentoDoCliente(clienteId: string) {
   const travaAtendida = (trava: TravaElegibilidade) =>
     requisitos.some((r) => r.travaElegibilidade === trava && entregue.has(r.id));
 
-  const tipoCliente: "PF" | "PJ" = cliente.tipo === "PJ" ? "PJ" : "PF";
-
   const triagem = triarCredenciamento({
-    cliente: { tipo: tipoCliente },
     clinica: {
       alvaraFuncionamento: travaAtendida("ALVARA_FUNCIONAMENTO"),
       alvaraVigilancia: travaAtendida("ALVARA_VIGILANCIA"),
@@ -496,7 +493,6 @@ export async function credenciamentoDoCliente(clienteId: string) {
       obrigatorio: r.obrigatorio,
     })),
     profissionais: profissionais.map((p) => ({ id: p.id })),
-    tipoCliente,
     enviados: arquivos
       .filter((a): a is typeof a & { requisitoId: string } => !!a.requisitoId)
       .map((a) => ({
@@ -529,10 +525,9 @@ export async function credenciamentoDoCliente(clienteId: string) {
     vagas: vagasDo(r.id, r.frenteVerso, profissionalId),
   });
 
-  // Documento de empresa não existe para cliente pessoa física — não se cobra o que não há.
-  const escopoVisivel = (e: EscopoRequisito) => e !== "EMPRESA" || tipoCliente === "PJ";
-
-  const grupos = ESCOPOS_REQUISITO.filter((e) => e !== "PROFISSIONAL" && escopoVisivel(e))
+  // Todo cliente é pessoa jurídica (ADR-119), então os documentos de EMPRESA valem sempre —
+  // antes daqui este filtro escondia o grupo inteiro quando a conta era pessoa física.
+  const grupos = ESCOPOS_REQUISITO.filter((e) => e !== "PROFISSIONAL")
     .map((escopo) => ({
       escopo,
       titulo: ESCOPO_REQUISITO_LABEL[escopo],

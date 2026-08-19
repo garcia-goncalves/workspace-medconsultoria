@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { trpc } from "../../lib/trpc";
-import { maskCpfCnpj } from "../../lib/masks";
+import { maskCNPJ } from "../../lib/masks";
 import { Modal } from "../../components/ui/modal";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
@@ -160,7 +160,7 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="id-cnpj" hint="CNPJ da empresa, usado na qualificação da CONTRATADA nos contratos.">CNPJ</Label>
-                <MaskedInput id="id-cnpj" inputMode="numeric" format={maskCpfCnpj} value={form.cnpj} onChange={(e) => set("cnpj", e.target.value)} placeholder="00.000.000/0000-00" />
+                <MaskedInput id="id-cnpj" inputMode="numeric" format={maskCNPJ} value={form.cnpj} onChange={(e) => set("cnpj", e.target.value)} placeholder="00.000.000/0000-00" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="id-foro" hint="Comarca escolhida para resolver disputas do contrato, ex.: da comarca de São Paulo/SP.">Foro de eleição</Label>

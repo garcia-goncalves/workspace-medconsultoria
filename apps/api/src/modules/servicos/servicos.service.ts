@@ -125,7 +125,9 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "CRM/CRO e comprovante de especialização", tipo: "DOCUMENTO", obrigatorio: true, descricao: "Registro no conselho e certificados de especialidade/RQE." },
       { titulo: "Diploma e certificado de especialização (RQE)", tipo: "DOCUMENTO", obrigatorio: true },
       { titulo: "Comprovante de endereço da clínica", tipo: "DOCUMENTO", obrigatorio: true },
-      { titulo: "CNPJ e contrato social da clínica (se PJ)", tipo: "DOCUMENTO", obrigatorio: false, descricao: "Necessário quando o credenciamento é por pessoa jurídica." },
+      // O título é preservado como está: a reconciliação casa a exigência pelo TÍTULO, e mudá-lo
+      // criaria uma exigência nova deixando a antiga órfã, com os envios já feitos pendurados nela.
+      { titulo: "CNPJ e contrato social da clínica (se PJ)", tipo: "DOCUMENTO", obrigatorio: false, descricao: "Todo cliente da Med é pessoa jurídica — o contrato social e o cartão CNPJ da clínica valem sempre." },
       { titulo: "Alvará de funcionamento e licença sanitária", tipo: "DOCUMENTO", obrigatorio: false },
       { titulo: "Dados bancários para repasse", tipo: "DOCUMENTO", obrigatorio: false, descricao: "Banco, agência e conta para os pagamentos da operadora." },
       { titulo: "Quais operadoras deseja credenciar?", tipo: "INFORMACAO", obrigatorio: true, descricao: "Liste os convênios de interesse (Unimed, Bradesco, Amil…)." },

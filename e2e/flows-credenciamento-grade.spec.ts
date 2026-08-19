@@ -47,7 +47,6 @@ test("grade médico × operadora: monta o preço, gera a proposta numerada e cob
 
   const cliente = await chamar<{ id: string }>(root, "clientes.create", {
     nome: `Clínica ${RUN}`,
-    tipo: "PJ",
     status: "ATIVO",
   });
   const medico = await chamar<{ id: string }>(root, "credenciamento.criarProfissional", {

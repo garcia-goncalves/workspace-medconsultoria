@@ -150,7 +150,7 @@ export function previewModelo(corpo: string): string {
     .replace(/\{\{\s*apresentacao\s*\}\}/g, "_(aqui entra a apresentação)_")
     .replace(/\{\{\s*cliente\.nome\s*\}\}/g, "[nome do cliente]")
     .replace(/\{\{\s*cliente\.email\s*\}\}/g, "[e-mail do cliente]")
-    .replace(/\{\{\s*cliente\.documento\s*\}\}/g, "[CPF/CNPJ]")
+    .replace(/\{\{\s*cliente\.(documento|cnpj)\s*\}\}/g, "[CNPJ]")
     .replace(/\{\{\s*cliente\.telefone\s*\}\}/g, "[telefone]")
     .replace(/\{\{\s*data\s*\}\}/g, "[data]")
     .replace(/\{\{\s*([\w.]+)\s*\}\}/g, "[$1]");

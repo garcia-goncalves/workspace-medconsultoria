@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatarCNPJ } from "@app/shared";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -134,6 +135,7 @@ export function LeadDetailPanel({
               </div>
               <h2 className="mt-2 truncate text-xl font-semibold">{d.nome}</h2>
               {d.empresa && <p className="truncate text-sm text-muted-foreground">{d.empresa}</p>}
+              {d.cnpj && <p className="truncate text-xs text-muted-foreground">CNPJ {formatarCNPJ(d.cnpj)}</p>}
               {d.responsavel && <p className="mt-1 text-xs text-muted-foreground">Responsável: {d.responsavel.nome}</p>}
             </div>
           )}

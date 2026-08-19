@@ -346,6 +346,26 @@ O essencial para não repetir os erros:
 - **Rollback que não foi exercitado não é rollback:** um `|| true` num socorro apagou o `node_modules` de
   produção em 18/08/2026 — ADR-117.
 
+## 12.6. Cliente é sempre pessoa jurídica (ADR-119)
+
+Os clientes da Med são **médicos e clínicas — todos PJ**. Não existe escolha "pessoa física ou
+jurídica" em lugar nenhum: `Cliente.tipo` e o enum `ClienteTipo` foram removidos do banco, e
+`Cliente.documento` virou **`Cliente.cnpj`**. Depois da migração o banco **recusa** gravar PF.
+
+- **A conversão do lead era o portão dos fundos:** lead sem "Empresa" preenchida criava um cliente
+  PF sem ninguém escolher, e a triagem do credenciamento (R1) depois o reprovava por isso. Hoje a
+  conta nasce PJ nos dois casos, e a pessoa do lead vira **contato principal sempre**.
+- **`Lead.cnpj`** é novo: o CNPJ entra no 1º contato (opcional) e viaja para a ficha na conversão.
+- **CNPJ é validado por dígito verificador** na tela e no servidor (`validarCNPJ`, em
+  `packages/shared/src/cnpj.ts`) — antes só havia máscara. Aceita o **formato alfanumérico**
+  (`12.ABC.345/01DE-35`, obrigatório para empresa aberta a partir de julho/2026).
+- A **R1 da triagem foi aposentada**; R2…R6 mantêm o número de propósito.
+- `{{cliente.documento}}` segue valendo como apelido de `{{cliente.cnpj}}` nos modelos já salvos.
+- **Armadilha repetida da ADR-118:** typecheck verde não prova. `createLead`/`updateLead` montam os
+  campos um a um e descartavam o `cnpj` **em silêncio**.
+
+---
+
 ---
 
 ## 13. O que NÃO fazer agora

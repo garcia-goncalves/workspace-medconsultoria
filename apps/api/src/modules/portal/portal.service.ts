@@ -10,7 +10,7 @@ import { notificar } from "../notificacoes/notificacoes.service.js";
 export async function meusDados(clienteId: string) {
   const c = await prisma.cliente.findUnique({
     where: { id: clienteId },
-    select: { nome: true, tipo: true, documento: true, email: true, telefone: true },
+    select: { nome: true, cnpj: true, email: true, telefone: true },
   });
   if (!c) throw new TRPCError({ code: "NOT_FOUND", message: "Cadastro não encontrado." });
   return c;
@@ -23,7 +23,7 @@ export async function meusDados(clienteId: string) {
 export async function atualizarMeusDados(
   clienteId: string,
   userId: string,
-  dados: { nome: string; tipo: "PF" | "PJ"; documento?: string; telefone?: string },
+  dados: { nome: string; cnpj?: string; telefone?: string },
 ) {
   const nome = dados.nome.trim();
   // `email` NÃO entra aqui de propósito: o endereço do cadastro é chave de consulta
@@ -34,8 +34,7 @@ export async function atualizarMeusDados(
     where: { id: clienteId },
     data: {
       nome,
-      tipo: dados.tipo,
-      documento: dados.documento?.trim() || null,
+      cnpj: dados.cnpj?.trim() || null,
       telefone: dados.telefone?.trim() || null,
     },
   });

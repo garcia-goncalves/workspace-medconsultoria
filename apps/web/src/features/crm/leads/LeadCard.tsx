@@ -9,6 +9,7 @@ export interface LeadItem {
   id: string;
   nome: string;
   empresa: string | null;
+  cnpj: string | null;
   email: string | null;
   telefone: string | null;
   origem: string | null;

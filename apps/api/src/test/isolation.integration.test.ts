@@ -18,8 +18,8 @@ let arqB: string;
 
 beforeAll(async () => {
   expect(process.env.DATABASE_URL, "os testes devem usar o banco _test").toContain("_test");
-  const a = await prisma.cliente.create({ data: { nome: `${PFX}-A`, tipo: "PJ" } });
-  const b = await prisma.cliente.create({ data: { nome: `${PFX}-B`, tipo: "PJ" } });
+  const a = await prisma.cliente.create({ data: { nome: `${PFX}-A` } });
+  const b = await prisma.cliente.create({ data: { nome: `${PFX}-B` } });
   clienteA = a.id;
   clienteB = b.id;
 
@@ -99,7 +99,7 @@ describe("Portal não escolhe a chave da própria consulta", () => {
 
     // Como um cliente mal-intencionado chega ao servidor: o payload passa pelo schema do
     // Portal, e é ELE quem tem de derrubar o campo — não a boa vontade da tela.
-    const payload = portalMeusDadosSchema.parse({ nome: `${PFX}-A`, tipo: "PJ", email: vitima });
+    const payload = portalMeusDadosSchema.parse({ nome: `${PFX}-A`, email: vitima });
     expect("email" in payload, "o schema do Portal não pode aceitar `email`").toBe(false);
     await atualizarMeusDados(clienteA, userA.id, payload);
 

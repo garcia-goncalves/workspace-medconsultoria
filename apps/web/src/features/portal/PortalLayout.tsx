@@ -11,7 +11,8 @@ import { MaskedInput } from "../../components/ui/masked-input";
 import { Label } from "../../components/ui/label";
 import { Button } from "../../components/ui/button";
 import { useConfirm } from "../../components/ui/confirm-dialog";
-import { maskCpfCnpj, maskTelefone } from "../../lib/masks";
+import { maskCNPJ, maskTelefone } from "../../lib/masks";
+import { validarCNPJ } from "@app/shared";
 
 /** Botão de perfil no header: avatar + nome → menu (Editar perfil, Sair). */
 function ProfileMenu({ onEditar }: { onEditar: () => void }) {
@@ -79,20 +80,22 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
   const confirm = useConfirm();
 
   const dados = trpc.portal.meusDados.useQuery(undefined, { enabled: open });
-  const [form, setForm] = useState({ nome: "", tipo: "PJ" as "PF" | "PJ", documento: "", email: "", telefone: "" });
+  const [form, setForm] = useState({ nome: "", cnpj: "", email: "", telefone: "" });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   useEffect(() => {
     if (open && dados.data) {
       setForm({
         nome: dados.data.nome ?? "",
-        tipo: (dados.data.tipo as "PF" | "PJ") ?? "PJ",
-        documento: dados.data.documento ?? "",
+        cnpj: dados.data.cnpj ?? "",
         email: dados.data.email ?? "",
         telefone: dados.data.telefone ?? "",
       });
     }
   }, [open, dados.data]);
+
+  // Vazio é permitido (o CNPJ é opcional); preenchido, tem de ser válido.
+  const cnpjInvalido = form.cnpj.trim() !== "" && !validarCNPJ(form.cnpj);
 
   const salvar = trpc.portal.atualizarMeusDados.useMutation({
     onSuccess: () => {
@@ -103,8 +106,6 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
     },
   });
   const removerAvatar = trpc.auth.removerAvatar.useMutation({ onSuccess: () => utils.auth.me.invalidate() });
-
-  const ehPJ = form.tipo === "PJ";
 
   return (
     <Modal
@@ -118,12 +119,11 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
             Cancelar
           </Button>
           <Button
-            disabled={!form.nome.trim() || salvar.isPending || dados.isLoading}
+            disabled={!form.nome.trim() || cnpjInvalido || salvar.isPending || dados.isLoading}
             onClick={() =>
               salvar.mutate({
                 nome: form.nome.trim(),
-                tipo: form.tipo,
-                documento: form.documento.trim(),
+                cnpj: form.cnpj.trim(),
                 telefone: form.telefone.trim(),
               })
             }
@@ -165,34 +165,34 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="perfil-nome" hint={ehPJ ? "Nome oficial da empresa ou clínica, como aparece nos documentos." : "Seu nome completo, como no documento de identidade."}>
-              {ehPJ ? "Nome da empresa/clínica" : "Nome completo"}
+            <Label htmlFor="perfil-nome" hint="Nome oficial da empresa ou clínica, como aparece nos documentos.">
+              Nome da empresa/clínica
             </Label>
-            <Input id="perfil-nome" value={form.nome} onChange={(e) => set("nome", e.target.value)} placeholder={ehPJ ? "Ex.: Clínica Saúde+" : "Seu nome completo"} />
+            <Input id="perfil-nome" value={form.nome} onChange={(e) => set("nome", e.target.value)} placeholder="Ex.: Clínica Saúde+" />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="perfil-tipo" hint="Escolha pessoa física (CPF) se for cadastro individual, ou pessoa jurídica (CNPJ) se for empresa/clínica.">
-                Tipo de cadastro
-              </Label>
-              <Select id="perfil-tipo" value={form.tipo} onChange={(e) => set("tipo", e.target.value)}>
-                <option value="PJ">Pessoa jurídica (empresa/clínica)</option>
-                <option value="PF">Pessoa física</option>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="perfil-doc" hint={ehPJ ? "CNPJ da empresa/clínica, com ou sem pontuação." : "Seu CPF, com ou sem pontuação."}>
-                {ehPJ ? "CNPJ" : "CPF"}
+              <Label htmlFor="perfil-doc" hint="CNPJ da empresa/clínica, com ou sem pontuação.">
+                CNPJ
               </Label>
               <MaskedInput
                 id="perfil-doc"
-                inputMode="numeric"
-                format={maskCpfCnpj}
-                value={form.documento}
-                onChange={(e) => set("documento", e.target.value)}
-                placeholder={ehPJ ? "00.000.000/0000-00" : "000.000.000-00"}
+                format={maskCNPJ}
+                value={form.cnpj}
+                onChange={(e) => set("cnpj", e.target.value)}
+                placeholder="00.000.000/0000-00"
+                aria-invalid={cnpjInvalido || undefined}
+                aria-describedby={cnpjInvalido ? "perfil-doc-erro" : undefined}
               />
+              {/* O aviso mora JUNTO do campo. O servidor recusa igual (`cnpjOpcional`), mas a
+                  mensagem dele saía num parágrafo solto no fim do modal: em tela comprida o
+                  cliente não via por que o Salvar não funcionava. */}
+              {cnpjInvalido && (
+                <p id="perfil-doc-erro" className="text-xs text-destructive">
+                  CNPJ inválido — confira os números
+                </p>
+              )}
             </div>
           </div>
 

@@ -444,6 +444,7 @@ export async function getLeadDetalhe(id: string) {
     id: lead.id,
     nome: lead.nome,
     empresa: lead.empresa,
+    cnpj: lead.cnpj,
     email: lead.email,
     telefone: lead.telefone,
     origem: lead.origem,
@@ -828,7 +829,7 @@ export async function solicitarServicosPeloCliente(clienteId: string, servicoIds
     // Sem negócio aberto: abre uma nova oportunidade na 1ª etapa com os serviços.
     const cliente = await prisma.cliente.findFirst({
       where: { id: clienteId, deletedAt: null },
-      select: { nome: true, tipo: true, email: true, telefone: true, responsavelId: true },
+      select: { nome: true, cnpj: true, email: true, telefone: true, responsavelId: true },
     });
     if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado" });
     const stages = await listStages();
@@ -841,7 +842,8 @@ export async function solicitarServicosPeloCliente(clienteId: string, servicoIds
     const criado = await prisma.lead.create({
       data: {
         nome: cliente.nome,
-        empresa: cliente.tipo === "PJ" ? cliente.nome : null,
+        empresa: cliente.nome,
+        cnpj: cliente.cnpj,
         email: cliente.email,
         telefone: cliente.telefone,
         origem: "Portal do cliente",
@@ -939,7 +941,7 @@ export async function criarOportunidadeParaCliente(
 ): Promise<{ leadId: string }> {
   const cliente = await prisma.cliente.findFirst({
     where: { id: clienteId, deletedAt: null },
-    select: { id: true, nome: true, tipo: true, email: true, telefone: true, responsavelId: true },
+    select: { id: true, nome: true, cnpj: true, email: true, telefone: true, responsavelId: true },
   });
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado" });
 
@@ -954,7 +956,8 @@ export async function criarOportunidadeParaCliente(
   const lead = await prisma.lead.create({
     data: {
       nome: cliente.nome,
-      empresa: cliente.tipo === "PJ" ? cliente.nome : null,
+      empresa: cliente.nome,
+      cnpj: cliente.cnpj,
       email: cliente.email,
       telefone: cliente.telefone,
       origem: "Cliente existente",
@@ -1023,6 +1026,7 @@ export async function createLead(input: CreateLeadInput, userId: string, rastrei
     data: {
       nome: input.nome.trim(),
       empresa: clean(input.empresa),
+      cnpj: clean(input.cnpj),
       email: clean(input.email),
       telefone: clean(input.telefone),
       origem: origemManual,
@@ -1051,6 +1055,7 @@ export async function updateLead(input: UpdateLeadInput, userId: string) {
   const data: Record<string, unknown> = {};
   if (rest.nome !== undefined) data.nome = rest.nome.trim();
   if (rest.empresa !== undefined) data.empresa = clean(rest.empresa);
+  if (rest.cnpj !== undefined) data.cnpj = clean(rest.cnpj);
   if (rest.email !== undefined) data.email = clean(rest.email);
   if (rest.telefone !== undefined) data.telefone = clean(rest.telefone);
   if (rest.origem !== undefined) data.origem = clean(rest.origem);
@@ -1430,7 +1435,17 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
  * O lead segue no funil (independe de conversão). Retorna o clienteId.
  */
 export async function garantirClienteDoLead(
-  lead: { id: string; nome: string; empresa: string | null; email: string | null; telefone: string | null; observacoes: string | null; responsavelId: string | null; clienteId: string | null },
+  lead: {
+    id: string;
+    nome: string;
+    empresa: string | null;
+    cnpj: string | null;
+    email: string | null;
+    telefone: string | null;
+    observacoes: string | null;
+    responsavelId: string | null;
+    clienteId: string | null;
+  },
   atorId?: string | null,
 ): Promise<string> {
   // Só reaproveita o cliente ligado se ele ainda existir (não removido) — senão religa/recria.
@@ -1451,10 +1466,13 @@ export async function garantirClienteDoLead(
   const temEmpresa = !!lead.empresa?.trim();
   const cliente = await prisma.cliente.create({
     data: {
-      // Com empresa, a CONTA é a empresa (PJ); a pessoa do lead vira o contato principal
-      // logo abaixo (não se perde). Sem empresa, o cliente é a própria pessoa (PF).
+      // A conta é SEMPRE pessoa jurídica (ADR-119) — todo cliente da Med é médico ou clínica,
+      // e ambos são PJ. Havendo razão social no lead, é ela que nomeia a conta; não havendo,
+      // a conta nasce com o nome da pessoa e a razão social é preenchida depois na ficha.
+      // Antes daqui, lead sem empresa criava um cliente PESSOA FÍSICA sem ninguém escolher:
+      // era por este caminho que o PF entrava no cadastro.
       nome: temEmpresa ? lead.empresa!.trim() : lead.nome.trim(),
-      tipo: temEmpresa ? "PJ" : "PF",
+      cnpj: lead.cnpj,
       email: lead.email,
       telefone: lead.telefone,
       observacoes: lead.observacoes,
@@ -1462,8 +1480,10 @@ export async function garantirClienteDoLead(
       situacaoComercial: "PROSPECT",
     },
   });
-  // PJ: preserva a pessoa do lead como CONTATO PRINCIPAL da empresa.
-  if (temEmpresa && lead.nome.trim()) {
+  // A pessoa do lead vira o CONTATO PRINCIPAL da conta — sempre, e não só quando havia
+  // empresa: a conta é uma empresa, e empresa não atende telefone. Sem isto, o lead sem
+  // razão social perdia o nome de quem se fala assim que virava cliente.
+  if (lead.nome.trim()) {
     await prisma.contato.create({
       data: { clienteId: cliente.id, nome: lead.nome.trim(), email: lead.email, telefone: lead.telefone, principal: true },
     });

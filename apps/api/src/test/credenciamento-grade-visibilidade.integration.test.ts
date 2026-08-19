@@ -25,7 +25,7 @@ let operadoraId: string;
 
 beforeAll(async () => {
   expect(process.env.DATABASE_URL).toContain("_test");
-  const cliente = await prisma.cliente.create({ data: { nome: `${PFX}-clinica`, tipo: "PJ" } });
+  const cliente = await prisma.cliente.create({ data: { nome: `${PFX}-clinica` } });
   clienteId = cliente.id;
 
   const [a, d] = await Promise.all([

@@ -20,19 +20,18 @@ export function maskTelefone(v: string): string {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
-/** CPF: 000.000.000-00. */
-export function maskCPF(v: string): string {
-  return aplicar(v.replace(/\D/g, "").slice(0, 11), [3, 3, 3, 2], [".", ".", "-"]);
-}
-
-/** CNPJ: 00.000.000/0000-00. */
+/**
+ * CNPJ: 00.000.000/0000-00 — e também 12.ABC.345/01DE-35.
+ *
+ * Aceita LETRA de propósito: desde julho/2026 o CNPJ pode ser alfanumérico nos 12 primeiros
+ * caracteres (Receita Federal, IN 2.229/2024). Máscara só-numérica impediria de digitar o
+ * CNPJ de uma clínica aberta depois dessa data. Quem confere o número é `validarCNPJ`.
+ *
+ * Não existe máscara de CPF aqui, e é de propósito: todo cliente da Med é PJ (ADR-119).
+ */
 export function maskCNPJ(v: string): string {
-  return aplicar(v.replace(/\D/g, "").slice(0, 14), [2, 3, 3, 4, 2], [".", ".", "/", "-"]);
-}
-
-/** CPF ou CNPJ, detectado pelo tamanho. */
-export function maskCpfCnpj(v: string): string {
-  return v.replace(/\D/g, "").length <= 11 ? maskCPF(v) : maskCNPJ(v);
+  const limpo = v.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 14);
+  return aplicar(limpo, [2, 3, 3, 4, 2], [".", ".", "/", "-"]);
 }
 
 /** CEP: 00000-000. */

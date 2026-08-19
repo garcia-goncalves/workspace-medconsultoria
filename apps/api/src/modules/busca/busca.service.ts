@@ -21,7 +21,7 @@ export async function buscaGlobal(termo: string): Promise<SearchHit[]> {
     prisma.cliente.findMany({
       where: {
         deletedAt: null,
-        OR: [{ nome: { contains: s } }, { email: { contains: s } }, { documento: { contains: s } }],
+        OR: [{ nome: { contains: s } }, { email: { contains: s } }, { cnpj: { contains: s } }],
       },
       take: 5,
       orderBy: { nome: "asc" },

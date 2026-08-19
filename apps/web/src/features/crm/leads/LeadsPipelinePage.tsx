@@ -244,6 +244,7 @@ export function LeadsPipelinePage() {
       id: l.id,
       nome: l.nome,
       empresa: l.empresa,
+      cnpj: l.cnpj,
       email: l.email,
       telefone: l.telefone,
       origem: l.origem,

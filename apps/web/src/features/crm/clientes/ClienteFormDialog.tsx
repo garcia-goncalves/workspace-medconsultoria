@@ -7,10 +7,9 @@ import { Modal } from "../../../components/ui/modal";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { MaskedInput } from "../../../components/ui/masked-input";
-import { maskTelefone, maskCPF, maskCNPJ } from "../../../lib/masks";
+import { maskTelefone, maskCNPJ } from "../../../lib/masks";
 import { Label } from "../../../components/ui/label";
 import { Textarea } from "../../../components/ui/textarea";
-import { Select } from "../../../components/ui/select";
 import { Combobox } from "../../../components/ui/combobox";
 import { useConfirm, useConfirmar } from "../../../components/ui/confirm-dialog";
 import { UserPlus } from "lucide-react";
@@ -18,8 +17,7 @@ import { UserPlus } from "lucide-react";
 export interface ClienteEditavel {
   id: string;
   nome: string;
-  tipo: "PF" | "PJ";
-  documento: string | null;
+  cnpj: string | null;
   email: string | null;
   telefone: string | null;
   observacoes: string | null;
@@ -50,7 +48,7 @@ export function ClienteFormDialog({
     formState: { errors },
   } = useForm<CreateClienteInput>({
     resolver: zodResolver(createClienteSchema),
-    defaultValues: { tipo: "PJ" },
+    defaultValues: { cnpj: "" },
   });
 
   // Sincroniza o formulário ao abrir (novo = limpo; edição = dados do cliente).
@@ -60,25 +58,15 @@ export function ClienteFormDialog({
       cliente
         ? {
             nome: cliente.nome,
-            tipo: cliente.tipo,
-            documento: cliente.documento ?? "",
+            cnpj: cliente.cnpj ?? "",
             email: cliente.email ?? "",
             telefone: cliente.telefone ?? "",
             observacoes: cliente.observacoes ?? "",
             responsavelId: cliente.responsavelId ?? "",
           }
-        : { nome: "", tipo: "PJ", documento: "", email: "", telefone: "", observacoes: "", responsavelId: "" },
+        : { nome: "", cnpj: "", email: "", telefone: "", observacoes: "", responsavelId: "" },
     );
   }, [open, cliente, reset]);
-
-  // Documento acompanha o tipo: PF → CPF, PJ → CNPJ (reaplica a máscara ao trocar).
-  const tipo = watch("tipo");
-  const isPF = tipo === "PF";
-  useEffect(() => {
-    const doc = watch("documento") ?? "";
-    if (doc) setValue("documento", isPF ? maskCPF(doc) : maskCNPJ(doc));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tipo]);
 
   const create = trpc.clientes.create.useMutation({
     onSuccess: () => {
@@ -154,25 +142,18 @@ export function ClienteFormDialog({
           {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="tipo" hint="Pessoa Jurídica (empresa) ou Pessoa Física? Isso define se pedimos CNPJ ou CPF.">Tipo</Label>
-            <Select id="tipo" {...register("tipo")}>
-              <option value="PJ">Pessoa Jurídica</option>
-              <option value="PF">Pessoa Física</option>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="documento" hint={isPF ? "O CPF do cliente (opcional)." : "O CNPJ da empresa (opcional)."}>{isPF ? "CPF" : "CNPJ"}</Label>
-            <MaskedInput
-              id="documento"
-              inputMode="numeric"
-              autoComplete="off"
-              placeholder={isPF ? "000.000.000-00" : "00.000.000/0000-00"}
-              format={isPF ? maskCPF : maskCNPJ}
-              {...register("documento")}
-            />
-          </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="cnpj" hint="O CNPJ da clínica ou do consultório. Pode ficar em branco agora e ser preenchido depois.">
+            CNPJ
+          </Label>
+          <MaskedInput
+            id="cnpj"
+            autoComplete="off"
+            placeholder="00.000.000/0000-00"
+            format={maskCNPJ}
+            {...register("cnpj")}
+          />
+          {errors.cnpj && <p className="text-xs text-destructive">{errors.cnpj.message}</p>}
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

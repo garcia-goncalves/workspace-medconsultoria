@@ -2028,3 +2028,66 @@ Não pela tipagem, que já foi enganada uma vez. `dinheiro-decimal.integration.t
 ### Armadilha da migration em produção
 
 `ALTER TABLE ... MODIFY ... DECIMAL(12,2)` **arredonda** o que estiver gravado com mais de duas casas — que é exatamente o lixo que o `Float` produzia, então o arredondamento é o conserto, não um efeito colateral. Mas é **irreversível pelo dado**: valor acima do teto faria a migration falhar. Conferido antes de publicar; em produção o comando é `migrate deploy`, que não roda seed.
+
+---
+
+## ADR-119 — Todo cliente é pessoa jurídica: o cadastro perde a escolha PF/PJ e ganha CNPJ validado
+
+**Data:** 19/08/2026 · **Status:** aceito, em `main` · **Decisão do dono**, dita com todas as letras: *"todos os clientes da MedConsultoria são PJ (CNPJ)… os clientes são MÉDICOS e CLÍNICAS, e todos são PJ"*.
+
+### O problema
+
+O cadastro perguntava "pessoa física ou jurídica?" em três lugares — formulário do cliente, Portal (o próprio cliente podia se marcar como PF) e, sem perguntar a ninguém, na **conversão do lead**. A pergunta nunca teve resposta senão "jurídica": a Med atende médico e clínica, e ambos são PJ.
+
+Pergunta que não tem duas respostas possíveis não é campo: é ruído que produz dado errado.
+
+### O caminho por onde o PF entrava não era a tela
+
+Este é o ponto que interessa, e não teria aparecido lendo só o formulário. `garantirClienteDoLead` fazia:
+
+```ts
+nome: temEmpresa ? lead.empresa!.trim() : lead.nome.trim(),
+tipo: temEmpresa ? "PJ" : "PF",   // ← ninguém escolheu isto
+```
+
+Lead sem o campo "Empresa" preenchido — o caso comum de quem anota o nome do médico e o telefone — virava um cliente **pessoa física**. E aí a triagem do credenciamento (regra R1, ADR-103) reprovava esse cliente por ser PF: um INAPTO fabricado pelo próprio sistema, três telas depois. Fechar só o formulário deixaria o portão dos fundos aberto.
+
+**Consequência de produto:** o contato principal passou a ser criado **sempre**, e não só quando havia empresa. A conta é uma empresa, e empresa não atende telefone — sem isso, o lead sem razão social perdia o nome de quem se fala assim que virava cliente.
+
+### O que mudou no banco (migração `20260819161500_cliente_sempre_pj`)
+
+1. `Cliente.documento` → **`Cliente.cnpj`**, por `RENAME COLUMN`. O Prisma queria gerar `DROP` + `ADD` e avisou: *"about to drop the column `documento`, which still contains 2 non-null values"*. A migração foi escrita à mão por isso.
+2. `Cliente.tipo` e o enum `ClienteTipo` **deixam de existir**. Depois disto **o banco recusa gravar PF** — a regra parou de depender de alguém lembrar dela na tela. Há um teste que prova a recusa (`UPDATE ... SET tipo='PF'` → `Unknown column 'tipo'`).
+3. `Lead.cnpj` **novo**, opcional: o CNPJ entra no primeiro contato e viaja para a ficha na conversão, sem ninguém redigitar.
+4. Cliente que era PF e guardava **CPF** no campo `documento` tem esse número movido para as **observações da ficha** (`[ADR-119] CPF do cadastro antigo…`) e o campo zerado. Nada é apagado; o que não pode é um CPF seguir num campo agora chamado CNPJ — sairia impresso em contrato como "inscrita sob o CNPJ 529.982.247-25".
+
+⚠️ **Irreversível pelo dado:** a marcação de quem era pessoa física some.
+
+**Cada passo é condicional, e isso não é preciosismo.** O MySQL faz *commit* implícito a cada DDL — não existe transação cobrindo o arquivo inteiro. Se o `DROP COLUMN` falhasse (lock, conexão caída) depois de o `RENAME` já ter commitado, o Prisma marcaria a migração como falha, e **rodá-la de novo quebraria no passo 1**, que procura a coluna `documento` que o passo 2 acabou de renomear — restaria cirurgia manual no banco de produção. Com guardas de `information_schema`, cada passo já aplicado vira `SELECT 1` e **o arquivo inteiro é repetível**: retomar de uma falha é reexecutar. Provado rodando a migração num banco **já migrado**, sem erro e sem alterar dado.
+
+O passo 1 também não olha o tamanho do documento: documento de cadastro pessoa física não é o CNPJ da clínica, tenha 11 ou 14 caracteres.
+
+### CNPJ passou a ser validado — e aceita o formato alfanumérico
+
+Até aqui só havia **máscara**: `11.111.111/1111-11` era aceito sem reclamação, e um número errado só apareceria meses depois, num contrato ou numa nota. Agora `validarCNPJ` (em `packages/shared/src/cnpj.ts`) confere o dígito verificador, na tela **e** no servidor — entrada de fora é hostil.
+
+O validador aceita o **CNPJ alfanumérico** (Receita Federal, IN 2.229/2024, em vigor desde julho/2026): os 12 primeiros caracteres podem ser letra ou número, só os 2 verificadores são numéricos, e o cálculo é o mesmo módulo 11 sobre o código ASCII menos 48 de cada caractere. Um validador só-numérico recusaria a clínica aberta depois de julho — exatamente o cliente novo que a Med quer cadastrar. A máscara da tela também passou a aceitar letra.
+
+O campo é **opcional**: no primeiro contato nem sempre se tem o número em mãos, e exigir CNPJ para salvar um lead trava a captação.
+
+### O que foi aposentado
+
+- **Regra R1 da triagem** ("cliente pessoa física é INAPTO"): nunca mais dispararia. A numeração R2…R6 **não foi corrida** — a ADR-103 e o material da Thaís citam as regras por esse nome, e renumerar faria a documentação antiga apontar para a regra errada. O teste da R1 virou a lápide dela: garante que nada volte a reprovar por tipo de pessoa.
+- **Filtro de escopo EMPRESA** no credenciamento: os documentos de empresa valem sempre, porque todo cliente é empresa.
+- `maskCPF` e `maskCpfCnpj` na tela — sem uso, saíram.
+
+O campo inteligente `{{cliente.documento}}` **continua funcionando** como apelido de `{{cliente.cnpj}}`: modelos de documento salvos no banco antes desta ADR usam o nome antigo, e renomear em silêncio deixaria o campo vazio no papel. O valor agora sai **formatado** (`11.222.333/0001-81`), que é como vai impresso.
+
+### Como foi provado
+
+- **Typecheck do monorepo em zero** — e, como na ADR-118, isso não prova nada sozinho: `createLead`, `updateLead` e o painel do lead montam os campos um a um e **descartavam o `cnpj` em silêncio**, sem um erro sequer. Achado relendo o código depois do verde.
+- **Três achados dos revisores especialistas depois do verde**, todos reais: a migração não repetível (acima); "Nova oportunidade" pela ficha e o pedido de serviços pelo Portal criando lead **sem** o CNPJ que a ficha já tinha (mais um descarte silencioso); e o aviso de CNPJ inválido do Portal saindo num parágrafo solto no fim do modal, longe do campo — hoje fica junto do campo, com `aria-invalid`/`aria-describedby`, e o Salvar trava enquanto o número não fecha.
+- `conversao-lead-pj.integration.test.ts` (5 casos) contra MySQL de verdade: conta com razão social, conta **sem** razão social (nasce PJ mesmo assim), contato principal criado nos dois casos, CNPJ viajando do lead para a ficha, e o banco recusando `tipo='PF'`.
+- `cnpj-validacao.test.ts` (9 casos), incluindo o exemplo alfanumérico oficial `12.ABC.345/01DE-35`.
+- **Na tela, com o app local:** o formulário do cliente sem seletor de tipo; `11.111.111/1111-11` recusado com "CNPJ inválido — confira os números"; `12ABC34501DE35` aceito, mascarado como `12.ABC.345/01DE-35` e gravado; a ficha mostrando "CNPJ" sem selo de tipo de pessoa; e o percurso completo lead **sem empresa** → converter → cliente PJ com o CNPJ na ficha e a pessoa como contato principal. Zero erro de console.
+- Suítes: 444 testes do servidor e 129 da tela, verdes. Build de produção verde.

@@ -94,7 +94,7 @@ Cordialmente,
     tipo: "CONTRATO",
     corpo: `**CONTRATO DE PRESTAÇÃO DE SERVIÇOS**
 
-Pelo presente instrumento particular, de um lado {{contratada}}, doravante denominada **CONTRATADA**; e de outro **{{cliente.nome}}**, inscrita(o) sob o documento {{cliente.documento}}, e-mail {{cliente.email}}, doravante denominada(o) **CONTRATANTE**; têm entre si justo e contratado o quanto segue.
+Pelo presente instrumento particular, de um lado {{contratada}}, doravante denominada **CONTRATADA**; e de outro **{{cliente.nome}}**, inscrita sob o CNPJ nº {{cliente.cnpj}}, e-mail {{cliente.email}}, doravante denominada(o) **CONTRATANTE**; têm entre si justo e contratado o quanto segue.
 
 ## 1. Objeto
 A CONTRATADA prestará à CONTRATANTE os seguintes serviços:
