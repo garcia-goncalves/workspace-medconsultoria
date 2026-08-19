@@ -322,6 +322,21 @@ MVP + evolução completos, **no ar em produção** (TineHost, https://workspace
 
 ---
 
+## 12.5. Publicação e segurança de dependências (ADR-107 … ADR-117)
+
+Série que este índice não cobria — o detalhe vive em `docs/DECISIONS.md` e `docs/DEPLOY.md`.
+O essencial para não repetir os erros:
+
+- **Publicar é um botão** (Actions → Deploy → digitar `PUBLICAR`), nunca `./deploy.sh` do laptop — ADR-111/113.
+- **A árvore da CI não é a do servidor.** O npm não lê `pnpm.overrides`: o artefato leva `package-lock.json`
+  e overrides **traduzidos** (`nome@faixa` → `nome`, que no npm é seletor de pai), e o servidor usa `npm ci` — ADR-116/117.
+- **Verde tem de provar algo.** `npm audit` sai 0 em árvore vazia, e `npm install` verde não prova que o
+  `npm ci` do servidor aceita o lock. O conferidor (`scripts/conferir-artefato.mjs`) faz as duas asserções — ADR-114/117.
+- **Rollback que não foi exercitado não é rollback:** um `|| true` num socorro apagou o `node_modules` de
+  produção em 18/08/2026 — ADR-117.
+
+---
+
 ## 13. O que NÃO fazer agora
 
 Não transformar em SaaS · não multi-tenant · não cobrança · não marketplace · não rede social · não EAD · não ERP gigante · não integrações complexas · não integrar WhatsApp agora · não videoconferência própria. **Primeiro resolver o problema da MedConsultoria.**
