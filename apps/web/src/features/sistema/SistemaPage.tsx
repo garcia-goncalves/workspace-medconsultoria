@@ -42,6 +42,7 @@ import { Table, THead, TH, TR, TD } from "../../components/ui/table";
 import { AssistenteIADialog } from "../../components/ui/assistente-ia";
 import { toast } from "../../components/ui/toast";
 import { AreaMini, BarraUso } from "./MiniChart";
+import { AbaAuditoria } from "./AbaAuditoria";
 
 type Aba =
   | "geral"
@@ -52,7 +53,8 @@ type Aba =
   | "erros"
   | "sessoes"
   | "atividade"
-  | "manutencao";
+  | "manutencao"
+  | "auditoria";
 type Nivel = "ok" | "degradado" | "critico";
 
 const ABAS: { id: Aba; label: string; icon: typeof Activity }[] = [
@@ -65,6 +67,7 @@ const ABAS: { id: Aba; label: string; icon: typeof Activity }[] = [
   { id: "sessoes", label: "Sessões", icon: MonitorSmartphone },
   { id: "atividade", label: "Atividade", icon: History },
   { id: "manutencao", label: "Manutenção", icon: Settings2 },
+  { id: "auditoria", label: "Auditoria", icon: ClipboardCheck },
 ];
 
 export function SistemaPage() {
@@ -114,6 +117,7 @@ export function SistemaPage() {
       {aba === "sessoes" && <AbaSessoes />}
       {aba === "atividade" && <AbaAtividade />}
       {aba === "manutencao" && <AbaManutencao />}
+      {aba === "auditoria" && <AbaAuditoria />}
     </div>
   );
 }
