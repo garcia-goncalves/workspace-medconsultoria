@@ -12,6 +12,7 @@ import { Label } from "../../components/ui/label";
 import { Button } from "../../components/ui/button";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { maskCNPJ, maskTelefone } from "../../lib/masks";
+import { validarCNPJ } from "@app/shared";
 
 /** Botão de perfil no header: avatar + nome → menu (Editar perfil, Sair). */
 function ProfileMenu({ onEditar }: { onEditar: () => void }) {
@@ -93,6 +94,9 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
     }
   }, [open, dados.data]);
 
+  // Vazio é permitido (o CNPJ é opcional); preenchido, tem de ser válido.
+  const cnpjInvalido = form.cnpj.trim() !== "" && !validarCNPJ(form.cnpj);
+
   const salvar = trpc.portal.atualizarMeusDados.useMutation({
     onSuccess: () => {
       utils.auth.me.invalidate();
@@ -115,7 +119,7 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
             Cancelar
           </Button>
           <Button
-            disabled={!form.nome.trim() || salvar.isPending || dados.isLoading}
+            disabled={!form.nome.trim() || cnpjInvalido || salvar.isPending || dados.isLoading}
             onClick={() =>
               salvar.mutate({
                 nome: form.nome.trim(),
@@ -178,7 +182,17 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
                 value={form.cnpj}
                 onChange={(e) => set("cnpj", e.target.value)}
                 placeholder="00.000.000/0000-00"
+                aria-invalid={cnpjInvalido || undefined}
+                aria-describedby={cnpjInvalido ? "perfil-doc-erro" : undefined}
               />
+              {/* O aviso mora JUNTO do campo. O servidor recusa igual (`cnpjOpcional`), mas a
+                  mensagem dele saía num parágrafo solto no fim do modal: em tela comprida o
+                  cliente não via por que o Salvar não funcionava. */}
+              {cnpjInvalido && (
+                <p id="perfil-doc-erro" className="text-xs text-destructive">
+                  CNPJ inválido — confira os números
+                </p>
+              )}
             </div>
           </div>
 

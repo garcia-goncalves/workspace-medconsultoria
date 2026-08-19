@@ -10,7 +10,6 @@ import { MaskedInput } from "../../../components/ui/masked-input";
 import { maskTelefone, maskCNPJ } from "../../../lib/masks";
 import { Label } from "../../../components/ui/label";
 import { Textarea } from "../../../components/ui/textarea";
-import { Select } from "../../../components/ui/select";
 import { Combobox } from "../../../components/ui/combobox";
 import { useConfirm, useConfirmar } from "../../../components/ui/confirm-dialog";
 import { UserPlus } from "lucide-react";

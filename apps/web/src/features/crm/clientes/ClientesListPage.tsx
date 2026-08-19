@@ -19,7 +19,6 @@ import {
   Building2,
   Package,
   AlertTriangle,
-  User as UserIcon,
   X,
 } from "lucide-react";
 import { cn } from "@app/ui";

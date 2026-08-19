@@ -843,6 +843,7 @@ export async function solicitarServicosPeloCliente(clienteId: string, servicoIds
       data: {
         nome: cliente.nome,
         empresa: cliente.nome,
+        cnpj: cliente.cnpj,
         email: cliente.email,
         telefone: cliente.telefone,
         origem: "Portal do cliente",
@@ -956,6 +957,7 @@ export async function criarOportunidadeParaCliente(
     data: {
       nome: cliente.nome,
       empresa: cliente.nome,
+      cnpj: cliente.cnpj,
       email: cliente.email,
       telefone: cliente.telefone,
       origem: "Cliente existente",
