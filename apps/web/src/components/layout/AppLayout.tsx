@@ -172,11 +172,16 @@ function UserMenu({ colapsada, onNavigate }: { colapsada: boolean; onNavigate?: 
 
 /**
  * O menu NUNCA deve rolar — rolar esconde item de navegação, que é o oposto do trabalho do menu.
- * Como a altura varia (1080 em casa, 768 num notebook), a barra ENCOLHE sozinha em três degraus
+ * Como a altura varia (1080 em casa, 768 num notebook), a barra ENCOLHE sozinha em QUATRO degraus
  * de altura de VIEWPORT em vez de ganhar barra de rolagem. Os degraus são medidos, não chutados:
  * `e2e/menu-sem-scroll.spec.ts` reprova se em qualquer tela comum o menu precisar de mais espaço
  * do que tem. (Antes disto o menu exigia 912px de viewport — no 1080 passava raspando.)
  * O `overflow-y-auto` do `<nav>` fica só como rede de segurança para telas absurdamente baixas.
+ *
+ * O item tem `leading-5` FIXO de propósito. Sem altura de linha declarada ele herdava ~1,5 do
+ * corpo, e cada item custava 2px a mais do que precisava — 26px jogados fora nos 13. Fixar a
+ * entrelinha pagou o aumento da fonte (14,4px → 15px): o texto ficou MAIOR e o menu, mais curto.
+ * Mexer aqui sem medir é o jeito de fazer o menu voltar a rolar.
  */
 const ALTURA_ITEM = "py-2.5 alt:py-2 alt-sm:py-1.5 alt-xs:py-1";
 const ESPACO_GRUPOS = "space-y-4 alt:space-y-3 alt-sm:space-y-2 alt-xs:space-y-1.5";
@@ -260,9 +265,18 @@ function SidebarConteudo({
               (colapsada ? (
                 iGrupo > 0 && <div className="mx-2 mb-1 border-t border-white/10" />
               ) : (
-                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/70 alt-sm:pb-0 alt-sm:leading-none">
-                  {grupo.titulo}
-                </p>
+                <>
+                  {/* Tela muito baixa: o rótulo do grupo vira traço (mesma troca do modo
+                      recolhido). Custa 4 rótulos de texto e devolve ~50px — o suficiente para
+                      os 13 itens caberem sem rolagem. Alternar por CSS, não por JS, para não
+                      depender de hook de media query no primeiro render. */}
+                  {iGrupo > 0 && (
+                    <div className="mx-3 mb-1 hidden border-t border-white/10 alt-2xs:block" />
+                  )}
+                  <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.09em] text-white/55 alt-sm:pb-0 alt-sm:leading-none alt-2xs:hidden">
+                    {grupo.titulo}
+                  </p>
+                </>
               ))}
             {grupo.itens.map((item) => {
               const ativo = itemAtivo(pathname, item.to);
@@ -279,9 +293,12 @@ function SidebarConteudo({
                   aria-label={colapsada ? item.label : undefined}
                   aria-current={ativo ? "page" : undefined}
                   className={cn(
-                    "group relative flex items-center rounded-lg text-[0.9rem] text-white/70 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand-blueLight",
+                    "group relative flex items-center rounded-lg text-sm font-medium leading-5 text-white/85 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand-blueLight",
                     ALTURA_ITEM,
-                    colapsada ? "justify-center px-0" : "gap-3 px-3",
+                    // Item DENTRO de grupo é submenu: recua para ficar sob o rótulo do grupo, em
+                    // vez de alinhado com ele. O "Início" não tem grupo e fica na margem — é isso
+                    // que o separa visualmente do resto, sem precisar de cor ou tamanho diferente.
+                    colapsada ? "justify-center px-0" : grupo.titulo ? "gap-3 pl-5 pr-3" : "gap-3 px-3",
                     ativo &&
                       "bg-white/10 font-semibold !text-white before:absolute before:left-0 before:top-1/2 before:h-6 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-brand-blueLight",
                   )}
