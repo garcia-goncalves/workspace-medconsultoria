@@ -2091,3 +2091,22 @@ O campo inteligente `{{cliente.documento}}` **continua funcionando** como apelid
 - `cnpj-validacao.test.ts` (9 casos), incluindo o exemplo alfanumérico oficial `12.ABC.345/01DE-35`.
 - **Na tela, com o app local:** o formulário do cliente sem seletor de tipo; `11.111.111/1111-11` recusado com "CNPJ inválido — confira os números"; `12ABC34501DE35` aceito, mascarado como `12.ABC.345/01DE-35` e gravado; a ficha mostrando "CNPJ" sem selo de tipo de pessoa; e o percurso completo lead **sem empresa** → converter → cliente PJ com o CNPJ na ficha e a pessoa como contato principal. Zero erro de console.
 - Suítes: 444 testes do servidor e 129 da tela, verdes. Build de produção verde.
+## ADR-120 — A CI foi cancelada por baixar o navegador de teste duas vezes do zero ✅
+
+**Data:** 19/08/2026 · **Corrige:** `.github/workflows/ci.yml` · *(nasceu numerada como ADR-118 numa sessão anterior; renumerada ao entrar na `main`, onde 118 e 119 já existiam)* · **Custo:** uma execução de CI cancelada, sem impacto em produção
+
+### O que aconteceu
+
+A CI do commit `0326d1a` (só documentação) ficou `cancelled`. Os jobs `build-test` (3min28) e `e2e` (9min21) passaram; o `integration` foi cortado em **25min17** pelo `timeout-minutes: 25`, parado no passo `pnpm exec playwright install --with-deps chromium`.
+
+Não houve defeito no código. A prova está na mesma execução: o job `e2e` roda **exatamente o mesmo comando** e completou o job inteiro em 9 minutos. Mesmo commit, mesma hora, o download demorou >16 minutos num runner e ~1 minuto no outro. Re-executando só o `integration`, ele terminou em **3min11** — verde.
+
+### A decisão
+
+Os dois jobs baixavam o Chromium do zero em toda execução, sem cache. Um download de terceiro no caminho crítico de um portão de qualidade é uma dependência de rede que ninguém controla: quando ele fica lento, a CI reprova código que está correto — e "CI vermelha por motivo nenhum" é exatamente como um portão de qualidade acaba sendo ignorado (a mesma preocupação que fixou o corte em `high` na ADR-107).
+
+`actions/cache@v4` guarda `~/.cache/ms-playwright`, com chave pela versão do `pnpm-lock.yaml`. O passo `playwright install --with-deps` **continua rodando**: ele detecta o navegador já presente e pula o download, mas segue instalando as bibliotecas de sistema, que não moram nessa pasta e não são cacheáveis.
+
+### O que NÃO foi feito, de propósito
+
+Não aumentamos o `timeout-minutes`. O timeout fez o trabalho dele — cortar um job travado. Aumentá-lo trataria o sintoma e deixaria a próxima ocorrência custar 40 minutos em vez de 25.
