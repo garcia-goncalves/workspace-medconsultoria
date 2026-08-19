@@ -1,5 +1,22 @@
 # DEPLOY.md — Publicar em produção (TineHost / DirectAdmin)
 
+
+> ## ⛔ 19/08/2026 — publicar está bloqueado por COBRANÇA do GitHub
+>
+> Toda execução do Actions falha em ~2 segundos, **antes de receber máquina** (`runner` vazio,
+> zero passos executados). A mensagem do GitHub é literal:
+>
+> > *The job was not started because recent account payments have failed or your spending limit
+> > needs to be increased. Please check the 'Billing & plans' section in your settings*
+>
+> Como **CI e Deploy são os dois workflows**, isso derruba as duas coisas ao mesmo tempo: nada
+> publica e nada valida. A tentativa de publicar a ADR-119 (run `32299490737`) morreu em 3
+> segundos e **não tocou no servidor** — a produção seguiu intacta.
+>
+> **Quem resolve é o dono**, em *Billing & plans* nas configurações da conta do GitHub
+> (método de pagamento recusado ou limite de gasto no teto). Não há contorno técnico daqui:
+> publicar do laptop é proibido desde a ADR-111/113 e é barrado pelo classificador.
+
 Guia para colocar o Workspace no ar em **https://workspace.medconsultoria.com.br**.
 O app é **um único processo Node** (`server.js`) que serve, na mesma porta: a API tRPC, o WebSocket (Socket.IO) e o site (SPA) já buildado. O deploy envia um **artefato auto-contido** por SSH (a TineHost tem SSH, mas não Git).
 
