@@ -2063,6 +2063,10 @@ Lead sem o campo "Empresa" preenchido — o caso comum de quem anota o nome do m
 
 ⚠️ **Irreversível pelo dado:** a marcação de quem era pessoa física some.
 
+**Cada passo é condicional, e isso não é preciosismo.** O MySQL faz *commit* implícito a cada DDL — não existe transação cobrindo o arquivo inteiro. Se o `DROP COLUMN` falhasse (lock, conexão caída) depois de o `RENAME` já ter commitado, o Prisma marcaria a migração como falha, e **rodá-la de novo quebraria no passo 1**, que procura a coluna `documento` que o passo 2 acabou de renomear — restaria cirurgia manual no banco de produção. Com guardas de `information_schema`, cada passo já aplicado vira `SELECT 1` e **o arquivo inteiro é repetível**: retomar de uma falha é reexecutar. Provado rodando a migração num banco **já migrado**, sem erro e sem alterar dado.
+
+O passo 1 também não olha o tamanho do documento: documento de cadastro pessoa física não é o CNPJ da clínica, tenha 11 ou 14 caracteres.
+
 ### CNPJ passou a ser validado — e aceita o formato alfanumérico
 
 Até aqui só havia **máscara**: `11.111.111/1111-11` era aceito sem reclamação, e um número errado só apareceria meses depois, num contrato ou numa nota. Agora `validarCNPJ` (em `packages/shared/src/cnpj.ts`) confere o dígito verificador, na tela **e** no servidor — entrada de fora é hostil.
@@ -2082,6 +2086,7 @@ O campo inteligente `{{cliente.documento}}` **continua funcionando** como apelid
 ### Como foi provado
 
 - **Typecheck do monorepo em zero** — e, como na ADR-118, isso não prova nada sozinho: `createLead`, `updateLead` e o painel do lead montam os campos um a um e **descartavam o `cnpj` em silêncio**, sem um erro sequer. Achado relendo o código depois do verde.
+- **Três achados dos revisores especialistas depois do verde**, todos reais: a migração não repetível (acima); "Nova oportunidade" pela ficha e o pedido de serviços pelo Portal criando lead **sem** o CNPJ que a ficha já tinha (mais um descarte silencioso); e o aviso de CNPJ inválido do Portal saindo num parágrafo solto no fim do modal, longe do campo — hoje fica junto do campo, com `aria-invalid`/`aria-describedby`, e o Salvar trava enquanto o número não fecha.
 - `conversao-lead-pj.integration.test.ts` (5 casos) contra MySQL de verdade: conta com razão social, conta **sem** razão social (nasce PJ mesmo assim), contato principal criado nos dois casos, CNPJ viajando do lead para a ficha, e o banco recusando `tipo='PF'`.
 - `cnpj-validacao.test.ts` (9 casos), incluindo o exemplo alfanumérico oficial `12.ABC.345/01DE-35`.
 - **Na tela, com o app local:** o formulário do cliente sem seletor de tipo; `11.111.111/1111-11` recusado com "CNPJ inválido — confira os números"; `12ABC34501DE35` aceito, mascarado como `12.ABC.345/01DE-35` e gravado; a ficha mostrando "CNPJ" sem selo de tipo de pessoa; e o percurso completo lead **sem empresa** → converter → cliente PJ com o CNPJ na ficha e a pessoa como contato principal. Zero erro de console.
