@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "cd ../.. && eslint apps/web/src --config eslint.config.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "cobertura": "vitest run --coverage.enabled --coverage.provider=v8"
   },
   "dependencies": {
     "@app/shared": "workspace:*",
@@ -42,6 +43,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^2.1.8",
     "autoprefixer": "^10.4.20",
     "jsdom": "25.0.1",
     "postcss": "^8.4.49",

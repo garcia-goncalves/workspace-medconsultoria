@@ -30,7 +30,8 @@
     "db:demo": "pnpm --filter @app/db demo",
     "db:studio": "pnpm --filter @app/db studio",
     "db:up": "docker compose up -d",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "cobertura": "turbo run cobertura"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
