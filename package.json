@@ -11,7 +11,7 @@
     "build": "turbo run build",
     "build:deploy": "turbo run build && node scripts/bundle-deploy.mjs",
     "typecheck": "turbo run typecheck",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

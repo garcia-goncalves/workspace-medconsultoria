@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from "@playwright/test";
+import { test, expect, type Locator } from "@playwright/test";
 
 // Bloco 5 — Portal do cliente PELA INTERFACE: preencher briefing (todos os tipos de campo),
 // enviar, refresh e persistência; e cancelar um serviço. Usa o serviço/briefing semeado (fixture).

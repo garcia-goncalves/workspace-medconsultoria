@@ -58,7 +58,6 @@ const ROTAS_EQUIPE = [
 const ROTAS_PORTAL = ["/"];
 
 const ROTAS = PERFIL === "cliente" ? ROTAS_PORTAL : ROTAS_EQUIPE;
-const ALVO = PERFIL === "cliente" ? "Portal do Cliente" : "área da equipe";
 
 /**
  * Faixa completa de dispositivos reais, do celular pequeno ao monitor grande.
