@@ -2220,3 +2220,22 @@ existe porque estas regras já estavam escritas desde 20/08 e foram violadas por
 repositórios depois disso — inclusive este, que recebeu o mesmo recado duas vezes sem que
 nada fosse aplicado. Ao escrever esta ADR, o hook **bloqueou de fato** uma primeira tentativa
 que mexia no cabeçalho e ainda não tinha posto o `if:` nos dois jobs.
+
+### Um detalhe que a revisão de segurança pegou
+
+O grupo de `concurrency` **não** usa `${{ github.workflow }}`. Sob `workflow_call`, o contexto
+`github` inteiro é o do **chamador** — `event_name`, `sha`, `ref` e `workflow` inclusive; é
+justamente por isso que o GitHub criou os campos separados `workflow_ref`/`workflow_sha` para
+identificar o workflow chamado. Com `github.workflow` o grupo daria `Deploy-main`, distinto de
+`CI-main`, e funcionaria hoje. Mas bastaria alguém renomear o `deploy.yml` para "CI" um dia e um
+push na `main` passaria a **cancelar a suíte que valida uma publicação em andamento**. O grupo usa
+`github.event_name`, que não depende de nome de arquivo nenhum.
+
+Essa mesma regra é o que faz o corte funcionar: dentro do `ci.yml` chamado pelo `deploy.yml`,
+`github.event_name` vale **`workflow_dispatch`**, não `push` — então `e2e` e `integration`
+**rodam** no caminho da publicação. Era a hipótese mais grave possível aqui (publicar sem teste
+caro) e foi **derrubada na revisão**, não presumida.
+
+A revisão registrou também um custo aceito de propósito: a publicação paga `build-test` duas
+vezes (~3-4 min extras), porque o job `deploy` reconstrói e reaudita o artefato em vez de
+reaproveitar o da suíte. É o que garante que o binário efetivamente enviado foi auditado.

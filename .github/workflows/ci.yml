@@ -38,8 +38,13 @@ permissions:
 # veio inteira. Aqui a execução velha é cancelada quando chega commit novo no mesmo ramo.
 # (O `deploy.yml` tem o `concurrency` DELE, com `cancel-in-progress: false` — está certo
 # assim e não deve ser copiado daqui: publicação pela metade não se cancela.)
+# O grupo NÃO usa `github.workflow` de propósito. Sob `workflow_call` esse campo assume o nome
+# do CHAMADOR (o contexto `github` inteiro é o do chamador — é por isso que existem os campos
+# separados `workflow_ref`/`workflow_sha`). Hoje daria `Deploy-main`, distinto de `CI-main`; mas
+# se um dia o `deploy.yml` fosse renomeado para "CI", um push na `main` passaria a cancelar a
+# suíte que valida uma publicação em andamento. `event_name` não depende de nome nenhum.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
