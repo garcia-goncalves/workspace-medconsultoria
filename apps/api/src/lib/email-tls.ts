@@ -43,12 +43,28 @@ export function ehHostLocal(host: string | undefined | null): boolean {
 }
 
 /**
- * As opções de TLS do transporte, decididas pelo host.
+ * A dispensa vale só em porta privilegiada (<1024), e isto NÃO é preciosismo.
+ *
+ * O que sustenta a segurança da dispensa é que ninguém mais na máquina consegue se passar pelo
+ * servidor de e-mail. Em porta privilegiada isso é garantido pelo sistema operacional: só root
+ * abre. Numa porta alta, em hospedagem COMPARTILHADA como esta, um vizinho de máquina poderia
+ * ocupar a porta primeiro, apresentar um certificado autoassinado — que passaríamos a aceitar —
+ * e colher `SMTP_USER` e `SMTP_PASS` no AUTH. Fora da faixa privilegiada a validação volta
+ * inteira: o e-mail falha, de forma visível e explicada, em vez de vazar a senha em silêncio.
+ */
+const PORTA_PRIVILEGIADA_MAX = 1023;
+
+/**
+ * As opções de TLS do transporte, decididas pelo host e pela porta.
  *
  * Devolve `{}` (nenhuma opção) para host remoto de propósito: é o padrão do nodemailer, que
  * valida cadeia **e** nome. Devolver um objeto vazio, em vez de `rejectUnauthorized: true`
  * explícito, mantém a decisão nas mãos da biblioteca caso ela endureça o padrão no futuro.
  */
-export function opcoesTls(host: string | undefined | null): { tls?: { rejectUnauthorized: false } } {
-  return ehHostLocal(host) ? { tls: { rejectUnauthorized: false } } : {};
+export function opcoesTls(
+  host: string | undefined | null,
+  porta: number,
+): { tls?: { rejectUnauthorized: false } } {
+  const local = ehHostLocal(host) && porta <= PORTA_PRIVILEGIADA_MAX;
+  return local ? { tls: { rejectUnauthorized: false } } : {};
 }

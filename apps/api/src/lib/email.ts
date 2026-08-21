@@ -31,13 +31,26 @@ function getTransporter(): Transporter {
       host: config.SMTP_HOST,
       port,
       secure: port === 465, // 465 = SSL direto; 587 = STARTTLS (negociado)
+      // Sem isto, na 587 o STARTTLS é oportunista: servidor que não o anuncia faz o nodemailer
+      // seguir em TEXTO CLARO, com o AUTH junto. A caixa pessoal já se protegia assim
+      // (`modules/email/smtp.ts`); o transacional não. Alinhado aqui — o servidor de produção
+      // comprovadamente anuncia STARTTLS, já que a falha era DEPOIS dele, no certificado.
+      requireTLS: true,
       auth: { user: config.SMTP_USER, pass: config.SMTP_PASS },
-      ...opcoesTls(config.SMTP_HOST),
+      ...opcoesTls(config.SMTP_HOST, port),
     });
     if (ehHostLocal(config.SMTP_HOST)) {
+      // Dois avisos diferentes de propósito. O segundo é o que evita uma caçada às cegas: host
+      // local em porta alta volta a falhar no certificado, e sem esta linha a mensagem no
+      // monitor seria idêntica à do defeito que a ADR-122 consertou.
       console.info(
-        `[email] SMTP local (${config.SMTP_HOST}:${port}) — o nome do certificado não é conferido. ` +
-          `Correto para servidor de e-mail na própria máquina; nunca use um host remoto aqui.`,
+        port <= 1023
+          ? `[email] SMTP local (${config.SMTP_HOST}:${port}) — o nome do certificado não é conferido. ` +
+              `Correto para servidor de e-mail na própria máquina; nunca use um host remoto aqui.`
+          : `[email] SMTP local em porta ALTA (${config.SMTP_HOST}:${port}) — a conferência do ` +
+              `certificado segue INTEIRA de propósito: porta >=1024 pode ser ocupada por outro ` +
+              `processo da máquina sem ser root. Se o envio falhar no certificado, mude a porta ` +
+              `para 465/587, não afrouxe o TLS.`,
       );
     }
   }

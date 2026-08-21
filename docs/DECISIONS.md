@@ -2326,3 +2326,33 @@ configuração de produção estiver errada ou expirada (é uma pendência conhe
 **diferente**, de autenticação. Só a próxima publicação, seguida de um lead de teste e de uma
 olhada no monitor, prova o caminho inteiro. Enquanto a taxa de entrega do monitor não sair de
 0%, não se pode dizer que o e-mail funciona.
+
+### O que a revisão de segurança acrescentou
+
+A revisão não achou bloqueante, mas trouxe duas travas que entraram no mesmo PR:
+
+1. **A dispensa vale só em porta privilegiada (<1024).** O que sustenta a segurança dela é que
+   ninguém mais na máquina consegue se passar pelo servidor de e-mail — e em porta privilegiada
+   quem garante isso é o sistema operacional, porque só root abre. Numa porta alta, em
+   hospedagem **compartilhada** como esta, um vizinho de máquina poderia ocupar a porta primeiro,
+   apresentar certificado autoassinado (que passaríamos a aceitar) e colher `SMTP_USER` e
+   `SMTP_PASS` no AUTH. Fora da faixa privilegiada a validação volta inteira: o e-mail falha de
+   forma visível em vez de vazar a senha em silêncio. Há aviso próprio no log para esse caso —
+   sem ele, a mensagem no monitor seria idêntica à do defeito original e a caçada recomeçaria.
+2. **`requireTLS: true` no transporte transacional.** Sem isso, na 587 o STARTTLS é oportunista:
+   servidor que não o anuncia faz o nodemailer seguir em **texto claro, com o AUTH junto**. A
+   caixa pessoal já se protegia assim desde a ADR-96; o transacional não. Seguro aplicar aqui
+   porque o servidor de produção comprovadamente anuncia STARTTLS — a falha original acontecia
+   **depois** dele, na conferência do certificado.
+
+A revisão também testou 25 formas de enganar a detecção (`localhost.evil.com`, `127.0.0.1.evil.com`,
+`localhost%00.evil.com`, homoglifos Unicode como `ⅼocalhost` e `ｌocalhost`, fullwidth, `localhost..`,
+`localhost:25`). Nenhuma vira loopback. Os casos que a detecção **não** pega — `127.1`,
+`2130706433`, `0x7f.0.0.1`, `::ffff:127.0.0.1` — são loopback tratado como **remoto**, ou seja,
+falham fechado. A única direção que importa (remoto virar local) está fechada.
+
+Uma alternativa considerada e recusada com motivo: `tls.checkServerIdentity` manteria a validação
+da **cadeia** e afrouxaria só o nome — melhor no papel. Recusada porque certificado de hostname em
+cPanel costuma ser autoassinado, e nesse caso a cadeia reprova e a entrega volta a 0% — trocaríamos
+o conserto pelo próprio defeito. Em loopback a cadeia não defende de nada: o ataque que ela impede
+é MITM de rede, que não existe num socket que não sai da máquina.

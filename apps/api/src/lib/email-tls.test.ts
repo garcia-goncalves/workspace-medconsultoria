@@ -48,17 +48,30 @@ describe("ehHostLocal", () => {
 describe("opcoesTls", () => {
   it("dispensa a conferência do NOME do certificado quando o SMTP é local", () => {
     // É este objeto que faltava no transporte e que fazia 100% dos e-mails falharem.
-    expect(opcoesTls("localhost")).toEqual({ tls: { rejectUnauthorized: false } });
-    expect(opcoesTls("localhost.")).toEqual({ tls: { rejectUnauthorized: false } });
-    expect(opcoesTls("127.0.0.1")).toEqual({ tls: { rejectUnauthorized: false } });
+    // 587 (STARTTLS) é a porta que o servidor de produção usa; 465 e 25 seguem o mesmo caminho.
+    expect(opcoesTls("localhost", 587)).toEqual({ tls: { rejectUnauthorized: false } });
+    expect(opcoesTls("localhost.", 587)).toEqual({ tls: { rejectUnauthorized: false } });
+    expect(opcoesTls("127.0.0.1", 465)).toEqual({ tls: { rejectUnauthorized: false } });
+    expect(opcoesTls("localhost", 25)).toEqual({ tls: { rejectUnauthorized: false } });
   });
 
   it("mantém a conferência INTEIRA para qualquer host remoto", () => {
     // Nada de `tls` no objeto = o padrão do nodemailer, que é validar. A asserção é
     // negativa de propósito (lição da ADR-114): provar que a dispensa NÃO vazou.
-    expect(opcoesTls("atena.hostsrv.org")).toEqual({});
-    expect(opcoesTls("smtp.gmail.com")).toEqual({});
-    expect(opcoesTls("localhost.evil.com")).toEqual({});
-    expect(opcoesTls(undefined)).toEqual({});
+    expect(opcoesTls("atena.hostsrv.org", 587)).toEqual({});
+    expect(opcoesTls("smtp.gmail.com", 465)).toEqual({});
+    expect(opcoesTls("localhost.evil.com", 587)).toEqual({});
+    expect(opcoesTls(undefined, 587)).toEqual({});
+  });
+
+  it("NÃO dispensa nada em porta alta, mesmo sendo loopback", () => {
+    // Em hospedagem compartilhada, porta >=1024 pode ser ocupada por um vizinho SEM ser root.
+    // Se aceitássemos certificado autoassinado ali, ele colheria SMTP_USER e SMTP_PASS no AUTH.
+    // Preferimos o e-mail falhar de forma visível a vazar a senha em silêncio.
+    expect(opcoesTls("localhost", 1024)).toEqual({});
+    expect(opcoesTls("localhost", 2525)).toEqual({});
+    expect(opcoesTls("127.0.0.1", 8025)).toEqual({});
+    // A fronteira exata, para ninguém trocar <= por < sem o teste reclamar.
+    expect(opcoesTls("localhost", 1023)).toEqual({ tls: { rejectUnauthorized: false } });
   });
 });
