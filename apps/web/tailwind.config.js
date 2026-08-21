@@ -25,6 +25,11 @@ export default {
         alt: { raw: "(max-height: 940px)" },
         "alt-sm": { raw: "(max-height: 820px)" },
         "alt-xs": { raw: "(max-height: 740px)" },
+        // Último degrau: abaixo disto nem encolher os itens basta para os 13 caberem, e o
+        // menu voltava a rolar escondendo o "Sistema" (achado em 19/08 num viewport de 620px;
+        // o teste só ia até 720 e nunca viu). Aqui os cabeçalhos de grupo viram traço — a
+        // mesma troca que o modo recolhido já faz.
+        "alt-2xs": { raw: "(max-height: 660px)" },
       },
     },
   },

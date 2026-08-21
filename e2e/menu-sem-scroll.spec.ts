@@ -8,10 +8,17 @@ import { test, expect } from "@playwright/test";
 // cabe para todo mundo.
 test.use({ storageState: "e2e/.auth/root.json" });
 
+// As três primeiras existiam desde o ADR-94. As três últimas entraram em 19/08/2026: o dono
+// mandou print do menu ROLANDO, com o "Sistema" cortado, num viewport de ~620px — e a suíte
+// passava, porque nunca descia de 720. Janela pequena não é caso exótico: basta o navegador
+// com barra de favoritos numa tela de notebook, ou a janela não maximizada.
 const TELAS = [
+  { nome: "desktop 1920x1080", w: 1920, h: 1080 },
   { nome: "notebook 1366x768", w: 1366, h: 768 },
   { nome: "notebook 1280x720", w: 1280, h: 720 },
-  { nome: "desktop 1920x1080", w: 1920, h: 1080 },
+  { nome: "janela baixa 1280x660", w: 1280, h: 660 },
+  { nome: "janela baixa 1280x620", w: 1280, h: 620 },
+  { nome: "janela muito baixa 1280x580", w: 1280, h: 580 },
 ];
 
 for (const t of TELAS) {
@@ -42,16 +49,20 @@ for (const t of TELAS) {
   });
 }
 
-test("o último item do menu continua clicável (não fica cortado embaixo)", async ({ page }) => {
-  // A prova de que não basta "não ter barra de rolagem": o item precisa estar DENTRO da janela.
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto("/");
+// A prova de que não basta "não ter barra de rolagem": o item precisa estar DENTRO da janela e
+// ser clicável. Roda na tela comum E na mais baixa — foi justamente o último item ("Sistema")
+// que sumiu no print de 19/08.
+for (const h of [720, 580]) {
+  test(`o último item do menu continua clicável, não cortado embaixo — altura ${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: h });
+    await page.goto("/");
 
-  const ultimo = page.locator("aside nav a").last();
-  const caixa = await ultimo.boundingBox();
-  expect(caixa, "o último item do menu existe e está renderizado").not.toBeNull();
-  expect(caixa!.y + caixa!.height, "o último item cabe acima do rodapé da janela").toBeLessThanOrEqual(720);
+    const ultimo = page.locator("aside nav a").last();
+    const caixa = await ultimo.boundingBox();
+    expect(caixa, "o último item do menu existe e está renderizado").not.toBeNull();
+    expect(caixa!.y + caixa!.height, "o último item cabe acima do rodapé da janela").toBeLessThanOrEqual(h);
 
-  await ultimo.click();
-  await expect(page).toHaveURL(/\/sistema$/); // ROOT: o último item é Sistema
-});
+    await ultimo.click();
+    await expect(page).toHaveURL(/\/sistema$/); // ROOT: o último item é Sistema
+  });
+}
