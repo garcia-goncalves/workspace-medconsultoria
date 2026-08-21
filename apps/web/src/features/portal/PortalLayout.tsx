@@ -6,7 +6,6 @@ import { trpc } from "../../lib/trpc";
 import { Avatar, AvatarUpload } from "../../components/ui/avatar";
 import { Modal } from "../../components/ui/modal";
 import { Input } from "../../components/ui/input";
-import { Select } from "../../components/ui/select";
 import { MaskedInput } from "../../components/ui/masked-input";
 import { Label } from "../../components/ui/label";
 import { Button } from "../../components/ui/button";

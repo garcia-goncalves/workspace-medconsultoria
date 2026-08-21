@@ -16,6 +16,10 @@
     "lint": {},
     "test": {
       "dependsOn": ["^build"]
+    },
+    "cobertura": {
+      "dependsOn": ["^build"],
+      "cache": false
     }
   }
 }

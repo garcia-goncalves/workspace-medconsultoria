@@ -14,7 +14,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:unit": "vitest run --exclude \"**/*.integration.test.ts\""
+    "test:unit": "vitest run --exclude \"**/*.integration.test.ts\"",
+    "cobertura": "vitest run --exclude \"**/*.integration.test.ts\" --coverage.enabled --coverage.provider=v8"
   },
   "dependencies": {
     "@app/db": "workspace:*",
@@ -45,6 +46,7 @@
     "@types/node": "^22.10.2",
     "@types/nodemailer": "^8.0.1",
     "@types/sanitize-html": "^2.16.1",
+    "@vitest/coverage-v8": "^2.1.8",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { LifeBuoy, Plus, ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@app/ui";
 import { CHAMADO_STATUS_LABEL, type ChamadoStatus } from "@app/shared";
 import { trpc } from "../../lib/trpc";
-import { getSocket, POLL, REALTIME_SOCKET_ENABLED } from "../../lib/socket";
+import { POLL, useEventoRealtime } from "../../lib/socket";
 import { data } from "../../lib/format-date";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -49,18 +49,10 @@ export function PortalSuporte() {
     },
   });
 
-  useEffect(() => {
-    if (!REALTIME_SOCKET_ENABLED) return; // polling acima entrega em produção
-    const socket = getSocket();
-    const onMsg = () => {
-      utils.portal.suporte.listChamados.invalidate();
-      if (sel) utils.portal.suporte.mensagens.invalidate({ conversaId: sel });
-    };
-    socket.on("mensagem", onMsg);
-    return () => {
-      socket.off("mensagem", onMsg);
-    };
-  }, [utils, sel]);
+  useEventoRealtime("mensagem", () => {
+    utils.portal.suporte.listChamados.invalidate();
+    if (sel) utils.portal.suporte.mensagens.invalidate({ conversaId: sel });
+  });
 
   const chamado = chamados.data?.find((c) => c.id === sel);
 

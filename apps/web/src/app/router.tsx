@@ -2,7 +2,6 @@ import {
   createRouter,
   createRootRoute,
   createRoute,
-  redirect,
   lazyRouteComponent,
   Link,
 } from "@tanstack/react-router";

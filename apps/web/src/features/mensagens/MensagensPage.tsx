@@ -9,7 +9,7 @@ import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@app/api/router";
 import { trpc } from "../../lib/trpc";
 import { useAuth } from "../../lib/auth-context";
-import { getSocket, POLL, REALTIME_SOCKET_ENABLED } from "../../lib/socket";
+import { POLL, useEventoRealtime } from "../../lib/socket";
 import { hora, data } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -130,18 +130,10 @@ export function MensagensPage() {
   const resolver = trpc.mensagens.resolver.useMutation({ onSuccess: invalida });
   const reabrir = trpc.mensagens.reabrir.useMutation({ onSuccess: invalida });
 
-  useEffect(() => {
-    if (!REALTIME_SOCKET_ENABLED) return; // em produção o polling acima entrega; socket ficaria pendurado no LiteSpeed
-    const socket = getSocket();
-    const onMsg = (payload: { conversaId: string }) => {
-      utils.mensagens.listConversas.invalidate();
-      if (payload.conversaId === selId) utils.mensagens.listMensagens.invalidate({ conversaId: selId });
-    };
-    socket.on("mensagem", onMsg);
-    return () => {
-      socket.off("mensagem", onMsg);
-    };
-  }, [utils, selId]);
+  useEventoRealtime("mensagem", (payload: { conversaId: string }) => {
+    utils.mensagens.listConversas.invalidate();
+    if (payload.conversaId === selId) utils.mensagens.listMensagens.invalidate({ conversaId: selId });
+  });
 
   useEffect(() => {
     if (selId) markRead.mutate({ conversaId: selId });

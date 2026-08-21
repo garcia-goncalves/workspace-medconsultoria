@@ -46,7 +46,18 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.browser } },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+      // DESLIGADA de propósito, RATIFICADO PELO DONO em 19/08/2026. Ela acusava 46 avisos em
+      // 13 arquivos e nenhum era erro: são o idioma que esta base escolheu — `useAuth` ao lado
+      // do `AuthProvider`, `useConfirm` ao lado do diálogo, `toast` ao lado do componente,
+      // `buttonVariants` ao lado do `Button` (padrão shadcn). Separar isso em 13 arquivos novos
+      // seria mexer na arquitetura para agradar a uma regra que só afeta o Fast Refresh em
+      // desenvolvimento — não a correção, não o build, não a produção.
+      //
+      // O que se ganhou desligando: com 46 avisos permanentes na saída, o aviso 47 — que pode
+      // ser real — passava despercebido. Zerada a saída, o `lint` roda com `--max-warnings 0`
+      // e qualquer aviso NOVO reprova. Se um dia a base deixar de co-locar hook com
+      // componente, religue esta regra.
+      "react-refresh/only-export-components": "off",
     },
   },
   {

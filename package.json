@@ -11,7 +11,7 @@
     "build": "turbo run build",
     "build:deploy": "turbo run build && node scripts/bundle-deploy.mjs",
     "typecheck": "turbo run typecheck",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -30,7 +30,8 @@
     "db:demo": "pnpm --filter @app/db demo",
     "db:studio": "pnpm --filter @app/db studio",
     "db:up": "docker compose up -d",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "cobertura": "turbo run cobertura"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
