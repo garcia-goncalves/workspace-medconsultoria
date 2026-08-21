@@ -2,6 +2,7 @@ import nodemailer, { type Transporter } from "nodemailer";
 import { config, isEmailReal } from "../config.js";
 import { LOGO_CID } from "./email-template.js";
 import { LOGO_PNG_BASE64 } from "./brand-assets.js";
+import { ehHostLocal, opcoesTls } from "./email-tls.js";
 
 export interface EmailMsg {
   para: string;
@@ -22,12 +23,23 @@ let transporter: Transporter | null = null;
 function getTransporter(): Transporter {
   if (!transporter) {
     const port = config.SMTP_PORT ?? 587;
+    // `opcoesTls` dispensa a conferência do NOME do certificado quando — e somente quando — o
+    // SMTP é a própria máquina. Sem isto, 100% dos e-mails de produção morriam em
+    // "Host: localhost. is not in the cert's altnames: DNS:atena.hostsrv.org" e a taxa de
+    // entrega do monitor era 0% desde sempre. O porquê inteiro está em `email-tls.ts`.
     transporter = nodemailer.createTransport({
       host: config.SMTP_HOST,
       port,
       secure: port === 465, // 465 = SSL direto; 587 = STARTTLS (negociado)
       auth: { user: config.SMTP_USER, pass: config.SMTP_PASS },
+      ...opcoesTls(config.SMTP_HOST),
     });
+    if (ehHostLocal(config.SMTP_HOST)) {
+      console.info(
+        `[email] SMTP local (${config.SMTP_HOST}:${port}) — o nome do certificado não é conferido. ` +
+          `Correto para servidor de e-mail na própria máquina; nunca use um host remoto aqui.`,
+      );
+    }
   }
   return transporter;
 }
