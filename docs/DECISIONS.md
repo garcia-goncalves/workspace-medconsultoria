@@ -2239,3 +2239,150 @@ caro) e foi **derrubada na revisão**, não presumida.
 A revisão registrou também um custo aceito de propósito: a publicação paga `build-test` duas
 vezes (~3-4 min extras), porque o job `deploy` reconstrói e reaudita o artefato em vez de
 reaproveitar o da suíte. É o que garante que o binário efetivamente enviado foi auditado.
+
+---
+
+## ADR-122 — Nenhum e-mail jamais saiu de produção: o certificado do SMTP local não se chama "localhost" ✅
+
+**Data:** 21/08/2026 · **Situação:** aceita
+
+### Como apareceu
+
+O dono criou um lead pela captação pública em produção e não recebeu o e-mail. O relato era
+sobre **um** e-mail; o problema era **todos**.
+
+### A evidência, antes de qualquer hipótese
+
+O monitor `/emails-enviados` (ADR-21) existe exatamente para isto — ele guarda o **motivo** de
+cada falha em `EmailEnviado.erro`. Em produção, em 21/08/2026:
+
+- **Falhas nos últimos 7 dias: 25. Taxa de entrega: 0%.**
+- Filtrando **"Enviados" + "Todo o período"**: *"Nenhum e-mail encontrado com esses filtros."*
+  **Nunca, nem uma única vez, um e-mail transacional foi entregue por este servidor.**
+- As 25 falhas traziam todas a mesma mensagem, literal:
+
+```
+Hostname/IP does not match certificate's altnames:
+Host: localhost. is not in the cert's altnames: DNS:atena.hostsrv.org
+```
+
+O disparo funcionava: às 17:00 daquele dia saíram as quatro notificações internas "Novo lead
+pelo site" **e** o "Acesso ao Portal do Cliente" para o e-mail de teste do dono. A regra de
+negócio estava certa; o transporte é que nunca completou uma conexão.
+
+### A causa raiz
+
+`SMTP_HOST=localhost` na configuração do servidor — correto, porque na TineHost o servidor de
+e-mail roda na **mesma máquina** da aplicação. Só que o certificado apresentado no STARTTLS é o
+da máquina física, **`atena.hostsrv.org`**. O nodemailer confere se o nome do certificado bate
+com o host pedido, não bate, e recusa antes mesmo de autenticar.
+
+Não era senha, não era porta, não era firewall, não era o módulo desligado: era o **nome no
+certificado**. E a mensagem dizia isso desde o primeiro dia, gravada no banco — bastava abrir a
+tela que o próprio sistema tem para isso.
+
+### A decisão
+
+A conferência do nome do certificado é **dispensada apenas quando o host é loopback**
+(`localhost`, `127.0.0.1`, `::1`, e as variações com ponto final e maiúsculas). Para qualquer
+host remoto, a validação continua inteira.
+
+O raciocínio de segurança: para interceptar uma conexão a `127.0.0.1` já é preciso estar
+**dentro** da máquina — e quem está dentro da máquina lê a configuração direto, senha inclusive.
+A validação de certificado não protege nada nesse trecho. Já baixar a guarda para host remoto
+trocaria "e-mail que não sai" por "e-mail que pode sair para o servidor errado", que é pior
+justamente por ser silencioso.
+
+A decisão mora em `apps/api/src/lib/email-tls.ts`, separada do `email.ts` para poder ser
+testada **sem abrir socket**: `ehHostLocal()` e `opcoesTls()`.
+
+### As duas armadilhas do conserto
+
+1. **O erro real veio como `localhost.` — com ponto final** (a forma absoluta de um nome DNS).
+   Um `host === "localhost"` ingênuo não pegaria o caso que motivou o conserto. A normalização
+   corta o ponto, apara espaços e baixa a caixa antes de comparar.
+2. **A comparação é contra um conjunto fechado, nunca por `includes`.** `localhost.evil.com` e
+   `smtp.localhost.com` são endereços de internet de verdade; um `includes("localhost")` os
+   trataria como a própria máquina e abriria exatamente o buraco que este ADR recusa. Há teste
+   com asserção **negativa** para os dois (lição da ADR-114: verde só prova que nada deu erro).
+
+### O que NÃO foi mexido, de propósito
+
+O transporte de `apps/api/src/modules/email/smtp.ts` — a **caixa pessoal** de cada pessoa
+(ADR-95/96) — continua validando o certificado por inteiro. Lá o host é um servidor de e-mail
+de verdade e a **senha do webmail da pessoa** atravessa a rede; a validação é justamente o que
+protege aquela senha. A dispensa é do e-mail transacional, e só dele.
+
+Também não se mexeu na configuração do servidor. Apontar `SMTP_HOST` para `atena.hostsrv.org`
+seria a outra correção possível e igualmente válida — mas depende de editar arquivo no servidor
+a cada vez que a hospedagem trocar a máquina de lugar, e o app passaria a depender de um nome
+que não é dele. Tratar loopback resolve na origem e sobrevive à troca.
+
+### Ressalva honesta — o que este ADR ainda NÃO prova
+
+Este conserto derruba a **primeira** barreira, que é a única comprovada. Se a senha SMTP da
+configuração de produção estiver errada ou expirada (é uma pendência conhecida do dono desde
+05/08, "rotacionar a senha SMTP do servidor"), o e-mail voltará a falhar — com uma mensagem
+**diferente**, de autenticação. Só a próxima publicação, seguida de um lead de teste e de uma
+olhada no monitor, prova o caminho inteiro. Enquanto a taxa de entrega do monitor não sair de
+0%, não se pode dizer que o e-mail funciona.
+
+### O que a revisão de segurança acrescentou
+
+A revisão não achou bloqueante, mas trouxe duas travas que entraram no mesmo PR:
+
+1. **A dispensa vale só em porta privilegiada (<1024).** O que sustenta a segurança dela é que
+   ninguém mais na máquina consegue se passar pelo servidor de e-mail — e em porta privilegiada
+   quem garante isso é o sistema operacional, porque só root abre. Numa porta alta, em
+   hospedagem **compartilhada** como esta, um vizinho de máquina poderia ocupar a porta primeiro,
+   apresentar certificado autoassinado (que passaríamos a aceitar) e colher `SMTP_USER` e
+   `SMTP_PASS` no AUTH. Fora da faixa privilegiada a validação volta inteira: o e-mail falha de
+   forma visível em vez de vazar a senha em silêncio. Há aviso próprio no log para esse caso —
+   sem ele, a mensagem no monitor seria idêntica à do defeito original e a caçada recomeçaria.
+2. **`requireTLS: true` no transporte transacional.** Sem isso, na 587 o STARTTLS é oportunista:
+   servidor que não o anuncia faz o nodemailer seguir em **texto claro, com o AUTH junto**. A
+   caixa pessoal já se protegia assim desde a ADR-96; o transacional não. Seguro aplicar aqui
+   porque o servidor de produção comprovadamente anuncia STARTTLS — a falha original acontecia
+   **depois** dele, na conferência do certificado.
+
+A revisão também testou 25 formas de enganar a detecção (`localhost.evil.com`, `127.0.0.1.evil.com`,
+`localhost%00.evil.com`, homoglifos Unicode como `ⅼocalhost` e `ｌocalhost`, fullwidth, `localhost..`,
+`localhost:25`). Nenhuma vira loopback. Os casos que a detecção **não** pega — `127.1`,
+`2130706433`, `0x7f.0.0.1`, `::ffff:127.0.0.1` — são loopback tratado como **remoto**, ou seja,
+falham fechado. A única direção que importa (remoto virar local) está fechada.
+
+Uma alternativa considerada e recusada com motivo: `tls.checkServerIdentity` manteria a validação
+da **cadeia** e afrouxaria só o nome — melhor no papel. Recusada porque certificado de hostname em
+cPanel costuma ser autoassinado, e nesse caso a cadeia reprova e a entrega volta a 0% — trocaríamos
+o conserto pelo próprio defeito. Em loopback a cadeia não defende de nada: o ataque que ela impede
+é MITM de rede, que não existe num socket que não sai da máquina.
+
+### A CI reprovou o primeiro `requireTLS`, e o conserto ficou melhor por isso
+
+A primeira versão exigia STARTTLS **sempre**. O job `integration` reprovou com
+`Nenhum e-mail para ... em 15000ms`: o **Mailpit** — o servidor de e-mail de mentira usado nos
+testes — não oferece STARTTLS, e o envio morria calado. Exigir sempre teria trocado um defeito de
+produção por um defeito em todo ambiente de teste.
+
+O critério certo é o mesmo do resto desta ADR: **exigir TLS quando o host não é loopback**. O que
+o `requireTLS` protege é a senha atravessando a rede — e em loopback não há rede. Assim o Mailpit
+volta a receber, e o dia em que `SMTP_HOST` apontar para fora, o downgrade para texto claro está
+fechado. Há teste guardando as duas pontas, inclusive a regressão do Mailpit.
+
+Vale registrar o método: esse defeito **não** foi encontrado por leitura. Foi a CI que o mostrou,
+porque a suíte cara roda em `pull_request` — exatamente o que a ADR-121 preservou ao escalonar.
+
+### A CI reprovou o primeiro `requireTLS`, e o conserto ficou melhor por isso
+
+A primeira versão exigia STARTTLS **sempre**. O job `integration` reprovou com
+`Nenhum e-mail para ... em 15000ms`: o **Mailpit** — o servidor de e-mail de mentira usado nos
+testes — não oferece STARTTLS, e o envio morria calado. Exigir sempre teria trocado um defeito de
+produção por um defeito em todo ambiente de teste.
+
+O critério certo é o mesmo do resto desta ADR: **exigir TLS quando o host não é loopback**. O que
+o `requireTLS` protege é a senha atravessando a rede — e em loopback não há rede. Assim o Mailpit
+volta a receber, e no dia em que `SMTP_HOST` apontar para fora, o downgrade para texto claro está
+fechado. Há teste guardando as duas pontas, inclusive a regressão do Mailpit.
+
+Vale registrar o método: esse defeito **não** foi encontrado por leitura. Foi a CI que o mostrou,
+porque a suíte cara roda em `pull_request` — exatamente o que a ADR-121 preservou ao escalonar.
