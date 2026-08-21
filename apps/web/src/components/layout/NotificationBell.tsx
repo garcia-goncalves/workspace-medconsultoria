@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { cn } from "@app/ui";
 import { trpc } from "../../lib/trpc";
-import { getSocket, POLL, REALTIME_SOCKET_ENABLED } from "../../lib/socket";
+import { POLL, useEventoRealtime } from "../../lib/socket";
 import { haQuanto } from "../../lib/format-date";
 
 interface Notif {
@@ -83,16 +83,7 @@ export function NotificationBell() {
   const naoLidas = lista.filter((n) => !n.lida).length;
 
   // Recebe push em tempo real e refaz a busca.
-  useEffect(() => {
-    if (!REALTIME_SOCKET_ENABLED) return; // polling acima entrega em produção
-    const socket = getSocket();
-    const onNotif = () => invalidate();
-    socket.on("notificacao", onNotif);
-    return () => {
-      socket.off("notificacao", onNotif);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEventoRealtime("notificacao", () => invalidate());
 
   // Fecha ao clicar fora.
   useEffect(() => {

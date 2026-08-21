@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -44,7 +44,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../../../components/ui
 import { Badge, type BadgeProps } from "../../../components/ui/badge";
 import { QueryError } from "../../../components/ui/query-error";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
-import { getSocket, POLL, REALTIME_SOCKET_ENABLED } from "../../../lib/socket";
+import { POLL, useEventoRealtime } from "../../../lib/socket";
 import { ClienteFormDialog } from "./ClienteFormDialog";
 import { NovaOportunidadeDialog } from "./NovaOportunidadeDialog";
 import { AssistenteIADialog } from "../../../components/ui/assistente-ia";
@@ -89,15 +89,7 @@ export function ClienteDetailPage() {
   const rel = trpc.clientes.relacionados.useQuery({ id: clienteId });
   const chamados = trpc.clientes.chamados.useQuery({ clienteId }, { refetchInterval: POLL.chamadosCliente });
 
-  useEffect(() => {
-    if (!REALTIME_SOCKET_ENABLED) return; // polling acima entrega em produção
-    const socket = getSocket();
-    const onMsg = () => utils.clientes.chamados.invalidate({ clienteId });
-    socket.on("mensagem", onMsg);
-    return () => {
-      socket.off("mensagem", onMsg);
-    };
-  }, [utils, clienteId]);
+  useEventoRealtime("mensagem", () => utils.clientes.chamados.invalidate({ clienteId }));
   const ia = trpc.ia.disponivel.useQuery();
   const resumirIA = trpc.ia.resumirCliente.useMutation();
   const [resumoIA, setResumoIA] = useState(false);
