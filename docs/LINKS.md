@@ -294,7 +294,7 @@ comum é o banco desligado: rode `pnpm db:up` e tente de novo. Depois, confira c
 
 Publicar **não é mais um comando** — é um botão, e você mesmo consegue apertar.
 
-1. Abra: **https://github.com/thi-garcia/workspace-medconsultoria/actions/workflows/deploy.yml**
+1. Abra: **https://github.com/garcia-goncalves/workspace-medconsultoria/actions/workflows/deploy.yml**
 2. Botão **"Run workflow"**, no canto direito.
 3. No campo que aparece, digite **`PUBLICAR`** (em maiúsculas) e confirme.
 

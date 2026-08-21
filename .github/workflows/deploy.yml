@@ -32,8 +32,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ⛔ O ELO QUE SEGURA O CORTE DE CUSTO DA CI (21/08/2026).
+  # Desde o escalonamento do `ci.yml`, um commit que chega à `main` por push direto roda só o
+  # teste barato. Se a publicação também não rodasse o caro, o corte teria virado buraco de
+  # cobertura — economia paga com qualidade, que é o pior negócio possível.
+  # Aqui a suíte COMPLETA (`build-test` + `e2e` + `integration`) roda no commit EXATO que vai
+  # ao ar, e o passo que toca o servidor só começa se ela terminar verde.
+  suite:
+    if: github.event.inputs.confirmar == 'PUBLICAR'
+    uses: ./.github/workflows/ci.yml
+
   deploy:
     if: github.event.inputs.confirmar == 'PUBLICAR'
+    needs: suite
     runs-on: ubuntu-latest
     environment: producao
     env:

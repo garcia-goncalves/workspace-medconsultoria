@@ -2110,3 +2110,113 @@ Os dois jobs baixavam o Chromium do zero em toda execução, sem cache. Um downl
 ### O que NÃO foi feito, de propósito
 
 Não aumentamos o `timeout-minutes`. O timeout fez o trabalho dele — cortar um job travado. Aumentá-lo trataria o sintoma e deixaria a próxima ocorrência custar 40 minutos em vez de 25.
+
+---
+
+## ADR-121 — A CI escalonada: este repositório sozinho consumiu 116% da cota de Actions da conta
+
+**Data:** 21/08/2026 · **Situação:** aceita
+
+### O problema, com número
+
+Medido pela API do GitHub em 20/08 e conferido de novo em 21/08/2026, tarefa a tarefa,
+em 30 dias — **só neste repositório: 2.313 minutos cobrados**, contra uma cota mensal de
+**3.000 minutos para a conta inteira** (15 repositórios). Foi o que fez o dono estourar o
+plano gratuito e passar a pagar.
+
+| Tarefa (`job`) | Vezes | Minutos cobrados |
+|---|---:|---:|
+| `e2e` | 176 | **1.160** |
+| `integration` | 176 | 590 |
+| `build-test` | 176 | 500 |
+| `deploy` | 8 | 62 |
+
+`e2e` + `integration` sozinhos = **58% de tudo o que a conta gastou no mês**, somando
+todos os repositórios.
+
+**A cobrança é por job, arredondada para cima a cada minuto.** Os três jobs da CI rodam em
+paralelo: uma execução de "6,3 minutos no relógio" custa ~13 minutos de cota. Tempo de
+parede engana; o que se paga é a soma dos jobs.
+
+### Duas hipóteses que a medição MATOU
+
+Registradas aqui para ninguém gastar tempo com elas de novo:
+
+- **Não havia duplicata `push`/`pull_request`.** Dos 174 commits distintos do mês,
+  exatamente **1** rodou CI mais de uma vez. O gatilho estava correto nesse aspecto.
+- **Não faltava cache de dependência.** `pnpm install --frozen-lockfile` leva **3 segundos**
+  aqui. (O cache que faltava era outro, o do navegador de teste — ADR-120.)
+
+O que sobrou foi o momento em que o teste caro roda.
+
+### A decisão
+
+O erro nunca foi o teste caro existir. Foi ele rodar cedo demais: houve **90 envios diretos
+à `main`** no mês, e cada um arrastou `e2e` + `integration` junto, num momento em que não há
+decisão nenhuma a tomar. O modelo passa a ser **escalonado**:
+
+| Momento | O que roda |
+|---|---|
+| `push` na `main` | só `build-test` (~3 min): lint, typecheck, Vitest, auditoria, artefato |
+| `pull_request` | tudo — é onde se decide mesclar |
+| antes de publicar | tudo, no commit **exato** que vai ao ar (o `deploy.yml` chama a CI) |
+
+Quatro mudanças no `ci.yml`:
+
+1. **`if: github.event_name != 'push'`** nos jobs `e2e` e `integration`. Vale ~990 min/mês.
+2. **`needs: build-test`** nos mesmos dois. Sem isso o job caro começa junto com o barato e
+   paga o minuto inteiro mesmo quando o `typecheck` já reprovou no primeiro minuto.
+3. **`concurrency` com `cancel-in-progress: true`.** 18 execuções do mês foram substituídas
+   por um commit seguinte antes de terminar, e a conta veio inteira. Vale ~340 min/mês.
+4. **`paths-ignore: ['**.md', 'docs/**']` só no `push`.** Em `pull_request` é armadilha: com
+   check obrigatório, um PR só de documentação trava esperando um check que nunca roda.
+
+Entrou também `permissions: contents: read` no topo — ler o código basta, e sem a declaração
+o runner herda um token com permissão de escrita.
+
+### O elo sem o qual isto seria um buraco de cobertura
+
+Com o item 1, um commit que chega à `main` por push direto passa a ter só o teste barato. Se
+a publicação também não rodasse o caro, o corte teria trocado dinheiro por qualidade — o pior
+negócio possível.
+
+Por isso o `ci.yml` ganhou `workflow_call` e o `deploy.yml` ganhou um job `suite` que o
+invoca, com `needs: suite` no job que toca o servidor. A suíte completa roda **no commit que
+vai a produção**, e o passo de publicação só começa se ela terminar verde.
+
+### O que NÃO foi mexido, de propósito
+
+O `concurrency` do `deploy.yml` continua com **`cancel-in-progress: false`**. É o oposto do
+da CI e está certo assim: execução de CI substituída não custa nada; publicação cancelada no
+meio deixa o servidor em estado indefinido (ADR-107, a armadilha dos dois `deploy.sh`
+simultâneos). Não copie o bloco de um para o outro.
+
+O gatilho do `deploy.yml` segue `workflow_dispatch` **e só ele**, com confirmação digitada.
+
+### Ressalva honesta
+
+Este repositório **não tem branch protection** (conferido em 21/08/2026). Se alguém ligar
+check obrigatório depois, o item 3 precisa de revisão: uma execução cancelada pelo
+`cancel-in-progress` pode deixar o botão de mesclar travado esperando um check que não volta.
+
+### Como conferir se funcionou
+
+Medir de novo em ~7 dias e comparar com os 2.313 min:
+
+```bash
+python "$HOME/.claude/scripts/orcamento-actions.py" --detalhe 4
+```
+
+**Não confie no `billable.total_ms`** do endpoint `/runs/{id}/timing`: nesta conta ele
+devolve zero (um run de 39 s reportou 0). O script soma `started_at`/`completed_at` por job,
+arredondando para cima — que é como o GitHub cobra de verdade.
+
+### Quem faz cumprir
+
+O hook `~/.claude/hooks/actions-budget-guard.py` (desde 21/08/2026) lê todo arquivo de
+`.github/workflows/` **como vai ficar** e bloqueia a gravação se um job de e2e/integração
+disparar em `push` sem o `if:`, ou se um workflow de publicação tiver gatilho `push`. Ele
+existe porque estas regras já estavam escritas desde 20/08 e foram violadas por três
+repositórios depois disso — inclusive este, que recebeu o mesmo recado duas vezes sem que
+nada fosse aplicado. Ao escrever esta ADR, o hook **bloqueou de fato** uma primeira tentativa
+que mexia no cabeçalho e ainda não tinha posto o `if:` nos dois jobs.
