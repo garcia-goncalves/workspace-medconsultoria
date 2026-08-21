@@ -64,7 +64,20 @@ const PORTA_PRIVILEGIADA_MAX = 1023;
 export function opcoesTls(
   host: string | undefined | null,
   porta: number,
-): { tls?: { rejectUnauthorized: false } } {
-  const local = ehHostLocal(host) && porta <= PORTA_PRIVILEGIADA_MAX;
-  return local ? { tls: { rejectUnauthorized: false } } : {};
+): { requireTLS: boolean; tls?: { rejectUnauthorized: false } } {
+  const local = ehHostLocal(host);
+  const dispensaNomeDoCertificado = local && porta <= PORTA_PRIVILEGIADA_MAX;
+  return {
+    // `requireTLS` fecha o STARTTLS oportunista: sem ele, um servidor que não anuncia STARTTLS
+    // faz o nodemailer seguir em TEXTO CLARO com o AUTH junto. Exigido para host REMOTO, onde a
+    // senha atravessa a rede — e dispensado em loopback pelo mesmo motivo de sempre: ali não há
+    // rede para interceptar.
+    //
+    // Isto não é teoria: a primeira versão exigia TLS sempre e o job `integration` da CI reprovou
+    // com "Nenhum e-mail para ... em 15000ms". O Mailpit (o servidor de e-mail de mentira usado
+    // nos testes) não oferece STARTTLS, e o envio morria calado. Exigir sempre teria trocado um
+    // defeito de produção por um defeito de todo ambiente de teste.
+    requireTLS: !local,
+    ...(dispensaNomeDoCertificado ? { tls: { rejectUnauthorized: false as const } } : {}),
+  };
 }

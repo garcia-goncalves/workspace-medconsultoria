@@ -31,11 +31,6 @@ function getTransporter(): Transporter {
       host: config.SMTP_HOST,
       port,
       secure: port === 465, // 465 = SSL direto; 587 = STARTTLS (negociado)
-      // Sem isto, na 587 o STARTTLS é oportunista: servidor que não o anuncia faz o nodemailer
-      // seguir em TEXTO CLARO, com o AUTH junto. A caixa pessoal já se protegia assim
-      // (`modules/email/smtp.ts`); o transacional não. Alinhado aqui — o servidor de produção
-      // comprovadamente anuncia STARTTLS, já que a falha era DEPOIS dele, no certificado.
-      requireTLS: true,
       auth: { user: config.SMTP_USER, pass: config.SMTP_PASS },
       ...opcoesTls(config.SMTP_HOST, port),
     });

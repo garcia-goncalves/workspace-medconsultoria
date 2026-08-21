@@ -49,29 +49,43 @@ describe("opcoesTls", () => {
   it("dispensa a conferência do NOME do certificado quando o SMTP é local", () => {
     // É este objeto que faltava no transporte e que fazia 100% dos e-mails falharem.
     // 587 (STARTTLS) é a porta que o servidor de produção usa; 465 e 25 seguem o mesmo caminho.
-    expect(opcoesTls("localhost", 587)).toEqual({ tls: { rejectUnauthorized: false } });
-    expect(opcoesTls("localhost.", 587)).toEqual({ tls: { rejectUnauthorized: false } });
-    expect(opcoesTls("127.0.0.1", 465)).toEqual({ tls: { rejectUnauthorized: false } });
-    expect(opcoesTls("localhost", 25)).toEqual({ tls: { rejectUnauthorized: false } });
+    const local = { requireTLS: false, tls: { rejectUnauthorized: false } };
+    expect(opcoesTls("localhost", 587)).toEqual(local);
+    expect(opcoesTls("localhost.", 587)).toEqual(local);
+    expect(opcoesTls("127.0.0.1", 465)).toEqual(local);
+    expect(opcoesTls("localhost", 25)).toEqual(local);
   });
 
-  it("mantém a conferência INTEIRA para qualquer host remoto", () => {
-    // Nada de `tls` no objeto = o padrão do nodemailer, que é validar. A asserção é
-    // negativa de propósito (lição da ADR-114): provar que a dispensa NÃO vazou.
-    expect(opcoesTls("atena.hostsrv.org", 587)).toEqual({});
-    expect(opcoesTls("smtp.gmail.com", 465)).toEqual({});
-    expect(opcoesTls("localhost.evil.com", 587)).toEqual({});
-    expect(opcoesTls(undefined, 587)).toEqual({});
+  it("mantém a conferência INTEIRA e EXIGE TLS para qualquer host remoto", () => {
+    // Sem `tls` no objeto = o padrão do nodemailer, que é validar cadeia e nome. A asserção é
+    // negativa de propósito (lição da ADR-114): provar que a dispensa NÃO vazou para fora.
+    // `requireTLS: true` fecha o downgrade para texto claro, que levaria a senha junto.
+    const remoto = { requireTLS: true };
+    expect(opcoesTls("atena.hostsrv.org", 587)).toEqual(remoto);
+    expect(opcoesTls("smtp.gmail.com", 465)).toEqual(remoto);
+    expect(opcoesTls("localhost.evil.com", 587)).toEqual(remoto);
+    expect(opcoesTls(undefined, 587)).toEqual(remoto);
   });
 
-  it("NÃO dispensa nada em porta alta, mesmo sendo loopback", () => {
+  it("NÃO dispensa o certificado em porta alta, mesmo sendo loopback", () => {
     // Em hospedagem compartilhada, porta >=1024 pode ser ocupada por um vizinho SEM ser root.
     // Se aceitássemos certificado autoassinado ali, ele colheria SMTP_USER e SMTP_PASS no AUTH.
     // Preferimos o e-mail falhar de forma visível a vazar a senha em silêncio.
-    expect(opcoesTls("localhost", 1024)).toEqual({});
-    expect(opcoesTls("localhost", 2525)).toEqual({});
-    expect(opcoesTls("127.0.0.1", 8025)).toEqual({});
+    expect(opcoesTls("localhost", 1024)).toEqual({ requireTLS: false });
+    expect(opcoesTls("localhost", 2525)).toEqual({ requireTLS: false });
+    expect(opcoesTls("127.0.0.1", 8025)).toEqual({ requireTLS: false });
     // A fronteira exata, para ninguém trocar <= por < sem o teste reclamar.
-    expect(opcoesTls("localhost", 1023)).toEqual({ tls: { rejectUnauthorized: false } });
+    expect(opcoesTls("localhost", 1023)).toEqual({
+      requireTLS: false,
+      tls: { rejectUnauthorized: false },
+    });
+  });
+
+  it("NÃO exige STARTTLS em loopback — foi isto que quebrou a CI na primeira tentativa", () => {
+    // O job `integration` reprovou com "Nenhum e-mail para ... em 15000ms" quando `requireTLS`
+    // era `true` sempre: o Mailpit (servidor de e-mail de mentira dos testes) não oferece
+    // STARTTLS, e o envio morria calado. Este teste existe para a regressão não voltar.
+    expect(opcoesTls("localhost", 1025).requireTLS).toBe(false);
+    expect(opcoesTls("127.0.0.1", 1025).requireTLS).toBe(false);
   });
 });

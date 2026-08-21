@@ -2356,3 +2356,33 @@ da **cadeia** e afrouxaria só o nome — melhor no papel. Recusada porque certi
 cPanel costuma ser autoassinado, e nesse caso a cadeia reprova e a entrega volta a 0% — trocaríamos
 o conserto pelo próprio defeito. Em loopback a cadeia não defende de nada: o ataque que ela impede
 é MITM de rede, que não existe num socket que não sai da máquina.
+
+### A CI reprovou o primeiro `requireTLS`, e o conserto ficou melhor por isso
+
+A primeira versão exigia STARTTLS **sempre**. O job `integration` reprovou com
+`Nenhum e-mail para ... em 15000ms`: o **Mailpit** — o servidor de e-mail de mentira usado nos
+testes — não oferece STARTTLS, e o envio morria calado. Exigir sempre teria trocado um defeito de
+produção por um defeito em todo ambiente de teste.
+
+O critério certo é o mesmo do resto desta ADR: **exigir TLS quando o host não é loopback**. O que
+o `requireTLS` protege é a senha atravessando a rede — e em loopback não há rede. Assim o Mailpit
+volta a receber, e o dia em que `SMTP_HOST` apontar para fora, o downgrade para texto claro está
+fechado. Há teste guardando as duas pontas, inclusive a regressão do Mailpit.
+
+Vale registrar o método: esse defeito **não** foi encontrado por leitura. Foi a CI que o mostrou,
+porque a suíte cara roda em `pull_request` — exatamente o que a ADR-121 preservou ao escalonar.
+
+### A CI reprovou o primeiro `requireTLS`, e o conserto ficou melhor por isso
+
+A primeira versão exigia STARTTLS **sempre**. O job `integration` reprovou com
+`Nenhum e-mail para ... em 15000ms`: o **Mailpit** — o servidor de e-mail de mentira usado nos
+testes — não oferece STARTTLS, e o envio morria calado. Exigir sempre teria trocado um defeito de
+produção por um defeito em todo ambiente de teste.
+
+O critério certo é o mesmo do resto desta ADR: **exigir TLS quando o host não é loopback**. O que
+o `requireTLS` protege é a senha atravessando a rede — e em loopback não há rede. Assim o Mailpit
+volta a receber, e no dia em que `SMTP_HOST` apontar para fora, o downgrade para texto claro está
+fechado. Há teste guardando as duas pontas, inclusive a regressão do Mailpit.
+
+Vale registrar o método: esse defeito **não** foi encontrado por leitura. Foi a CI que o mostrou,
+porque a suíte cara roda em `pull_request` — exatamente o que a ADR-121 preservou ao escalonar.
