@@ -345,6 +345,13 @@ O essencial para não repetir os erros:
   `npm ci` do servidor aceita o lock. O conferidor (`scripts/conferir-artefato.mjs`) faz as duas asserções — ADR-114/117.
 - **Rollback que não foi exercitado não é rollback:** um `|| true` num socorro apagou o `node_modules` de
   produção em 18/08/2026 — ADR-117.
+- **A CI é escalonada, e isso custa dinheiro se alguém desfizer** — ADR-121. Este repositório sozinho
+  consumia **2.313 min/mês**, 116% da cota da conta inteira; a cobrança é **por job, arredondada para
+  cima a cada minuto**. Hoje: `push` na `main` roda só `build-test`; `pull_request` roda tudo; e o
+  `deploy.yml` chama a CI completa (`workflow_call` + job `suite`) **no commit que vai ao ar** — esse
+  elo é o que impede o corte de virar buraco de cobertura. O hook `actions-budget-guard.py` bloqueia
+  a gravação de workflow que desfaça isso. **Não copie o `concurrency` da CI para o `deploy.yml`:** lá
+  é `cancel-in-progress: false`, porque publicação cancelada no meio deixa o servidor indefinido.
 
 ## 12.6. Cliente é sempre pessoa jurídica (ADR-119)
 

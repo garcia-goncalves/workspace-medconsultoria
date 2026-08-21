@@ -1,10 +1,51 @@
 name: CI
 
+# ⛔ ORÇAMENTO DE ACTIONS — leia antes de mexer nos gatilhos.
+# Medido em 20/08 e de novo em 21/08/2026: SÓ ESTE REPOSITÓRIO consumiu 2.313 min em 30
+# dias — 116% da cota mensal da conta INTEIRA. `e2e` (1.049 min) + `integration` (542 min)
+# eram 58% de tudo o que a conta gastou no mês, em todos os repositórios somados.
+# A cobrança é POR JOB, arredondada para cima a cada minuto: os três jobs rodando em
+# paralelo fazem uma execução de "6,3 min no relógio" custar ~13 min de cota.
+#
+# Duas hipóteses que a medição MATOU — não gaste tempo com elas:
+#   • NÃO há duplicata push/pull_request (dos 174 commits do mês, 1 rodou CI duas vezes).
+#   • NÃO falta cache: `pnpm install --frozen-lockfile` leva 3 segundos aqui.
+#
+# O que sobrou é o modelo ESCALONADO abaixo, que muda QUANDO o teste caro roda, nunca SE:
+#   push a `main`     → só `build-test` (lint + typecheck + vitest + auditoria + artefato)
+#   pull_request      → tudo, porque é aí que se decide mesclar
+#   antes de publicar → `deploy.yml` chama esta CI no commit exato que vai ao ar
+# Sem esse último elo o corte vira buraco de cobertura — e aí custou qualidade, não dinheiro.
+
 on:
   push:
     branches: [main]
+    # Só no `push`. Em `pull_request` isto é armadilha: com check obrigatório, um PR só de
+    # documentação trava para sempre esperando um check que nunca vai rodar.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   pull_request:
     branches: [main]
+  # Chamada pelo `deploy.yml` para rodar a suíte COMPLETA no commit que vai a produção.
+  workflow_call:
+
+# Ler o código basta. Sem isto o runner recebe o token com permissão de escrita por herança.
+permissions:
+  contents: read
+
+# 18 execuções do mês foram substituídas por um commit seguinte antes de terminar, e a conta
+# veio inteira. Aqui a execução velha é cancelada quando chega commit novo no mesmo ramo.
+# (O `deploy.yml` tem o `concurrency` DELE, com `cancel-in-progress: false` — está certo
+# assim e não deve ser copiado daqui: publicação pela metade não se cancela.)
+# O grupo NÃO usa `github.workflow` de propósito. Sob `workflow_call` esse campo assume o nome
+# do CHAMADOR (o contexto `github` inteiro é o do chamador — é por isso que existem os campos
+# separados `workflow_ref`/`workflow_sha`). Hoje daria `Deploy-main`, distinto de `CI-main`; mas
+# se um dia o `deploy.yml` fosse renomeado para "CI", um push na `main` passaria a cancelar a
+# suíte que valida uma publicação em andamento. `event_name` não depende de nome nenhum.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   build-test:
@@ -77,6 +118,13 @@ jobs:
         run: node scripts/conferir-artefato.mjs
 
   e2e:
+    # Teste caro: sobe a aplicação inteira e dirige um navegador de verdade. Roda onde a
+    # decisão acontece — no `pull_request` e na chamada do `deploy.yml` —, nunca no `push`
+    # direto à `main`. Houve 90 envios diretos no mês, cada um arrastando este job junto.
+    if: github.event_name != 'push'
+    # Sem isto o job caro começa junto com o barato e paga o minuto inteiro mesmo quando o
+    # `typecheck` já reprovou no primeiro minuto.
+    needs: build-test
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -167,6 +215,9 @@ jobs:
 
   integration:
     # Integração externa (convites/SMTP) — NÃO usa SMTP/OpenAI reais; e-mail vai para o Mailpit.
+    # Mesmo raciocínio de custo do `e2e` acima: caro, e por isso escalonado.
+    if: github.event_name != 'push'
+    needs: build-test
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:

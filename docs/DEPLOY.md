@@ -49,9 +49,14 @@ publicar é apertar um botão.
 
 ### Como publicar (o jeito do dono, sem terminal)
 
-1. Abra **https://github.com/thi-garcia/workspace-medconsultoria/actions/workflows/deploy.yml**
+1. Abra **https://github.com/garcia-goncalves/workspace-medconsultoria/actions/workflows/deploy.yml**
 2. Botão **"Run workflow"**, no canto direito.
 3. No campo que aparece, digite **`PUBLICAR`** (em maiúsculas) e confirme.
+   ⏱️ **Desde 21/08/2026 a publicação demora mais, de propósito.** Antes de tocar no servidor
+   ela roda a **suíte completa de testes** (job `suite`, que chama a CI inteira) no commit exato
+   que vai ao ar — uns 10 a 15 minutos a mais. É o preço de a CI ter ficado escalonada para
+   caber no orçamento de Actions (ADR-121): quem chega à `main` por envio direto rodou só o
+   teste barato, e é aqui que o caro acontece. Se a suíte reprovar, **nada é publicado**.
 4. **Deu certo quando** o último passo, *"Smoke test"*, terminar em verde mostrando
    `{"status":"ok"}` e `NO AR: https://workspace.medconsultoria.com.br`.
 5. **Deu errado?** O passo que falhou fica vermelho e diz o motivo. Se falhou no
@@ -409,7 +414,7 @@ Se o Argon2 nativo falhar no plano de hospedagem: a app tem **Plano B portátil 
 | Banco | **MariaDB 10.6.22** em `localhost` |
 | Modo | **Production** · LiteSpeed/lsnode · startup `app.cjs` |
 | Domínio | `https://workspace.medconsultoria.com.br` |
-| Repositório | `https://github.com/thi-garcia/workspace-medconsultoria` (privado) |
+| Repositório | `https://github.com/garcia-goncalves/workspace-medconsultoria` (privado) |
 
 ### Passo 1 — Subdomínio + SSL (DirectAdmin)
 1. Em **Domain Setup**, garanta que `workspace.medconsultoria.com.br` existe e aponta para a conta.
