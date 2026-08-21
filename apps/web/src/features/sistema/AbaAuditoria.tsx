@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Info, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, Info, TrendingUp, XCircle } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Table, THead, TH, TR, TD } from "../../components/ui/table";
@@ -16,115 +16,149 @@ import { Table, THead, TH, TR, TD } from "../../components/ui/table";
  * Para atualizar: rodar os comandos de novo e reescrever as constantes deste arquivo.
  */
 
-const DATA = "19 de agosto de 2026";
-const COMMIT = "0326d1a";
-const NOTA_GERAL = 84;
+const DATA = "20 de agosto de 2026";
+const COMMIT = "6cd29f9";
+const NOTA_GERAL = 87;
+const NOTA_ANTERIOR = 84;
 
 /* ----------------------------- Dados da auditoria ----------------------------- */
 
 type Tom = "ok" | "alerta" | "ruim";
 
-const DIMENSOES: { nome: string; peso: number; nota: number; tom: Tom; tem: string; falta: string }[] = [
+const DIMENSOES: { nome: string; peso: number; nota: number; antes?: number; tom: Tom; tem: string; falta: string }[] = [
   {
     nome: "Funcionalidade",
     peso: 20,
-    nota: 95,
+    nota: 96,
+    antes: 95,
     tom: "ok",
-    tem: "As 10 fases do roadmap fechadas, mais a evolução pós-MVP e o credenciamento inteligente. 70 itens marcados, 3 pendentes.",
+    tem: "As 10 fases do roadmap fechadas, mais a evolução pós-MVP, o credenciamento inteligente e esta aba. O menu lateral deixou de rolar em tela baixa — defeito achado por print do dono, que a suíte não pegava porque só testava até 720px de altura.",
     falta: "Briefings online (o cliente responder na tela), timeline consolidada na ficha e o modo escuro — os tokens existem no CSS, o botão não.",
   },
   {
     nome: "Segurança da aplicação",
     peso: 15,
     nota: 90,
+    antes: 90,
     tom: "ok",
     tem: "285 dos 300 endpoints atrás de guarda de papel. Argon2id, helmet, freio de 300 req/min, cookie assinado httpOnly, upload com allowlist e checagem de posse, senha de caixa cifrada em AES-GCM.",
-    falta: "Proteção CSRF explícita (hoje só SameSite + origem) e as três pendências que só o dono executa.",
+    falta: "Proteção CSRF explícita (hoje só SameSite + origem) e as três pendências que só o dono executa. Nada mudou aqui desde 19/08.",
   },
   {
     nome: "Testes",
     peso: 15,
-    nota: 80,
+    nota: 85,
+    antes: 80,
     tom: "alerta",
-    tem: "687 casos declarados: 621 de unidade/integração e 66 de ponta a ponta, incluindo varredura axe de acessibilidade e RBAC provado por chamada direta à API.",
-    falta: "Ninguém mede cobertura — não há v8 nem istanbul configurado. Então 80% é contagem de casos, não de linhas cobertas.",
+    tem: "664 casos de unidade/integração e 63 de ponta a ponta. Duas coisas mudaram: 144 testes que existiam e NUNCA rodavam voltaram a rodar (9 suítes morriam ao carregar sem .env), e agora há medição de cobertura — `pnpm cobertura`.",
+    falta: "A medição revelou o tamanho do buraco: 19,18% na API, 9,24% no web, com 17 módulos a 0,0% de unidade. Sem piso na CI, de propósito, até haver o que defender.",
   },
   {
     nome: "Qualidade de código",
     peso: 10,
-    nota: 92,
+    nota: 95,
+    antes: 92,
     tom: "ok",
-    tem: "Typecheck limpo nos 5 pacotes. Em 52.592 linhas: 6 ocorrências de ': any', 2 supressões do TypeScript e zero TODO ou FIXME.",
-    falta: "49 avisos de lint pendurados (variáveis não usadas, fast-refresh) — cosméticos, mas viram ruído que esconde aviso novo.",
+    tem: "Typecheck limpo nos 5 pacotes e saída de lint ZERADA, com `--max-warnings 0` ligado: aviso novo reprova. Em 53 mil linhas: 6 ocorrências de ': any', 2 supressões do TypeScript e zero TODO.",
+    falta: "A regra `react-refresh/only-export-components` foi desligada para chegar a zero — decisão ratificada, com o porquê e a condição de religar escritos no eslint.config.mjs.",
   },
   {
     nome: "CI / CD",
     peso: 10,
-    nota: 85,
+    nota: 88,
+    antes: 85,
     tom: "alerta",
-    tem: "3 jobs e quatro portões reais: audit de produção, artefato conferido, zero teste pulado e migrações aplicadas. Publicação por botão com concurrency e rollback por snapshot.",
-    falta: "A main não tem proteção de ramo nenhuma — o fluxo 'nunca commitar direto' é disciplina, não regra. E não existe homologação de pé.",
+    tem: "3 jobs e cinco portões (audit de produção, artefato conferido, zero teste pulado, migrações, e agora zero aviso de lint). Publicar deixou de depender só do GitHub: o `deploy.sh` foi posto em paridade e ganhou trava de concorrência própria.",
+    falta: "A main continua SEM proteção de ramo. E o `deploy.sh` ainda não rodou ponta a ponta — falta instalar a chave pública no servidor. Homologação segue inexistente.",
   },
   {
     nome: "Operação e observabilidade",
     peso: 10,
     nota: 75,
+    antes: 75,
     tom: "alerta",
     tem: "Telemetria no processo (atraso do event loop, GC, RED por endpoint), motor de alertas com histerese que abre incidente com MTTR, health-check por cron, backup diário e aviso por e-mail ao ROOT.",
-    falta: "A restauração do backup nunca foi ensaiada — backup que ninguém restaurou é hipótese. E não há vigia externo: se o servidor cair inteiro, o cron cai junto.",
+    falta: "Nada mudou aqui. A restauração do backup segue sem ensaio — depende do mesmo acesso SSH — e não há vigia externo: se a hospedagem cair, o cron cai junto.",
   },
   {
     nome: "Documentação",
     peso: 5,
     nota: 95,
+    antes: 95,
     tom: "ok",
-    tem: "7.572 linhas em 21 documentos, com 117 ADRs que explicam o porquê de cada escolha — inclusive dos erros.",
+    tem: "120 ADRs e 21 documentos explicando o porquê de cada escolha, inclusive dos erros. É o ativo mais forte do projeto depois do código.",
     falta: "Três documentos na raiz já superados continuam ali; quem chegar novo lê o retrato errado antes de achar o certo.",
   },
   {
     nome: "Desempenho",
     peso: 5,
-    nota: 65,
+    nota: 80,
+    antes: 65,
     tom: "alerta",
-    tem: "Produção responde em 0,8–1,4 s morna. As telas já vêm em pedaços separados (o maior tem 45 kB).",
-    falta: "O pedaço principal tem 905 kB (268 kB comprimido) e o Vite avisa a cada build — ninguém configurou manualChunks. O primeiro acesso frio levou 9,2 s.",
+    tem: "O pacote principal caiu de 905 kB para 672 no primeiro acesso (gzip 268 → 207), e biblioteca ficou separada da app: uma publicação nova rebaixa 103 kB em vez de 268. O aviso do Vite sumiu.",
+    falta: "Ainda são 672 kB, e o primeiro acesso frio na TineHost levou 9,2 s (mornas, 0,8–1,4 s). O próximo ganho é fatiar o que sobrou no pedaço da app.",
   },
   {
     nome: "Ambiente de desenvolvimento",
     peso: 5,
-    nota: 55,
-    tom: "ruim",
-    tem: "Sobe com um comando quando a máquina está provisionada, e há ferramentas próprias (doutor, acessos, verificar:bootstrap).",
-    falta: "9 suítes da API não carregam sem .env completo, porque config.ts chama process.exit(1) no import. Teste de unidade não deveria exigir banco.",
+    nota: 75,
+    antes: 55,
+    tom: "alerta",
+    tem: "A suíte agora roda em clone limpo, sem .env — era o defeito que fazia 5 falhas falsas aparecerem para quem acabou de clonar.",
+    falta: "`prisma migrate` ainda não enxerga o .env da raiz (precisa de DATABASE_URL exportada na mão) e o `pnpm --filter @app/db exec prisma` falha no Windows mesmo com o binário presente.",
   },
   {
     nome: "Prontidão comercial",
     peso: 5,
     nota: 70,
+    antes: 70,
     tom: "alerta",
     tem: "O sistema faz tudo: proposta, aceite online, assinatura eletrônica, cobrança no sucesso do credenciamento.",
-    falta: "Razão social, CNPJ, endereço e foro continuam nulos — o contrato imprime '[A PREENCHER: CNPJ]'. Nenhum contrato sai pronto para assinar.",
+    falta: "Razão social, CNPJ, endereço e foro continuam nulos — o contrato imprime '[A PREENCHER: CNPJ]'. Nenhum contrato sai pronto para assinar. Nada mudou desde 19/08.",
+  },
+];
+
+const RESOLVIDAS: { titulo: string; como: string }[] = [
+  {
+    titulo: "Teste de unidade exigia configuração de boot",
+    como: "9 suítes morriam ao carregar sem .env, e o placar mostrava 5 falhas que não eram defeito. A causa estava toda no vitest.config.ts. A suíte da API foi de 241 para 385 testes — 144 existiam e nunca rodavam.",
+  },
+  {
+    titulo: "Ninguém media cobertura de teste",
+    como: "`@vitest/coverage-v8` instalado e `pnpm cobertura` fixado. Sem piso na CI, como o plano previa. O mapa mostrou 17 módulos da API a 0,0% de unidade.",
+  },
+  {
+    titulo: "Pacote principal do navegador com 905 kB",
+    como: "Medi antes de fatiar e achei duas coisas que não deviam estar ali: o socket.io indo para produção (onde está desligado) e o Portal do cliente sendo baixado por todo funcionário. 905 → 672 kB.",
+  },
+  {
+    titulo: "49 avisos de lint acumulados",
+    como: "Quatro eram lixo real e saíram; os 46 restantes eram uma regra brigando com o idioma da base, desligada com ratificação. Saída zerada e `--max-warnings 0` ligado — o portão pegou 5 erros meus no mesmo dia.",
+  },
+  {
+    titulo: "O menu lateral rolava e escondia o Sistema",
+    como: "Não estava na lista de 19/08 — apareceu por print do dono. Em 620px o menu pedia 505px e tinha 493. O teste só ia até 720px de altura; agora cobre 660, 620 e 580.",
   },
 ];
 
 const VITAIS: { rotulo: string; valor: string; nota: string; tom: Tom }[] = [
   { rotulo: "Produção", valor: "200 OK", nota: "/health, / e /credenciamentos", tom: "ok" },
   { rotulo: "Typecheck", valor: "0 erros", nota: "5 pacotes, tsc --noEmit", tom: "ok" },
-  { rotulo: "Lint", valor: "0 erros", nota: "49 avisos, nenhum bloqueante", tom: "ok" },
+  { rotulo: "Lint", valor: "0 avisos", nota: "--max-warnings 0 ligado", tom: "ok" },
   { rotulo: "Audit produção", valor: "0 falhas", nota: "pnpm audit --prod, sem corte", tom: "ok" },
-  { rotulo: "Artefato", valor: "12/12", nota: "261 pacotes travados", tom: "ok" },
+  { rotulo: "Primeiro acesso", valor: "672 kB", nota: "era 905 kB · gzip 207", tom: "ok" },
   { rotulo: "Proteção da main", valor: "Ausente", nota: "a API do GitHub responde 404", tom: "ruim" },
 ];
 
 const NUMEROS: { n: string; l: string }[] = [
-  { n: "52.592", l: "linhas de código produtivo" },
-  { n: "11.120", l: "linhas de código de teste" },
+  { n: "53.352", l: "linhas de código produtivo" },
+  { n: "727", l: "casos de teste (664 + 63 e2e)" },
   { n: "300", l: "endpoints em 28 routers" },
   { n: "53", l: "tabelas · 26 enums" },
-  { n: "62", l: "migrações aplicadas" },
-  { n: "687", l: "casos de teste declarados" },
-  { n: "117", l: "decisões registradas (ADR)" },
-  { n: "100", l: "PRs mesclados" },
+  { n: "64", l: "migrações aplicadas" },
+  { n: "19%", l: "cobertura de unidade da API" },
+  { n: "120", l: "decisões registradas (ADR)" },
+  { n: "107", l: "PRs mesclados" },
 ];
 
 const GUARDAS: { guarda: string; qtd: number; pct: string; alcance: string }[] = [
@@ -166,20 +200,6 @@ const LACUNAS: { titulo: string; sev: "bloqueante" | "grave" | "atencao"; texto:
     meta: "Dono (painel DirectAdmin) · 1 dia · DEPLOY.md §12",
   },
   {
-    titulo: "Ninguém mede cobertura de teste",
-    sev: "grave",
-    texto:
-      "687 casos e nenhum provedor de cobertura instalado. Sem isso não dá para responder qual dos 26 módulos está descoberto. O histórico já avisou: os três bugs mais graves não foram achados por teste.",
-    meta: "1 hora para instalar e medir · depois decidir um piso",
-  },
-  {
-    titulo: "Teste de unidade exige configuração de boot",
-    sev: "grave",
-    texto:
-      "9 das 34 suítes da API não carregam sem .env completo, porque config.ts:46 chama process.exit(1) durante o import. Quem clonar o repositório vê 5 falhas vermelhas que não são defeito — e passa a desconfiar da suíte inteira.",
-    meta: "2 horas · modo teste com padrões, ou lançar erro em vez de matar o processo",
-  },
-  {
     titulo: "Sem vigia externo do ar",
     sev: "grave",
     texto:
@@ -187,18 +207,25 @@ const LACUNAS: { titulo: string; sev: "bloqueante" | "grave" | "atencao"; texto:
     meta: "20 min · qualquer monitor externo batendo em /health",
   },
   {
-    titulo: "Pacote principal do navegador com 905 kB",
-    sev: "grave",
-    texto:
-      "O Vite avisa a cada build e o aviso está sendo ignorado. As telas já vêm separadas — o peso está no núcleo comum, nunca fatiado com manualChunks. São 268 kB comprimidos antes de qualquer tela aparecer.",
-    meta: "2 horas · 905,30 kB · gzip 267,89 kB",
-  },
-  {
     titulo: "Três pendências de segredo, só o dono executa",
     sev: "atencao",
     texto:
       "Rotacionar a chave da OpenAI e a senha do SMTP no .env do servidor, e conferir se as 4 contas semeadas ainda aceitam a senha de desenvolvimento que vazou — o root@ primordial é o candidato, porque ninguém o usa para entrar.",
     meta: "Só o dono · 30 min · ADR-98",
+  },
+  {
+    titulo: "A saída de emergência do deploy nunca foi exercitada",
+    sev: "grave",
+    texto:
+      "O deploy.sh foi posto em paridade com o workflow e ganhou trava de concorrência própria, mas não rodou ponta a ponta: falta instalar a chave pública no servidor. Enquanto isso o GitHub segue sendo ponto único de publicação — e em 19/08 ele caiu por 8 minutos, por cobrança da conta.",
+    meta: "Dono do servidor · 5 min no DirectAdmin · depois ./deploy.sh --ensaio",
+  },
+  {
+    titulo: "17 módulos da API sem um único teste de unidade",
+    sev: "grave",
+    texto:
+      "Agora medido, não suposto: sistema (544 linhas), mensagens (421), clientes (409), dashboard (302) e portal (259) estão a 0,0%. Os maiores em risco por tamanho são servicos (1.649 linhas a 7%) e leads (1.206 a 2,5%). Vários são exercitados por e2e — mas e2e não diz qual ramo do código nunca rodou.",
+    meta: "Contínuo · comece pelos que mexem em dinheiro · pnpm cobertura",
   },
   {
     titulo: "CSRF sem defesa explícita",
@@ -214,26 +241,18 @@ const LACUNAS: { titulo: string; sev: "bloqueante" | "grave" | "atencao"; texto:
       "STATUS_GERAL_APLICACAO.md, AUDITORIA_INICIAL_PROJETO.md e AUDITORIA_FUNCIONAL_COMPLETA.md descrevem um estado pré-produção. Só o primeiro avisa que está superado.",
     meta: "10 min · mover para docs/historico/",
   },
-  {
-    titulo: "49 avisos de lint acumulados",
-    sev: "atencao",
-    texto:
-      "Nenhum é defeito. O problema é o volume: com 49 avisos permanentes na saída, o aviso número 50 — que pode ser real — passa despercebido.",
-    meta: "1 hora · depois --max-warnings 0 na CI",
-  },
 ];
 
 const PLANO: { acao: string; quem: string; esforco: string; destrava: string }[] = [
   { acao: "Preencher os dados jurídicos em Ajustes → Dados da empresa", quem: "Dono", esforco: "15 min", destrava: "Contratos assináveis" },
   { acao: "Ligar proteção de ramo na main: exigir PR e CI verde", quem: "Dono", esforco: "5 min", destrava: "Torna regra o que é disciplina" },
+  { acao: "Instalar a chave pública de deploy no servidor (DirectAdmin)", quem: "Dono", esforco: "5 min", destrava: "Publicar sem depender do GitHub" },
   { acao: "Apontar um monitor externo para /health", quem: "Dono", esforco: "20 min", destrava: "Aviso de queda mesmo com o servidor fora" },
   { acao: "Rotacionar chave OpenAI e senha SMTP; conferir as 4 contas semeadas", quem: "Dono", esforco: "30 min", destrava: "Fecha a dívida do vazamento (ADR-98)" },
-  { acao: "Instalar cobertura e medir uma vez, sem impor piso ainda", quem: "Dev", esforco: "1 h", destrava: "Mostra qual módulo está descoberto" },
-  { acao: "Desacoplar config.ts do teste de unidade", quem: "Dev", esforco: "2 h", destrava: "Suíte roda em clone limpo" },
-  { acao: "Fatiar o pacote principal com manualChunks", quem: "Dev", esforco: "2 h", destrava: "Primeira tela mais rápida todo dia" },
   { acao: "Ensaiar a restauração do backup num banco descartável", quem: "Dev", esforco: "meia tarde", destrava: "Backup deixa de ser hipótese" },
+  { acao: "Cobrir de unidade os módulos que mexem em dinheiro", quem: "Dev", esforco: "contínuo", destrava: "Tira servicos e leads do escuro" },
   { acao: "Subir o ambiente de homologação (DEPLOY.md §12)", quem: "Dono + Dev", esforco: "1 dia", destrava: "Produção deixa de ser o primeiro ensaio" },
-  { acao: "Zerar os 49 avisos e ligar --max-warnings 0", quem: "Dev", esforco: "1 h", destrava: "Aviso novo volta a ser visível" },
+  { acao: "Mover os 3 documentos superados para docs/historico/", quem: "Dev", esforco: "10 min", destrava: "Quem chega novo lê o retrato certo" },
 ];
 
 const NAO_VERIFICADO = [
@@ -289,7 +308,12 @@ function LinhaDimensao({ d }: { d: (typeof DIMENSOES)[number] }) {
           <div className="text-xs text-muted-foreground">peso {d.peso}</div>
         </div>
         <div>
-          <div className={"text-lg font-semibold tabular-nums " + COR_TEXTO[d.tom]}>{d.nota}%</div>
+          <div className="flex items-baseline gap-1.5">
+            <span className={"text-lg font-semibold tabular-nums " + COR_TEXTO[d.tom]}>{d.nota}%</span>
+            {d.antes != null && d.antes !== d.nota && (
+              <span className="text-[11px] font-medium tabular-nums text-success">+{d.nota - d.antes}</span>
+            )}
+          </div>
           <div
             className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted"
             role="img"
@@ -325,18 +349,22 @@ export function AbaAuditoria() {
             <div className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Prontidão ponderada
             </div>
+            <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
+              <TrendingUp className="h-3 w-3" />
+              {NOTA_GERAL - NOTA_ANTERIOR} pontos desde 19/08
+            </div>
           </div>
           <div className="space-y-2 text-sm">
             <p>
-              <span className="font-semibold">É um produto maduro em produção, não um protótipo.</span> 52,6 mil linhas
-              de código produtivo, 300 endpoints, 53 tabelas, 687 casos de teste, 117 decisões registradas e um pipeline
-              de publicação com portões que já reprovaram falhas de verdade.
+              <span className="font-semibold">É um produto maduro em produção, não um protótipo.</span> 53,4 mil linhas
+              de código produtivo, 300 endpoints, 53 tabelas, 727 casos de teste, 120 decisões registradas e um pipeline
+              de publicação com cinco portões que já reprovaram falhas de verdade.
             </p>
             <p className="text-muted-foreground">
-              Os 16% que faltam não são funcionalidade — são cerco operacional: nada impede um commit direto na{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">main</code>, a restauração de backup nunca
-              foi ensaiada, não existe homologação de pé e o pacote do navegador passou de 900 kB. Mais os dados
-              jurídicos, que só o dono preenche e que hoje bloqueiam assinar contrato.
+              Cinco lacunas fecharam desde a primeira medição — e a que mais rendeu não estava na lista: 144 testes
+              existiam no repositório e <span className="font-medium">nunca eram executados</span>. O que resta é quase
+              todo <span className="font-medium">cerco operacional</span>, e boa parte depende de quem tem a senha:
+              proteção de ramo, chave de deploy, monitor externo e os dados jurídicos que hoje impedem assinar contrato.
             </p>
           </div>
         </CardContent>
@@ -380,6 +408,25 @@ export function AbaAuditoria() {
         <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
           {DIMENSOES.map((d) => (
             <LinhaDimensao key={d.nome} d={d} />
+          ))}
+        </div>
+      </Secao>
+
+      <Secao
+        titulo="O que fechou desde 19/08"
+        descricao="Cinco lacunas resolvidas. A quinta não estava na lista — apareceu por um print do dono, e a suíte não a pegava."
+      >
+        <div className="space-y-2">
+          {RESOLVIDAS.map((r) => (
+            <Card key={r.titulo}>
+              <CardContent className="flex items-start gap-3 border-l-2 border-l-success p-4">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold">{r.titulo}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{r.como}</p>
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       </Secao>
