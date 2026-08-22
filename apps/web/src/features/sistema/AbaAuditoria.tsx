@@ -139,6 +139,10 @@ const RESOLVIDAS: { titulo: string; como: string }[] = [
     titulo: "O lote parado desde 19/08 foi publicado",
     como: "22/08, das 18:38 às 19:03, no commit f23a1f2. Pela primeira vez a suíte completa (build-test, e2e e integração) rodou no commit exato antes de o servidor ser tocado; depois 7/7 no deploy, zero vulnerabilidade na instalação do servidor, ensaio de boot com 16 portas ouvindo e smoke test respondendo ok.",
   },
+  {
+    titulo: "Três documentos superados moravam na raiz",
+    como: "STATUS_GERAL_APLICACAO.md, AUDITORIA_INICIAL_PROJETO.md e AUDITORIA_FUNCIONAL_COMPLETA.md descreviam um estado pré-produção, e só o primeiro avisava disso. Foram para docs/historico/ com aviso de SUPERADO no topo dos três. Fechada no mesmo dia desta auditoria — era o item mais barato do plano.",
+  },
 ];
 
 const VITAIS: { rotulo: string; valor: string; nota: string; tom: Tom }[] = [
@@ -241,13 +245,6 @@ const LACUNAS: { titulo: string; sev: "bloqueante" | "grave" | "atencao"; texto:
       "A mitigação hoje é SameSite=lax mais checagem de origem, razoável para um sistema interno de domínio único. Está documentado como decisão consciente, não como esquecimento — por isso é atenção e não grave.",
     meta: "Meio dia se decidirem fechar · risco baixo hoje",
   },
-  {
-    titulo: "Documentos superados ainda na raiz",
-    sev: "atencao",
-    texto:
-      "STATUS_GERAL_APLICACAO.md, AUDITORIA_INICIAL_PROJETO.md e AUDITORIA_FUNCIONAL_COMPLETA.md descrevem um estado pré-produção. Só o primeiro avisa que está superado.",
-    meta: "10 min · mover para docs/historico/",
-  },
 ];
 
 const PLANO: { acao: string; quem: string; esforco: string; destrava: string }[] = [
@@ -260,7 +257,6 @@ const PLANO: { acao: string; quem: string; esforco: string; destrava: string }[]
   { acao: "Ensaiar a restauração do backup num banco descartável", quem: "Dev", esforco: "meia tarde", destrava: "Backup deixa de ser hipótese" },
   { acao: "Cobrir de unidade os módulos que mexem em dinheiro", quem: "Dev", esforco: "contínuo", destrava: "Tira servicos e leads do escuro" },
   { acao: "Subir o ambiente de homologação (DEPLOY.md §12)", quem: "Dono + Dev", esforco: "1 dia", destrava: "Produção deixa de ser o primeiro ensaio" },
-  { acao: "Mover os 3 documentos superados para docs/historico/", quem: "Dev", esforco: "10 min", destrava: "Quem chega novo lê o retrato certo" },
 ];
 
 const NAO_VERIFICADO = [
@@ -424,7 +420,7 @@ export function AbaAuditoria() {
 
       <Secao
         titulo="O que fechou desde 20/08"
-        descricao="Cinco travas, e a maior delas não era código: nenhum e-mail jamais tinha saído deste servidor."
+        descricao="Seis travas, e a maior delas não era código: nenhum e-mail jamais tinha saído deste servidor."
       >
         <div className="space-y-2">
           {RESOLVIDAS.map((r) => (

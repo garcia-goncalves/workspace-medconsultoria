@@ -182,7 +182,7 @@ e o banco de E2E **não são tocados** — o ensaio usa banco e portas próprios
 - Apontar qualquer script para banco de produção.
 - Remover fixtures usadas pelos testes (elas continuam; só passam a viver em banco próprio).
 - Substituir dados demo por conteúdo institucional inventado — isso é o Bloco 6 e
-  depende de você fornecer o conteúdo real (ver §7.2 do `AUDITORIA_FUNCIONAL_COMPLETA.md`).
+  depende de você fornecer o conteúdo real (ver §7.2 do `docs/historico/AUDITORIA_FUNCIONAL_COMPLETA.md`).
 
 ---
 
