@@ -47,11 +47,11 @@ const DIMENSOES: { nome: string; peso: number; nota: number; antes?: number; tom
   {
     nome: "Testes",
     peso: 15,
-    nota: 86,
+    nota: 89,
     antes: 85,
     tom: "alerta",
-    tem: "391 casos de unidade na API e 131 no web, rodados e verdes nesta auditoria; mais 80 de integração e 66 de ponta a ponta. O ganho é estrutural: o deploy agora chama a suíte COMPLETA no commit exato que vai ao ar (ADR-121) — em 22/08 os três jobs rodaram em f23a1f2 antes de o servidor ser tocado.",
-    falta: "A cobertura não andou: 19,3% na API e 9,2% no web, com 15 módulos a 0,0% de unidade. Sem piso na CI, de propósito, até haver o que defender.",
+    tem: "A suíte COMPLETA da API rodou nesta máquina pela primeira vez: 463 casos verdes (16 pulados, os que exigem caixa IMAP de verdade), mais 131 no web e 66 de ponta a ponta. E a régua foi corrigida — medindo com a integração incluída, a API tem 45,3% de cobertura, não 19,3%, e NENHUM módulo está a 0,0%.",
+    falta: "O ponto cego real é o funil: leads.service.ts a 16,8%, 1.545 linhas onde mora a conversão. servicos (58,8%) e financeiro (59,1%) estavam muito melhor do que a régua velha dizia. Sem piso na CI, de propósito.",
   },
   {
     nome: "Qualidade de código",
@@ -86,7 +86,7 @@ const DIMENSOES: { nome: string; peso: number; nota: number; antes?: number; tom
     nota: 95,
     antes: 95,
     tom: "ok",
-    tem: "122 ADRs e 14 documentos em docs/ explicando o porquê de cada escolha, inclusive dos erros. É o ativo mais forte do projeto depois do código.",
+    tem: "124 ADRs e 14 documentos em docs/ explicando o porquê de cada escolha, inclusive dos erros. É o ativo mais forte do projeto depois do código.",
     falta: "Três documentos superados continuam na raiz. E o próprio retrato de entrada descrevia o lote como “esperando o disparo” horas depois de ele ter sido publicado — documentação boa também envelhece rápido.",
   },
   {
@@ -143,6 +143,10 @@ const RESOLVIDAS: { titulo: string; como: string }[] = [
     titulo: "Três documentos superados moravam na raiz",
     como: "STATUS_GERAL_APLICACAO.md, AUDITORIA_INICIAL_PROJETO.md e AUDITORIA_FUNCIONAL_COMPLETA.md descreviam um estado pré-produção, e só o primeiro avisava disso. Foram para docs/historico/ com aviso de SUPERADO no topo dos três. Fechada no mesmo dia desta auditoria — era o item mais barato do plano.",
   },
+  {
+    titulo: "A régua de cobertura media metade do que existe",
+    como: "O comando pnpm cobertura EXCLUÍA os testes de integração, e era ele que produzia o \"19,3% e 15 módulos a 0,0%\" — número que esta própria auditoria publicou de manhã. Medindo com a integração incluída: 45,3%, e NENHUM módulo a 0,0%. servicos e financeiro, os dois que o plano mandava salvar primeiro, já estavam perto de 60%. Entrou pnpm cobertura:tudo (precisa do MySQL de teste); a régua rápida continua existindo para quem não tem banco à mão.",
+  },
 ];
 
 const VITAIS: { rotulo: string; valor: string; nota: string; tom: Tom }[] = [
@@ -151,7 +155,7 @@ const VITAIS: { rotulo: string; valor: string; nota: string; tom: Tom }[] = [
   { rotulo: "Lint", valor: "0 avisos", nota: "--max-warnings 0 ligado", tom: "ok" },
   { rotulo: "Audit produção", valor: "0 falhas", nota: "pnpm audit --prod, sem corte", tom: "ok" },
   { rotulo: "Proteção da main", valor: "Ativa", nota: "ruleset da org · 3 checks obrigatórios", tom: "ok" },
-  { rotulo: "Cobertura de unidade", valor: "19,3%", nota: "API · web 9,2% · não andou", tom: "alerta" },
+  { rotulo: "Cobertura da API", valor: "45,3%", nota: "com integração · só unidade: 19,3%", tom: "alerta" },
 ];
 
 const NUMEROS: { n: string; l: string }[] = [
@@ -160,8 +164,8 @@ const NUMEROS: { n: string; l: string }[] = [
   { n: "305", l: "endpoints em 28 routers" },
   { n: "53", l: "tabelas · 25 enums" },
   { n: "64", l: "migrações aplicadas" },
-  { n: "19,3%", l: "cobertura de unidade da API" },
-  { n: "122", l: "decisões registradas (ADR)" },
+  { n: "45,3%", l: "cobertura real da API" },
+  { n: "124", l: "decisões registradas (ADR)" },
   { n: "111", l: "PRs mesclados" },
 ];
 
@@ -218,11 +222,11 @@ const LACUNAS: { titulo: string; sev: "bloqueante" | "grave" | "atencao"; texto:
     meta: "20 min · qualquer monitor externo batendo em /health",
   },
   {
-    titulo: "15 módulos da API sem um único teste de unidade",
+    titulo: "O funil é o ponto cego real do código",
     sev: "grave",
     texto:
-      "Medido, não suposto: sistema (689 linhas), clientes (525), mensagens (513), dashboard (357) e portal (348) estão a 0,0%. Os maiores em risco por tamanho são servicos (2.344 linhas a 7,0%) e leads (1.629 a 2,5%). Vários são exercitados por e2e — mas e2e não diz qual ramo do código nunca rodou.",
-    meta: "Contínuo · comece pelos que mexem em dinheiro · pnpm cobertura",
+      "Com a régua corrigida, leads.service.ts está a 16,8% — 1.545 linhas onde mora a conversão em cliente, a captação pública e a provisão financeira, ou seja, dinheiro e decisão irreversível. Depois dele vêm realtime (7,1%), sistema (10,1%), mensagens (10,9%) e tarefas (11,5%). Os módulos de dinheiro que a régua velha pintava de preto — servicos e financeiro — estão perto de 60%.",
+    meta: "Contínuo · comece por leads.service.ts · pnpm cobertura:tudo",
   },
   {
     titulo: "A saída de emergência do deploy nunca foi exercitada",
@@ -255,14 +259,14 @@ const PLANO: { acao: string; quem: string; esforco: string; destrava: string }[]
   { acao: "Rotacionar a chave da OpenAI e conferir as 4 contas semeadas", quem: "Dono", esforco: "30 min", destrava: "Fecha a dívida do vazamento (ADR-98)" },
   { acao: "Instalar a chave pública de deploy no servidor (DirectAdmin)", quem: "Dono", esforco: "5 min", destrava: "Publicar sem depender do GitHub" },
   { acao: "Ensaiar a restauração do backup num banco descartável", quem: "Dev", esforco: "meia tarde", destrava: "Backup deixa de ser hipótese" },
-  { acao: "Cobrir de unidade os módulos que mexem em dinheiro", quem: "Dev", esforco: "contínuo", destrava: "Tira servicos e leads do escuro" },
+  { acao: "Cobrir leads.service.ts, o ponto cego real (16,8%)", quem: "Dev", esforco: "contínuo", destrava: "Tira a conversão e a captação do escuro" },
   { acao: "Subir o ambiente de homologação (DEPLOY.md §12)", quem: "Dono + Dev", esforco: "1 dia", destrava: "Produção deixa de ser o primeiro ensaio" },
 ];
 
 const NAO_VERIFICADO = [
   "Os dados jurídicos da empresa — identidade.get exige sessão de funcionário, e esta auditoria roda sem credencial de produção.",
   "A taxa de entrega de e-mail NA TELA. Aqui conferi que a correção está no commit publicado e que email-tls.ts tem 6 testes e 100% de cobertura; quem viu o monitor sair de 0% foi a outra janela, em 22/08.",
-  "Os 80 casos de integração da API — mandam e-mail de verdade e não foram executados nesta máquina. Rodaram verdes na CI, no commit f23a1f2, antes da publicação.",
+  "16 casos de integração da caixa de e-mail — exigem uma conta IMAP de verdade e ficam pulados. Os outros 463 da API rodaram aqui, verdes, contra MySQL de verdade.",
   "Os 66 casos de ponta a ponta — precisam de MySQL, seed e Playwright; o verde é o da CI no commit publicado, não execução própria.",
   "A cota de Actions consumida no mês — a API de faturamento do GitHub mudou de endereço e o token não tem escopo. A economia da ADR-121 foi conferida por duração de execução (3 min contra ~10), não por minutos faturados.",
   "Os bugs do tracker: lidos, não reproduzidos um a um.",
@@ -362,7 +366,7 @@ export function AbaAuditoria() {
           <div className="space-y-2 text-sm">
             <p>
               <span className="font-semibold">É um produto maduro em produção, não um protótipo.</span> 54,4 mil linhas
-              de código produtivo, 305 endpoints, 53 tabelas, 668 casos de teste, 122 decisões registradas e um pipeline
+              de código produtivo, 305 endpoints, 53 tabelas, 668 casos de teste, 124 decisões registradas e um pipeline
               que agora roda a suíte completa no commit exato antes de tocar no servidor.
             </p>
             <p className="text-muted-foreground">
@@ -420,7 +424,7 @@ export function AbaAuditoria() {
 
       <Secao
         titulo="O que fechou desde 20/08"
-        descricao="Seis travas, e a maior delas não era código: nenhum e-mail jamais tinha saído deste servidor."
+        descricao="Sete travas, e a maior delas não era código: nenhum e-mail jamais tinha saído deste servidor."
       >
         <div className="space-y-2">
           {RESOLVIDAS.map((r) => (
