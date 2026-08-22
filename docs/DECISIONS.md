@@ -2472,3 +2472,72 @@ um segundo endereço. A suíte da API foi de 391 para 399.
 
 Se o **servidor inteiro** cair, este motor cai junto — ele roda dentro do processo que vigia.
 O vigia externo continua sendo pendência do dono (item do plano da auditoria), e é outro problema.
+
+---
+
+## ADR-124 — A régua de cobertura media metade do que existe (e o plano de testes apontava para o lugar errado)
+
+**Data:** 22/08/2026 · **Situação:** aceita
+
+### Como apareceu
+
+Item do plano da própria auditoria de 22/08: *"cobrir de unidade os módulos que mexem em
+dinheiro"*, com `servicos` a 7,0% e `leads` a 2,5%. Antes de escrever teste, medi o que estava
+descoberto — e o número não fechava com a quantidade de teste de integração que existe para
+essas exatas funções (`conversao-lead-pj`, `credenciamento-cobranca`, `dinheiro-decimal`).
+
+### A causa
+
+`pnpm cobertura` roda `vitest --exclude "**/*.integration.test.ts"`. **A régua excluía
+justamente os testes que exercitam o caminho do dinheiro.** O relatório não estava errado
+sobre o que media; estava sendo lido como se medisse tudo.
+
+### Os dois retratos, lado a lado
+
+| | Régua velha (só unidade) | Régua corrigida (com integração) |
+|---|---|---|
+| API, total | 19,3% | **45,3%** |
+| Módulos a 0,0% | 15 | **nenhum** |
+| `servicos` | 7,0% | **58,8%** |
+| `financeiro` | 4,2% | **59,1%** |
+| `leads` | 2,5% | **20,3%** |
+
+Ou seja: os dois módulos que o plano mandava salvar primeiro **já estavam perto de 60%**, e o
+esforço iria para onde não era mais necessário. O ponto cego real é `leads.service.ts`, a 16,8%
+— 1.545 linhas onde moram a conversão em cliente, a captação pública e a provisão financeira.
+
+### A decisão
+
+Entra `pnpm cobertura:tudo` (raiz e `@app/api`), sem o `--exclude`. A régua rápida continua
+existindo com o nome de sempre, porque tem uso legítimo: roda em segundos e **não precisa de
+banco**. A completa precisa do MySQL de teste no ar:
+
+```
+pnpm db:up
+docker exec medconsultoria-mysql mysql -uroot -proot   -e "CREATE DATABASE IF NOT EXISTS medconsultoria_test CHARACTER SET utf8mb4;
+      GRANT ALL PRIVILEGES ON medconsultoria_test.* TO medconsultoria@%; FLUSH PRIVILEGES;"
+cd packages/db && DATABASE_URL="mysql://medconsultoria:medconsultoria@127.0.0.1:3307/medconsultoria_test" npx prisma migrate deploy
+```
+
+> ⚠️ `npx prisma`, não `pnpm --filter @app/db exec prisma` — este último falha no Windows mesmo
+> com o binário presente (pendência conhecida do ambiente de desenvolvimento).
+
+### O que isso corrige na auditoria
+
+A aba **Sistema → Auditoria** foi publicada de manhã com os números da régua velha e corrigida
+no mesmo dia: cobertura da API 19,3% → **45,3%**, a lacuna *"15 módulos sem um único teste"*
+substituída por *"o funil é o ponto cego real"*, e o plano repontado para `leads.service.ts`.
+A nota de Testes subiu de 86 para 89 — não porque algo foi feito, mas porque **passou a ser
+medido direito**. A nota geral segue 89.
+
+### A lição
+
+Número de cobertura sem a definição do que ele mede é pior que não ter número: ele *parece*
+evidência. Foi por isso que o plano de testes apontava para o lugar errado — e teria custado
+dias de trabalho no módulo que menos precisava.
+
+### O que continua valendo
+
+Segue **sem piso de cobertura na CI**, pela mesma razão da ADR original: piso vira refém, e não
+há o que defender enquanto o número não estabilizar. E ambas as réguas continuam cegas ao que
+só o e2e exercita.
