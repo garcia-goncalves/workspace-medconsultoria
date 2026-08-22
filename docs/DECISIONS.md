@@ -2449,3 +2449,61 @@ Consequência prática para quem for testar e-mail de novo: **não adianta reenv
 o mesmo endereço.** Use o botão **"Enviar acesso"** no card do lead (que foi como esta prova foi
 feita) ou um endereço ainda não cadastrado. ⚠️ "Enviar acesso" **move o lead para
 "Qualificação"** — efeito de negócio, reversível arrastando o card de volta.
+
+---
+
+## ADR-123 — O e-mail parou por semanas e nada avisou: alerta por falhas SEGUIDAS, não por taxa
+
+**Data:** 22/08/2026 · **Situação:** aceita
+
+### Como apareceu
+
+Achado da auditoria de 22/08. A ADR-122 consertou o transporte de e-mail, mas deixou a pergunta
+mais incômoda em aberto: **por que ninguém soube durante semanas?** Foram 25 falhas seguidas e
+taxa de entrega 0% desde sempre. Quem descobriu foi o dono, criando um lead pelo site e não
+recebendo nada — não o motor de alertas, que roda a cada 30 s desde a ADR-84.
+
+O monitor `/emails-enviados` mostrava tudo. Só que painel não avisa: painel espera ser aberto.
+
+### A decisão
+
+Entra uma regra nova no motor de alertas (`observability/alertas.ts`), chave `entrega_email`:
+**falhas registradas depois do último envio bem-sucedido**. Dispara em 3, recupera em 0,
+`critico` a partir de 10. Abre incidente com MTTR e notifica o ROOT, como as outras seis regras.
+
+### Por que NÃO é "taxa de entrega"
+
+Taxa exige volume. Esta app manda poucos e-mails por dia; uma regra do tipo *"menos de X%
+entregue na última hora"* jamais teria disparado — **foi exatamente por falta de volume que o
+defeito durou semanas**. A regra das outras métricas confirma o padrão: `taxa_erro` só avalia
+com `reqUltimoMin >= 5`, porque sem tráfego mínimo a porcentagem mente.
+
+Falha seguida não depende de volume: na **terceira** tentativa morta o alerta sobe, mande a app
+3 e-mails por dia ou 300. E o contador ser *"desde o último sucesso"* dá a recuperação de graça —
+**um único e-mail que sai zera a conta e resolve o incidente**, sem regra de recuperação separada.
+
+### As duas armadilhas, e como cada uma foi fechada
+
+**1) Em desenvolvimento, 100% dos e-mails falham por projeto.** Sem SMTP configurado,
+`enviarEmail` devolve `enviado: false` com o motivo *"modo dev"* — e isso é gravado como
+`FALHOU` na mesma tabela. Uma regra ingênua gritaria em toda máquina de desenvolvedor e em toda
+rodada de e2e. Por isso a primeira linha do `ler()` é `if (!isEmailReal) return null`. Alarme
+falso ensina a ignorar alarme, e este é o alarme que não pode ser ignorado.
+
+**2) Endereço errado não é transporte quebrado.** Caixa cheia, domínio inexistente ou e-mail
+digitado errado produzem falha real — de **uma** mensagem. Enquanto as falhas seguidas forem
+todas para o **mesmo** destinatário, a regra devolve `null` (não avalia) até 10 tentativas;
+a partir daí o benefício da dúvida acaba. Falha em destinatários **diferentes** é sintoma de
+transporte desde a primeira.
+
+### Como foi verificado
+
+A decisão de contagem virou função pura (`observability/entrega-email.ts`) com **8 testes de
+unidade**, entre eles o caso real da ADR-122 (25 falhas, vários destinatários, nenhum sucesso),
+a recuperação com zero falhas, o mesmo destinatário insistente e maiúscula/espaço não inventando
+um segundo endereço. A suíte da API foi de 391 para 399.
+
+### O que esta ADR NÃO resolve
+
+Se o **servidor inteiro** cair, este motor cai junto — ele roda dentro do processo que vigia.
+O vigia externo continua sendo pendência do dono (item do plano da auditoria), e é outro problema.

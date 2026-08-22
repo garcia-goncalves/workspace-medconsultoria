@@ -2,6 +2,8 @@ import { prisma } from "@app/db";
 import { notificar } from "../modules/notificacoes/notificacoes.service.js";
 import { statusJobs } from "../realtime/reminders.js";
 import { getProcessoAgora, getResumoTrafego } from "./monitor.js";
+import { falhasSeguidas, LIMITE_MESMO_DESTINATARIO } from "./entrega-email.js";
+import { isEmailReal } from "../config.js";
 
 /**
  * Motor de alertas. A cada 30s avalia sinais de saúde. Para evitar alarme falso
@@ -119,6 +121,48 @@ const REGRAS: Regra[] = [
     dispara: 25,
     recupera: 15,
     severidade: (v) => (v >= 40 ? "critico" : "degradado"),
+  },
+  {
+    chave: "entrega_email",
+    componente: "E-mail",
+    titulo: "E-mail transacional não está saindo",
+    unidade: " falhas seguidas",
+    /**
+     * Conta as falhas registradas DEPOIS do último envio bem-sucedido. O porquê de ser
+     * "falhas seguidas" e não "taxa de entrega" está em `entrega-email.ts`: taxa exige
+     * volume, e foi justamente por falta de volume que o defeito da ADR-122 passou semanas
+     * despercebido, com 100% dos e-mails de produção morrendo em silêncio.
+     *
+     * ⛔ `isEmailReal` é a primeira linha DE PROPÓSITO: fora de produção não há SMTP e todo
+     * envio é gravado como FALHOU por projeto (`enviarEmail` devolve `enviado: false` em modo
+     * dev, para o chamador mostrar o link na tela). Sem esta guarda o alerta gritaria em toda
+     * máquina de desenvolvimento e em toda rodada de e2e — e alarme falso ensina a ignorar
+     * alarme, que é exatamente o que não se pode perder aqui.
+     */
+    ler: async () => {
+      if (!isEmailReal) return null;
+      const ultimoSucesso = await prisma.emailEnviado.findFirst({
+        where: { status: "ENVIADO" },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      });
+      const falhas = await prisma.emailEnviado.findMany({
+        where: {
+          status: "FALHOU",
+          ...(ultimoSucesso ? { createdAt: { gt: ultimoSucesso.createdAt } } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        select: { para: true },
+        take: 50,
+      });
+      return falhasSeguidas(falhas);
+    },
+    dispara: 3,
+    recupera: 1, // recupera com 0: um único e-mail que sai zera a conta e resolve o incidente
+    severidade: (v) => (v >= LIMITE_MESMO_DESTINATARIO ? "critico" : "degradado"),
+    // Uma avaliação basta. O valor não é pico instantâneo que oscila — é contador que já exige
+    // três mortes seguidas para chegar a 3. Esperar mais 30s não acrescentaria informação.
+    pendentes: 1,
   },
 ];
 

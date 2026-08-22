@@ -1,5 +1,8 @@
 # AUDITORIA FUNCIONAL COMPLETA — Workspace MedConsultoria
 
+> **⚠️ SUPERADO (2026-08-22) — documento histórico.** Rastreador de validação funcional aberto
+> em **17/07/2026**, antes da produção, e que parou de ser atualizado. Quem valida hoje é a
+> suíte (e2e + integração) mais a aba **Sistema → Auditoria**. Mantido aqui por rastreabilidade.
 > Rastreador **vivo** da validação funcional real (UI + fluxos completos via Playwright),
 > por perfil e por viewport. Complementa o `AUDITORIA_INICIAL_PROJETO.md` (auditoria estática).
 > **Regra:** um item só é APROVADO com **evidência** do teste executado (não basta a página carregar).

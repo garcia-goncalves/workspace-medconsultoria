@@ -9,7 +9,7 @@
  * ⚠️ Campos ainda NÃO fornecidos (razão social completa, CNPJ, endereço) estão em
  * `PENDENTE_THAIS` e **não têm valor padrão de propósito**: um CNPJ inventado num contrato
  * seria um problema jurídico real. Ver "Conteúdo real necessário" no
- * AUDITORIA_FUNCIONAL_COMPLETA.md.
+ * docs/historico/AUDITORIA_FUNCIONAL_COMPLETA.md.
  */
 export const INSTITUCIONAL = {
   /** Nome fantasia, como aparece na marca. */
