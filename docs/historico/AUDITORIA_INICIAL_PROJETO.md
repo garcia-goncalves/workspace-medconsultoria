@@ -1,5 +1,9 @@
 # AUDITORIA INICIAL DO PROJETO — Workspace MedConsultoria
 
+> **⚠️ SUPERADO (2026-08-22) — documento histórico.** Retrato de **14/07/2026**, de antes da
+> produção: o app está no ar em https://workspace.medconsultoria.com.br. Estado atual em
+> `/CLAUDE.md`, `docs/DECISIONS.md` e na aba **Sistema → Auditoria** dentro da própria app.
+> Mantido aqui por rastreabilidade.
 > **Propósito.** Registrar com precisão o estado REAL da aplicação antes da etapa final de correções, testes e preparação para produção.
 > **Data da auditoria:** 14/07/2026.
 > **Método.** Análise estática do código-fonte, schema Prisma, rotas, componentes, configurações + inspeção do banco de dados de desenvolvimento em execução + build de produção real + verificações ao vivo (Playwright) feitas nesta sessão. Levantamento conduzido por 6 análises paralelas de subagentes + verificações diretas.
