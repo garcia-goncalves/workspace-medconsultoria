@@ -2413,3 +2413,39 @@ fechado. Há teste guardando as duas pontas, inclusive a regressão do Mailpit.
 
 Vale registrar o método: esse defeito **não** foi encontrado por leitura. Foi a CI que o mostrou,
 porque a suíte cara roda em `pull_request` — exatamente o que a ADR-121 preservou ao escalonar.
+
+### ✅ PROVADO EM PRODUÇÃO, NA TELA — 22/08/2026
+
+Publicado às 18:38–19:03 (execução `32591319305`, commit `f23a1f2`). A suíte completa rodou
+antes de tocar no servidor — `build-test`, `e2e` e `integration` **os três verdes**, que é a
+primeira vez que o elo da ADR-121 foi exercido de verdade. Depois, 7/7 no deploy:
+`found 0 vulnerabilities`, `No pending migrations to apply`, `/health` = `{"status":"ok"}`,
+`/` e `/credenciamentos` = 200.
+
+A prova do e-mail não é o deploy verde — é a tela:
+
+| | Antes (21/08) | Depois (22/08) |
+|---|---|---|
+| Enviados em 7 dias | **0** | **5** |
+| Taxa de entrega | **0%** | **17%** e subindo |
+| "Seu acesso ao Portal" → `tibamooca@gmail.com` | **falhou** (erro de certificado) | **enviado** |
+
+O último item é o que fecha o caso: **o mesmo e-mail, para o mesmo destinatário externo, que
+ontem morria no certificado, hoje sai.** A taxa ainda não é 100% porque as 25 falhas antigas
+continuam na janela de 7 dias — elas são histórico, não sintoma.
+
+**A senha SMTP estava certa.** A ressalva acima (de que a autenticação poderia ser a próxima
+barreira) **não se concretizou**: a conexão passou do certificado direto para a entrega. A
+pendência de rotacionar a senha continua valendo por higiene, mas não é bloqueio.
+
+### Um comportamento que confundiu o diagnóstico e não é defeito
+
+Ao repetir a captação com um e-mail **que já está no funil**, o sistema **não** dispara novo
+e-mail ao lead: o `capturarLead` deduplica por e-mail, atualiza o lead existente e, como o acesso
+ao Portal já fora criado antes, não há convite novo a mandar. Só as quatro notificações internas
+("Novo lead pelo site") saem.
+
+Consequência prática para quem for testar e-mail de novo: **não adianta reenviar o formulário com
+o mesmo endereço.** Use o botão **"Enviar acesso"** no card do lead (que foi como esta prova foi
+feita) ou um endereço ainda não cadastrado. ⚠️ "Enviar acesso" **move o lead para
+"Qualificação"** — efeito de negócio, reversível arrastando o card de volta.
