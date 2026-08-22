@@ -2240,6 +2240,33 @@ A revisão registrou também um custo aceito de propósito: a publicação paga 
 vezes (~3-4 min extras), porque o job `deploy` reconstrói e reaudita o artefato em vez de
 reaproveitar o da suíte. É o que garante que o binário efetivamente enviado foi auditado.
 
+### A ressalva do branch protection saiu do "e se" — e a decisão do `paths-ignore` se provou
+
+Escrito em 21/08/2026 este ADR registrou, como ressalva, que o repositório **não** tinha branch
+protection e que ligá-la exigiria revisar o `concurrency`. Horas depois, ao tentar enviar um
+commit de documentação direto para a `main`, o GitHub recusou:
+
+```
+GH013: Repository rule violations found for refs/heads/main.
+- Changes must be made through a pull request.
+- 3 of 3 required status checks are expected.
+```
+
+A organização `garcia-goncalves` **já vem com regra de repositório** — coisa que a conta pessoal
+`thi-garcia` não tinha. O que isso muda, na prática:
+
+- **Push direto na `main` deixou de existir.** Todo trabalho passa por PR, inclusive documentação.
+  Os 90 envios diretos que motivaram o item 1 deste ADR não podem mais acontecer — o corte de
+  custo continua valendo, mas agora com o reforço do próprio GitHub.
+- **A decisão de NÃO pôr `paths-ignore` em `pull_request` se provou correta, e por pouco.** Com
+  três checks obrigatórios, um PR só de `.md` que não disparasse a CI ficaria travado para sempre,
+  esperando um check que nunca viria. É exatamente a armadilha que o ADR descreveu em teoria e que
+  o repositório passou a ter na prática no mesmo dia.
+- **O `cancel-in-progress` segue correto.** Uma execução cancelada por commit novo no PR é
+  substituída pela execução do commit seguinte, que produz os três checks pedidos. O que não pode
+  acontecer é uma execução ser cancelada e **nada** tomar o lugar — e isso não ocorre, porque o
+  grupo é por ramo e todo commit novo dispara a sua.
+
 ---
 
 ## ADR-122 — Nenhum e-mail jamais saiu de produção: o certificado do SMTP local não se chama "localhost" ✅
