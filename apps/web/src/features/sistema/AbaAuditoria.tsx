@@ -9,17 +9,17 @@ import { Table, THead, TH, TR, TD } from "../../components/ui/table";
  * Por que fixo e não puxado da API: os números aqui vêm de comandos rodados fora da
  * aplicação (`pnpm -r typecheck`, `pnpm audit --prod`, `conferir-artefato.mjs`, `gh api`,
  * `curl` na produção). Nada disso a API sabe responder, e inventar uma consulta que
- * devolvesse "84%" seria fingir precisão que a conta não tem. A data e o commit estão no
+ * devolvesse "89%" seria fingir precisão que a conta não tem. A data e o commit estão no
  * topo justamente para o leitor saber de quando é — auditoria que se apresenta como
  * atualizada sem ser é pior do que auditoria velha e datada.
  *
  * Para atualizar: rodar os comandos de novo e reescrever as constantes deste arquivo.
  */
 
-const DATA = "20 de agosto de 2026";
-const COMMIT = "6cd29f9";
-const NOTA_GERAL = 87;
-const NOTA_ANTERIOR = 84;
+const DATA = "22 de agosto de 2026";
+const COMMIT = "f23a1f2";
+const NOTA_GERAL = 89;
+const NOTA_ANTERIOR = 87;
 
 /* ----------------------------- Dados da auditoria ----------------------------- */
 
@@ -29,10 +29,10 @@ const DIMENSOES: { nome: string; peso: number; nota: number; antes?: number; tom
   {
     nome: "Funcionalidade",
     peso: 20,
-    nota: 96,
-    antes: 95,
+    nota: 97,
+    antes: 96,
     tom: "ok",
-    tem: "As 10 fases do roadmap fechadas, mais a evolução pós-MVP, o credenciamento inteligente e esta aba. O menu lateral deixou de rolar em tela baixa — defeito achado por print do dono, que a suíte não pegava porque só testava até 720px de altura.",
+    tem: "As 10 fases do roadmap fechadas, a evolução pós-MVP, o credenciamento inteligente e esta aba. E uma função que existia no código e nunca funcionou passou a funcionar: nenhum e-mail jamais tinha saído de produção — 25 falhas em 7 dias, taxa de entrega 0% desde sempre — porque o certificado do SMTP local não se chama “localhost” (ADR-122).",
     falta: "Briefings online (o cliente responder na tela), timeline consolidada na ficha e o modo escuro — os tokens existem no CSS, o botão não.",
   },
   {
@@ -41,44 +41,44 @@ const DIMENSOES: { nome: string; peso: number; nota: number; antes?: number; tom
     nota: 90,
     antes: 90,
     tom: "ok",
-    tem: "285 dos 300 endpoints atrás de guarda de papel. Argon2id, helmet, freio de 300 req/min, cookie assinado httpOnly, upload com allowlist e checagem de posse, senha de caixa cifrada em AES-GCM.",
-    falta: "Proteção CSRF explícita (hoje só SameSite + origem) e as três pendências que só o dono executa. Nada mudou aqui desde 19/08.",
+    tem: "290 dos 305 endpoints atrás de guarda de papel. Argon2id, helmet, freio de 300 req/min, cookie assinado httpOnly com SameSite=lax, upload com allowlist e checagem de posse, senha de caixa cifrada em AES-GCM. A dispensa de certificado da ADR-122 vale só para loopback, contra conjunto fechado — e a caixa pessoal de cada um não foi tocada.",
+    falta: "Proteção CSRF explícita (hoje só SameSite + origem) e as pendências de segredo que só o dono executa. Nada mudou aqui desde 20/08.",
   },
   {
     nome: "Testes",
     peso: 15,
-    nota: 85,
-    antes: 80,
+    nota: 86,
+    antes: 85,
     tom: "alerta",
-    tem: "664 casos de unidade/integração e 63 de ponta a ponta. Duas coisas mudaram: 144 testes que existiam e NUNCA rodavam voltaram a rodar (9 suítes morriam ao carregar sem .env), e agora há medição de cobertura — `pnpm cobertura`.",
-    falta: "A medição revelou o tamanho do buraco: 19,18% na API, 9,24% no web, com 17 módulos a 0,0% de unidade. Sem piso na CI, de propósito, até haver o que defender.",
+    tem: "391 casos de unidade na API e 131 no web, rodados e verdes nesta auditoria; mais 80 de integração e 66 de ponta a ponta. O ganho é estrutural: o deploy agora chama a suíte COMPLETA no commit exato que vai ao ar (ADR-121) — em 22/08 os três jobs rodaram em f23a1f2 antes de o servidor ser tocado.",
+    falta: "A cobertura não andou: 19,3% na API e 9,2% no web, com 15 módulos a 0,0% de unidade. Sem piso na CI, de propósito, até haver o que defender.",
   },
   {
     nome: "Qualidade de código",
     peso: 10,
     nota: 95,
-    antes: 92,
+    antes: 95,
     tom: "ok",
-    tem: "Typecheck limpo nos 5 pacotes e saída de lint ZERADA, com `--max-warnings 0` ligado: aviso novo reprova. Em 53 mil linhas: 6 ocorrências de ': any', 2 supressões do TypeScript e zero TODO.",
-    falta: "A regra `react-refresh/only-export-components` foi desligada para chegar a zero — decisão ratificada, com o porquê e a condição de religar escritos no eslint.config.mjs.",
+    tem: "Typecheck limpo nos 5 pacotes e saída de lint ZERADA, com `--max-warnings 0` ligado: aviso novo reprova. São 54,4 mil linhas de código produtivo.",
+    falta: "Nada mudou aqui. A regra `react-refresh/only-export-components` segue desligada, com o porquê e a condição de religar escritos no eslint.config.mjs.",
   },
   {
     nome: "CI / CD",
     peso: 10,
-    nota: 88,
-    antes: 85,
-    tom: "alerta",
-    tem: "3 jobs e cinco portões (audit de produção, artefato conferido, zero teste pulado, migrações, e agora zero aviso de lint). Publicar deixou de depender só do GitHub: o `deploy.sh` foi posto em paridade e ganhou trava de concorrência própria.",
-    falta: "A main continua SEM proteção de ramo. E o `deploy.sh` ainda não rodou ponta a ponta — falta instalar a chave pública no servidor. Homologação segue inexistente.",
+    nota: 94,
+    antes: 88,
+    tom: "ok",
+    tem: "A main tem regra de repositório ATIVA: push direto responde GH013 e exige PR com 3 verificações. Existe ponto de retorno (tag v1.0.0, a primeira do projeto). E a CI parou de estourar a cota — push na main roda só build-test em ~3 min, PR roda tudo, e o deploy chama a suíte completa (ADR-121).",
+    falta: "Homologação segue inexistente, e a saída de emergência (`deploy.sh`) ainda não rodou ponta a ponta: falta a chave pública no servidor.",
   },
   {
     nome: "Operação e observabilidade",
     peso: 10,
-    nota: 75,
+    nota: 80,
     antes: 75,
     tom: "alerta",
-    tem: "Telemetria no processo (atraso do event loop, GC, RED por endpoint), motor de alertas com histerese que abre incidente com MTTR, health-check por cron, backup diário e aviso por e-mail ao ROOT.",
-    falta: "Nada mudou aqui. A restauração do backup segue sem ensaio — depende do mesmo acesso SSH — e não há vigia externo: se a hospedagem cair, o cron cai junto.",
+    tem: "Telemetria no processo (atraso do event loop, GC, RED por endpoint), motor de alertas com histerese, health-check por cron, backup diário e aviso por e-mail ao ROOT — que só agora chega de verdade: enquanto o SMTP falhava, o canal de aviso estava mudo.",
+    falta: "A restauração do backup segue sem ensaio, não há vigia externo (se a hospedagem cair, o cron cai junto) e ninguém é avisado quando a entrega de e-mail para — foram semanas a 0% até o dono reclamar.",
   },
   {
     nome: "Documentação",
@@ -86,88 +86,88 @@ const DIMENSOES: { nome: string; peso: number; nota: number; antes?: number; tom
     nota: 95,
     antes: 95,
     tom: "ok",
-    tem: "120 ADRs e 21 documentos explicando o porquê de cada escolha, inclusive dos erros. É o ativo mais forte do projeto depois do código.",
-    falta: "Três documentos na raiz já superados continuam ali; quem chegar novo lê o retrato errado antes de achar o certo.",
+    tem: "122 ADRs e 14 documentos em docs/ explicando o porquê de cada escolha, inclusive dos erros. É o ativo mais forte do projeto depois do código.",
+    falta: "Três documentos superados continuam na raiz. E o próprio retrato de entrada descrevia o lote como “esperando o disparo” horas depois de ele ter sido publicado — documentação boa também envelhece rápido.",
   },
   {
     nome: "Desempenho",
     peso: 5,
     nota: 80,
-    antes: 65,
+    antes: 80,
     tom: "alerta",
-    tem: "O pacote principal caiu de 905 kB para 672 no primeiro acesso (gzip 268 → 207), e biblioteca ficou separada da app: uma publicação nova rebaixa 103 kB em vez de 268. O aviso do Vite sumiu.",
-    falta: "Ainda são 672 kB, e o primeiro acesso frio na TineHost levou 9,2 s (mornas, 0,8–1,4 s). O próximo ganho é fatiar o que sobrou no pedaço da app.",
+    tem: "O primeiro acesso são 688,5 kB brutos e 207,3 kB comprimidos — os quatro pedaços que o index.html carrega (app 353, react 143, tanstack 137, trpc 55) — mais 64,5 kB de CSS. Produção respondeu em 0,6 a 1,0 s nas quatro páginas medidas.",
+    falta: "Nada mudou aqui. O próximo ganho é fatiar o pedaço da app, que sozinho é 353 kB.",
   },
   {
     nome: "Ambiente de desenvolvimento",
     peso: 5,
     nota: 75,
-    antes: 55,
+    antes: 75,
     tom: "alerta",
-    tem: "A suíte agora roda em clone limpo, sem .env — era o defeito que fazia 5 falhas falsas aparecerem para quem acabou de clonar.",
-    falta: "`prisma migrate` ainda não enxerga o .env da raiz (precisa de DATABASE_URL exportada na mão) e o `pnpm --filter @app/db exec prisma` falha no Windows mesmo com o binário presente.",
+    tem: "A suíte roda em clone limpo, sem .env, e `pnpm cobertura` mede os dois pacotes de uma vez.",
+    falta: "Nada mudou. `prisma migrate` ainda não enxerga o .env da raiz (precisa de DATABASE_URL exportada na mão) e o `pnpm --filter @app/db exec prisma` falha no Windows mesmo com o binário presente.",
   },
   {
     nome: "Prontidão comercial",
     peso: 5,
-    nota: 70,
+    nota: 74,
     antes: 70,
     tom: "alerta",
-    tem: "O sistema faz tudo: proposta, aceite online, assinatura eletrônica, cobrança no sucesso do credenciamento.",
-    falta: "Razão social, CNPJ, endereço e foro continuam nulos — o contrato imprime '[A PREENCHER: CNPJ]'. Nenhum contrato sai pronto para assinar. Nada mudou desde 19/08.",
+    tem: "O sistema faz proposta, aceite online, assinatura eletrônica e cobrança no sucesso do credenciamento — e agora o cliente recebe os e-mails desse fluxo, que antes morriam no servidor sem sair.",
+    falta: "Razão social, CNPJ, endereço e foro: não deu para reconferir nesta rodada (o endpoint exige sessão de funcionário). Enquanto estiverem nulos, o contrato imprime “[A PREENCHER: CNPJ]”.",
   },
 ];
 
 const RESOLVIDAS: { titulo: string; como: string }[] = [
   {
-    titulo: "Teste de unidade exigia configuração de boot",
-    como: "9 suítes morriam ao carregar sem .env, e o placar mostrava 5 falhas que não eram defeito. A causa estava toda no vitest.config.ts. A suíte da API foi de 241 para 385 testes — 144 existiam e nunca rodavam.",
+    titulo: "Nenhum e-mail jamais saiu de produção",
+    como: "25 falhas em 7 dias e taxa de entrega 0% desde sempre, todas com a mesma mensagem: o certificado apresentado pelo SMTP local não se chama “localhost”. Não era senha, porta nem firewall. Corrigido em `email-tls.ts` dispensando só o NOME do certificado e só para loopback; a caixa pessoal de cada um não foi tocada. Publicado em 22/08 (ADR-122).",
   },
   {
-    titulo: "Ninguém media cobertura de teste",
-    como: "`@vitest/coverage-v8` instalado e `pnpm cobertura` fixado. Sem piso na CI, como o plano previa. O mapa mostrou 17 módulos da API a 0,0% de unidade.",
+    titulo: "A main não tinha proteção de ramo",
+    como: "Deixou de ser disciplina e virou regra: o ruleset “Proteger main” da organização está ativo desde 21/08, e push direto responde `GH013: Changes must be made through a pull request`, com 3 verificações obrigatórias. Era a lacuna bloqueante mais antiga da lista.",
   },
   {
-    titulo: "Pacote principal do navegador com 905 kB",
-    como: "Medi antes de fatiar e achei duas coisas que não deviam estar ali: o socket.io indo para produção (onde está desligado) e o Portal do cliente sendo baixado por todo funcionário. 905 → 672 kB.",
+    titulo: "Não existia ponto de retorno",
+    como: "A tag `v1.0.0` foi criada e enviada. Até 21/08 o projeto não tinha nenhuma — para voltar atrás só havia o snapshot de release no servidor, que ninguém tinha exercitado.",
   },
   {
-    titulo: "49 avisos de lint acumulados",
-    como: "Quatro eram lixo real e saíram; os 46 restantes eram uma regra brigando com o idioma da base, desligada com ratificação. Saída zerada e `--max-warnings 0` ligado — o portão pegou 5 erros meus no mesmo dia.",
+    titulo: "A CI consumia 116% da cota de Actions da conta inteira",
+    como: "2.313 min em 30 dias contra 3.000 de cota para 15 repositórios, medido tarefa a tarefa. Escalonada na ADR-121: push na main caiu de três jobs (~10 min) para um (3 min). E o corte não virou buraco de cobertura — o deploy passou a chamar a suíte completa.",
   },
   {
-    titulo: "O menu lateral rolava e escondia o Sistema",
-    como: "Não estava na lista de 19/08 — apareceu por print do dono. Em 620px o menu pedia 505px e tinha 493. O teste só ia até 720px de altura; agora cobre 660, 620 e 580.",
+    titulo: "O lote parado desde 19/08 foi publicado",
+    como: "22/08, das 18:38 às 19:03, no commit f23a1f2. Pela primeira vez a suíte completa (build-test, e2e e integração) rodou no commit exato antes de o servidor ser tocado; depois 7/7 no deploy, zero vulnerabilidade na instalação do servidor, ensaio de boot com 16 portas ouvindo e smoke test respondendo ok.",
   },
 ];
 
 const VITAIS: { rotulo: string; valor: string; nota: string; tom: Tom }[] = [
-  { rotulo: "Produção", valor: "200 OK", nota: "/health, / e /credenciamentos", tom: "ok" },
+  { rotulo: "Produção", valor: "200 OK", nota: "/health, /, /credenciamentos, /comecar", tom: "ok" },
   { rotulo: "Typecheck", valor: "0 erros", nota: "5 pacotes, tsc --noEmit", tom: "ok" },
   { rotulo: "Lint", valor: "0 avisos", nota: "--max-warnings 0 ligado", tom: "ok" },
   { rotulo: "Audit produção", valor: "0 falhas", nota: "pnpm audit --prod, sem corte", tom: "ok" },
-  { rotulo: "Primeiro acesso", valor: "672 kB", nota: "era 905 kB · gzip 207", tom: "ok" },
-  { rotulo: "Proteção da main", valor: "Ausente", nota: "a API do GitHub responde 404", tom: "ruim" },
+  { rotulo: "Proteção da main", valor: "Ativa", nota: "ruleset da org · 3 checks obrigatórios", tom: "ok" },
+  { rotulo: "Cobertura de unidade", valor: "19,3%", nota: "API · web 9,2% · não andou", tom: "alerta" },
 ];
 
 const NUMEROS: { n: string; l: string }[] = [
-  { n: "53.352", l: "linhas de código produtivo" },
-  { n: "727", l: "casos de teste (664 + 63 e2e)" },
-  { n: "300", l: "endpoints em 28 routers" },
-  { n: "53", l: "tabelas · 26 enums" },
+  { n: "54.440", l: "linhas de código produtivo" },
+  { n: "668", l: "casos de teste (602 + 66 e2e)" },
+  { n: "305", l: "endpoints em 28 routers" },
+  { n: "53", l: "tabelas · 25 enums" },
   { n: "64", l: "migrações aplicadas" },
-  { n: "19%", l: "cobertura de unidade da API" },
-  { n: "120", l: "decisões registradas (ADR)" },
-  { n: "107", l: "PRs mesclados" },
+  { n: "19,3%", l: "cobertura de unidade da API" },
+  { n: "122", l: "decisões registradas (ADR)" },
+  { n: "111", l: "PRs mesclados" },
 ];
 
 const GUARDAS: { guarda: string; qtd: number; pct: string; alcance: string }[] = [
-  { guarda: "funcionarioProcedure", qtd: 162, pct: "54%", alcance: "Equipe interna" },
-  { guarda: "adminProcedure", qtd: 64, pct: "21%", alcance: "ADMIN e ROOT — inclui todo o Financeiro" },
-  { guarda: "rootProcedure", qtd: 29, pct: "10%", alcance: "Só ROOT — aba Sistema e operação" },
-  { guarda: "portalProcedure", qtd: 21, pct: "7%", alcance: "Cliente, com clienteId da sessão" },
-  { guarda: "publicProcedure", qtd: 15, pct: "5%", alcance: "Login, captura, proposta e assinatura" },
-  { guarda: "protectedProcedure", qtd: 9, pct: "3%", alcance: "Qualquer sessão válida" },
+  { guarda: "funcionarioProcedure", qtd: 165, pct: "54,1%", alcance: "Equipe interna" },
+  { guarda: "adminProcedure", qtd: 66, pct: "21,6%", alcance: "ADMIN e ROOT — inclui todo o Financeiro" },
+  { guarda: "rootProcedure", qtd: 29, pct: "9,5%", alcance: "Só ROOT — aba Sistema e operação" },
+  { guarda: "portalProcedure", qtd: 21, pct: "6,9%", alcance: "Cliente, com clienteId da sessão" },
+  { guarda: "publicProcedure", qtd: 15, pct: "4,9%", alcance: "Login, captura, proposta e assinatura" },
+  { guarda: "protectedProcedure", qtd: 9, pct: "3,0%", alcance: "Qualquer sessão válida" },
 ];
 
 const LACUNAS: { titulo: string; sev: "bloqueante" | "grave" | "atencao"; texto: string; meta: string }[] = [
@@ -175,57 +175,64 @@ const LACUNAS: { titulo: string; sev: "bloqueante" | "grave" | "atencao"; texto:
     titulo: "Dados jurídicos vazios bloqueiam qualquer contrato",
     sev: "bloqueante",
     texto:
-      "Razão social, CNPJ, endereço e foro continuam nulos. O contrato gerado imprime '[A PREENCHER: CNPJ]' no lugar. O sistema faz proposta, aceite e assinatura de ponta a ponta — e para no último metro.",
+      "Não deu para reconferir nesta rodada: `identidade.get` exige sessão de funcionário e a auditoria roda sem credencial de produção. Enquanto ninguém abrir Ajustes → Dados da empresa e disser o contrário, vale o último retrato — razão social, CNPJ, endereço e foro nulos, e o contrato imprimindo “[A PREENCHER: CNPJ]”. É a única lacuna bloqueante que sobrou, e ela se resolve com um clique de conferência.",
     meta: "Só o dono · Ajustes → Dados da empresa · 15 min · ADR-85",
   },
   {
-    titulo: "A main não tem proteção de ramo",
-    sev: "bloqueante",
+    titulo: "Ninguém é avisado quando o e-mail para de sair",
+    sev: "grave",
     texto:
-      "A API do GitHub responde 404 para as regras de proteção: qualquer push direto entra, sem CI, sem revisão. Três portões caros de CI podem ser contornados por engano num único git push.",
-    meta: "Dono do repositório · 5 min · exigir PR + CI verde",
+      "Foram semanas a 0% de entrega e 25 falhas seguidas sem um único alerta. Quem descobriu foi o dono, criando um lead pelo site e não recebendo nada. O monitor /emails-enviados mostra tudo — depois que alguém pensa em abrir a tela. O motor de alertas vigia atraso de event loop, GC e endpoints, e não vigia isto.",
+    meta: "Dev · meio dia · alertar quando a taxa de entrega cair · achado desta auditoria",
+  },
+  {
+    titulo: "A migração irreversível da ADR-119 está no ar e a tela nunca foi conferida lá",
+    sev: "grave",
+    texto:
+      "O CPF de quem era pessoa física foi movido para as observações da ficha e a marcação de PF sumiu do banco. Isso rodou na publicação de 21/08 (02:22, commit 8159670), não hoje — o retrato de entrada ainda a descrevia como pendente. A lição da ADR-118 é exatamente essa: typecheck verde não prova tela, e o modo de falha aparece sem um único erro de console.",
+    meta: "15 min · abrir /clientes e converter um lead EM PRODUÇÃO · achado desta auditoria",
   },
   {
     titulo: "Backup nunca foi restaurado",
     sev: "grave",
     texto:
-      "O dump diário roda por cron e a documentação traz o comando, mas ninguém nunca o executou. Só o ensaio prova que o arquivo abre, que o schema bate com as 62 migrações e quanto tempo o sistema fica fora.",
+      "O dump diário roda por cron e a documentação traz o comando, mas ninguém nunca o executou. Só o ensaio prova que o arquivo abre, que o schema bate com as 64 migrações e quanto tempo o sistema fica fora.",
     meta: "Meia tarde · restaurar num banco descartável e subir a app contra ele",
   },
   {
     titulo: "Não existe homologação de pé",
     sev: "grave",
     texto:
-      "O HOMOLOGACAO.md descreve o ambiente inteiro, mas os quatro passos são todos 'só você tem acesso' e nenhum foi feito. Na prática, produção é o primeiro lugar onde qualquer mudança roda de verdade — foi assim que a publicação de 18/08 deixou o servidor sem node_modules.",
+      "O HOMOLOGACAO.md descreve o ambiente inteiro, mas os quatro passos são todos “só você tem acesso” e nenhum foi feito. Na prática, produção é o primeiro lugar onde qualquer mudança roda de verdade — foi assim que a publicação de 18/08 deixou o servidor sem node_modules.",
     meta: "Dono (painel DirectAdmin) · 1 dia · DEPLOY.md §12",
   },
   {
     titulo: "Sem vigia externo do ar",
     sev: "grave",
     texto:
-      "O health-check e o motor de alertas rodam dentro do mesmo servidor que vigiam. Se a hospedagem cair, o cron cai junto e ninguém é avisado.",
+      "O health-check e o motor de alertas rodam dentro do mesmo servidor que vigiam. Se a hospedagem cair, o cron cai junto e ninguém é avisado. Agora que o e-mail volta a sair, o aviso finalmente chegaria — desde que quem avisa esteja de pé.",
     meta: "20 min · qualquer monitor externo batendo em /health",
   },
   {
-    titulo: "Três pendências de segredo, só o dono executa",
-    sev: "atencao",
+    titulo: "15 módulos da API sem um único teste de unidade",
+    sev: "grave",
     texto:
-      "Rotacionar a chave da OpenAI e a senha do SMTP no .env do servidor, e conferir se as 4 contas semeadas ainda aceitam a senha de desenvolvimento que vazou — o root@ primordial é o candidato, porque ninguém o usa para entrar.",
-    meta: "Só o dono · 30 min · ADR-98",
+      "Medido, não suposto: sistema (689 linhas), clientes (525), mensagens (513), dashboard (357) e portal (348) estão a 0,0%. Os maiores em risco por tamanho são servicos (2.344 linhas a 7,0%) e leads (1.629 a 2,5%). Vários são exercitados por e2e — mas e2e não diz qual ramo do código nunca rodou.",
+    meta: "Contínuo · comece pelos que mexem em dinheiro · pnpm cobertura",
   },
   {
     titulo: "A saída de emergência do deploy nunca foi exercitada",
-    sev: "grave",
+    sev: "atencao",
     texto:
-      "O deploy.sh foi posto em paridade com o workflow e ganhou trava de concorrência própria, mas não rodou ponta a ponta: falta instalar a chave pública no servidor. Enquanto isso o GitHub segue sendo ponto único de publicação — e em 19/08 ele caiu por 8 minutos, por cobrança da conta.",
+      "O deploy.sh está em paridade com o workflow e tem trava de concorrência própria, mas não rodou ponta a ponta: falta instalar a chave pública no servidor. Baixou de grave para atenção porque o caminho principal se provou de novo em 22/08 e a cobrança do GitHub, que o derrubou em 19/08, foi resolvida.",
     meta: "Dono do servidor · 5 min no DirectAdmin · depois ./deploy.sh --ensaio",
   },
   {
-    titulo: "17 módulos da API sem um único teste de unidade",
-    sev: "grave",
+    titulo: "Pendências de segredo, só o dono executa",
+    sev: "atencao",
     texto:
-      "Agora medido, não suposto: sistema (544 linhas), mensagens (421), clientes (409), dashboard (302) e portal (259) estão a 0,0%. Os maiores em risco por tamanho são servicos (1.649 linhas a 7%) e leads (1.206 a 2,5%). Vários são exercitados por e2e — mas e2e não diz qual ramo do código nunca rodou.",
-    meta: "Contínuo · comece pelos que mexem em dinheiro · pnpm cobertura",
+      "Rotacionar a chave da OpenAI no .env do servidor e conferir se as 4 contas semeadas ainda aceitam a senha de desenvolvimento que vazou — o root@ primordial é o candidato, porque ninguém o usa para entrar. A senha do SMTP saiu da lista de suspeitos: ela estava certa o tempo todo, como a entrega de 22/08 provou; rotacioná-la virou higiene, não conserto.",
+    meta: "Só o dono · 30 min · ADR-98",
   },
   {
     titulo: "CSRF sem defesa explícita",
@@ -244,11 +251,12 @@ const LACUNAS: { titulo: string; sev: "bloqueante" | "grave" | "atencao"; texto:
 ];
 
 const PLANO: { acao: string; quem: string; esforco: string; destrava: string }[] = [
-  { acao: "Preencher os dados jurídicos em Ajustes → Dados da empresa", quem: "Dono", esforco: "15 min", destrava: "Contratos assináveis" },
-  { acao: "Ligar proteção de ramo na main: exigir PR e CI verde", quem: "Dono", esforco: "5 min", destrava: "Torna regra o que é disciplina" },
-  { acao: "Instalar a chave pública de deploy no servidor (DirectAdmin)", quem: "Dono", esforco: "5 min", destrava: "Publicar sem depender do GitHub" },
+  { acao: "Conferir Ajustes → Dados da empresa e preencher se estiver vazio", quem: "Dono", esforco: "15 min", destrava: "Contratos assináveis" },
+  { acao: "Abrir /clientes em produção e converter um lead de verdade", quem: "Dono ou Dev", esforco: "15 min", destrava: "Fecha a dúvida da migração irreversível" },
   { acao: "Apontar um monitor externo para /health", quem: "Dono", esforco: "20 min", destrava: "Aviso de queda mesmo com o servidor fora" },
-  { acao: "Rotacionar chave OpenAI e senha SMTP; conferir as 4 contas semeadas", quem: "Dono", esforco: "30 min", destrava: "Fecha a dívida do vazamento (ADR-98)" },
+  { acao: "Alertar quando a taxa de entrega de e-mail cair", quem: "Dev", esforco: "meio dia", destrava: "O e-mail não volta a ficar mudo por semanas" },
+  { acao: "Rotacionar a chave da OpenAI e conferir as 4 contas semeadas", quem: "Dono", esforco: "30 min", destrava: "Fecha a dívida do vazamento (ADR-98)" },
+  { acao: "Instalar a chave pública de deploy no servidor (DirectAdmin)", quem: "Dono", esforco: "5 min", destrava: "Publicar sem depender do GitHub" },
   { acao: "Ensaiar a restauração do backup num banco descartável", quem: "Dev", esforco: "meia tarde", destrava: "Backup deixa de ser hipótese" },
   { acao: "Cobrir de unidade os módulos que mexem em dinheiro", quem: "Dev", esforco: "contínuo", destrava: "Tira servicos e leads do escuro" },
   { acao: "Subir o ambiente de homologação (DEPLOY.md §12)", quem: "Dono + Dev", esforco: "1 dia", destrava: "Produção deixa de ser o primeiro ensaio" },
@@ -256,11 +264,12 @@ const PLANO: { acao: string; quem: string; esforco: string; destrava: string }[]
 ];
 
 const NAO_VERIFICADO = [
-  "Suíte E2E (66 casos) — precisa de MySQL, seed e Playwright; o verde é o da CI de 19/08, não execução própria.",
-  "Testes de integração da API (66 casos) — mandam e-mail de verdade; não foram executados.",
-  "9 suítes de unidade da API — não carregaram por falta de .env na máquina da auditoria.",
-  "Os 12 bugs do tracker: lidos, não reproduzidos um a um.",
-  "O isolamento do Portal: está no teste de RBAC, que não foi executado nesta auditoria.",
+  "Os dados jurídicos da empresa — identidade.get exige sessão de funcionário, e esta auditoria roda sem credencial de produção.",
+  "A taxa de entrega de e-mail NA TELA. Aqui conferi que a correção está no commit publicado e que email-tls.ts tem 6 testes e 100% de cobertura; quem viu o monitor sair de 0% foi a outra janela, em 22/08.",
+  "Os 80 casos de integração da API — mandam e-mail de verdade e não foram executados nesta máquina. Rodaram verdes na CI, no commit f23a1f2, antes da publicação.",
+  "Os 66 casos de ponta a ponta — precisam de MySQL, seed e Playwright; o verde é o da CI no commit publicado, não execução própria.",
+  "A cota de Actions consumida no mês — a API de faturamento do GitHub mudou de endereço e o token não tem escopo. A economia da ADR-121 foi conferida por duração de execução (3 min contra ~10), não por minutos faturados.",
+  "Os bugs do tracker: lidos, não reproduzidos um a um.",
 ];
 
 /* ----------------------------- Peças ----------------------------- */
@@ -351,20 +360,21 @@ export function AbaAuditoria() {
             </div>
             <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
               <TrendingUp className="h-3 w-3" />
-              {NOTA_GERAL - NOTA_ANTERIOR} pontos desde 19/08
+              {NOTA_GERAL - NOTA_ANTERIOR} pontos desde 20/08
             </div>
           </div>
           <div className="space-y-2 text-sm">
             <p>
-              <span className="font-semibold">É um produto maduro em produção, não um protótipo.</span> 53,4 mil linhas
-              de código produtivo, 300 endpoints, 53 tabelas, 727 casos de teste, 120 decisões registradas e um pipeline
-              de publicação com cinco portões que já reprovaram falhas de verdade.
+              <span className="font-semibold">É um produto maduro em produção, não um protótipo.</span> 54,4 mil linhas
+              de código produtivo, 305 endpoints, 53 tabelas, 668 casos de teste, 122 decisões registradas e um pipeline
+              que agora roda a suíte completa no commit exato antes de tocar no servidor.
             </p>
             <p className="text-muted-foreground">
-              Cinco lacunas fecharam desde a primeira medição — e a que mais rendeu não estava na lista: 144 testes
-              existiam no repositório e <span className="font-medium">nunca eram executados</span>. O que resta é quase
-              todo <span className="font-medium">cerco operacional</span>, e boa parte depende de quem tem a senha:
-              proteção de ramo, chave de deploy, monitor externo e os dados jurídicos que hoje impedem assinar contrato.
+              Duas travas caíram desde 20/08 e nenhuma era de código: a main ganhou regra de repositório (push direto
+              agora é <span className="font-medium">recusado</span>) e o e-mail — que
+              <span className="font-medium"> nunca tinha saído de produção</span> — passou a sair. O que resta é quase
+              todo <span className="font-medium">cerco operacional</span>: vigia externo, ensaio de backup,
+              homologação — e duas conferências de tela que ninguém fez no que já está no ar.
             </p>
           </div>
         </CardContent>
@@ -413,8 +423,8 @@ export function AbaAuditoria() {
       </Secao>
 
       <Secao
-        titulo="O que fechou desde 19/08"
-        descricao="Cinco lacunas resolvidas. A quinta não estava na lista — apareceu por um print do dono, e a suíte não a pegava."
+        titulo="O que fechou desde 20/08"
+        descricao="Cinco travas, e a maior delas não era código: nenhum e-mail jamais tinha saído deste servidor."
       >
         <div className="space-y-2">
           {RESOLVIDAS.map((r) => (
@@ -446,7 +456,7 @@ export function AbaAuditoria() {
 
       <Secao
         titulo="Quem pode chamar o quê"
-        descricao="285 dos 300 endpoints exigem papel. Os 15 públicos são login, captura de lead, proposta e assinatura por token."
+        descricao="290 dos 305 endpoints exigem papel. Os 15 públicos são login, captura de lead, proposta e assinatura por token."
       >
         <Table>
           <THead>
@@ -496,7 +506,7 @@ export function AbaAuditoria() {
 
       <Secao
         titulo="Por onde começar"
-        descricao="Ordenado por retorno sobre esforço. Os quatro primeiros somam menos de um dia e tiram o projeto de 84% para perto de 90%."
+        descricao="Ordenado por retorno sobre esforço. Os dois primeiros são conferência de tela no que já está em produção e somam meia hora — são a diferença entre achar que está certo e saber."
       >
         <Table>
           <THead>
