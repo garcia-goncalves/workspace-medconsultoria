@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "America/Sao_Paulo",
+  "schedule": ["after 9pm every weekday", "every weekend"],
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "minimumReleaseAge": "24 hours",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "minimumReleaseAge": "24 hours"
+  },
+  "packageRules": [
+    {
+      "description": "Correcao de seguranca sem troca de versao maior, com CI verde: entra sozinha.",
+      "matchUpdateTypes": ["patch", "minor"],
+      "isVulnerabilityAlert": true,
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Versao maior SEMPRE espera gente. Muda comportamento, nao so numero.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "addLabels": ["versao-maior"]
+    },
+    {
+      "description": "Agrupa o resto por gerenciador: um pedido, nao dezoito.",
+      "groupName": "dependencias de {{manager}}",
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": false
+    }
+  ]
+}
