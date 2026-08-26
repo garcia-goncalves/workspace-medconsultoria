@@ -100,7 +100,10 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Demonstrativos de pagamento das operadoras (últimos 3 meses)", tipo: "DOCUMENTO", obrigatorio: true, descricao: "Extratos/demonstrativos que mostram pagamentos e glosas." },
       { titulo: "Tabelas de procedimentos das operadoras", tipo: "DOCUMENTO", obrigatorio: false },
       { titulo: "Relatório de glosas do período (se houver)", tipo: "DOCUMENTO", obrigatorio: false },
-      { titulo: "Quais operadoras você atende?", tipo: "INFORMACAO", obrigatorio: true, descricao: "Liste os convênios (Unimed, Bradesco, Amil, SUS…)." },
+      // "Quais operadoras você atende?" saiu daqui na ADR-126: a lista de convênios virou campo
+      // estruturado no serviço contratado (`ClienteServico.operadoras`), e o Portal mostrava a
+      // mesma pergunta duas vezes. Quem apaga a linha de quem já tem banco é a migração
+      // `20260826213000_remove_exigencia_operadoras_duplicada` — a semente só roda com a tabela vazia.
       { titulo: "Qual o volume médio de guias por mês?", tipo: "INFORMACAO", obrigatorio: false },
       { titulo: "Como a equipe acessa os portais das operadoras?", tipo: "INFORMACAO", obrigatorio: false, descricao: "Descreva o acesso aos portais de faturamento (sem senhas por escrito)." },
     ],
