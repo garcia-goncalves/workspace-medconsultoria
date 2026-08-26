@@ -2700,3 +2700,133 @@ O total do funil **soma valor mensal com valor de cobrança única** — R$ 100,
 entra no mesmo bolo de um serviço avulso. **Isso já era assim** (Gestão Operacional é R$ 3.500/mês
 e sempre entrou igual); não foi criado aqui e arrumar exige decidir como o funil deve ser lido.
 Registrado para não parecer resolvido.
+
+---
+
+## ADR-126 — Uma proposta por operadora, uma lista de convênios por cliente, e um cadastro só de operadora ✅
+
+**Data:** 26/08/2026 · **Situação:** implementada, provada na tela, **ainda não publicada**
+
+### O pedido, em uma frase
+
+A proposta de Faturamento não podia ter valor, quantidade nem "avulso ou mensal" — e precisava
+listar os convênios que a clínica atende e quanto ela fatura por mês. Junto veio outra coisa: cada
+proposta de credenciamento é de **uma** operadora, nunca de várias.
+
+### As cinco decisões, e o porquê de cada uma
+
+**1. A operadora é UM cadastro, com marcação por serviço.**
+A mesma Unimed que se credencia é a Unimed cujas contas se faturam. Duas listas separadas fariam a
+Thaís cadastrar o mesmo nome duas vezes e — o que é pior — deixariam as duas divergirem com o
+tempo: a do credenciamento atualizada, a do faturamento esquecida. O que muda de um serviço para o
+outro é só *para qual deles* a operadora serve, e isso são duas marcações:
+`Operadora.usoCredenciamento` e `Operadora.usoFaturamento`. Em Ajustes a tela mostra abas
+separadas, mas o registro é o mesmo. **As operadoras existentes nascem marcadas nas duas** — senão
+a primeira proposta de faturamento abriria vazia e pareceria defeito.
+
+*Recusado:* operadora marcada para nenhum dos dois. Ela sumiria de todas as listas sem aviso, e
+isso se lê como perda de dado. A tela recusa antes de o servidor recusar.
+
+**2. Proposta de credenciamento = UMA operadora.**
+O papel real da Thaís negocia com uma operadora de cada vez: cada uma tem o próprio prazo, a
+própria documentação e o próprio desfecho. Uma proposta com três operadoras dentro **não pode ser
+aceita pela metade** — e é exatamente isso que acontece na vida real quando uma aprova e outra
+nega. Consequência avisada ao dono e aceita por ele: **credenciar em três operadoras = três
+propostas = três números** na sequência dela (0225, 0226, 0227).
+
+⚠️ **A grade médico × operadora NÃO mudou.** Quem virou "uma só" é o DOCUMENTO. O credenciamento
+continua sendo por pessoa, cada cruzamento com preço próprio e acompanhamento até a aprovação
+(ADR-104). Na tela, o construtor inverteu a ordem: escolhe-se a operadora, depois marcam-se os
+médicos que entram naquela proposta.
+
+**3. Proposta de faturamento: só o percentual, sempre mensal.**
+Não existe valor fixo no Faturamento de contas médicas, não existe quantidade, e não existe
+"avulso". A linha da proposta perde os três campos — e **quem decide isso é o PREÇO do serviço**
+(`ehServicoSomentePercentual`, em `@app/shared`), nunca o nome da categoria. Esta é a terceira vez
+que a mesma comparação `categoria === "Faturamento"` é removida (a ADR-125 tirou de três lugares e
+deixou dois passarem). Casar por nome quebra em dois dias previsíveis: quando a categoria é
+renomeada na tela de Serviços, e quando nasce um segundo serviço percentual. Há um teste que
+reprova a volta da comparação, com os comentários removidos antes de conferir — guardar a regra e
+proibir a explicação dela seria trocar uma armadilha por outra.
+
+O modelo novo, **"Proposta de faturamento médico"**, é reconhecido pelo marcador `{{convenios}}`
+no corpo — mesma lógica do credenciamento, que se reconhece por `{{operadoras}}`. E o papel mostra
+a **conta feita**, não o percentual solto: *"Valor estimado do serviço: R$ 6.000,00/mês (5% de
+R$ 120.000,00)"*. "5% do faturamento" não diz nada a quem vai assinar.
+
+**4. O valor estimado continua no LEAD, e a proposta escreve de volta.**
+O lead existe antes da proposta, e o passo obrigatório da Qualificação pergunta esse mesmo número
+(ADR-125). Sem a escrita de volta, quem descobrisse o valor certo montando a proposta teria de ir
+digitar de novo no funil — e, esquecendo, o card mostraria um valor velho ao lado de um documento
+com o valor novo. **Um número só, andando para frente.** A proposta nasce preenchida com o que o
+funil já sabe; corrigir ali corrige o lead e recalcula o valor do negócio, pela mesma
+`reconciliarPassosAuto` que a edição do lead chama.
+
+*É best-effort de propósito:* a proposta já foi emitida e existe. Derrubá-la porque o funil não
+aceitou um número seria trocar um documento pronto por um erro. Só mexe em lead **ainda em
+negociação** — lead fechado é histórico.
+
+**5. Os convênios ficam com o CLIENTE, não com o documento.**
+`ClienteServico ↔ Operadora` (N-N). A lista nasce da proposta aceita e continua editável na ficha,
+em **Serviços → Editar preço → Preço e convênios**: a lista de convênios muda com o tempo e é dado
+do cliente, não do papel que a originou. O cliente também a vê no Portal — é sobre ela que a
+apuração do mês acontece.
+
+⚠️ **Os convênios viajam DENTRO do item da proposta** (`conveniosIds` em
+`documentoServicoItemSchema`), e não soltos no documento. É assim que eles atravessam o aceite:
+pelo mesmo caminho que serviço e preço já percorrem até `sincronizarServicosContratados`. Uma
+segunda costura ficaria para trás no primeiro caso de borda. E são **ids, não nomes** — nome
+copiado não sobrevive a um "renomear" no catálogo.
+
+*Recusado, e o dono decidiu isso explicitamente:* um campo de "automação" por operadora. Campo
+criado por precaução nasce vazio e morre vazio.
+
+### O banco
+
+Migração `20260826193338_operadora_por_servico_e_convenios_do_cliente`, **puramente aditiva**.
+Nada é apagado, nada é convertido, nenhuma linha existente muda de valor:
+
+- `Operadora.usoCredenciamento BOOLEAN NOT NULL DEFAULT true`
+- `Operadora.usoFaturamento BOOLEAN NOT NULL DEFAULT true`
+- `_ClienteServicoOperadoras` — a tabela de ligação N-N, nasce vazia.
+
+Reverter em produção = apagar as duas colunas e a tabela de ligação.
+
+### A prova
+
+Typecheck verde não prova nada aqui — relação N-N é o caso mais fácil de escrever e nunca gravar.
+Então:
+
+- **8 testes de unidade** da regra de preço (`preco-do-servico.test.ts`), incluindo o misturado, o
+  zero, o negativo e o `undefined` — mais a conferência de que a tela não voltou a comparar
+  categoria.
+- **11 testes contra o MySQL de verdade** (`operadora-convenios.integration.test.ts`): a marcação
+  nasce nas duas listas, o filtro recorta, desmarcar as duas é recusado sem gravar pela metade,
+  duas operadoras são recusadas nos dois formatos, o papel traz a conta, os convênios chegam ao
+  `ClienteServico`, a ficha os devolve como **nomes**, e operadora presa a um serviço contratado
+  não é excluída em silêncio.
+- **Na tela**, no localhost, com zero erro de console:
+  - Ajustes → Operadoras: 5 operadoras, abas Todas 5 / Credenciamento 5 / Faturamento 5.
+  - Proposta de credenciamento **0228** (Clínica Bem Estar): uma operadora (Unimed), grade por
+    médico intacta — `| Dra. Helena Martins Prado — Cardiologista | Unimed | R$ 25,00 |`.
+  - Proposta de faturamento **0229** (Clínica Vida Plena): serviço percentual sem valor, sem
+    quantidade e sem avulso/mensal; convênios Unimed + Bradesco Saúde no corpo; *"Valor estimado
+    do serviço: R$ 6.000,00/mês (5% de R$ 120.000,00)"*; e a condição de pagamento do serviço
+    pré-preenchida sozinha (ADR-125).
+  - Ficha do cliente: *"Convênios atendidos: Unimed, Omint"*, gravado pelo editor.
+  - Portal do cliente: *"Convênios atendidos: Unimed, Bradesco Saúde, Amil One, Care Plus,
+    Omint"*.
+
+### O que ficou de fora, e por quê
+
+- **A exigência "Quais operadoras você atende?" continua no checklist do Faturamento**, agora ao
+  lado da lista estruturada de convênios. São duas perguntas parecidas na mesma tela. Não foi
+  removida porque é a Thaís quem edita esse checklist (Serviços → Exigências) e apagar uma
+  exigência apaga o que o cliente já respondeu nela — a decisão é do dono.
+- **O total do funil segue somando valor mensal com valor avulso no mesmo bolo** — já registrado
+  na ADR-125, não foi criado nem resolvido aqui.
+- **As propostas de credenciamento já emitidas com várias operadoras continuam como estão.** A
+  regra vale para as novas; documento emitido é histórico e não se reescreve.
+- **A escrita de volta no lead não foi exercida na tela** — o cliente usado na prova já tinha sido
+  convertido, então não havia lead em negociação para corrigir (o comportamento correto é não
+  mexer). Quem prova esse caminho é o teste de integração, contra o MySQL de verdade.

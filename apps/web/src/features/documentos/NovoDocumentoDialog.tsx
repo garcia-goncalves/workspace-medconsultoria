@@ -13,7 +13,8 @@ import { Select } from "../../components/ui/select";
 import { Combobox } from "../../components/ui/combobox";
 import { MoneyInput } from "../../components/ui/money-input";
 import { PropostaServicosPicker, type PropostaSel } from "./PropostaServicosPicker";
-import { CredenciamentoPicker } from "./CredenciamentoPicker";
+import { CredenciamentoPicker, type OperadoraEscolhida } from "./CredenciamentoPicker";
+import { ConveniosPicker } from "./ConveniosPicker";
 import { PlanoAcaoFields, type AcaoLinha } from "./PlanoAcaoFields";
 import { PautaPostagemFields, type PostLinha, REDES as POST_REDES, FORMATOS as POST_FORMATOS } from "./PautaPostagemFields";
 import { SmartCampos } from "./SmartCampos";
@@ -100,8 +101,15 @@ export function NovoDocumentoDialog({
   // médico cadastrado, o formato antigo por operadora.
   const [celulasGrade, setCelulasGrade] = useState<CelulaGrade[]>([]);
   const [modoGrade, setModoGrade] = useState(false);
-  const [operadorasSel, setOperadorasSel] = useState<string[]>([]);
+  // UMA operadora por proposta de credenciamento (ADR-126).
+  const [operadoraProposta, setOperadoraProposta] = useState<OperadoraEscolhida>(null);
   const [valorOperadora, setValorOperadora] = useState(0);
+  // Proposta de FATURAMENTO (ADR-126): os convênios atendidos e o faturamento médio mensal.
+  // O faturamento é a MESMA base que a Qualificação do funil pergunta — corrigi-lo aqui
+  // corrige o lead, um número só andando para frente.
+  const [conveniosSel, setConveniosSel] = useState<string[]>([]);
+  const [faturamentoMensal, setFaturamentoMensal] = useState(0);
+  const faturamentoTocado = useRef(false);
   // Ata / Pauta
   const [anotacoes, setAnotacoes] = useState("");
   const [topicos, setTopicos] = useState("");
@@ -135,8 +143,11 @@ export function NovoDocumentoDialog({
     condicoesTocadas.current = false;
     setObservacoes("");
     setUsarIA(false);
-    setOperadorasSel([]);
+    setOperadoraProposta(null);
     setValorOperadora(0);
+    setConveniosSel([]);
+    setFaturamentoMensal(0);
+    faturamentoTocado.current = false;
     setCelulasGrade([]);
     setModoGrade(false);
     setAnotacoes("");
@@ -157,6 +168,7 @@ export function NovoDocumentoDialog({
   // até o envio).
   useEffect(() => {
     setCelulasGrade([]);
+    setOperadoraProposta(null);
   }, [clienteId]);
 
   const modelo = modelos.data?.find((m) => m.id === modeloId);
@@ -233,6 +245,13 @@ export function NovoDocumentoDialog({
         };
       }
       setSel(next);
+    } else if (modo === "PROPOSTA") {
+      // A proposta de faturamento NASCE com o que o funil já sabe (ADR-126): o faturamento
+      // mensal informado na Qualificação e os convênios já registrados. Quem já respondeu não
+      // responde de novo — e corrigir aqui devolve o número corrigido ao lead.
+      const doFunil = ctx.faturamentoMensal ?? 0;
+      if (!faturamentoTocado.current && doFunil > 0) setFaturamentoMensal(doFunil);
+      if (ctx.conveniosAtuais.length) setConveniosSel((v) => (v.length ? v : ctx.conveniosAtuais));
     } else if (modo === "RECIBO") {
       // Recibo: sugere o valor (mensal/à vista) e o "referente a" (serviços) — sem sobrescrever.
       if (ctx.sugestoes.valor > 0) setReciboValor((v) => (v > 0 ? v : ctx.sugestoes.valor));
@@ -271,12 +290,28 @@ export function NovoDocumentoDialog({
   // de OPERADORAS (não o catálogo de serviços da proposta comercial).
   const ehCredenciamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{operadoras}}");
 
+  // Proposta de FATURAMENTO = modelo cujo corpo declara {{convenios}} (ADR-126). Mesma lógica
+  // de detecção do credenciamento: quem manda é o MODELO, não o nome do serviço nem a categoria.
+  const ehFaturamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{convenios}}");
+  // O percentual somado dos serviços escolhidos — é o que a proposta cobra por mês.
+  const percentualDaProposta = Object.values(sel).reduce((t, i) => t + (i.percentual ?? 0), 0);
+  const valorEstimadoDoFaturamento =
+    faturamentoMensal > 0 && percentualDaProposta > 0
+      ? Math.round(((faturamentoMensal * percentualDaProposta) / 100 + Number.EPSILON) * 100) / 100
+      : 0;
+
   // Os médicos e as operadoras do cliente — a mesma consulta que o CredenciamentoPicker faz
   // (o cache do TanStack Query resolve uma vez só). A prévia precisa dos NOMES para desenhar
   // a grade igual ao que o servidor vai gerar.
   const gradeCtx = trpc.credenciamento.grade.useQuery(
     { clienteId },
     { enabled: open && ehCredenciamento && !!clienteId },
+  );
+
+  // Os NOMES dos convênios para a prévia (o mesmo cache que o ConveniosPicker usa).
+  const catalogoConvenios = trpc.documentos.operadoras.list.useQuery(
+    { uso: "FATURAMENTO" },
+    { enabled: open && ehFaturamento },
   );
 
   // Preview ao vivo: injeta os valores já preenchidos no corpo antes de exibir.
@@ -325,17 +360,17 @@ export function NovoDocumentoDialog({
         profissionaisTxt = juntar(usados.map((p) => (p.especialidade ? `${p.nome}, ${p.especialidade}` : p.nome)));
         nomesTxt = juntar(usados.map((p) => p.nome));
       } else {
-        const ops = operadorasSel;
+        // Uma proposta, uma operadora (ADR-126).
         const fee = valorOperadora || 0;
-        total = fee * ops.length;
+        total = fee;
         bloco.push(
           `## Investimento\n\n${
             fee > 0
-              ? `**${formatBRL(total)}** para o credenciamento em **${ops.length} operadora(s)** — ${formatBRL(fee)} por operadora.`
-              : "Investimento a combinar conforme as operadoras selecionadas."
+              ? `**${formatBRL(fee)}** para o credenciamento junto à operadora **${operadoraProposta?.nome ?? ""}**.`
+              : "Investimento a combinar."
           }`,
         );
-        nomesOperadoras = ops;
+        nomesOperadoras = operadoraProposta ? [operadoraProposta.nome] : [];
       }
 
       if (extras.length) bloco.push(extras.join("  \n"));
@@ -395,6 +430,15 @@ export function NovoDocumentoDialog({
         condicoes.trim() ? `**Condições de pagamento:** ${condicoes.trim()}` : "",
       ].filter(Boolean);
       const bloco = [`## Serviços propostos\n\n${tabela}`, `## Investimento\n\n${inv.join("\n")}`];
+      // Espelha o servidor: com o faturamento informado, o papel mostra a CONTA feita, não só
+      // o percentual solto (ADR-126).
+      if (ehFaturamento && faturamentoMensal > 0 && percentualDaProposta > 0) {
+        bloco.push(
+          `**Faturamento mensal médio informado:** ${formatBRL(faturamentoMensal)}  \n` +
+            `**Valor estimado do serviço:** ${formatBRL(valorEstimadoDoFaturamento)}/mês (${percentualDaProposta}% de ${formatBRL(faturamentoMensal)}).  \n` +
+            `_Valor de referência: a cobrança acompanha o faturamento efetivamente apurado no mês._`,
+        );
+      }
       if (extras.length) bloco.push(extras.join("  \n"));
       if (observacoes.trim()) bloco.push(observacoes.trim());
       const apresentacao =
@@ -403,6 +447,23 @@ export function NovoDocumentoDialog({
         "para fazer o que mais importa: cuidar de vidas. Apresentamos a seguir a proposta pensada para as suas necessidades.";
       corpo = corpo
         .replace(/\{\{\s*servicos\s*\}\}/g, bloco.join("\n\n"))
+        .replace(
+          /\{\{\s*convenios\s*\}\}/g,
+          conveniosSel.length
+            ? conveniosSel
+                .map((id) => catalogoConvenios.data?.find((o) => o.id === id)?.nome)
+                .filter(Boolean)
+                .map((n) => `- **${n}**`)
+                .join("\n")
+            : "_(selecione os convênios ao lado)_",
+        )
+        .replace(
+          /\{\{\s*faturamento_mensal\s*\}\}/g,
+          faturamentoMensal > 0 ? formatBRL(faturamentoMensal) : "_(a informar)_",
+        )
+        .replace(/\{\{\s*percentual\s*\}\}/g, percentualDaProposta > 0 ? `${percentualDaProposta}%` : "_(a combinar)_")
+        .replace(/\{\{\s*numero\s*\}\}/g, "_(gerado ao criar)_")
+        .replace(/\{\{\s*consultora\s*\}\}/g, usuario.nome || "MedConsultoria")
         .replace(/\{\{\s*apresentacao\s*\}\}/g, apresentacao);
     }
     if (modo === "CONTRATO") {
@@ -501,7 +562,10 @@ export function NovoDocumentoDialog({
         ...(ehCredenciamento
           ? modoGrade
             ? { grade: celulasGrade }
-            : { operadoras: operadorasSel, valorPorOperadora: valorOperadora || undefined }
+            : {
+                operadoras: operadoraProposta ? [operadoraProposta.nome] : [],
+                valorPorOperadora: valorOperadora || undefined,
+              }
           : {
               itens: Object.entries(sel).map(([servicoId, i]) => ({
                 servicoId,
@@ -510,6 +574,12 @@ export function NovoDocumentoDialog({
                 recorrencia: i.recorrencia,
                 percentual: i.percentual,
               })),
+              // Faturamento (ADR-126): os convênios e a base do cálculo. O servidor grava os
+              // convênios dentro do item para eles atravessarem o aceite, e devolve o
+              // faturamento ao lead.
+              ...(ehFaturamento
+                ? { conveniosIds: conveniosSel, faturamentoMensal: faturamentoMensal || 0 }
+                : {}),
             }),
         prazo: prazo || undefined,
         condicoes: condicoes || undefined,
@@ -599,9 +669,7 @@ export function NovoDocumentoDialog({
     pending ||
     (modo === "PROPOSTA"
       ? ehCredenciamento
-        ? modoGrade
-          ? celulasGrade.length === 0
-          : operadorasSel.length === 0
+        ? !operadoraProposta || (modoGrade && celulasGrade.length === 0)
         : Object.keys(sel).length === 0
       : modo === "CONTRATO"
       ? !clienteId || Object.keys(sel).length === 0
@@ -683,14 +751,50 @@ export function NovoDocumentoDialog({
                 clienteId={clienteId}
                 celulas={celulasGrade}
                 setCelulas={setCelulasGrade}
-                operadoras={operadorasSel}
-                setOperadoras={setOperadorasSel}
+                operadora={operadoraProposta}
+                setOperadora={setOperadoraProposta}
                 valorOperadora={valorOperadora}
                 setValorOperadora={setValorOperadora}
                 onModoGrade={setModoGrade}
               />
             ) : (
-              <PropostaServicosPicker sel={sel} setSel={setSel} />
+              <>
+                <PropostaServicosPicker sel={sel} setSel={setSel} />
+                {ehFaturamento && (
+                  <>
+                    <ConveniosPicker selecionados={conveniosSel} setSelecionados={setConveniosSel} />
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor="prop-faturamento"
+                        hint="Quanto a clínica fatura por mês, em média. É a mesma informação da Qualificação no funil — corrigir aqui corrige lá."
+                      >
+                        Faturamento mensal médio da clínica
+                      </Label>
+                      <MoneyInput
+                        id="prop-faturamento"
+                        value={faturamentoMensal}
+                        onChange={(v) => {
+                          faturamentoTocado.current = true;
+                          setFaturamentoMensal(v ?? 0);
+                        }}
+                        className="h-9"
+                      />
+                      {valorEstimadoDoFaturamento > 0 ? (
+                        <p className="rounded-md bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                          Valor do negócio:{" "}
+                          <strong className="text-foreground">{formatBRL(valorEstimadoDoFaturamento)}/mês</strong> (
+                          {percentualDaProposta}% de {formatBRL(faturamentoMensal)}). Este número também atualiza o
+                          card do lead no funil.
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Sem valor fixo: a cobrança é o percentual sobre o que a clínica fatura, todo mês.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </>
             )}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">

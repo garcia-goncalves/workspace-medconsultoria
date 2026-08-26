@@ -1,4 +1,5 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
+import { ehServicoSomentePercentual, temPercentual } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -16,6 +17,12 @@ export type PropostaSel = {
 /**
  * Seletor de serviços da proposta (catálogo com preços editáveis + total inteligente).
  * O estado (`sel`) fica no pai, que monta o payload de `criarProposta`.
+ *
+ * **Serviço cobrado só por percentual não mostra valor, quantidade nem avulso/mensal** — não
+ * existe valor fixo no Faturamento de contas médicas, não existe quantidade, e é sempre mensal.
+ * Quem decide isso é o PREÇO do serviço (`ehServicoSomentePercentual`), nunca o nome da
+ * categoria: a checagem por `categoria === "Faturamento"` que morava aqui quebraria no dia em
+ * que a Thaís criasse outro serviço percentual ou renomeasse a categoria. Ver ADR-125/126.
  */
 export function PropostaServicosPicker({
   sel,
@@ -32,12 +39,17 @@ export function PropostaServicosPicker({
     setSel((prev) => {
       const n = { ...prev };
       if (n[s.id]) delete n[s.id];
+      else if (ehServicoSomentePercentual(s))
+        // Percentual puro: nasce sem valor, sem quantidade e MENSAL — e assim fica, porque a
+        // tela nem oferece esses campos.
+        n[s.id] = { valor: 0, qtd: 1, recorrencia: "MENSAL", percentual: s.percentual ?? null, categoria: s.categoria };
       else
         n[s.id] = {
           valor: s.valor ?? 0,
           qtd: 1,
           recorrencia: s.valorRecorrencia ?? "AVULSO",
-          percentual: s.categoria === "Faturamento" ? s.percentual ?? null : null,
+          // O % acompanha o serviço que TEM % no catálogo, seja ele qual for.
+          percentual: temPercentual(s) ? s.percentual ?? null : null,
           categoria: s.categoria,
         };
       return n;
@@ -59,11 +71,15 @@ export function PropostaServicosPicker({
 
   return (
     <div className="space-y-1">
-      <Label hint="Marque os serviços que entram neste documento e ajuste valor, quantidade e recorrência de cada um.">{titulo}</Label>
+      <Label hint="Marque os serviços que entram neste documento e ajuste valor, quantidade e recorrência de cada um. Serviço cobrado por percentual não tem valor nem quantidade — é sempre mensal.">
+        {titulo}
+      </Label>
       <div className="max-h-[26vh] space-y-1 overflow-y-auto rounded-lg border p-2">
         {(servicos.data ?? []).map((s) => {
           const marcado = !!sel[s.id];
           const item = sel[s.id];
+          const soPercentual = ehServicoSomentePercentual(s);
+          const aceitaPercentual = temPercentual(s);
           return (
             <div key={s.id} className={"rounded-md p-2 " + (marcado ? "bg-primary/5" : "hover:bg-accent/40")}>
               <label className="flex cursor-pointer items-start gap-2">
@@ -81,44 +97,49 @@ export function PropostaServicosPicker({
               </label>
               {marcado && item && (
                 <div className="mt-2 space-y-1.5 pl-6">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <MoneyInput
-                      value={item.valor}
-                      onChange={(v) => setSel((st) => ({ ...st, [s.id]: { ...item, valor: v ?? 0 } }))}
-                      className="h-8 w-28"
-                    />
-                    <span className="text-xs text-muted-foreground">×</span>
-                    <Input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={String(item.qtd)}
-                      onChange={(e) =>
-                        setSel((st) => ({ ...st, [s.id]: { ...item, qtd: Math.max(1, Number(e.target.value) || 1) } }))
-                      }
-                      className="h-8 w-14"
-                    />
-                    <select
-                      value={item.recorrencia}
-                      onChange={(e) =>
-                        setSel((st) => ({ ...st, [s.id]: { ...item, recorrencia: e.target.value as "AVULSO" | "MENSAL" } }))
-                      }
-                      className="h-8 rounded-md border bg-background px-2 text-sm outline-none focus:border-primary"
-                    >
-                      <option value="AVULSO">avulso (1x)</option>
-                      <option value="MENSAL">mensal</option>
-                    </select>
-                    <span className="ml-auto text-sm font-semibold text-primary tabular-nums">
-                      {item.valor * item.qtd > 0
-                        ? `${formatBRL(item.valor * item.qtd)}${item.recorrencia === "MENSAL" ? "/mês" : ""}`
-                        : item.percentual
-                          ? `${formatPct(item.percentual)}/mês`
-                          : "—"}
-                    </span>
-                  </div>
-                  {s.categoria === "Faturamento" && (
+                  {!soPercentual && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <MoneyInput
+                        value={item.valor}
+                        onChange={(v) => setSel((st) => ({ ...st, [s.id]: { ...item, valor: v ?? 0 } }))}
+                        className="h-8 w-28"
+                      />
+                      <span className="text-xs text-muted-foreground">×</span>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={String(item.qtd)}
+                        onChange={(e) =>
+                          setSel((st) => ({ ...st, [s.id]: { ...item, qtd: Math.max(1, Number(e.target.value) || 1) } }))
+                        }
+                        className="h-8 w-14"
+                      />
+                      <select
+                        value={item.recorrencia}
+                        onChange={(e) =>
+                          setSel((st) => ({
+                            ...st,
+                            [s.id]: { ...item, recorrencia: e.target.value as "AVULSO" | "MENSAL" },
+                          }))
+                        }
+                        className="h-8 rounded-md border bg-background px-2 text-sm outline-none focus:border-primary"
+                      >
+                        <option value="AVULSO">avulso (1x)</option>
+                        <option value="MENSAL">mensal</option>
+                      </select>
+                      <span className="ml-auto text-sm font-semibold text-primary tabular-nums">
+                        {item.valor * item.qtd > 0
+                          ? `${formatBRL(item.valor * item.qtd)}${item.recorrencia === "MENSAL" ? "/mês" : ""}`
+                          : item.percentual
+                            ? `${formatPct(item.percentual)}/mês`
+                            : "—"}
+                      </span>
+                    </div>
+                  )}
+                  {aceitaPercentual && (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>+ % do faturamento:</span>
+                      <span>{soPercentual ? "% do faturamento:" : "+ % do faturamento:"}</span>
                       <div className="relative">
                         <input
                           type="number"
@@ -138,7 +159,17 @@ export function PropostaServicosPicker({
                         <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">%</span>
                       </div>
                       <span>/mês</span>
+                      {soPercentual && (
+                        <span className="ml-auto text-sm font-semibold text-primary tabular-nums">
+                          {item.percentual ? `${formatPct(item.percentual)}/mês` : "—"}
+                        </span>
+                      )}
                     </div>
+                  )}
+                  {soPercentual && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Sem valor fixo e sem quantidade — a cobrança é o percentual sobre o que a clínica fatura, todo mês.
+                    </p>
                   )}
                 </div>
               )}

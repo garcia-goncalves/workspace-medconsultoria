@@ -201,6 +201,8 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 
 93. **O serviço percentual parou de pedir um valor fixo que não existe (ADR-125).** O Faturamento de contas médicas não tem preço fixo — a Med ganha um **percentual** do que a clínica fatura —, mas o passo obrigatório da Qualificação exigia "Registrar o valor estimado da oportunidade" e travava a etapa. Pior: o lead valia **R$ 0,00** no card e no total da coluna, então o negócio mais valioso do mês podia aparecer como zero. Agora a regra (`planejarEstimativaDoLead`, pura, em `@app/shared`) lê o **preço** dos serviços, nunca o nome: havendo qualquer valor fixo pergunta a estimativa como sempre; sendo tudo percentual pergunta o **faturamento mensal da clínica** (`Lead.faturamentoMensalEstimado`) e **calcula** o `valorEstimado` (faturamento × percentual), gravado pelo servidor para card, totais e relatório lerem um número só. O passo troca de título sozinho e **tem volta** quando entra um serviço de preço fixo. O credenciamento fica fora da conta, igual ao provisionamento da conversão — e para as duas regras não divergirem, `ehServicoDeCredenciamento` mudou de casa para o `shared`. Junto: **`Servico.condicaoPagamento`** tira da memória de quem digita a frase contratual do Faturamento ("O recebimento do Repasse será sempre feito após o crédito na conta da Clínica"), que a **proposta pré-preenche** e para de mexer assim que alguém edita; a ficha do cliente deixou de **omitir** o valor contratado de quem só paga percentual; e o editor de preço parou de **apagar o percentual em silêncio** de serviço fora da categoria "Faturamento" — ADR-125.
 
+94. **Uma proposta por operadora, e a proposta de faturamento nasceu (ADR-126).** Cada operadora tem prazo, documentação e desfecho próprios — uma proposta com três dentro não pode ser aceita pela metade, então **cada proposta de credenciamento é de UMA operadora** (três operadoras = três propostas = três números). ⚠️ A **grade médico × operadora não mudou**: quem virou "uma só" é o documento; o construtor só inverteu a ordem (operadora primeiro, médicos depois). Nasceu o modelo **"Proposta de faturamento médico"**, reconhecido pelo marcador `{{convenios}}`: a linha do serviço percentual **perdeu valor, quantidade e avulso/mensal** — e quem decide isso é o **preço** (`ehServicoSomentePercentual`), nunca a categoria, com teste que reprova a volta da comparação. O papel mostra a **conta feita** (faturamento × percentual), os **convênios atendidos** e o **faturamento médio mensal**. A **operadora virou um cadastro só** com `usoCredenciamento`/`usoFaturamento` (ambas `true` para as existentes; marcada para nada é recusada), e os **convênios passaram a ficar com o cliente** (`ClienteServico.operadoras[]`, N-N) — nascem da proposta aceita viajando **dentro do item**, seguem editáveis na ficha e aparecem no Portal. O faturamento informado na proposta **volta para o lead** e recalcula o valor do negócio: um número só, andando para frente — ADR-126.
+
 ---
 
 ## 7. Regras de negócio (núcleo)
@@ -392,6 +394,46 @@ campo mostrar. Duas implementações discordariam no primeiro caso de borda.
   serviço, editável em Serviços — nunca no código, pelo mesmo motivo de `clausulasContrato`.
 - ⚠️ **O total do funil soma mensal com avulso.** Já era assim antes desta mudança (Gestão
   Operacional é R$ 3.500/mês); não foi criado aqui e continua em aberto.
+
+---
+
+## 12.8. Operadoras, convênios e o recorte de cada proposta (ADR-126)
+
+**A operadora é UM cadastro, com duas marcações.** A mesma Unimed que se credencia é a Unimed
+cujas contas se faturam. `Operadora.usoCredenciamento` e `Operadora.usoFaturamento` (ambas
+`@default(true)`) decidem em qual lista ela aparece; em **Ajustes → Operadoras e convênios** a
+tela mostra abas, mas o registro é o mesmo. Duas listas separadas divergiriam com o tempo — a do
+credenciamento atualizada, a do faturamento esquecida.
+
+- ⚠️ **Marcada para nada é recusado** (serviço e tela). Ela sumiria de todas as listas sem aviso,
+  e isso se lê como perda de dado.
+- ⚠️ **A grade do credenciamento mostra também a operadora desmarcada que já tem processo** daquele
+  cliente. Mesma lição da ADR-105: filtrar por marcação atual apagaria da tela o que foi
+  preservado de propósito.
+
+**Cada proposta de credenciamento é de UMA operadora.** Cada operadora tem prazo, documentação e
+desfecho próprios; uma proposta com três dentro não pode ser aceita pela metade. Três operadoras
+= três propostas = três números. ⚠️ **A grade médico × operadora não mudou** (ADR-104): quem virou
+"uma só" é o DOCUMENTO. O construtor inverteu a ordem — operadora primeiro, médicos depois.
+A regra está no schema (`UMA_OPERADORA_POR_PROPOSTA`) **e** conferida de novo no servidor, porque
+quem chama a API direto não passa pela tela.
+
+**A proposta de faturamento é reconhecida pelo MODELO**, pelo marcador `{{convenios}}` no corpo —
+mesma lógica do credenciamento, que se reconhece por `{{operadoras}}`. Nunca pelo nome do serviço
+nem pela categoria. Ela leva os convênios atendidos, o faturamento médio mensal, e mostra a
+**conta feita** (faturamento × percentual), não o percentual solto.
+
+**Os convênios ficam com o CLIENTE.** `ClienteServico.operadoras[]` (N-N). Nascem da proposta
+aceita, seguem editáveis na ficha (Serviços → Editar preço → "Preço e convênios") e aparecem no
+Portal. ⚠️ **Viajam DENTRO do item da proposta** (`conveniosIds`), não soltos no documento: é
+assim que atravessam o aceite, pelo mesmo caminho que serviço e preço já percorrem até
+`sincronizarServicosContratados`. E são **ids, não nomes** — nome copiado não sobrevive a um
+"renomear" no catálogo.
+
+**O faturamento informado na proposta volta para o lead.** É o mesmo número que a Qualificação
+pergunta (ADR-125): corrigi-lo na proposta grava no lead e recalcula o valor do negócio, pela
+mesma `reconciliarPassosAuto`. Um número só, andando para frente. É best-effort de propósito —
+proposta emitida não cai porque o funil recusou um número — e só toca lead **ainda em negociação**.
 
 ---
 

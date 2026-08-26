@@ -19,6 +19,7 @@ import {
   qualificacaoContratada,
   totalDaGrade,
   valorPorExtenso,
+  UMA_OPERADORA_POR_PROPOSTA,
 } from "@app/shared";
 import { aiService } from "../../lib/ai.js";
 import { avancarLeadPorClienteAuto, garantirClienteDoLead } from "../leads/leads.service.js";
@@ -149,6 +150,8 @@ export async function createDocumento(input: CreateDocumentoInput, userId: strin
 }
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+/** Arredonda para centavos sem o erro clássico de ponto flutuante (mesmo cálculo do funil). */
+const emCentavos = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const fmtPct = (v: number) => `${v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
 
 type ItemServico = { servicoId: string; valor?: number; quantidade?: number; recorrencia: "AVULSO" | "MENSAL"; percentual?: number | null };
@@ -220,6 +223,19 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
   const grade = input.grade ?? [];
   const ehGrade = grade.length > 0;
   const ehCredenciamento = ehGrade || (input.operadoras?.length ?? 0) > 0;
+
+  // UMA OPERADORA POR PROPOSTA (ADR-126). O schema já barra, mas o servidor confere de novo:
+  // quem chama a API direto não passa pela tela, e uma proposta com duas operadoras dentro não
+  // pode ser aceita "pela metade".
+  if (new Set(grade.map((c) => c.operadoraId)).size > 1 || (input.operadoras?.length ?? 0) > 1) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: UMA_OPERADORA_POR_PROPOSTA });
+  }
+
+  // O faturamento mensal informado (proposta de faturamento) e o percentual somado dos itens.
+  // `0` é um número informado tão válido quanto outro, então o que separa "não informou" de
+  // "informou zero" é `undefined`, não a falsidade do valor.
+  const faturamentoMensal = input.faturamentoMensal ?? null;
+  const percentualDaProposta = input.itens.reduce((s, i) => s + (i.percentual ?? 0), 0);
   let servicosNomes: string[] = [];
   let blocoServicos: string;
   /** Nomes das operadoras que entram no corpo — da grade, quando há grade. */
@@ -277,15 +293,14 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     if (input.observacoes?.trim()) bloco.push(input.observacoes.trim());
     blocoServicos = bloco.join("\n\n");
   } else if (ehCredenciamento) {
-    // CREDENCIAMENTO POR OPERADORA (sem médico cadastrado): o investimento é por operadora.
+    // CREDENCIAMENTO POR OPERADORA (sem médico cadastrado): uma operadora, um investimento.
     const ops = input.operadoras ?? [];
     const fee = input.valorPorOperadora ?? 0;
-    const total = fee * ops.length;
-    totalCredenciamento = total;
+    totalCredenciamento = fee;
     const investeTxt =
       fee > 0
-        ? `**${brl(total)}** para o credenciamento em **${ops.length} operadora(s)** — ${brl(fee)} por operadora.`
-        : "Investimento a combinar conforme as operadoras selecionadas.";
+        ? `**${brl(fee)}** para o credenciamento junto à operadora **${ops[0] ?? ""}**.`
+        : "Investimento a combinar.";
     const bloco = [`## Investimento\n\n${investeTxt}`];
     if (extras.length) bloco.push(extras.join("  \n"));
     if (input.observacoes?.trim()) bloco.push(input.observacoes.trim());
@@ -303,10 +318,46 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
       `## Serviços propostos\n\n${r.tabela}`,
       `## Investimento\n\n${r.investimento}`,
     ];
+    // FATURAMENTO (ADR-126): quando a proposta informa quanto a clínica fatura por mês, o
+    // documento mostra a CONTA feita — faturamento × percentual —, não só o percentual solto.
+    // "5% do faturamento" não diz nada a quem vai assinar; "R$ 6.000,00/mês (5% de R$ 120 mil)"
+    // diz. A conta é a mesma do funil (`planejarEstimativaDoLead`), para o papel e o card não
+    // divergirem num centavo.
+    if (faturamentoMensal !== null && percentualDaProposta > 0) {
+      const estimado = emCentavos((faturamentoMensal * percentualDaProposta) / 100);
+      bloco.push(
+        `**Faturamento mensal médio informado:** ${brl(faturamentoMensal)}  \n` +
+          `**Valor estimado do serviço:** ${brl(estimado)}/mês (${fmtPct(percentualDaProposta)} de ${brl(faturamentoMensal)}).  \n` +
+          `_Valor de referência: a cobrança acompanha o faturamento efetivamente apurado no mês._`,
+      );
+    }
     if (extras.length) bloco.push(extras.join("  \n"));
     if (input.observacoes?.trim()) bloco.push(input.observacoes.trim());
     blocoServicos = bloco.join("\n\n");
   }
+
+  // CONVÊNIOS ATENDIDOS (ADR-126) — a lista que o cliente confere na proposta de faturamento.
+  // Os nomes vêm do BANCO, pelos ids: nome copiado da tela não sobrevive a um "renomear" no
+  // catálogo, e este documento é o papel que vai ao cliente.
+  const conveniosIds = [...new Set(input.conveniosIds ?? [])];
+  const conveniosDoCorpo = conveniosIds.length
+    ? await prisma.operadora.findMany({
+        where: { id: { in: conveniosIds } },
+        orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+        select: { id: true, nome: true },
+      })
+    : [];
+  const conveniosBloco = conveniosDoCorpo.length
+    ? conveniosDoCorpo.map((o) => `- **${o.nome}**`).join("\n")
+    : "_(a definir com você)_";
+
+  // Os convênios entram no ITEM do serviço percentual, e não soltos no documento (ADR-126): é
+  // assim que eles atravessam o aceite e chegam ao `ClienteServico` pelo mesmo caminho que
+  // serviço e preço já percorrem. Uma segunda costura ficaria para trás no primeiro caso de borda.
+  const idsValidados = conveniosDoCorpo.map((o) => o.id);
+  const itensParaGravar = input.itens.map((i) =>
+    idsValidados.length && (i.percentual ?? 0) > 0 ? { ...i, conveniosIds: idsValidados } : i,
+  );
 
   // Operadoras selecionadas → {{operadoras}} (só o modelo de credenciamento tem esse marcador).
   const operadorasBloco = operadorasDoCorpo.length
@@ -355,6 +406,15 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     const comMarcadores = modelo.corpo
       .replace(/\{\{\s*servicos\s*\}\}/g, blocoServicos)
       .replace(/\{\{\s*operadoras\s*\}\}/g, operadorasBloco)
+      .replace(/\{\{\s*convenios\s*\}\}/g, conveniosBloco)
+      .replace(
+        /\{\{\s*faturamento_mensal\s*\}\}/g,
+        faturamentoMensal !== null && faturamentoMensal > 0 ? brl(faturamentoMensal) : "_(a informar)_",
+      )
+      .replace(
+        /\{\{\s*percentual\s*\}\}/g,
+        percentualDaProposta > 0 ? fmtPct(percentualDaProposta) : "_(a combinar)_",
+      )
       .replace(/\{\{\s*profissionais\s*\}\}/g, profissionaisDoCorpo || "_(a definir com você)_")
       .replace(/\{\{\s*profissionais_nomes\s*\}\}/g, nomesDosProfissionais || "_(a definir com você)_")
       .replace(/\{\{\s*numero\s*\}\}/g, numero ? formatarNumeroProposta(numero) : "—")
@@ -392,7 +452,7 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     criadoPorId: userId,
     // Itens estruturados (só na proposta comercial) — o aceite os sincroniza com os serviços
     // contratados do cliente. Credenciamento (operadoras) não mapeia para o catálogo.
-    itens: ehCredenciamento ? undefined : (input.itens as object[]),
+    itens: ehCredenciamento ? undefined : (itensParaGravar as object[]),
     versoes: { create: { conteudo: corpo, autorId: userId, origem: input.usarIA ? ("IA" as const) : ("MANUAL" as const) } },
   });
 
@@ -426,10 +486,43 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     await salvarGrade({ clienteId, celulas: grade, documentoId: doc.id }, { id: userId });
   }
 
+  // O NÚMERO ANDA PARA FRENTE (ADR-126): corrigir o faturamento mensal aqui corrige o LEAD.
+  //
+  // O lead existe antes da proposta, e o passo obrigatório da Qualificação pergunta esse mesmo
+  // número. Sem a escrita de volta, quem descobrisse o valor certo montando a proposta teria de
+  // ir digitar de novo no funil — e, esquecendo, o card mostraria um valor velho ao lado de um
+  // documento com o valor novo. Um número só, num lugar só.
+  //
+  // `reconciliarPassosAuto` recalcula o `valorEstimado` derivado e tica o passo — é a mesma
+  // função que a edição do lead chama, para as duas portas não divergirem.
+  if (clienteId && faturamentoMensal !== null) {
+    await escreverFaturamentoNoLead(clienteId, faturamentoMensal).catch(() => {});
+  }
+
   await prisma.activityLog.create({
     data: { userId, acao: "documento.proposta_gerada", entidadeTipo: "documento", entidadeId: doc.id },
   });
   return doc;
+}
+
+/**
+ * Leva o faturamento mensal informado na proposta de volta ao lead em negociação do cliente.
+ *
+ * Best-effort de propósito: a proposta já foi emitida e existe: derrubá-la porque o funil não
+ * aceitou um número seria trocar um documento pronto por um erro. Só mexe no lead AINDA em
+ * negociação (não convertido, não excluído) — lead fechado é histórico.
+ */
+async function escreverFaturamentoNoLead(clienteId: string, faturamentoMensal: number) {
+  const lead = await prisma.lead.findFirst({
+    where: { clienteId, deletedAt: null, convertidoEmClienteId: null },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, faturamentoMensalEstimado: true },
+  });
+  if (!lead) return;
+  if (emReais(lead.faturamentoMensalEstimado) === faturamentoMensal) return;
+  await prisma.lead.update({ where: { id: lead.id }, data: { faturamentoMensalEstimado: faturamentoMensal } });
+  const { reconciliarPassosAuto } = await import("../leads/leads.service.js");
+  await reconciliarPassosAuto(lead.id);
 }
 
 /**
@@ -527,10 +620,28 @@ export async function contextoClienteDoc(input: ContextoClienteDocInput) {
     valor: totalMensal > 0 ? totalMensal : totalAvulso,
   };
 
+  // O que o funil já sabe deste cliente (ADR-126): o faturamento mensal estimado e os convênios
+  // já registrados. A proposta de faturamento NASCE preenchida com eles — quem já respondeu na
+  // Qualificação não responde de novo, e a correção feita aqui volta para o lead.
+  const [leadEmNegociacao, contratacoes] = await Promise.all([
+    prisma.lead.findFirst({
+      where: { clienteId: input.clienteId, deletedAt: null, convertidoEmClienteId: null },
+      orderBy: { createdAt: "desc" },
+      select: { faturamentoMensalEstimado: true },
+    }),
+    prisma.clienteServico.findMany({
+      where: { clienteId: input.clienteId, status: "ATIVO" },
+      select: { operadoras: { select: { id: true } } },
+    }),
+  ]);
+  const conveniosAtuais = [...new Set(contratacoes.flatMap((c) => c.operadoras.map((o) => o.id)))];
+
   return {
     cliente,
     itens,
     origem, // CONTRATADO | LEAD | VAZIO — o dialog explica de onde veio
+    faturamentoMensal: emReais(leadEmNegociacao?.faturamentoMensalEstimado ?? null),
+    conveniosAtuais,
     investimento: { avulso: totalAvulso, mensal: totalMensal },
     propostaAceita: propostaAceita
       ? { id: propostaAceita.id, titulo: propostaAceita.titulo, em: propostaAceita.propostaRespondidaEm }

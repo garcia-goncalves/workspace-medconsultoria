@@ -236,5 +236,11 @@ export const atualizarContratacaoClienteSchema = z.object({
   percentual: z.number().min(0).max(100).nullable().optional(),
   percentualRecorrencia: precoRecorrenciaEnum.optional(),
   observacao: z.string().trim().max(1000).optional().or(z.literal("")),
+  /**
+   * Convênios que o cliente atende NESTE serviço (ADR-126), por id do catálogo de operadoras.
+   * Lista completa: substitui a anterior. Ausente = não mexe; vazia = o cliente deixou de
+   * atender convênio algum, que é um estado legítimo.
+   */
+  conveniosIds: z.array(z.string().min(1)).max(80).optional(),
 });
 export type AtualizarContratacaoClienteInput = z.infer<typeof atualizarContratacaoClienteSchema>;
