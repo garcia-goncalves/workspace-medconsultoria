@@ -84,6 +84,15 @@ export function PortalServicos() {
               </button>
             </div>
 
+            {/* Os convênios que combinamos faturar (ADR-126). O cliente precisa poder conferir
+                a lista — é sobre ela que a apuração do mês acontece. */}
+            {s.convenios.length > 0 && (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Convênios atendidos:</span>{" "}
+                {s.convenios.map((o) => o.nome).join(", ")}
+              </p>
+            )}
+
             {s.requisitos.length > 0 && (
               <div className="mt-3 space-y-2 border-t pt-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">

@@ -70,7 +70,7 @@ const SECOES: { titulo: string; descricao: string; itens: AjusteItem[] }[] = [
       {
         icon: Building2,
         label: "Operadoras e convênios",
-        desc: "O catálogo de operadoras usado nas propostas de credenciamento.",
+        desc: "Um cadastro só, marcado por serviço: credenciamento e/ou convênios atendidos no faturamento.",
         dialog: "operadoras",
       },
     ],

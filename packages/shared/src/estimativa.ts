@@ -100,3 +100,32 @@ export function planejarEstimativaDoLead(
 export function tituloDoPassoDeEstimativa(modo: ModoEstimativa): string {
   return modo === "PERCENTUAL" ? TITULO_PASSO_FATURAMENTO : TITULO_PASSO_VALOR;
 }
+
+/** Só o preço, como o catálogo (ou o item da proposta) o define. */
+export interface PrecoDoServico {
+  valor: number | null | undefined;
+  percentual: number | null | undefined;
+}
+
+/** Este serviço tem um valor fixo (avulso ou mensal) a cobrar? */
+export function temValorFixo(p: PrecoDoServico): boolean {
+  return p.valor != null && p.valor > 0;
+}
+
+/** Este serviço cobra um percentual do faturamento do cliente? */
+export function temPercentual(p: PrecoDoServico): boolean {
+  return p.percentual != null && p.percentual > 0;
+}
+
+/**
+ * Este serviço é cobrado **exclusivamente** por percentual — não tem valor, não tem quantidade
+ * e é sempre mensal.
+ *
+ * É a MESMA pergunta que `planejarEstimativaDoLead` faz no funil, aplicada agora à linha da
+ * proposta: quem decide é o PREÇO, nunca o nome da categoria. A checagem por
+ * `categoria === "Faturamento"` que existia aqui quebraria no dia em que a Thaís criasse outro
+ * serviço percentual, ou renomeasse a categoria na tela de Serviços (ADR-125/126).
+ */
+export function ehServicoSomentePercentual(p: PrecoDoServico): boolean {
+  return !temValorFixo(p) && temPercentual(p);
+}

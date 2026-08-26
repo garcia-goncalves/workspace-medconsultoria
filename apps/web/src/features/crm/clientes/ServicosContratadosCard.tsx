@@ -13,6 +13,7 @@ import { Label } from "../../../components/ui/label";
 import { Select } from "../../../components/ui/select";
 import { MoneyInput } from "../../../components/ui/money-input";
 import { formatPreco } from "../../../lib/masks";
+import { ConveniosPicker } from "../../documentos/ConveniosPicker";
 import { RespostaBriefingDialog } from "./RespostaBriefingDialog";
 
 type ServicoContratado = RouterOutputs["clientes"]["servicos"][number];
@@ -33,6 +34,9 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
   const [valor, setValor] = useState<number | undefined>(c?.valor ?? undefined);
   const [valorRecorrencia, setValorRecorrencia] = useState<"AVULSO" | "MENSAL">(c?.valorRecorrencia ?? "AVULSO");
   const [percentual, setPercentual] = useState<number | undefined>(c?.percentual ?? undefined);
+  // Os convênios que o cliente atende NESTE serviço (ADR-126). Chegam pela proposta aceita e
+  // continuam editáveis aqui — a lista muda com o tempo e é dado do cliente, não do documento.
+  const [conveniosIds, setConveniosIds] = useState<string[]>((c?.convenios ?? []).map((o) => o.id));
   const salvar = trpc.clientes.atualizarContratacao.useMutation({
     onSuccess: () => (utils.clientes.servicos.invalidate({ id: clienteId }), onClose()),
   });
@@ -40,7 +44,7 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
     <Modal
       open
       onClose={onClose}
-      title={`Preço · ${item.servico.nome}`}
+      title={`${ehFaturamento ? "Preço e convênios" : "Preço"} · ${item.servico.nome}`}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -55,6 +59,9 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
                 valor: valor ?? null,
                 valorRecorrencia,
                 percentual: ehFaturamento ? percentual ?? null : null,
+                // Só manda a lista quando o campo aparece — proposta/serviço sem convênio não
+                // pode zerar de passagem o que já estava gravado.
+                ...(ehFaturamento ? { conveniosIds } : {}),
               })
             }
           >
@@ -98,6 +105,7 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
             </div>
           </div>
         )}
+        {ehFaturamento && <ConveniosPicker selecionados={conveniosIds} setSelecionados={setConveniosIds} />}
       </div>
     </Modal>
   );
@@ -241,6 +249,15 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                   </button>
                 )}
               </div>
+
+              {/* Os convênios atendidos neste serviço (ADR-126) — à vista na ficha, não só
+                  dentro do editor: é a lista sobre a qual o faturamento é apurado. */}
+              {item.contratado && (item.contratacao?.convenios?.length ?? 0) > 0 && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Convênios atendidos:</span>{" "}
+                  {(item.contratacao?.convenios ?? []).map((o) => o.nome).join(", ")}
+                </p>
+              )}
 
               {item.contratado && (
                 <div className="mt-3 space-y-2 border-t pt-3">

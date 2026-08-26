@@ -92,7 +92,14 @@ export async function gradeDoCliente(clienteId: string) {
         ativo: true,
       },
     }),
-    prisma.operadora.findMany({ orderBy: [{ ordem: "asc" }, { nome: "asc" }], select: { id: true, nome: true } }),
+    // Só as operadoras marcadas para CREDENCIAMENTO (ADR-126) — mais as que já têm processo
+    // deste cliente, mesmo desmarcadas depois. É a mesma lição da ADR-105: filtrar por uma
+    // marcação atual apagaria da tela o que foi preservado de propósito.
+    prisma.operadora.findMany({
+      where: { OR: [{ usoCredenciamento: true }, { credenciamentos: { some: { clienteId } } }] },
+      orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+      select: { id: true, nome: true },
+    }),
     prisma.credenciamento.findMany({
       where: { clienteId },
       orderBy: [{ tentativa: "asc" }, { createdAt: "asc" }],

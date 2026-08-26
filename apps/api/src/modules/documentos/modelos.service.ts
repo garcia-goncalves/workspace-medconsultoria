@@ -90,6 +90,74 @@ Cordialmente,
 | MedConsultoria | Cliente |`,
   },
   {
+    nome: "Proposta de faturamento médico",
+    tipo: "PROPOSTA",
+    // ADR-126. O Faturamento de contas médicas NÃO tem valor fixo, NÃO tem quantidade e é
+    // SEMPRE mensal: a Med ganha um percentual sobre o que a clínica fatura. Por isso este
+    // modelo não fala em "investimento à vista" nem em prazo de entrega — fala em percentual,
+    // convênios atendidos e faturamento médio mensal.
+    //
+    // O que o sistema escreve são só os marcadores: número, data, cliente, convênios,
+    // percentual, faturamento médio e a consultora. `{{servicos}}` traz a tabela do serviço, a
+    // conta (faturamento × percentual) e a condição de pagamento cadastrada no serviço.
+    corpo: `**Proposta {{numero}}** &nbsp;·&nbsp; **Data:** {{data}}
+
+**{{cliente.nome}}**
+
+Prezado(a),
+
+{{apresentacao}}
+
+# DESCRIÇÃO DA PROPOSTA
+
+## 1. Objeto
+
+Gestão do faturamento das contas médicas de **{{cliente.nome}}** — auditoria e conferência das guias, processamento junto às operadoras, conciliação dos pagamentos, recurso de glosas e relatórios gerenciais.
+
+## 2. Convênios atendidos
+
+O trabalho abrange as contas dos seguintes convênios/operadoras:
+
+{{convenios}}
+
+Convênio novo passa a ser atendido mediante simples comunicação, sem necessidade de nova proposta.
+
+## 3. Remuneração
+
+A remuneração da MedConsultoria é de **{{percentual}}** sobre o valor **efetivamente faturado e recebido** no mês, apurada mensalmente. **Não há valor fixo, taxa de adesão nem cobrança mínima** — se não houver faturamento no mês, não há honorário.
+
+{{servicos}}
+
+## 4. Plano de Trabalho
+
+O trabalho será coordenado pela consultora comercial da MedConsultoria, {{consultora}}, e seguirá o seguinte ciclo mensal.
+
+1. Recebimento e conferência das guias e dos demonstrativos das operadoras;
+2. Auditoria das inconsistências antes do envio;
+3. Processamento e protocolo junto a cada operadora;
+4. Conciliação dos pagamentos recebidos;
+5. Identificação, recurso e acompanhamento das glosas;
+6. Relatório gerencial do mês, com o que foi faturado, recebido e glosado.
+
+## 5. Observações Importantes
+
+- É de responsabilidade da CONTRATANTE fornecer, em tempo hábil, as guias, os demonstrativos das operadoras e o acesso aos portais de faturamento.
+- Os prazos de pagamento são os praticados por cada operadora; a MedConsultoria acompanha e cobra, mas não os define.
+- Qualquer item fora do escopo desta proposta demandará elaboração de nova proposta.
+
+## 6. Confidencialidade e não divulgação
+
+A MedConsultoria se compromete a não divulgar, sem autorização formal, quaisquer informações de propriedade de {{cliente.nome}}. Todas as informações decorrentes da execução do trabalho são confidenciais.
+
+Cordialmente,
+
+| | |
+| --- | --- |
+| \\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_ | \\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_ |
+| **{{consultora}}** | **{{cliente.nome}}** |
+| MedConsultoria | Cliente |`,
+  },
+  {
     nome: "Contrato de prestação de serviços",
     tipo: "CONTRATO",
     corpo: `**CONTRATO DE PRESTAÇÃO DE SERVIÇOS**

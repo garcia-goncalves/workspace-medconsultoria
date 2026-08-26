@@ -26,7 +26,13 @@ export async function servicosDoCliente(clienteId: string) {
       orderBy: { ordem: "asc" },
       include: { requisitos: { orderBy: { ordem: "asc" } } },
     }),
-    prisma.clienteServico.findMany({ where: { clienteId } }),
+    prisma.clienteServico.findMany({
+      where: { clienteId },
+      // Os convênios que o cliente atende NAQUELE serviço (ADR-126). Vêm com a ficha porque é
+      // ali que a Thaís os corrige — a lista muda com o tempo e é dado do cliente, não do
+      // documento que a originou.
+      include: { operadoras: { orderBy: [{ ordem: "asc" }, { nome: "asc" }], select: { id: true, nome: true } } },
+    }),
     prisma.arquivo.findMany({
       where: { clienteId, deletedAt: null },
       orderBy: { createdAt: "desc" },
@@ -84,6 +90,7 @@ export async function servicosDoCliente(clienteId: string) {
             contratadoEm: c.contratadoEm,
             canceladoEm: c.canceladoEm,
             canceladoPorTipo: c.canceladoPorTipo,
+            convenios: c.operadoras,
           }
         : null,
       requisitos,
@@ -207,11 +214,22 @@ export async function ativarServicoCliente(
  */
 export async function sincronizarServicosContratados(
   clienteId: string,
-  itens: { servicoId: string; valor?: number | null; recorrencia?: "AVULSO" | "MENSAL"; percentual?: number | null }[],
+  itens: {
+    servicoId: string;
+    valor?: number | null;
+    recorrencia?: "AVULSO" | "MENSAL";
+    percentual?: number | null;
+    /** Convênios que o cliente atende neste serviço (ADR-126) — vêm dentro do item aceito. */
+    conveniosIds?: string[];
+  }[],
   ator: { id: string },
 ) {
   for (const it of itens) {
     if (!it.servicoId) continue;
+    // A lista de convênios aceita SUBSTITUI a anterior (`set`), não soma: o cliente que deixou
+    // de atender um convênio precisa vê-lo sair da ficha. Item sem convênio nenhum não mexe no
+    // que já está lá — proposta de outro serviço não pode zerar esta lista de passagem.
+    const convenios = it.conveniosIds?.length ? { set: it.conveniosIds.map((id) => ({ id })) } : undefined;
     await prisma.clienteServico.upsert({
       where: { clienteId_servicoId: { clienteId, servicoId: it.servicoId } },
       update: {
@@ -221,6 +239,7 @@ export async function sincronizarServicosContratados(
         valor: it.valor ?? undefined,
         valorRecorrencia: it.recorrencia ?? undefined,
         percentual: it.percentual ?? undefined,
+        ...(convenios ? { operadoras: convenios } : {}),
       },
       create: {
         clienteId,
@@ -230,6 +249,7 @@ export async function sincronizarServicosContratados(
         valor: it.valor ?? null,
         valorRecorrencia: it.recorrencia ?? "AVULSO",
         percentual: it.percentual ?? null,
+        ...(it.conveniosIds?.length ? { operadoras: { connect: it.conveniosIds.map((id) => ({ id })) } } : {}),
       },
     });
   }
@@ -303,6 +323,8 @@ export async function atualizarContratacaoCliente(
     percentual?: number | null;
     percentualRecorrencia?: "AVULSO" | "MENSAL";
     observacao?: string | null;
+    /** Convênios atendidos neste serviço (ADR-126). Lista completa — substitui a anterior. */
+    conveniosIds?: string[];
   },
 ) {
   const existente = await prisma.clienteServico.findUnique({ where: { clienteId_servicoId: { clienteId, servicoId } } });
@@ -313,8 +335,21 @@ export async function atualizarContratacaoCliente(
   if (dados.percentual !== undefined) data.percentual = dados.percentual ?? null;
   if (dados.percentualRecorrencia !== undefined) data.percentualRecorrencia = dados.percentualRecorrencia;
   if (dados.observacao !== undefined) data.observacao = dados.observacao?.trim() || null;
-  const atualizado = await prisma.clienteServico.update({ where: { clienteId_servicoId: { clienteId, servicoId } }, data });
-  return { ...atualizado, valor: emReais(atualizado.valor), percentual: emReais(atualizado.percentual) };
+  // `set` e não `connect`: a tela manda a lista INTEIRA, e desmarcar um convênio precisa
+  // realmente tirá-lo. Lista vazia é um estado legítimo (o cliente parou de atender convênio),
+  // então o que separa "não mexeu" de "esvaziou" é `undefined`, não o tamanho do array.
+  if (dados.conveniosIds !== undefined) data.operadoras = { set: dados.conveniosIds.map((id) => ({ id })) };
+  const atualizado = await prisma.clienteServico.update({
+    where: { clienteId_servicoId: { clienteId, servicoId } },
+    data,
+    include: { operadoras: { orderBy: [{ ordem: "asc" }, { nome: "asc" }], select: { id: true, nome: true } } },
+  });
+  return {
+    ...atualizado,
+    valor: emReais(atualizado.valor),
+    percentual: emReais(atualizado.percentual),
+    convenios: atualizado.operadoras,
+  };
 }
 
 /**
@@ -337,6 +372,9 @@ export async function servicosDoClientePortal(clienteId: string) {
         requisitos, // documentos (upload) + briefings (preencher online)
         pendentes: obrigatorios.filter((r) => !r.atendido).length,
         totalObrigatorios: obrigatorios.length,
+        // Os convênios atendidos neste serviço (ADR-126). O cliente precisa poder conferir a
+        // lista que combinamos — é a lista sobre a qual o faturamento é apurado.
+        convenios: s.contratacao?.convenios ?? [],
       };
     });
 }

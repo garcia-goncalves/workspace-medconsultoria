@@ -183,7 +183,14 @@ export async function responder(input: ResponderPropostaInput, ip?: string) {
       const criadoPorId = doc.criadoPorId;
       // Itens estruturados congelados na proposta (serviços + valores aceitos).
       const itensAceitos = Array.isArray(doc.itens)
-        ? (doc.itens as { servicoId: string; valor?: number | null; recorrencia?: "AVULSO" | "MENSAL"; percentual?: number | null }[])
+        ? (doc.itens as {
+            servicoId: string;
+            valor?: number | null;
+            recorrencia?: "AVULSO" | "MENSAL";
+            percentual?: number | null;
+            /** Convênios atendidos naquele serviço (ADR-126) — viajam dentro do item aceito. */
+            conveniosIds?: string[];
+          }[])
         : [];
       void (async () => {
         // Ator das automações: quem criou a proposta; se o criador foi removido (criadoPorId nulo),

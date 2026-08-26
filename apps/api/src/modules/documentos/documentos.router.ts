@@ -13,6 +13,7 @@ import {
   melhorarComIASchema,
   resumirReuniaoSchema,
   gerarPautaSchema,
+  usoOperadoraEnum,
 } from "@app/shared";
 import { router, funcionarioProcedure, adminProcedure } from "../../trpc/trpc.js";
 import * as modelos from "./modelos.service.js";
@@ -38,12 +39,25 @@ export const documentosRouter = router({
   }),
 
   // Catálogo de operadoras: FUNCIONARIO consulta (list); administrar é ADMIN+.
+  // `uso` filtra pela marcação por serviço (ADR-126) — a proposta de credenciamento pede
+  // CREDENCIAMENTO, a de faturamento pede FATURAMENTO, a tela de gestão não filtra nada.
   operadoras: router({
-    list: funcionarioProcedure.query(() => operadoras.listOperadoras()),
-    criar: adminProcedure.input(z.object({ nome: nomeOperadora })).mutation(({ input }) => operadoras.criarOperadora(input.nome)),
-    renomear: adminProcedure
-      .input(z.object({ id: z.string().min(1), nome: nomeOperadora }))
-      .mutation(({ input }) => operadoras.renomearOperadora(input.id, input.nome)),
+    list: funcionarioProcedure
+      .input(z.object({ uso: usoOperadoraEnum.optional() }).optional())
+      .query(({ input }) => operadoras.listOperadoras(input?.uso)),
+    criar: adminProcedure
+      .input(z.object({ nome: nomeOperadora, usoCredenciamento: z.boolean().optional(), usoFaturamento: z.boolean().optional() }))
+      .mutation(({ input }) => operadoras.criarOperadora(input)),
+    atualizar: adminProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          nome: nomeOperadora.optional(),
+          usoCredenciamento: z.boolean().optional(),
+          usoFaturamento: z.boolean().optional(),
+        }),
+      )
+      .mutation(({ input }) => operadoras.atualizarOperadora(input)),
     remover: adminProcedure
       .input(z.object({ id: z.string().min(1) }))
       .mutation(({ input }) => operadoras.removerOperadora(input.id)),
