@@ -181,7 +181,7 @@ describe("a proposta de faturamento", () => {
     // O papel mostra a conta feita, não o percentual solto. O `toLocaleString` do pt-BR separa
     // "R$" do número com espaço NÃO separável (U+00A0) — comparar com espaço comum falharia
     // contra um documento correto, que é o pior tipo de teste vermelho.
-    const papel = doc.conteudo.replace(/ /g, " ");
+    const papel = doc.conteudo.replace(/\u00a0/g, " ");
     expect(papel).toContain("R$ 6.000,00/mês");
     expect(papel).toContain("R$ 120.000,00");
     expect(papel).toContain(`${PFX}-Unimed`);
