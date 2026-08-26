@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createLeadSchema, type CreateLeadInput } from "@app/shared";
+import { createLeadSchema, planejarEstimativaDoLead, type CreateLeadInput } from "@app/shared";
 import { trpc } from "../../../lib/trpc";
 import { Modal } from "../../../components/ui/modal";
 import { Button } from "../../../components/ui/button";
@@ -9,7 +9,7 @@ import { Input } from "../../../components/ui/input";
 import { MaskedInput } from "../../../components/ui/masked-input";
 import { MoneyInput } from "../../../components/ui/money-input";
 import { Autocomplete } from "../../../components/ui/autocomplete";
-import { maskTelefone, maskCNPJ } from "../../../lib/masks";
+import { maskTelefone, maskCNPJ, formatBRL, formatPct } from "../../../lib/masks";
 import { Label } from "../../../components/ui/label";
 import { Textarea } from "../../../components/ui/textarea";
 import { Combobox } from "../../../components/ui/combobox";
@@ -24,6 +24,7 @@ export interface LeadEditavel {
   telefone: string | null;
   origem: string | null;
   valorEstimado: number | null;
+  faturamentoMensalEstimado: number | null;
   observacoes: string | null;
   responsavelId: string | null;
   servicoIds: string[];
@@ -68,6 +69,7 @@ export function LeadFormDialog({
             telefone: lead.telefone ?? "",
             origem: lead.origem ?? "",
             valorEstimado: lead.valorEstimado ?? undefined,
+            faturamentoMensalEstimado: lead.faturamentoMensalEstimado ?? undefined,
             observacoes: lead.observacoes ?? "",
             responsavelId: lead.responsavelId ?? "",
             servicoIds: lead.servicoIds,
@@ -75,6 +77,15 @@ export function LeadFormDialog({
         : { nome: "", empresa: "", cnpj: "", email: "", telefone: "", origem: "", observacoes: "", responsavelId: "", servicoIds: [] },
     );
   }, [open, lead, reset]);
+
+  // Qual pergunta faz sentido para os serviços marcados AGORA (a mesma regra que o servidor usa
+  // para o passo obrigatório do funil — ADR-125). Reage ao vivo: marcar Gestão Operacional junto
+  // do Faturamento troca o campo de volta para "Valor estimado" sem salvar nem recarregar.
+  const servicoIdsMarcados = watch("servicoIds") ?? [];
+  const estimativa = planejarEstimativaDoLead(
+    (servicos.data ?? []).filter((s) => servicoIdsMarcados.includes(s.id)),
+    watch("faturamentoMensalEstimado"),
+  );
 
   const invalidate = () => utils.leads.list.invalidate();
   const create = trpc.leads.create.useMutation({ onSuccess: () => (invalidate(), onClose()) });
@@ -150,14 +161,41 @@ export function LeadFormDialog({
               placeholder="Ex.: Indicação, Site, Evento…"
             />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="valorEstimado" hint="Quanto você espera fechar com este lead (pode ajustar depois).">Valor estimado</Label>
-            <MoneyInput
-              id="valorEstimado"
-              value={watch("valorEstimado")}
-              onChange={(v) => setValue("valorEstimado", v, { shouldDirty: true })}
-            />
-          </div>
+          {estimativa.modo === "PERCENTUAL" ? (
+            <div className="space-y-1">
+              <Label
+                htmlFor="faturamentoMensalEstimado"
+                hint="Quanto a clínica fatura por mês, aproximadamente. Nossa receita é um percentual disso — por isso não há valor fixo a estimar aqui."
+              >
+                Faturamento mensal do cliente
+              </Label>
+              <MoneyInput
+                id="faturamentoMensalEstimado"
+                value={watch("faturamentoMensalEstimado")}
+                onChange={(v) => setValue("faturamentoMensalEstimado", v, { shouldDirty: true })}
+              />
+              <p className="text-xs text-muted-foreground">
+                {estimativa.valorEstimadoCalculado != null ? (
+                  <>
+                    Valor do negócio:{" "}
+                    <strong className="text-foreground">{formatBRL(estimativa.valorEstimadoCalculado)}/mês</strong>{" "}
+                    ({formatPct(estimativa.percentualTotal)} de {formatBRL(watch("faturamentoMensalEstimado") ?? 0)})
+                  </>
+                ) : (
+                  <>Cobramos {formatPct(estimativa.percentualTotal)} do faturamento — preencha acima para calcular.</>
+                )}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <Label htmlFor="valorEstimado" hint="Quanto você espera fechar com este lead (pode ajustar depois).">Valor estimado</Label>
+              <MoneyInput
+                id="valorEstimado"
+                value={watch("valorEstimado")}
+                onChange={(v) => setValue("valorEstimado", v, { shouldDirty: true })}
+              />
+            </div>
+          )}
         </div>
 
         <div className="space-y-1">

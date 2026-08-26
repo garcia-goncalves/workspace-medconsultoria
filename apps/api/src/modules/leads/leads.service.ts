@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import type { CreateLeadInput, UpdateLeadInput, MoveLeadInput, CapturaLeadInput } from "@app/shared";
-import { situacaoDocumento } from "@app/shared";
+import { situacaoDocumento, planejarEstimativaDoLead, tituloDoPassoDeEstimativa } from "@app/shared";
 import { listStages } from "../pipeline/pipeline.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { convidarUsuario, reenviarConvite, garantirAcessoPortal } from "../usuarios/usuarios.service.js";
@@ -297,9 +297,33 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
   try {
     const lead = await prisma.lead.findUnique({
       where: { id: leadId },
-      select: { valorEstimado: true, _count: { select: { servicos: true } } },
+      select: {
+        valorEstimado: true,
+        faturamentoMensalEstimado: true,
+        servicos: { select: { nome: true, valor: true, percentual: true } },
+      },
     });
     if (!lead) return;
+
+    // Qual pergunta faz sentido para ESTES serviços? Serviço 100% percentual (hoje só o
+    // Faturamento de contas médicas) não tem valor fixo a estimar — o que se pergunta é o
+    // faturamento da clínica, e o valor do negócio sai da conta. Ver ADR-125.
+    const estimativa = planejarEstimativaDoLead(
+      lead.servicos.map((s) => ({ nome: s.nome, valor: emReais(s.valor), percentual: emReais(s.percentual) })),
+      emReais(lead.faturamentoMensalEstimado),
+    );
+
+    // No modo percentual o `valorEstimado` é DERIVADO: quem digita é a base, não o resultado.
+    // Gravar aqui (e não só na tela) mantém o card do funil, os totais da coluna e o relatório
+    // lendo um número só — e o passo automático abaixo confere contra ele.
+    if (estimativa.modo === "PERCENTUAL" && estimativa.valorEstimadoCalculado !== null) {
+      if (emReais(lead.valorEstimado) !== estimativa.valorEstimadoCalculado) {
+        await prisma.lead.update({
+          where: { id: leadId },
+          data: { valorEstimado: estimativa.valorEstimadoCalculado },
+        });
+      }
+    }
 
     // Marcos de documento (proposta/contrato) do lead — detectados pelos passos com
     // acaoDoc que já geraram documento. "enviado" = assinatura solicitada; "assinado" = concluído.
@@ -329,23 +353,40 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
     }
 
     const cumprida: Record<string, boolean> = {
-      servicos: lead._count.servicos > 0,
-      valor: emReaisOu(lead.valorEstimado) > 0,
+      servicos: lead.servicos.length > 0,
+      // No modo percentual o passo se cumpre com a BASE preenchida, não com o valor — o valor
+      // ali é calculado, e conferir contra ele seria conferir contra a própria conta.
+      valor:
+        estimativa.modo === "PERCENTUAL"
+          ? emReaisOu(lead.faturamentoMensalEstimado) > 0
+          : emReaisOu(lead.valorEstimado) > 0,
       ...marco,
     };
 
+    /** A pergunta que o passo automático da Qualificação deve estar fazendo agora. */
+    const tituloDaEstimativa = tituloDoPassoDeEstimativa(estimativa.modo);
+
     const autos = await prisma.leadPasso.findMany({
       where: { leadId, NOT: { autoRegra: null } },
-      select: { id: true, autoRegra: true, concluido: true },
+      select: { id: true, autoRegra: true, concluido: true, titulo: true },
     });
     for (const p of autos) {
       const regra = p.autoRegra ?? "";
       const alvo = cumprida[regra] ?? false;
       if (REGRAS_DERIVADAS.has(regra)) {
-        if (p.concluido !== alvo) {
+        // O passo do valor troca de PERGUNTA junto com o modo, e volta sozinho se depois
+        // entrar um serviço de preço fixo. Só passos automáticos são reescritos: passo que a
+        // equipe digitou nunca é tocado (eles não têm `autoRegra`).
+        const tituloNovo = regra === "valor" && p.titulo !== tituloDaEstimativa ? tituloDaEstimativa : null;
+        if (p.concluido !== alvo || tituloNovo) {
           await prisma.leadPasso.update({
             where: { id: p.id },
-            data: { concluido: alvo, concluidoEm: alvo ? new Date() : null, concluidoPorId: null },
+            data: {
+              ...(p.concluido !== alvo
+                ? { concluido: alvo, concluidoEm: alvo ? new Date() : null, concluidoPorId: null }
+                : {}),
+              ...(tituloNovo ? { titulo: tituloNovo } : {}),
+            },
           });
         }
       } else if (REGRAS_EVENTO.has(regra)) {
@@ -449,6 +490,7 @@ export async function getLeadDetalhe(id: string) {
     telefone: lead.telefone,
     origem: lead.origem,
     valorEstimado: emReais(lead.valorEstimado),
+    faturamentoMensalEstimado: emReais(lead.faturamentoMensalEstimado),
     observacoes: lead.observacoes,
     rastreio: deOndeVeio,
     clienteId: lead.clienteId,
@@ -631,9 +673,17 @@ export async function avancarEtapa(leadId: string, userId: string) {
  * Todo caminho que devolve um `Lead` passa por aqui — inclusive o retorno das mutations,
  * que hoje ninguém lê na tela, mas que amanhã alguém lê num `onSuccess`.
  */
-const mapLead = <T extends { valorEstimado: Prisma.Decimal | number | null }>(l: T) => ({
+const mapLead = <
+  T extends {
+    valorEstimado: Prisma.Decimal | number | null;
+    faturamentoMensalEstimado?: Prisma.Decimal | number | null;
+  },
+>(
+  l: T,
+) => ({
   ...l,
   valorEstimado: emReais(l.valorEstimado),
+  faturamentoMensalEstimado: emReais(l.faturamentoMensalEstimado),
 });
 
 /** Leads ativos (não removidos, não convertidos, não perdidos) para o board. */
@@ -1032,6 +1082,7 @@ export async function createLead(input: CreateLeadInput, userId: string, rastrei
       origem: origemManual,
       rastreio,
       valorEstimado: input.valorEstimado ?? null,
+      faturamentoMensalEstimado: input.faturamentoMensalEstimado ?? null,
       observacoes: clean(input.observacoes),
       pipelineStageId: stageId,
       ordem,
@@ -1060,6 +1111,8 @@ export async function updateLead(input: UpdateLeadInput, userId: string) {
   if (rest.telefone !== undefined) data.telefone = clean(rest.telefone);
   if (rest.origem !== undefined) data.origem = clean(rest.origem);
   if (rest.valorEstimado !== undefined) data.valorEstimado = rest.valorEstimado ?? null;
+  if (rest.faturamentoMensalEstimado !== undefined)
+    data.faturamentoMensalEstimado = rest.faturamentoMensalEstimado ?? null;
   if (rest.observacoes !== undefined) data.observacoes = clean(rest.observacoes);
   if (rest.responsavelId !== undefined) data.responsavelId = rest.responsavelId || null;
   if (pipelineStageId !== undefined) data.pipelineStageId = pipelineStageId;
@@ -1087,7 +1140,11 @@ export async function updateLead(input: UpdateLeadInput, userId: string) {
     await sincronizarPassosServicos(lead.id, lead.pipelineStageId, lead.pipelineStage.chaveAuto);
   }
   // Serviços e valor alimentam passos automáticos — reconcilia após a mudança.
-  if (rest.servicoIds !== undefined || rest.valorEstimado !== undefined) {
+  if (
+    rest.servicoIds !== undefined ||
+    rest.valorEstimado !== undefined ||
+    rest.faturamentoMensalEstimado !== undefined
+  ) {
     await reconciliarPassosAuto(lead.id);
   }
   return mapLead(lead);

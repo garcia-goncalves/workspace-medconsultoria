@@ -199,6 +199,8 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 92. **O Painel de Credenciamentos** (`/credenciamentos`, menu em Negócio): uma linha por cruzamento médico × operadora de **todos** os clientes, respondendo a pergunta que a Thaís faz de manhã — *o que travou?*. O andamento só existia dentro da ficha de cada cliente, um por vez, e ela mantinha planilha paralela. A tela **abre pelo que está parado há mais tempo**, ao contrário do padrão de listagem daqui: a ordenação **é** a resposta. Marca o que passou de **60 dias** sem andar — número que veio da Thaís, não da engenharia (a sugestão era 30), editável em Ajustes → Dados da empresa. O tempo conta do **carimbo da situação atual**, não da criação (criado há 100 dias e protocolado ontem está parado há 1). `A_PROTOCOLAR` conta como atraso — ali a culpa é nossa e é o mais barato de resolver; estado final **nunca** é marcado e mostra a **data** do desfecho, porque "parado há 3 dias" num aprovado seria mentir com uma palavra. Mudar a situação pelo painel reusa a **mesma** `mudarStatusCredenciamento` da ficha (regra de dinheiro em dois lugares são dois relógios). Negócio passou a ter 5 itens, contra a diretriz de 4 do ADR-94: o limite que continua lei é **o menu não rolar** — ADR-106.
 88. **A página de e-mail para de mentir quando algo falha**: erro da consulta de caixas renderizava a tela de boas-vindas "Conecte a sua caixa" para quem já tinha caixa (a pessoa redigitava a senha do webmail e ouvia "você já plugou esta caixa"); a lista dizia "pasta vazia" numa falha de rede; a mensagem que não abre ficava em branco. Todos ganharam texto próprio. Junto: **desplugar caixa** (a rota existia sem tela), **"carregar mais antigos"** (só os 50 mais recentes eram alcançáveis), aviso do estado `ERRO`, "Reconectar" sem F5, e remoção de `email.doCliente`/`doLead` (órfãs e sem filtro por dono da caixa) — ADR-102.
 
+93. **O serviço percentual parou de pedir um valor fixo que não existe (ADR-125).** O Faturamento de contas médicas não tem preço fixo — a Med ganha um **percentual** do que a clínica fatura —, mas o passo obrigatório da Qualificação exigia "Registrar o valor estimado da oportunidade" e travava a etapa. Pior: o lead valia **R$ 0,00** no card e no total da coluna, então o negócio mais valioso do mês podia aparecer como zero. Agora a regra (`planejarEstimativaDoLead`, pura, em `@app/shared`) lê o **preço** dos serviços, nunca o nome: havendo qualquer valor fixo pergunta a estimativa como sempre; sendo tudo percentual pergunta o **faturamento mensal da clínica** (`Lead.faturamentoMensalEstimado`) e **calcula** o `valorEstimado` (faturamento × percentual), gravado pelo servidor para card, totais e relatório lerem um número só. O passo troca de título sozinho e **tem volta** quando entra um serviço de preço fixo. O credenciamento fica fora da conta, igual ao provisionamento da conversão — e para as duas regras não divergirem, `ehServicoDeCredenciamento` mudou de casa para o `shared`. Junto: **`Servico.condicaoPagamento`** tira da memória de quem digita a frase contratual do Faturamento ("O recebimento do Repasse será sempre feito após o crédito na conta da Clínica"), que a **proposta pré-preenche** e para de mexer assim que alguém edita; a ficha do cliente deixou de **omitir** o valor contratado de quem só paga percentual; e o editor de preço parou de **apagar o percentual em silêncio** de serviço fora da categoria "Faturamento" — ADR-125.
+
 ---
 
 ## 7. Regras de negócio (núcleo)
@@ -370,6 +372,26 @@ jurídica" em lugar nenhum: `Cliente.tipo` e o enum `ClienteTipo` foram removido
 - `{{cliente.documento}}` segue valendo como apelido de `{{cliente.cnpj}}` nos modelos já salvos.
 - **Armadilha repetida da ADR-118:** typecheck verde não prova. `createLead`/`updateLead` montam os
   campos um a um e descartavam o `cnpj` **em silêncio**.
+
+
+## 12.7. O dinheiro que é percentual (ADR-125)
+
+**Só o Faturamento de contas médicas é 100% percentual hoje** — confirmado pelo dono. Mas
+**nenhuma regra deste projeto casa por esse nome**: quem decide é o preço do serviço
+(`valor` × `percentual`), em `planejarEstimativaDoLead` (`packages/shared/src/estimativa.ts`),
+pura e usada pelos DOIS lados — o servidor decide o passo obrigatório do funil, a tela decide qual
+campo mostrar. Duas implementações discordariam no primeiro caso de borda.
+
+- **Negócio 100% percentual:** a Qualificação pergunta `Lead.faturamentoMensalEstimado`, e
+  `Lead.valorEstimado` vira **derivado** (faturamento × percentual), gravado pelo servidor.
+- **Caso misturado** (Faturamento + um serviço de preço fixo): volta a pedir o valor estimado —
+  esconder o valor fixo sujaria o relatório. A troca é automática, nos dois sentidos.
+- **Credenciamento fora da conta**, como já ficava fora do provisionamento da conversão
+  (ADR-104/108). `ehServicoDeCredenciamento` mora no `shared` para as duas regras não divergirem.
+- **`Servico.condicaoPagamento`** é a frase que a **proposta pré-preenche**. Mora no cadastro do
+  serviço, editável em Serviços — nunca no código, pelo mesmo motivo de `clausulasContrato`.
+- ⚠️ **O total do funil soma mensal com avulso.** Já era assim antes desta mudança (Gestão
+  Operacional é R$ 3.500/mês); não foi criado aqui e continua em aberto.
 
 ---
 

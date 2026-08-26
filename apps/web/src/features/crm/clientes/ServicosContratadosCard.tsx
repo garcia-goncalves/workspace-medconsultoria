@@ -21,7 +21,15 @@ type ServicoContratado = RouterOutputs["clientes"]["servicos"][number];
 function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; item: ServicoContratado; onClose: () => void }) {
   const utils = trpc.useUtils();
   const c = item.contratacao;
-  const ehFaturamento = item.servico.categoria === "Faturamento";
+  // Quem mostra o campo de % é o PREÇO, não a categoria. Casar só por "Faturamento" fazia
+  // abrir-e-salvar qualquer outro serviço APAGAR o percentual dele em silêncio (a linha abaixo
+  // grava `null` quando o campo não aparece). Hoje só o Faturamento tem %, então na prática
+  // nada muda — muda no dia em que a Thaís puser % em outro serviço, que é justamente o dia
+  // em que ninguém lembraria desta linha. Ver ADR-125.
+  const ehFaturamento =
+    item.servico.categoria === "Faturamento" ||
+    (c?.percentual != null && c.percentual > 0) ||
+    (item.servico.percentual != null && item.servico.percentual > 0);
   const [valor, setValor] = useState<number | undefined>(c?.valor ?? undefined);
   const [valorRecorrencia, setValorRecorrencia] = useState<"AVULSO" | "MENSAL">(c?.valorRecorrencia ?? "AVULSO");
   const [percentual, setPercentual] = useState<number | undefined>(c?.percentual ?? undefined);

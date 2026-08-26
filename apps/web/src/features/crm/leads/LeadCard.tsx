@@ -14,6 +14,8 @@ export interface LeadItem {
   telefone: string | null;
   origem: string | null;
   valorEstimado: number | null;
+  /** Base do cálculo quando o negócio é 100% percentual (ADR-125). */
+  faturamentoMensalEstimado: number | null;
   observacoes: string | null;
   pipelineStageId: string;
   ordem: number;

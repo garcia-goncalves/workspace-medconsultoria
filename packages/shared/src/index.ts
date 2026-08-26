@@ -17,3 +17,4 @@ export * from "./schemas/email.js";
 export * from "./valor-extenso.js";
 export * from "./cnpj.js";
 export * from "./types.js";
+export * from "./estimativa.js";

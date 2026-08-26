@@ -24,17 +24,19 @@ import {
  * **Uma lista só, igual para todas as operadoras** (spec §3.2, confirmado pelo dono).
  */
 
-export const NOME_SERVICO_CREDENCIAMENTO = "Credenciamento médico e odontológico";
-
 /**
  * O credenciamento **não se cobra como os outros serviços**: o honorário é no sucesso, e a
  * conta a receber nasce quando a operadora aprova (spec §3.3). Quem provisiona cobrança
  * automática — contratar na ficha, converter o lead — precisa saber disso e pular este
  * serviço, senão o cliente é cobrado antes de a operadora ter dito qualquer coisa.
+ *
+ * A definição MUDOU DE CASA em 26/08/2026 (ADR-125): mora em `@app/shared`, porque a regra da
+ * estimativa do funil precisa da mesma resposta na TELA. Duas cópias da mesma pergunta sobre o
+ * mesmo dinheiro é o começo de duas respostas diferentes. Reexportado aqui para os importadores
+ * antigos continuarem funcionando.
  */
-export function ehServicoDeCredenciamento(nome: string | null | undefined): boolean {
-  return !!nome && nome.trim().toLowerCase() === NOME_SERVICO_CREDENCIAMENTO.toLowerCase();
-}
+import { NOME_SERVICO_CREDENCIAMENTO, ehServicoDeCredenciamento } from "@app/shared";
+export { NOME_SERVICO_CREDENCIAMENTO, ehServicoDeCredenciamento };
 
 /** Um serviço do lead, só com o que decide cobrança. */
 export type ServicoParaProvisao = {

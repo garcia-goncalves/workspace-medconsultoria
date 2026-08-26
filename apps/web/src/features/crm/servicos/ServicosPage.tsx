@@ -259,6 +259,7 @@ function DetalhesPanel({
       percentual: servico.percentual ?? undefined,
       percentualRecorrencia: servico.percentualRecorrencia,
       clausulasContrato: servico.clausulasContrato ?? "",
+      condicaoPagamento: servico.condicaoPagamento ?? "",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [servico.id, reset]);
@@ -300,6 +301,20 @@ function DetalhesPanel({
       <div className="space-y-1.5">
         <Label htmlFor="d-desc">Descrição</Label>
         <Textarea id="d-desc" rows={3} placeholder="O que este serviço inclui…" {...register("descricao")} />
+      </div>
+      <div className="space-y-1.5">
+        <Label
+          htmlFor="d-condicao"
+          hint="Preenche sozinha o campo &quot;Condições de pagamento&quot; da proposta quando este serviço é escolhido. Ainda dá para editar na hora de montar a proposta."
+        >
+          Condição de pagamento
+        </Label>
+        <Textarea
+          id="d-condicao"
+          rows={2}
+          placeholder="Ex.: O recebimento do Repasse será sempre feito após o crédito na conta da Clínica."
+          {...register("condicaoPagamento")}
+        />
       </div>
       <div className="space-y-1.5">
         <Label

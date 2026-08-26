@@ -392,6 +392,13 @@ model Servico {
   // automaticamente quando o cliente aceita a proposta, juntando as cláusulas de todos os
   // serviços contratados. Editável na tela de Serviços.
   clausulasContrato String? @db.Text
+  /// Condição de pagamento deste serviço, em português, como sai na PROPOSTA. Existe porque a
+  /// condição do Faturamento é sempre a mesma frase contratual ("o repasse é após o crédito na
+  /// conta da clínica") e dependia de alguém lembrar de digitá-la em toda proposta — proposta
+  /// muda sobre quando se paga é discussão garantida depois. Mora aqui, e não no código, pelo
+  /// mesmo motivo de `clausulasContrato`: quem escreve o texto comercial é a Thaís, na tela de
+  /// Serviços, sem precisar de uma publicação para mudar uma vírgula. Ver ADR-125.
+  condicaoPagamento String? @db.Text
   ativo     Boolean  @default(true)
   ordem     Int      @default(0)
   createdAt DateTime @default(now())
@@ -672,6 +679,11 @@ model Lead {
   // Rastreio de atribuição (UTM/referrer capturados na captação) — de onde veio.
   rastreio              String?   @db.Text
   valorEstimado         Decimal?  @db.Decimal(12, 2) // estimativa comercial (não é contábil — ver Financeiro/Fase 4)
+  // Faturamento mensal da clínica, estimado na Qualificação. Só é perguntado quando TODOS os
+  // serviços do lead são percentuais (hoje: só o Faturamento de contas médicas) — ali não existe
+  // valor fixo a estimar, e é DESTE número que sai o `valorEstimado` acima, pela conta
+  // faturamento × percentual. Ver ADR-125 e `planejarEstimativaDoLead` em @app/shared.
+  faturamentoMensalEstimado Decimal? @db.Decimal(12, 2)
   observacoes           String?   @db.Text
   ordem                 Int       @default(0) // posição dentro da coluna
   pipelineStageId       String
