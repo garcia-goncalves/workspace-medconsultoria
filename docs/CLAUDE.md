@@ -203,6 +203,8 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 
 94. **Uma proposta por operadora, e a proposta de faturamento nasceu (ADR-126).** Cada operadora tem prazo, documentação e desfecho próprios — uma proposta com três dentro não pode ser aceita pela metade, então **cada proposta de credenciamento é de UMA operadora** (três operadoras = três propostas = três números). ⚠️ A **grade médico × operadora não mudou**: quem virou "uma só" é o documento; o construtor só inverteu a ordem (operadora primeiro, médicos depois). Nasceu o modelo **"Proposta de faturamento médico"**, reconhecido pelo marcador `{{convenios}}`: a linha do serviço percentual **perdeu valor, quantidade e avulso/mensal** — e quem decide isso é o **preço** (`ehServicoSomentePercentual`), nunca a categoria, com teste que reprova a volta da comparação. O papel mostra a **conta feita** (faturamento × percentual), os **convênios atendidos** e o **faturamento médio mensal**. A **operadora virou um cadastro só** com `usoCredenciamento`/`usoFaturamento` (ambas `true` para as existentes; marcada para nada é recusada), e os **convênios passaram a ficar com o cliente** (`ClienteServico.operadoras[]`, N-N) — nascem da proposta aceita viajando **dentro do item**, seguem editáveis na ficha e aparecem no Portal. O faturamento informado na proposta **volta para o lead** e recalcula o valor do negócio: um número só, andando para frente — ADR-126.
 
+95. **A proposta de faturamento virou o papel real da Thaís, e o dinheiro saiu de dois lugares novos (ADR-127).** O corpo do modelo passou a ser a **transcrição** do papel que ela manda hoje — lapidado na forma, intocado no conteúdo — com abertura própria, **Objetivo da parceria**, **Como funciona o nosso serviço** (o que a Clínica precisa entregar, antes das seis etapas), **Suporte comercial**, **Gestão e acompanhamento**, **Prazos e rotina**, investimento, dados para pagamento e **Confidencialidade**. ⚠️ **O Faturamento é SÓ percentual, e a porcentagem varia por cliente** (ordem do dono, que corrigiu o próprio papel de exemplo): a tabela de faixas **não entrou**, e o sistema já fazia isso — `Servico.percentual` como padrão, editável dentro de cada proposta. Nasceu o bloco **{{dadosPagamento}}** (banco, agência, conta, titular, chave PIX em `IdentidadeInstitucional`, editáveis em Ajustes → Dados da empresa), que sai na comercial e na de faturamento e **NÃO sai na de credenciamento** — ali a cobrança só nasce na aprovação da operadora (ADR-104); ⚠️ campo em branco **some** do papel em vez de virar rótulo solto. **"Condições de pagamento" saiu das propostas** (é sempre PIX) e a **frase do repasse virou automática** sempre que há serviço cobrado só por percentual, vinda de `Servico.condicaoPagamento` (ADR-125), inclusive em proposta misturada. ⚠️ **O faturamento médio mensal saiu do papel do cliente e ficou no funil**: imprimir a conta era promessa que envelhece no mês seguinte, e sem o número o lead voltaria a valer R$ 0,00 — o marcador `{{faturamento_mensal}}` foi **removido** do servidor e da prévia, e o campo do construtor passou a avisar que não sai no documento. Achado de passagem: `categoria === "Faturamento"` estava de volta em **quatro** lugares do `documentos.service.ts` (4ª vez) — corrigido, com teste que agora lê também o arquivo do servidor — ADR-127.
+
 ---
 
 ## 7. Regras de negócio (núcleo)
@@ -397,6 +399,7 @@ campo mostrar. Duas implementações discordariam no primeiro caso de borda.
 
 ---
 
+
 ## 12.8. Operadoras, convênios e o recorte de cada proposta (ADR-126)
 
 **A operadora é UM cadastro, com duas marcações.** A mesma Unimed que se credencia é a Unimed
@@ -436,6 +439,36 @@ mesma `reconciliarPassosAuto`. Um número só, andando para frente. É best-effo
 proposta emitida não cai porque o funil recusou um número — e só toca lead **ainda em negociação**.
 
 ---
+
+---
+
+## 12.9. O que a proposta diz sobre dinheiro a receber (ADR-127)
+
+**"Condições de pagamento" não existe mais na proposta.** Não há condição a negociar: é sempre
+PIX. O campo livre saiu do construtor, do schema (`condicoes`) e dos três formatos de proposta.
+
+**Onde o cliente paga: `{{dadosPagamento}}`.** Banco, agência, conta, titular e chave PIX moram em
+`IdentidadeInstitucional`, editáveis em **Ajustes → Dados da empresa** — dado da empresa, digitado
+uma vez, nunca escrito no código. O bloco sai na **Proposta comercial** e na **Proposta de
+faturamento médico**, e ⚠️ **não sai na de credenciamento**: ali a Thaís só cobra depois do sucesso
+do credenciamento na operadora, e a conta a receber nasce na aprovação (ADR-104).
+
+⚠️ **A regra do vazio.** Campo em branco **não** vira `Agência: ` na frente do cliente — a linha
+some. Com os cinco em branco, a **seção inteira** some. Melhor faltar do que sair pela metade.
+Quem monta é `montarDadosPagamento`, função pura testada em `@app/shared`.
+
+**Quando o repasse cai: frase automática.** Sempre que a proposta inclui um serviço cobrado **só
+por percentual** (`ehServicoSomentePercentual`, lendo o PREÇO DO ITEM, nunca a categoria), o
+documento traz sozinho a frase do repasse — inclusive em proposta misturada com serviços de valor
+fixo. O texto vem de `Servico.condicaoPagamento` (ADR-125), editável na tela de Serviços;
+`FRASE_REPASSE_FATURAMENTO` é só o valor de partida.
+
+**O faturamento médio mensal NÃO sai no papel.** Imprimir *"R$ 6.000,00/mês (5% de R$ 120.000,00)"*
+é promessa que envelhece no mês seguinte — o faturamento da clínica sobe e desce, a proposta
+assinada não. O marcador `{{faturamento_mensal}}` foi **removido** do servidor e da prévia: o
+número não pode nem ter caminho até o cliente. Ele continua sendo perguntado no construtor
+(marcado *"não aparece no documento"*) e continua alimentando o valor do negócio no funil — sem
+ele o lead de faturamento voltaria a valer R$ 0,00, o defeito que a ADR-125 consertou.
 
 ---
 

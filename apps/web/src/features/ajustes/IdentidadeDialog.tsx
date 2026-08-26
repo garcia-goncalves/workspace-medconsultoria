@@ -24,12 +24,18 @@ type Form = {
   cnpj: string;
   enderecoCompleto: string;
   foro: string;
+  bancoNome: string;
+  bancoAgencia: string;
+  bancoConta: string;
+  bancoTitular: string;
+  pixChave: string;
   credenciamentoPrazoDias: string;
 };
 
 const VAZIO: Form = {
   nome: "", tagline: "", site: "", siteUrl: "", email: "", telefone: "", cidade: "",
   instagram: "", instagramUrl: "", razaoSocial: "", cnpj: "", enderecoCompleto: "", foro: "",
+  bancoNome: "", bancoAgencia: "", bancoConta: "", bancoTitular: "", pixChave: "",
   credenciamentoPrazoDias: "60",
 };
 
@@ -58,6 +64,9 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
         telefone: d.telefone, cidade: d.cidade, instagram: d.instagram, instagramUrl: d.instagramUrl,
         razaoSocial: d.razaoSocial ?? "", cnpj: d.cnpj ?? "",
         enderecoCompleto: d.enderecoCompleto ?? "", foro: d.foro ?? "",
+        bancoNome: d.bancoNome ?? "", bancoAgencia: d.bancoAgencia ?? "",
+        bancoConta: d.bancoConta ?? "", bancoTitular: d.bancoTitular ?? "",
+        pixChave: d.pixChave ?? "",
         credenciamentoPrazoDias: String(d.credenciamentoPrazoDias ?? 60),
       });
     }
@@ -174,6 +183,48 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
             <p className="flex items-start gap-2 rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
               <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>Enquanto um campo jurídico ficar em branco, o contrato mostra um marcador <strong>[A PREENCHER]</strong> no lugar — nunca um dado inventado.</span>
+            </p>
+          </section>
+
+          {/* Dados para pagamento (ADR-127) */}
+          <section className="space-y-3 border-t pt-4">
+            <div>
+              <h3 className="text-sm font-semibold">Dados para pagamento</h3>
+              <p className="text-xs text-muted-foreground">
+                Saem no fim das propostas, para o cliente saber onde pagar. A proposta de
+                credenciamento não os mostra — ali a cobrança só nasce quando a operadora aprova.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="id-banco">Banco</Label>
+                <Input id="id-banco" value={form.bancoNome} onChange={(e) => set("bancoNome", e.target.value)} placeholder="Ex.: Nubank" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="id-agencia">Agência</Label>
+                <Input id="id-agencia" value={form.bancoAgencia} onChange={(e) => set("bancoAgencia", e.target.value)} placeholder="0001" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="id-conta">Conta</Label>
+                <Input id="id-conta" value={form.bancoConta} onChange={(e) => set("bancoConta", e.target.value)} placeholder="00000000-0" />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="id-titular" hint="Nome de quem recebe, como está cadastrado no banco.">Titular da conta</Label>
+                <Input id="id-titular" value={form.bancoTitular} onChange={(e) => set("bancoTitular", e.target.value)} placeholder="Ex.: Thais Garcia Gestão Saúde" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="id-pix" hint="A chave que o cliente usa para pagar por PIX — pode ser o CNPJ, um e-mail ou um telefone.">Chave PIX</Label>
+                <Input id="id-pix" value={form.pixChave} onChange={(e) => set("pixChave", e.target.value)} placeholder="00.000.000/0000-00" />
+              </div>
+            </div>
+            <p className="flex items-start gap-2 rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+              <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                Campo em branco simplesmente não aparece na proposta. Com os cinco em branco, a
+                seção inteira some — melhor faltar do que sair pela metade na frente do cliente.
+              </span>
             </p>
           </section>
 
