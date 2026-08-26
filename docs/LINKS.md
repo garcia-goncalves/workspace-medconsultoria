@@ -273,16 +273,34 @@ use **"Esqueci minha senha"** na tela de login.
 ### Trocar a senha de teste da sua máquina
 
 Serve quando a senha de desenvolvimento pode ter sido vista por alguém (foi o caso em
-05/08/2026). **Só afeta esta máquina** — produção não é tocada.
+05/08/2026), ou quando você simplesmente quer uma senha que saiba de cor. **Só afeta esta
+máquina** — produção não é tocada.
+
+**Se você quer escolher a senha** (o caso comum — é para você entrar):
+
+```
+pnpm senha:rotacionar minhasenha123
+```
+
+**Se você quer uma senha sorteada** (mais segura, mas você terá de abrir o arquivo para lê-la):
 
 ```
 pnpm senha:rotacionar
 ```
 
-O que aparece se der certo: uma linha `✔ senha reescrita no banco` para cada conta interna e,
-no fim, `✓ Senha de seed rotacionada`. **A senha nova não é mostrada de propósito** (o terminal
-guarda o que passa por ele): ela fica na linha `SEED_ROOT_PASSWORD` do arquivo `.env`, na raiz do
-projeto — abra o arquivo se precisar digitá-la.
+O que aparece se der certo, nos dois casos: uma linha `✔ senha reescrita` para cada conta
+interna e, no fim, `✓ Senha de seed rotacionada em N conta(s)`.
+
+⚠️ **Ela troca a senha de TODAS as contas internas de uma vez** — todas as que ainda usavam a
+senha de desenvolvimento. Quem já definiu uma senha própria não é tocado.
+
+**A senha nunca é repetida na tela**, nem a escolhida (o terminal guarda o que passa por ele).
+Se você escolheu, é a que você digitou. Se foi sorteada, ela fica na linha `SEED_ROOT_PASSWORD`
+do arquivo `.env`, na raiz do projeto.
+
+A senha escolhida é conferida antes: se tiver menos de 8 caracteres, aspas duplas, barra
+invertida, quebra de linha ou espaço nas pontas, o comando **recusa e não altera nada** — esses
+caracteres corromperiam o arquivo `.env` em silêncio e trancariam você fora de tudo no local.
 
 Se der errado, a mensagem diz o motivo e **nada muda** (o `.env` volta como estava). O erro mais
 comum é o banco desligado: rode `pnpm db:up` e tente de novo. Depois, confira com `pnpm acessos`
