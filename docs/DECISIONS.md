@@ -2819,10 +2819,18 @@ Então:
 
 ### O que ficou de fora, e por quê
 
-- **A exigência "Quais operadoras você atende?" continua no checklist do Faturamento**, agora ao
-  lado da lista estruturada de convênios. São duas perguntas parecidas na mesma tela. Não foi
-  removida porque é a Thaís quem edita esse checklist (Serviços → Exigências) e apagar uma
-  exigência apaga o que o cliente já respondeu nela — a decisão é do dono.
+- ~~A exigência "Quais operadoras você atende?" continua no checklist do Faturamento~~ —
+  **REMOVIDA no mesmo lote, por ordem do dono.** Ela pedia em texto livre exatamente a lista que
+  virou campo estruturado, e o Portal mostrava a mesma pergunta duas vezes, uma delas obrigatória.
+  Precisou ser **migração** (`20260826213000_remove_exigencia_operadoras_duplicada`), não só a
+  remoção da semente: `seedRequisitosSeVazio` só semeia com a tabela **vazia**, então apagar da
+  semente não removeria nada de um banco que já roda. ⚠️ **A guarda é o que importa:** o `DELETE`
+  só apaga onde **ninguém respondeu e nada foi enviado** — apagar exigência respondida levaria
+  junto o trabalho do cliente, e onde houver resposta a exigência **fica** (duplicidade é menos
+  grave que perda; a Thaís decide caso a caso na tela). O `Formulario` interno **não** é apagado
+  de propósito: `FormularioResposta.formularioId` é `Cascade`, então apagá-lo apagaria as
+  respostas. Conferido no banco local antes e depois: 0 respostas, 0 arquivos, e as outras **seis**
+  exigências do Faturamento intactas.
 - **O total do funil segue somando valor mensal com valor avulso no mesmo bolo** — já registrado
   na ADR-125, não foi criado nem resolvido aqui.
 - **As propostas de credenciamento já emitidas com várias operadoras continuam como estão.** A
