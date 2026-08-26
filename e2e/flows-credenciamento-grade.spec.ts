@@ -72,16 +72,20 @@ test("grade médico × operadora: monta o preço, gera a proposta numerada e cob
     await d.getByPlaceholder("Buscar cliente…").fill(`Clínica ${RUN}`);
     await page.getByRole("option", { name: `Clínica ${RUN}` }).click();
 
-    await expect(d.getByText("Grade de credenciamento", { exact: false })).toBeVisible({ timeout: 15_000 });
+    // UMA operadora por proposta (ADR-126): escolhe-se a operadora e, só então, os médicos
+    // que entram NESTA proposta. A grade médico × operadora do cliente não mudou — o que se
+    // recorta aqui é o documento.
+    await expect(d.getByText("Operadora desta proposta", { exact: false })).toBeVisible({ timeout: 15_000 });
+    await d.locator("#cred-operadora").selectOption({ label: operadora.nome });
     await expect(d.getByText(`Dr. Teste ${RUN}`)).toBeVisible();
 
-    // Valor padrão preenche a célula que for marcada — é o atalho do dia a dia.
+    // Valor padrão preenche o médico que for marcado — é o atalho do dia a dia.
     await d.getByLabel("Valor padrão por credenciamento").fill("2.000,00");
-    await d.getByRole("checkbox").filter({ hasNot: page.locator("nada") }).first().check();
+    await d.getByRole("checkbox").first().check();
     await d.getByRole("checkbox", { checked: true }).first().waitFor();
 
-    // O total ao vivo confirma que a célula entrou com o valor padrão.
-    await expect(d.getByText(/1 credenciamento\(s\)/)).toBeVisible();
+    // O total ao vivo confirma que o médico entrou com o valor padrão, naquela operadora.
+    await expect(d.getByText(/1 médico\(s\) em /)).toBeVisible();
 
     await d.getByRole("button", { name: /Gerar (documento|proposta)/i }).click();
 
