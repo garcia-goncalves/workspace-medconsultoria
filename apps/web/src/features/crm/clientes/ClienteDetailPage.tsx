@@ -37,7 +37,7 @@ import { trpc } from "../../../lib/trpc";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { MaskedInput } from "../../../components/ui/masked-input";
-import { maskTelefone, formatBRL } from "../../../lib/masks";
+import { maskTelefone, formatBRL, formatPreco } from "../../../lib/masks";
 import { dataHora, dataUTC, data } from "../../../lib/format-date";
 import { Textarea } from "../../../components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "../../../components/ui/card";
@@ -87,6 +87,8 @@ export function ClienteDetailPage() {
 
   const cliente = trpc.clientes.get.useQuery({ id: clienteId });
   const rel = trpc.clientes.relacionados.useQuery({ id: clienteId });
+  // Mesma chave do ServicosContratadosCard: o cache é reaproveitado, sem requisição a mais.
+  const contratados = trpc.clientes.servicos.useQuery({ id: clienteId });
   const chamados = trpc.clientes.chamados.useQuery({ clienteId }, { refetchInterval: POLL.chamadosCliente });
 
   useEventoRealtime("mensagem", () => utils.clientes.chamados.invalidate({ clienteId }));
@@ -533,6 +535,19 @@ export function ClienteDetailPage() {
               const abertos = origem.filter((o) => o.status === "em_andamento");
               const perdidos = origem.filter((o) => o.status === "perdido");
               const valorContratado = ganhos.reduce((sum, g) => sum + (g.valorEstimado ?? 0), 0);
+              // A soma acima é de VALOR ESTIMADO dos negócios ganhos, e dá zero para quem só
+              // paga percentual (o Faturamento de contas médicas). A linha então sumia da tela
+              // e a ficha ficava muda sobre o que o cliente paga — o número não está errado,
+              // está ausente. Quando não há valor fixo, mostramos o preço real do que está
+              // contratado ("5% do faturamento/mês"), que a ficha já sabe. Ver ADR-125.
+              const precosContratados = [
+                ...new Set(
+                  (contratados.data ?? [])
+                    .filter((i) => i.contratado)
+                    .map((i) => formatPreco(i.contratacao ?? {}))
+                    .filter(Boolean),
+                ),
+              ];
               const datas = ganhos.map((g) => new Date(g.convertidoEm ?? g.createdAt).getTime());
               const clienteDesde = datas.length ? new Date(Math.min(...datas)) : null;
               const origens = [...new Set(origem.map((o) => o.origem).filter(Boolean))];
@@ -551,11 +566,18 @@ export function ClienteDetailPage() {
                           <strong className="text-foreground">{data(clienteDesde)}</strong>
                         </div>
                       )}
-                      {valorContratado > 0 && (
+                      {valorContratado > 0 ? (
                         <div className="flex items-center justify-between gap-2">
                           <span>Valor contratado</span>
                           <strong className="text-success">{formatBRL(valorContratado)}</strong>
                         </div>
+                      ) : (
+                        precosContratados.length > 0 && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Valor contratado</span>
+                            <strong className="text-success">{precosContratados.join(" + ")}</strong>
+                          </div>
+                        )
                       )}
                       {origens.length > 0 && (
                         <div className="flex items-center justify-between gap-2">

@@ -23,6 +23,10 @@ export const createLeadSchema = z.object({
   telefone: textoOpcional,
   origem: textoOpcional,
   valorEstimado: valorOpcional,
+  // Faturamento mensal da clínica. Só é perguntado quando TODOS os serviços do lead são
+  // percentuais (hoje: só o Faturamento de contas médicas) — ali não há valor fixo a estimar,
+  // e é desta base que o `valorEstimado` acima é calculado. Ver ADR-125.
+  faturamentoMensalEstimado: valorOpcional,
   observacoes: textoOpcional,
   pipelineStageId: z.string().optional(),
   responsavelId: z.string().optional().or(z.literal("")),
@@ -104,6 +108,9 @@ export const createServicoSchema = z.object({
   percentual: z.number().min(0).max(100).nullable().optional(),
   percentualRecorrencia: precoRecorrenciaEnum.default("MENSAL"),
   clausulasContrato: z.string().trim().max(20000).optional().or(z.literal("")),
+  // Frase de condição de pagamento que a PROPOSTA pré-preenche (ADR-125). Curta de propósito:
+  // é uma linha do documento, não um bloco de cláusulas.
+  condicaoPagamento: z.string().trim().max(500).optional().or(z.literal("")),
 });
 export type CreateServicoInput = z.infer<typeof createServicoSchema>;
 
@@ -117,6 +124,9 @@ export const updateServicoSchema = z.object({
   percentual: z.number().min(0).max(100).nullable().optional(),
   percentualRecorrencia: precoRecorrenciaEnum.optional(),
   clausulasContrato: z.string().trim().max(20000).optional().or(z.literal("")),
+  // Frase de condição de pagamento que a PROPOSTA pré-preenche (ADR-125). Curta de propósito:
+  // é uma linha do documento, não um bloco de cláusulas.
+  condicaoPagamento: z.string().trim().max(500).optional().or(z.literal("")),
   ativo: z.boolean().optional(),
 });
 export type UpdateServicoInput = z.infer<typeof updateServicoSchema>;

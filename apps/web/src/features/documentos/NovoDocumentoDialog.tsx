@@ -91,6 +91,9 @@ export function NovoDocumentoDialog({
   const [vigenciaMeses, setVigenciaMeses] = useState(12);
   const [prazo, setPrazo] = useState("");
   const [condicoes, setCondicoes] = useState("");
+  // A condição de pagamento é PRÉ-PREENCHIDA pelos serviços escolhidos (ADR-125), mas proposta
+  // se negocia: assim que alguém digita ali, o preenchimento automático para de mexer.
+  const condicoesTocadas = useRef(false);
   const [observacoes, setObservacoes] = useState("");
   const [usarIA, setUsarIA] = useState(false);
   // Proposta de credenciamento: a grade médico × operadora (ADR-104) e, para o cliente sem
@@ -129,6 +132,7 @@ export function NovoDocumentoDialog({
     appliedKey.current = "";
     setPrazo("");
     setCondicoes("");
+    condicoesTocadas.current = false;
     setObservacoes("");
     setUsarIA(false);
     setOperadorasSel([]);
@@ -178,6 +182,31 @@ export function NovoDocumentoDialog({
     () => (modelo ? extrairVariaveis(modelo.corpo).filter((v) => !v.startsWith("cliente.") && v !== "data") : []),
     [modelo],
   );
+
+  /**
+   * A condição de pagamento vem do CADASTRO do serviço, não da memória de quem digita.
+   *
+   * O caso que originou (ADR-125): o Faturamento de contas médicas tem sempre a mesma condição
+   * — o repasse é após o crédito na conta da clínica — e ela dependia de alguém lembrar de
+   * escrevê-la, igual, em toda proposta. Proposta muda sobre quando se paga vira discussão
+   * depois, e some do documento se ninguém digitar.
+   *
+   * Dois cuidados: só preenche enquanto ninguém tocou no campo (proposta se negocia), e junta
+   * as condições de TODOS os serviços escolhidos, sem repetir — no caso misturado o cliente
+   * precisa ler as duas.
+   */
+  const idsSelecionados = Object.keys(sel).sort().join(",");
+  useEffect(() => {
+    if (condicoesTocadas.current) return;
+    const escolhidos = new Set(idsSelecionados ? idsSelecionados.split(",") : []);
+    const frases: string[] = [];
+    for (const sv of servicosAtivos.data ?? []) {
+      if (!escolhidos.has(sv.id)) continue;
+      const frase = sv.condicaoPagamento?.trim();
+      if (frase && !frases.includes(frase)) frases.push(frase);
+    }
+    setCondicoes(frases.join(" "));
+  }, [idsSelecionados, servicosAtivos.data]);
 
   // Contexto do cliente (serviços contratados, investimento, proposta aceita) → auto-preenchimento.
   const contexto = trpc.documentos.contextoCliente.useQuery(
@@ -670,7 +699,15 @@ export function NovoDocumentoDialog({
               </div>
               <div className="space-y-1">
                 <Label htmlFor="prop-cond">Condições de pagamento</Label>
-                <Input id="prop-cond" value={condicoes} onChange={(e) => setCondicoes(e.target.value)} placeholder="Ex.: 30% + 2x" />
+                <Input
+                  id="prop-cond"
+                  value={condicoes}
+                  onChange={(e) => {
+                    condicoesTocadas.current = true;
+                    setCondicoes(e.target.value);
+                  }}
+                  placeholder="Ex.: 30% + 2x"
+                />
               </div>
             </div>
             <div className="space-y-1">

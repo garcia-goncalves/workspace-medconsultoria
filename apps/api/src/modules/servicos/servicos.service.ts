@@ -294,6 +294,21 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
  * Roteiro de execução (por nome de serviço): cada TAREFA vira um cartão do projeto quando o
  * serviço é contratado, com o checklist da tarefa. Ponto de partida editável (ADR-37).
  */
+/**
+ * CONDIÇÃO DE PAGAMENTO por serviço, como sai na PROPOSTA (ADR-125).
+ *
+ * Só o Faturamento de contas médicas tem condição própria hoje, e é uma frase contratual: a Med
+ * é remunerada por um percentual do que a clínica recebe, então o repasse depende do dinheiro
+ * ter entrado na conta dela. Antes disso a condição dependia de alguém lembrar de digitá-la em
+ * toda proposta — e proposta muda sobre quando se paga vira discussão depois.
+ *
+ * Isto é só o PONTO DE PARTIDA: o texto é editável em Serviços → Configurar → Detalhes, e o
+ * backfill abaixo nunca sobrescreve o que a equipe escreveu.
+ */
+const CONDICOES_PAGAMENTO_SERVICOS: Record<string, string> = {
+  Faturamento: "O recebimento do Repasse será sempre feito após o crédito na conta da Clínica.",
+};
+
 const ROTEIROS_SERVICO: Record<string, { titulo: string; itens: string[] }[]> = {
   "Gestão Operacional": [
     { titulo: "Diagnóstico da operação", itens: ["Mapear os processos atuais", "Levantar equipe e ferramentas em uso", "Aplicar o diagnóstico (da agenda ao pagamento)"] },
@@ -377,6 +392,7 @@ async function seedIfEmpty() {
         descricao: s.descricao,
         roteiro: ROTEIROS_SERVICO[s.nome] ?? undefined,
         clausulasContrato: CLAUSULAS_SERVICOS[s.nome] ?? null,
+        condicaoPagamento: CONDICOES_PAGAMENTO_SERVICOS[s.nome] ?? null,
         // Mantém a ordem canônica do catálogo, independente do que já houvesse no banco.
         ordem: CONTEUDO_SERVICOS.findIndex((c) => c.nome === s.nome),
       })),
@@ -388,6 +404,14 @@ async function seedIfEmpty() {
   if ((await prisma.servico.count({ where: { clausulasContrato: null } })) > 0) {
     for (const [nome, clausula] of Object.entries(CLAUSULAS_SERVICOS)) {
       await prisma.servico.updateMany({ where: { nome, clausulasContrato: null }, data: { clausulasContrato: clausula } });
+    }
+  }
+
+  // Mesmo padrão para a condição de pagamento (ADR-125): só onde está NULL, nunca por cima do
+  // que a equipe escreveu. Serviço já cadastrado antes desta versão recebe a frase aqui.
+  if ((await prisma.servico.count({ where: { condicaoPagamento: null } })) > 0) {
+    for (const [nome, condicao] of Object.entries(CONDICOES_PAGAMENTO_SERVICOS)) {
+      await prisma.servico.updateMany({ where: { nome, condicaoPagamento: null }, data: { condicaoPagamento: condicao } });
     }
   }
   // Passos padrão, casando pelo nome do serviço. Também POR SERVIÇO, não tudo-ou-nada: com o
@@ -447,6 +471,9 @@ export async function listServicosAtivos() {
       valorRecorrencia: true,
       percentual: true,
       percentualRecorrencia: true,
+      // A proposta pré-preenche "Condições de pagamento" com a condição de cada serviço
+      // escolhido (ADR-125) — vem daqui para o construtor não precisar de outra chamada.
+      condicaoPagamento: true,
     },
   });
   return servicos.map(mapServico);
@@ -489,6 +516,7 @@ export async function atualizarServico(
     percentual?: number | null;
     percentualRecorrencia?: "AVULSO" | "MENSAL";
     clausulasContrato?: string | null;
+    condicaoPagamento?: string | null;
     ativo?: boolean;
   },
 ) {
@@ -501,6 +529,7 @@ export async function atualizarServico(
   if (dados.percentual !== undefined) data.percentual = dados.percentual ?? null;
   if (dados.percentualRecorrencia !== undefined) data.percentualRecorrencia = dados.percentualRecorrencia;
   if (dados.clausulasContrato !== undefined) data.clausulasContrato = dados.clausulasContrato?.trim() || null;
+  if (dados.condicaoPagamento !== undefined) data.condicaoPagamento = dados.condicaoPagamento?.trim() || null;
   if (dados.ativo !== undefined) data.ativo = dados.ativo;
   try {
     return mapServico(await prisma.servico.update({ where: { id }, data }));

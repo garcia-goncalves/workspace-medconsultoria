@@ -62,7 +62,16 @@ export async function servicosDoCliente(clienteId: string) {
     const obrigatorios = requisitos.filter((r) => r.obrigatorio);
     const pendentes = obrigatorios.filter((r) => !r.atendido).length;
     return {
-      servico: { id: s.id, nome: s.nome, descricao: s.descricao, categoria: s.categoria },
+      // `percentual` vai junto para a ficha saber que este serviço é cobrado por percentual
+      // mesmo quando a contratação ainda não tem o número gravado (ADR-125). Decimal para
+      // aqui, nunca atravessa o tRPC (ADR-118).
+      servico: {
+        id: s.id,
+        nome: s.nome,
+        descricao: s.descricao,
+        categoria: s.categoria,
+        percentual: emReais(s.percentual),
+      },
       contratado: c?.status === "ATIVO",
       contratacao: c
         ? {

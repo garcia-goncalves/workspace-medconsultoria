@@ -249,6 +249,7 @@ export function LeadsPipelinePage() {
       telefone: l.telefone,
       origem: l.origem,
       valorEstimado: l.valorEstimado,
+      faturamentoMensalEstimado: l.faturamentoMensalEstimado,
       observacoes: l.observacoes,
       responsavelId: l.responsavelId,
       servicoIds: l.servicos.map((s) => s.id),

@@ -2576,3 +2576,127 @@ dias de trabalho no módulo que menos precisava.
 Segue **sem piso de cobertura na CI**, pela mesma razão da ADR original: piso vira refém, e não
 há o que defender enquanto o número não estabilizar. E ambas as réguas continuam cegas ao que
 só o e2e exercita.
+
+---
+
+## ADR-125 — O serviço percentual pedia um valor fixo que não existe (e a condição de pagamento dependia da memória de quem digita) ✅
+
+**Data:** 26/08/2026 · **Status:** implementado, provado na tela
+
+### O sintoma
+
+O dono abriu o painel de um lead cujo único serviço era **Faturamento de contas médicas** e
+encontrou a Qualificação travada:
+
+```
+Próximos passos · Qualificação        1 obrigatório(s) restante(s)
+Geral
+  ☐ Entender a necessidade e os requisitos
+  ☐ Registrar o valor estimado da oportunidade   obrigatório  automático
+```
+
+**Só que esse serviço não tem valor fixo.** A Med é remunerada por um **percentual** sobre o que
+a clínica fatura — é o único serviço do catálogo assim (`valor: null`, `percentual: 5`,
+`percentualRecorrencia: MENSAL`). O passo obrigatório pedia um número que não existe, e travava
+a etapa até alguém inventar um. Quem inventa suja o relatório; quem não inventa não avança.
+
+### O que estava por trás
+
+O passo vinha de uma lista fixa no código (`PLAYBOOK.qualificacao`, em `leads.service.ts`),
+igual para todo lead, **sem olhar quais serviços a pessoa escolheu**. E o funil não tinha como
+avaliar um negócio percentual: `Lead.valorEstimado` era o único número, digitado à mão, então o
+lead de Faturamento valia **R$ 0,00** no card, no total da coluna e no relatório — ao lado de um
+lead de R$ 12.000. O negócio mais valioso do mês podia ser o que aparecia como zero.
+
+### A decisão
+
+**1. A regra lê o PREÇO, nunca o nome do serviço.** `planejarEstimativaDoLead`, função pura em
+`@app/shared`, responde qual pergunta faz sentido:
+
+| Serviços escolhidos | Modo | O que se pergunta |
+|---|---|---|
+| algum com valor fixo | `VALOR_FIXO` | "quanto você espera fechar?" (como sempre) |
+| todos percentuais | `PERCENTUAL` | "quanto a clínica fatura por mês?" |
+| nenhum, ou só credenciamento | `VALOR_FIXO` | como sempre |
+
+Hoje isso só alcança o Faturamento — o dono confirmou que é o único serviço 100% percentual —
+e continua correto se a Thaís criar outro amanhã. **Casar por nome é a fragilidade que já
+existe** em `ehServicoDeCredenciamento`; repeti-la teria sido barato agora e caro depois.
+
+**2. O credenciamento fica fora da conta**, exatamente como já fica fora do provisionamento da
+conversão (ADR-104/108): o honorário dele nasce quando a operadora aprova. Para as duas regras
+não divergirem, `NOME_SERVICO_CREDENCIAMENTO`/`ehServicoDeCredenciamento` **mudaram de casa** para
+`@app/shared` (reexportados do módulo antigo). Duas cópias da mesma pergunta sobre o mesmo
+dinheiro são o começo de duas respostas diferentes.
+
+**3. A função é pura e vive no `shared` porque os DOIS lados precisam da mesma resposta:** o
+servidor decide o passo obrigatório, a tela decide qual campo mostrar. Duas implementações
+discordariam no primeiro caso de borda.
+
+**4. O passo troca de pergunta, e tem volta.** A reconciliação (`reconciliarPassosAuto`) já
+concluía e reabria passos automáticos; passou a reescrever também o **título** da linha com
+`autoRegra: "valor"`. Marcar Gestão Operacional junto do Faturamento devolve
+`"Registrar o valor estimado da oportunidade"` sozinho. Passo digitado pela equipe nunca é
+tocado (não tem `autoRegra`).
+
+**5. `valorEstimado` passa a ser DERIVADO no modo percentual:** `faturamentoMensalEstimado ×
+percentualTotal`, gravado pelo servidor. Quem digita é a base, não o resultado. Gravar (em vez de
+só calcular na tela) mantém card, totais e relatório lendo **um número só**.
+
+**6. A condição de pagamento sai da memória e entra no cadastro.** A Thaís informou que a
+condição do Faturamento é sempre a mesma frase: *"O recebimento do Repasse será sempre feito após
+o crédito na conta da Clínica."* Ela era digitada à mão em toda proposta, num campo livre
+(`NovoDocumentoDialog`, placeholder "Ex.: 30% + 2x"). Virou **`Servico.condicaoPagamento`**,
+editável em Serviços → Configurar → Detalhes, no mesmo molde de `clausulasContrato`; a proposta
+**pré-preenche** com a condição dos serviços escolhidos, sem repetir, e **para de mexer assim que
+alguém digita** (proposta se negocia).
+
+**Alternativas descartadas:** *sumir com o campo* (a proposta ficaria muda sobre quando o cliente
+paga — exatamente o termo que evita discussão depois — e não sobrevive ao caso misturado, em que
+as duas condições precisam sair no papel) e *escrever a frase no código* (mudar uma vírgula
+exigiria uma publicação; a Thaís é quem escreve texto comercial).
+
+### Consertos que vieram junto (lado Clientes)
+
+- **A ficha ficava muda sobre o que o cliente paga.** A linha "Valor contratado" do *Resumo
+  comercial* soma o `valorEstimado` dos leads ganhos; para quem só paga percentual isso dá zero e
+  a linha **sumia da tela**. Não era conta errada, era ausência. Agora, quando não há valor fixo,
+  mostra o preço real do que está contratado (`5% do faturamento/mês`), que a ficha já sabia.
+- **O percentual podia ser apagado em silêncio.** No editor de preço da ficha
+  (`ServicosContratadosCard`), o campo de % só aparecia para a categoria "Faturamento", e a
+  gravação faz `percentual: ehFaturamento ? … : null` — abrir e salvar qualquer outro serviço
+  **zerava** o percentual dele, sem aviso. Hoje quem decide é o preço, não a categoria. Não mordia
+  ninguém ainda; morderia no dia em que a Thaís pusesse % em outro serviço, que é justamente o dia
+  em que ninguém lembraria dessa linha.
+
+### O banco
+
+Migração `20260826150000_faturamento_percentual_e_condicao_pagamento`, escrita à mão. Duas colunas
+**novas e nuláveis** — nada é apagado nem convertido, nenhuma linha existente muda de valor:
+
+- `Lead.faturamentoMensalEstimado DECIMAL(12,2) NULL`
+- `Servico.condicaoPagamento TEXT NULL`
+
+### A prova
+
+Typecheck verde **não prova nada aqui** — foi o que deixou passar o "R$ NaN" da ADR-118 e o
+`cnpj` descartado em silêncio da ADR-119, os dois no mesmo `createLead`/`updateLead` que monta os
+campos um a um. Então:
+
+- **11 testes de unidade** da regra pura (`estimativa-lead.test.ts`), incluindo o caso misturado,
+  o só-credenciamento, o percentual zerado e o arredondamento em centavos.
+- **6 testes contra o MySQL de verdade** (`faturamento-percentual.integration.test.ts`): o campo
+  sobrevive ao criar e ao editar, chega à tela como **número** (`typeof`, não tipagem), o passo
+  troca de pergunta, o `valorEstimado` sai `10000.00` de 200.000 × 5%, e volta atrás quando entra
+  um serviço fixo.
+- **Na tela**, no localhost: marcar Faturamento troca o campo ao vivo para "Faturamento mensal do
+  cliente"; digitar mostra *"Valor do negócio: R$ 100,00/mês (5% de R$ 2.000,00)"*; salvar leva o
+  lead à Qualificação com o passo lendo **"Registrar o faturamento mensal estimado do cliente"**,
+  já concluído; e card, painel e total da coluna mostram **R$ 100,00**.
+
+### O que ficou de fora, de propósito
+
+O total do funil **soma valor mensal com valor de cobrança única** — R$ 100,00/mês do Faturamento
+entra no mesmo bolo de um serviço avulso. **Isso já era assim** (Gestão Operacional é R$ 3.500/mês
+e sempre entrou igual); não foi criado aqui e arrumar exige decidir como o funil deve ser lido.
+Registrado para não parecer resolvido.
