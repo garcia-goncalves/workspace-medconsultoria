@@ -23,6 +23,9 @@ Modelagem de dados. Banco: **MySQL 8+ (utf8mb4)**. ORM: **Prisma**. Este documen
 ### User
 `id`, `nome`, `email @unique`, `passwordHash?` (null = convite pendente, ainda sem senha), `role (enum Role)`, `ativo Boolean`, **`avatarUrl?`** (foto de perfil — caminho relativo em `avatars/{userId}/…`; servido por `GET /avatar/:userId`, enviado por `POST /avatar`; ADR-42), `clienteId?` (escopo do Portal quando `role = CLIENTE`), **`senhaTrocadaEm?`** (quando a pessoa definiu a PRÓPRIA senha; nulo = nunca — conta interna nessa situação é obrigada a definir no 1º acesso, ADR-91), timestamps, `deletedAt?`.
 - `role`: `ROOT | ADMIN | FUNCIONARIO | CLIENTE`.
+- **`papelPortal? (enum PortalPapel)`** — o papel DENTRO da clínica, no Portal (ADR-131): `RESPONSAVEL` fala pela clínica (aceita proposta, contrata, cancela, convida) e `EQUIPE` toca o operacional (documento, formulário, agenda, suporte). Nulo em conta interna **e** nas contas anteriores à regra, que valem como `RESPONSAVEL` — ver `podeNoPortal` em `@app/shared`, onde a lista é de LIBERAÇÕES e o padrão é negar.
+- **`convidadoPorId?`** (FK para `User`, `SET NULL`) — quem deu esse acesso: alguém da Med ou o responsável da própria clínica. É pergunta de auditoria.
+- **`acessoRevogadoEm?`** — quando o acesso foi tirado; nulo = nunca. ⚠️ **Existe porque `ativo = false` sozinho é ambíguo:** conta convidada e ainda sem senha também nasce inativa, e sem este marcador a lista mostrava *"acesso revogado"* para quem acabara de ser convidado.
 - Relações: sessions, tokens, notas, notificações, preferências de e-mail, participações em projeto, docs criados/aprovados, etc.
 
 ### Session

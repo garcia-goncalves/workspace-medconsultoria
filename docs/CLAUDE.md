@@ -207,6 +207,8 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 
 96. **Quem avisa o cliente é a Thaís, e a equipe pode ver o Painel dele sem assinar por ele (ADR-128).** E-mail de boas-vindas/acesso passou a ser **só do autocadastro em `/comecar`**: `garantirAcessoPortal` exige uma `OrigemDoAcesso` (`AUTOCADASTRO` · `EQUIPE` · `EQUIPE_COM_AVISO`), e as caixinhas de confirmação de cadastrar cliente e converter lead nascem **desmarcadas** — antes vinham marcadas, e o "automático" era o descuido de todo dia. Nasceu o botão **Painel**: uma **sessão de suporte** onde `Session.operadorId` guarda quem entrou e o `userId` continua sendo o cliente, então ⚠️ **o isolamento do Portal não muda uma linha**. A equipe **vê tudo e não assina nada** — a trava mora no `portalProcedure`, barrando toda **mutação**, porque no Portal escrever é sempre falar pelo cliente; o `/upload` a repete. Dura 30 min, volta em um clique sem novo login, ADMIN+ sempre e funcionário só nos clientes dele, tudo registrado em `activityLog`. O card do Portal passou a ter **três estados** (enviar · reenviar, dizendo há quantos dias o convite está parado · Painel, com o último acesso), o que pediu `User.ultimoAcessoEm` — marcado só no login do CLIENTE. ⚠️ Defeito achado na tela: um cliente pode ter **duas** contas de Portal, e pegar "a primeira por data" mostrava "Enviar acesso" para quem já entrava — ADR-128.
 
+97. **Vários usuários por clínica: cada médico e cada secretária com o próprio acesso (ADR-131).** Acabou a conta única cuja senha circulava entre a equipe da clínica. `User.papelPortal` separa **RESPONSAVEL** (fala pela clínica: aceita proposta, contrata, cancela, convida) de **EQUIPE** (o operacional: documento, formulário, agenda, suporte). ⚠️ **A trava é sobre ASSINAR, não sobre VER** — os dois leem tudo daquela clínica, valores inclusive, pela mesma razão da ADR-128. ⚠️ **`ACOES_LIBERADAS_PARA_EQUIPE` é lista de LIBERAÇÕES e o padrão é NEGAR**, no `portalProcedure` e só em mutação: **ação nova nasce fechada**. Papel nulo vale como RESPONSAVEL (contas anteriores à regra). `sobraResponsavel` impede a clínica de ficar sem quem assine; revogar **desativa, nunca exclui**, e derruba as sessões. Duas telas — card na ficha e seção no Portal — com um componente e um serviço só. ⚠️ Dois defeitos achados clicando: `ativo = false` é **ambíguo** (convidado × revogado), o que fez nascer `User.acessoRevogadoEm`; e a **primeira** pessoa entrava como *Equipe*, deixando a clínica sem ninguém para assinar — ADR-131.
+
 ---
 
 ## 7. Regras de negócio (núcleo)
@@ -498,6 +500,37 @@ em `activityLog` (`painel_cliente.entrou` / `.saiu`) — acesso a dado pessoal d
 ser auditável.
 
 **Não aninha:** quem está em suporte volta ao próprio acesso antes de abrir outro painel.
+
+## 12.11. As pessoas de uma clínica no Portal (ADR-131)
+
+**Uma clínica não é uma pessoa.** Cada médico e cada secretária tem conta própria, ligada ao mesmo
+`Cliente` por `User.clienteId` — o modelo já tolerava isso desde sempre; o que faltava era o
+recurso de produto (convidar, nomear, dar papel, revogar).
+
+**Dois papéis, e a fronteira é ASSINAR.** `RESPONSAVEL` fala pela clínica; `EQUIPE` toca o
+operacional. Os dois **leem tudo** daquela clínica, valores inclusive — a mesma escolha da ADR-128:
+esconder número da secretária resolveria um problema que ninguém relatou e criaria um que morde
+toda semana.
+
+**A lista é de LIBERAÇÕES, e o padrão é negar.** `ACOES_LIBERADAS_PARA_EQUIPE` (em `@app/shared`)
+diz o que a EQUIPE pode; tudo o mais é do RESPONSAVEL, **inclusive o que ainda não foi escrito**.
+A trava mora no `portalProcedure`, ao lado da trava da sessão de suporte, e só vale para mutação.
+⚠️ É o inverso de uma lista de proibições de propósito: naquela, a ação que alguém esquecer de
+proibir é justamente a que vai morder.
+
+**Papel nulo = RESPONSAVEL.** São as contas anteriores à regra, que sempre puderam tudo.
+Rebaixá-las em silêncio tiraria o poder de assinar de quem já assinava.
+
+**A clínica nunca fica sem quem assine.** `sobraResponsavel` (pura, testada) recusa rebaixar,
+desativar ou revogar o último responsável. Ninguém revoga o próprio acesso.
+
+**Revogar é desativar, nunca excluir** — a conta aparece no histórico, e apagá-la deixaria
+"alguém" no lugar do nome de quem agiu (ADR-109). As sessões abertas caem junto.
+
+⚠️ **`ativo = false` é AMBÍGUO.** Conta convidada e ainda sem senha também nasce inativa. Quem
+decide "revogado" é **`User.acessoRevogadoEm`**, e não a coluna `ativo` — três lugares erraram isso
+antes de o marcador existir: a situação da lista, a mensagem de e-mail duplicado e a régua do
+"sobra responsável".
 
 ⚠️ **Ficou de fora:** o cliente não é avisado de que a equipe entrou (fica registrado, mas sem
 aviso ativo), e não há tela para ler esse histórico.

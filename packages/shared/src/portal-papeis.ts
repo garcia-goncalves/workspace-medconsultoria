@@ -1,0 +1,117 @@
+/**
+ * QUEM, DENTRO DA CLÍNICA, PODE FAZER O QUÊ NO PORTAL.
+ *
+ * Uma clínica não é uma pessoa. Quem entra no Portal é o médico, a secretária, o
+ * administrador — e antes disto todos entravam com a MESMA conta, o que tinha três efeitos
+ * ruins ao mesmo tempo: a senha circulava no WhatsApp da clínica; o histórico dizia "a
+ * Clínica X aceitou a proposta" sem saber quem foi; e a secretária tinha, sem querer, o
+ * poder de cancelar um serviço contratado.
+ *
+ * A separação é entre **falar pela clínica** e **tocar o operacional**:
+ *
+ * | Papel         | Quem é                        | O que faz                                    |
+ * | ------------- | ----------------------------- | -------------------------------------------- |
+ * | `RESPONSAVEL` | dono, sócio, administrador    | tudo — inclusive aceitar proposta e cancelar |
+ * | `EQUIPE`      | médico, secretária, recepção  | o dia a dia: documento, briefing, suporte    |
+ *
+ * ⚠️ **A trava é sobre ASSINAR, não sobre VER.** Os dois papéis leem tudo o que o Portal
+ * mostra daquela clínica, valores inclusive — é a mesma escolha da ADR-128 para a sessão de
+ * suporte da equipe da Med. Esconder número da secretária resolveria um problema que
+ * ninguém relatou e criaria um que morde toda semana: ela não conseguiria conferir a
+ * cobrança que é justamente o trabalho dela.
+ *
+ * ⚠️ **A lista abaixo é de LIBERAÇÕES, e o padrão é NEGAR.** É o inverso do que parece
+ * natural, e é de propósito, pela lição da ADR-128: numa lista de proibições, a ação que
+ * alguém esquecer de proibir é justamente a que vai morder. Aqui, ação nova nasce fechada —
+ * quem escrever a próxima precisa decidir conscientemente que a secretária pode.
+ */
+
+/** Papel de uma pessoa DENTRO da clínica. Espelha o enum `PortalPapel` do Prisma. */
+export const PORTAL_PAPEIS = ["RESPONSAVEL", "EQUIPE"] as const;
+export type PortalPapel = (typeof PORTAL_PAPEIS)[number];
+
+export const PORTAL_PAPEL_LABEL: Record<PortalPapel, string> = {
+  RESPONSAVEL: "Responsável",
+  EQUIPE: "Equipe",
+};
+
+/** Explicação de uma linha, para o "?" ao lado do campo na tela. */
+export const PORTAL_PAPEL_AJUDA: Record<PortalPapel, string> = {
+  RESPONSAVEL:
+    "Fala pela clínica: aceita proposta, contrata e cancela serviço, e convida outras pessoas.",
+  EQUIPE:
+    "Vê tudo e cuida do dia a dia: envia documento, responde formulário e fala com o suporte. Não assina nada pela clínica.",
+};
+
+/**
+ * As ações do Portal que a EQUIPE também pode fazer. Tudo que não estiver aqui é do
+ * RESPONSAVEL — inclusive o que ainda não foi escrito.
+ *
+ * O nome de cada ação é o caminho tRPC sem o prefixo `portal.` (ex.: `briefing.salvar`),
+ * que é o mesmo texto que o middleware do servidor recebe. Um nome só, sem tradução no meio,
+ * porque tradução no meio é onde as duas listas divergem.
+ */
+export const ACOES_LIBERADAS_PARA_EQUIPE = [
+  // Dados cadastrais da clínica: telefone, endereço, contato. Reversível, sem dinheiro, e é
+  // literalmente o trabalho da secretária.
+  "atualizarMeusDados",
+  // Agenda: confirmar presença numa reunião marcada não compromete a clínica com nada.
+  "confirmarReuniao",
+  // Documentos e formulários que a clínica ENVIA para a Med — a papelada do credenciamento.
+  // `briefing.salvar` cobre rascunho E envio (o `enviar` é um campo do próprio input).
+  "briefing.salvar",
+  "removerArquivo",
+  // Suporte: falar com a gente nunca pode depender de achar o dono da clínica.
+  "suporte.abrir",
+  "suporte.enviar",
+] as const;
+
+export type AcaoDoPortal = (typeof ACOES_LIBERADAS_PARA_EQUIPE)[number] | (string & {});
+
+/**
+ * Pode esta pessoa executar esta ação do Portal?
+ *
+ * `papel` nulo é tratado como RESPONSAVEL: são as contas que existiam antes desta regra —
+ * uma conta só por clínica, que sempre pôde tudo. Rebaixá-las em silêncio tiraria o poder de
+ * assinar de quem já assinava, e a clínica descobriria isso na hora de aceitar uma proposta.
+ */
+export function podeNoPortal(papel: PortalPapel | null | undefined, acao: AcaoDoPortal): boolean {
+  if (papel !== "EQUIPE") return true;
+  return (ACOES_LIBERADAS_PARA_EQUIPE as readonly string[]).includes(acao);
+}
+
+/** A recusa, escrita para o médico ou a secretária ler — nunca "FORBIDDEN". */
+export const PORTAL_SO_RESPONSAVEL =
+  "Só o responsável pela clínica pode fazer isso. Peça a quem administra a conta, ou fale com a nossa equipe.";
+
+/** A recusa quando se tenta deixar a clínica sem ninguém que possa assinar. */
+export const PORTAL_PRECISA_DE_UM_RESPONSAVEL =
+  "A clínica precisa de pelo menos um responsável com acesso ativo. Promova outra pessoa antes de fazer isso.";
+
+/**
+ * Sobraria alguém que fala pela clínica depois desta mudança?
+ *
+ * Pura porque a mesma pergunta é feita em três momentos — revogar, rebaixar e desativar —
+ * e três cópias divergiriam no primeiro ajuste. Recebe as contas COMO ESTÃO HOJE mais a
+ * mudança pretendida, e responde sobre o depois.
+ *
+ * "Vale como responsável" exige conta ATIVA: uma conta desativada não abre a porta, e um
+ * responsável que não consegue entrar não é um responsável.
+ * Conta ainda sem senha (convite não aceito) VALE — senão a clínica em que o dono foi
+ * convidado e ainda não entrou ficaria travada, sem poder convidar mais ninguém.
+ */
+export function sobraResponsavel(
+  contas: { id: string; papel: PortalPapel | null; ativo: boolean }[],
+  mudanca: { id: string; papel?: PortalPapel | null; ativo?: boolean },
+): boolean {
+  return contas.some((c) => {
+    const depois =
+      c.id === mudanca.id
+        ? {
+            papel: mudanca.papel === undefined ? c.papel : mudanca.papel,
+            ativo: mudanca.ativo ?? c.ativo,
+          }
+        : c;
+    return depois.ativo && depois.papel !== "EQUIPE";
+  });
+}

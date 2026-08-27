@@ -19,3 +19,4 @@ export * from "./cnpj.js";
 export * from "./types.js";
 export * from "./estimativa.js";
 export * from "./pagamento.js";
+export * from "./portal-papeis.js";

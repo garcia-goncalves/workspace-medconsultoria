@@ -28,6 +28,17 @@ enum Role {
   CLIENTE
 }
 
+/// Papel de uma pessoa DENTRO da clínica, no Portal do Cliente. Espelha PORTAL_PAPEIS em
+/// packages/shared. Só faz sentido em `User.role = CLIENTE`; nulo em conta interna.
+///
+/// Separa quem FALA PELA CLÍNICA (aceita proposta, contrata e cancela serviço) de quem toca o
+/// operacional (envia documento, responde formulário, fala com o suporte). A regra de o que cada
+/// um pode está em `podeNoPortal`, e é uma lista de LIBERAÇÕES: o padrão é negar.
+enum PortalPapel {
+  RESPONSAVEL
+  EQUIPE
+}
+
 /// Situação comercial da conta (Cliente). Estrutura controlada (enum) — ver decisão técnica #1.
 /// PROSPECT/NEGOCIACAO/PERDIDO = estados do funil; ATIVO/INATIVO = cliente de verdade.
 enum SituacaoComercial {
@@ -59,6 +70,24 @@ model User {
   ultimoAcessoEm DateTime?
   // Se role = CLIENTE, define o escopo do Portal (FK adicionada quando o módulo Cliente existir).
   clienteId      String?
+  /// PAPEL DENTRO DA CLÍNICA (ADR-131). Nulo em conta interna — e nulo também nas contas de
+  /// Portal criadas antes desta regra, que `podeNoPortal` trata como RESPONSAVEL de propósito:
+  /// eram a conta única da clínica e sempre puderam tudo. Rebaixá-las em silêncio tiraria o
+  /// poder de assinar de quem já assinava, e a clínica só descobriria na hora de aceitar uma
+  /// proposta. A migração marca as existentes explicitamente, para a tela não ficar muda.
+  papelPortal    PortalPapel?
+  /// Quem convidou esta pessoa para o Portal. Serve à pergunta "quem deu acesso a essa
+  /// secretária?" — que é uma pergunta de auditoria, não de curiosidade. Pode ser alguém da
+  /// equipe da Med OU o responsável da própria clínica.
+  convidadoPorId String?
+  /// QUANDO O ACESSO FOI TIRADO (ADR-131). Nulo = nunca foi revogado.
+  ///
+  /// ⚠️ Existe porque `ativo = false` sozinho é AMBÍGUO, e a tela mostrou isso na primeira
+  /// rodada de teste: conta convidada e ainda sem senha também nasce inativa, então a
+  /// secretária recém-convidada aparecia na lista como **"acesso revogado"** — dizendo à
+  /// clínica que tiramos um acesso que acabáramos de dar. Um marcador explícito separa "ainda
+  /// não entrou" de "não entra mais", e de quebra responde *quando* o acesso caiu.
+  acessoRevogadoEm DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
@@ -92,9 +121,12 @@ model User {
   tarefasCriadas       Tarefa[]               @relation("TarefaCriador")
   tarefasResponsavel   TarefaResponsavel[]
   caixasEmail          CaixaEmail[]
+  convidadoPor         User?                  @relation("ConvitePortal", fields: [convidadoPorId], references: [id], onDelete: SetNull)
+  convidou             User[]                 @relation("ConvitePortal")
 
   @@index([role])
   @@index([clienteId])
+  @@index([convidadoPorId])
 }
 
 /// Personalização (override) do conteúdo de um e-mail transacional. Ausência = usa o padrão do código.
