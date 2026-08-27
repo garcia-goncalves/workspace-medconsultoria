@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LogOut, UserCog, ChevronDown, Lock, HelpCircle } from "lucide-react";
 import { GuiaPortal } from "./GuiaPortal";
+import { FaixaDeSuporte } from "./FaixaDeSuporte";
 import { useAuth } from "../../lib/auth-context";
 import { trpc } from "../../lib/trpc";
 import { Avatar, AvatarUpload } from "../../components/ui/avatar";
@@ -236,6 +237,8 @@ export function PortalLayout({ children }: { children: ReactNode }) {
   const [guia, setGuia] = useState(false);
   return (
     <div className="min-h-screen bg-muted/30">
+      {/* Sessão de suporte da equipe (ADR-128) — some para o cliente de verdade. */}
+      <FaixaDeSuporte />
       <header className="sticky top-0 z-30 border-b bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
         <div className="mx-auto flex h-16 max-w-4xl items-center gap-3 px-4">
           <img src="/logo.png" alt="MedConsultoria" className="h-8 w-auto" />

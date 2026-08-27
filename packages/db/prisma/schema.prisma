@@ -51,6 +51,12 @@ model User {
   // Quando a pessoa definiu a PRÓPRIA senha (trocar/convite/reset). Nulo = nunca definiu —
   // a conta ainda usa a senha compartilhada do seed e é convidada a trocar no 1º acesso.
   senhaTrocadaEm DateTime?
+  /// Última vez que a pessoa ENTROU de verdade (login com senha). Nulo = nunca entrou.
+  /// Serve ao card do lead/cliente: sem ele, a Thaís sabe que mandou o convite mas não sabe se
+  /// alguém apareceu — e é justamente "convidei e ninguém entrou" que ela precisa cobrar.
+  /// ⚠️ NÃO é atualizado por sessão de suporte da equipe: o número tem de responder "o CLIENTE
+  /// veio?", e nós entrarmos no painel dele não é o cliente vindo.
+  ultimoAcessoEm DateTime?
   // Se role = CLIENTE, define o escopo do Portal (FK adicionada quando o módulo Cliente existir).
   clienteId      String?
   createdAt      DateTime  @default(now())
@@ -58,6 +64,7 @@ model User {
   deletedAt      DateTime?
 
   sessions             Session[]
+  sessoesDeSuporte     Session[]              @relation("SessaoDeSuporte")
   activityLogs         ActivityLog[]
   cliente              Cliente?               @relation("UserCliente", fields: [clienteId], references: [id], onDelete: SetNull)
   clientesResponsavel  Cliente[]              @relation("ClienteResponsavel")
@@ -138,11 +145,27 @@ model Session {
   userAgent String?  @db.Text
   ip        String?
   createdAt DateTime @default(now())
+  /// SESSÃO DE SUPORTE (ADR-128) — quem da EQUIPE abriu esta sessão para ver o Portal de um
+  /// cliente. Nulo na esmagadora maioria: sessão normal é a pessoa entrando como ela mesma.
+  ///
+  /// Existe porque "entrar como o cliente" sem marcar quem entrou faz o histórico culpar o
+  /// CLIENTE por tudo o que a equipe fizer lá dentro — e o cliente reclamaria de algo que não
+  /// fez, com o próprio sistema dando razão a ele. Com este campo, `userId` continua sendo o
+  /// dono do Portal (o isolamento do `portalProcedure` não muda uma linha) e o registro sabe
+  /// dizer "Thaís, vendo como Clínica X".
+  operadorId          String?
+  /// A sessão do OPERADOR, para o botão "voltar ao meu acesso" não pedir login de novo. A
+  /// sessão original continua viva enquanto a de suporte existe; voltar é trocar o cookie.
+  /// Sem FK de propósito: se a original expirar antes, voltar simplesmente manda para o login.
+  voltarParaSessionId String?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SetNull: apagar quem deu suporte não apaga a sessão nem some com o rastro do acesso.
+  operador User? @relation("SessaoDeSuporte", fields: [operadorId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([operadorId])
 }
 
 /// Log de auditoria genérico — alimenta timelines e rastreio LGPD.

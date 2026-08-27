@@ -46,6 +46,25 @@ Erros do servidor agrupados por `fingerprint @unique` (estilo "issue" do Sentry)
 ### Incidente
 Aberto automaticamente pelo motor de alertas quando um sinal cruza o limiar (com histerese). `regra`, `titulo`, `severidade` ("degradado"|"critico"), `componente`, `detalhe`, `status` (ABERTO|RECONHECIDO|RESOLVIDO), `valorPico?`, `createdAt`, `reconhecidoEm?`, `resolvidoEm?`. Guarda histórico + MTTR.
 
+### Session / User — a sessão de suporte e o último acesso (ADR-128)
+
+**`Session`** ganhou **`operadorId?`** (FK → `User`, **`ON DELETE SET NULL`**, indexado) e
+**`voltarParaSessionId?`** (texto solto, sem FK). `operadorId` guarda **quem da equipe** abriu a
+sessão para ver o Portal de um cliente; o **`userId` continua sendo o dono do Portal**, então o
+`portalProcedure` segue filtrando tudo pelo `clienteId` da sessão e o isolamento **não muda uma
+linha**. `SET NULL` de propósito: apagar quem deu suporte não pode sumir com o rastro do acesso.
+Sessão de suporte dura **30 minutos** (a normal, 30 dias). ⚠️ **O `portalProcedure` recusa toda
+MUTAÇÃO** vinda de sessão com `operadorId` — a trava é uma só, e o `/upload` (que não passa por
+lá) a repete.
+
+**`User`** ganhou **`ultimoAcessoEm?`**, marcado **só no login com senha** (login, aceite de
+convite e redefinição). ⚠️ **Sessão de suporte NÃO atualiza o campo**: ele responde *"o CLIENTE
+veio?"*. É o que alimenta o card *"último acesso há 2 dias"* / *"convidado há 6 dias, ainda não
+entrou"* — ver `lib/acesso-portal.ts`, que recebe a **lista** de contas de Portal do cliente
+(pode haver mais de uma) e manda a que **realmente abre a porta**.
+
+---
+
 ### IdentidadeInstitucional (ADR-85)
 **Identidade da empresa, editável pela Thaís** (Ajustes → Dados da empresa). Linha única (singleton, `id: "default"`). Campos de marca/contato **NOT NULL** (semeados com os dados reais na 1ª leitura via `getIdentidade()` upsert): `nome`, `tagline`, `site`, `siteUrl`, `email`, `telefone`, `cidade`, `instagram`, `instagramUrl`. Campos **jurídicos NULLABLE** (`@db.Text` onde faz sentido): `razaoSocial?`, `cnpj?`, `enderecoCompleto?`, `foro?` — começam `null` (ninguém inventa CNPJ; enquanto vazios, o contrato mostra `**[A PREENCHER]**`). **Dados para pagamento (ADR-127), também NULLABLE:** `bancoNome?`, `bancoAgencia?`, `bancoConta?`, `bancoTitular? @db.Text`, `pixChave?` — o bloco `{{dadosPagamento}}` das propostas (a comercial e a de faturamento; a de **credenciamento não o declara**, porque ali a cobrança só nasce quando a operadora aprova — ADR-104). ⚠️ **A regra do vazio:** campo em branco não vira rótulo solto na frente do cliente — a linha some; com os cinco em branco, a **seção inteira** some. Quem monta é `montarDadosPagamento`, função pura testada em `@app/shared`. `atualizadoEm`. É a **fonte da verdade** que alimenta contratos/propostas/e-mails; `packages/shared/.../institucional.ts` é o padrão/fallback. Escrita só ADMIN+ (`identidade.atualizar`), leitura pela equipe (`identidade.get`).
 

@@ -1,5 +1,6 @@
 import { useMemo, useState, type MouseEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { AcessoPortalBotao } from "../AcessoPortalBotao";
 import type { LucideIcon } from "lucide-react";
 import {
   Plus,
@@ -125,7 +126,7 @@ function ContatoRapido({ email, telefone }: { email: string | null; telefone: st
 }
 
 function ClienteCard({ c, onOpen, onConvidarPortal }: { c: ClienteItem; onOpen: () => void; onConvidarPortal: () => void }) {
-  const portal = c._count.usuariosPortal > 0;
+  const portal = c.portal;
   const proxima = c.proximaReuniao;
   return (
     <div
@@ -170,24 +171,14 @@ function ClienteCard({ c, onOpen, onConvidarPortal }: { c: ClienteItem; onOpen: 
             <CalendarClock className="h-3.5 w-3.5" /> {data(proxima)}
           </span>
         )}
-        {portal ? (
-          <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary" title="Acesso ao Portal ativo">
-            <KeyRound className="h-3 w-3" /> Portal
-          </span>
-        ) : (
-          c.email && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onConvidarPortal();
-              }}
-              className="inline-flex items-center gap-1 rounded border border-primary/40 px-1.5 py-0.5 font-medium text-primary transition-colors hover:bg-primary/5"
-              title="Enviar o acesso ao Portal do Cliente"
-            >
-              <KeyRound className="h-3 w-3" /> Enviar acesso
-            </button>
-          )
-        )}
+        {/* Três estados do acesso (ADR-128): enviar · reenviar · Painel. O selo "Portal" que
+            existia aqui só dizia "tem acesso" e não levava a lugar nenhum. */}
+        <AcessoPortalBotao
+          portal={portal}
+          clienteId={c.id}
+          temEmail={!!c.email}
+          onEnviarAcesso={onConvidarPortal}
+        />
         {c.emFunil && (
           <span
             className="inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 font-medium text-warning"
@@ -501,18 +492,13 @@ export function ClientesListPage() {
                   )}
                 </TD>
                 <TD onClick={(e) => e.stopPropagation()}>
-                  {c._count.usuariosPortal > 0 ? (
-                    <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
-                      <KeyRound className="h-3 w-3" /> Ativo
-                    </span>
-                  ) : c.email ? (
-                    <button
-                      onClick={() => enviarAcesso(c)}
-                      className="inline-flex items-center gap-1 rounded border border-primary/40 px-1.5 py-0.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
-                      title="Enviar o acesso ao Portal do Cliente"
-                    >
-                      <KeyRound className="h-3 w-3" /> Enviar acesso
-                    </button>
+                  {c.email || c.portal.estado === "ATIVO" ? (
+                    <AcessoPortalBotao
+                      portal={c.portal}
+                      clienteId={c.id}
+                      temEmail={!!c.email}
+                      onEnviarAcesso={() => enviarAcesso(c)}
+                    />
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
                   )}

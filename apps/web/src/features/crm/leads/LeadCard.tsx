@@ -2,8 +2,10 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Pencil, Trash2, UserCheck, KeyRound } from "lucide-react";
 import { cn } from "@app/ui";
+import type { AcessoAoPortal } from "@app/shared";
 import { formatBRL } from "../../../lib/masks";
 import { Badge } from "../../../components/ui/badge";
+import { AcessoPortalBotao } from "../AcessoPortalBotao";
 
 export interface LeadItem {
   id: string;
@@ -23,6 +25,8 @@ export interface LeadItem {
   responsavel: { nome: string } | null;
   clienteId: string | null;
   portalAtivo: boolean;
+  /** Os três estados do acesso ao Portal — ver `AcessoPortalBotao` (ADR-128). */
+  portal: AcessoAoPortal;
   servicos: { id: string; nome: string }[];
   updatedAt: Date;
 }
@@ -35,7 +39,6 @@ export function LeadCard({
   onConvert,
   onConvidarPortal,
   converting,
-  convidandoPortal,
   overlay = false,
 }: {
   lead: LeadItem;
@@ -158,15 +161,15 @@ export function LeadCard({
             <UserCheck className="h-3.5 w-3.5" />
             Converter
           </button>
-          <button
-            onClick={onConvidarPortal}
-            disabled={convidandoPortal}
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
-            title={lead.portalAtivo ? "Reenviar acesso ao Portal do Cliente" : "Enviar acesso ao Portal do Cliente"}
-          >
-            <KeyRound className="h-3.5 w-3.5" />
-            {lead.portalAtivo ? "Reenviar acesso" : "Enviar acesso"}
-          </button>
+          {/* Três estados do acesso ao Portal (ADR-128): enviar · reenviar (dizendo há quantos
+              dias o convite está parado) · Painel, quando o cliente já entrou. */}
+          <AcessoPortalBotao
+            portal={lead.portal}
+            clienteId={lead.clienteId ?? null}
+            temEmail={!!lead.email}
+            onEnviarAcesso={() => onConvidarPortal?.()}
+            className="px-2 py-1"
+          />
           <div className="ml-auto flex items-center gap-1">
             <button
               onClick={onEdit}

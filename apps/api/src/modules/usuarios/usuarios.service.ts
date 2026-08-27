@@ -26,15 +26,36 @@ async function gerarConvite(userId: string, nome: string, email: string, role: R
 }
 
 /**
- * Garante o acesso ao Portal do Cliente de forma AUTOMÁTICA (captação, novo cliente,
- * conversão): cria a conta CLIENTE pendente ligada ao cliente e envia o e-mail de
- * boas-vindas com o link de acesso. Idempotente e best-effort — se já existe conta
- * (por cliente ou por e-mail), não recria nem reenvia (retorna `jaTinhaAcesso`).
+ * De ONDE veio o pedido de acesso ao Portal. Existe porque **só o cliente que se cadastra
+ * sozinho recebe e-mail sem ninguém mandar** (ordem do dono, 26/08/2026 — ADR-128).
+ *
+ * `AUTOCADASTRO` — o próprio cliente se inscreveu em `/comecar`. Ele está esperando o e-mail
+ *   naquele instante; não mandar seria deixá-lo sem porta de entrada.
+ * `EQUIPE` — alguém da casa cadastrou, converteu ou contratou por ele. Aqui o e-mail **NÃO sai**:
+ *   quem decide quando o cliente é avisado é a Thaís, pelo botão "Enviar acesso" do card.
+ * `EQUIPE_COM_AVISO` — alguém da casa cadastrou **e marcou, naquele momento, a caixa "avisar o
+ *   cliente agora"**. É o mesmo pedido do botão "Enviar acesso", feito um passo antes. A caixa
+ *   nasce **desmarcada**: marcar é um ato, não um descuido.
+ *
+ * ⚠️ É um parâmetro OBRIGATÓRIO de propósito. A regra anterior morava numa caixinha marcada por
+ * padrão, e caixinha marcada por padrão é regra que depende de alguém lembrar de desmarcar —
+ * daqui a três meses alguém remarca "por praticidade" e o comportamento volta calado. Obrigando
+ * cada chamada a declarar a origem, o compilador cobra a decisão de quem escrever a próxima.
+ */
+export type OrigemDoAcesso = "AUTOCADASTRO" | "EQUIPE" | "EQUIPE_COM_AVISO";
+
+/**
+ * Garante o acesso ao Portal do Cliente: cria a conta CLIENTE pendente ligada ao cliente.
+ * Idempotente e best-effort — se já existe conta (por cliente ou por e-mail), não recria nem
+ * reenvia (retorna `jaTinhaAcesso`).
+ *
+ * ⚠️ **O e-mail de boas-vindas NÃO sai quando `origem` é `EQUIPE`.** Ver `OrigemDoAcesso`.
  */
 export async function garantirAcessoPortal(
   clienteId: string,
   nome: string,
   email: string | null,
+  origem: OrigemDoAcesso,
 ): Promise<{ criou: boolean; jaTinhaAcesso: boolean; emailEnviado: boolean; conviteUrl: string | null }> {
   const nada = { criou: false, jaTinhaAcesso: false, emailEnviado: false, conviteUrl: null };
   if (!email) return nada;
@@ -54,6 +75,9 @@ export async function garantirAcessoPortal(
     data: { nome: nome.trim(), email, passwordHash: null, ativo: false, role: "CLIENTE", clienteId },
     select: { id: true, nome: true, email: true },
   });
+  // Cadastro feito pela EQUIPE sem pedir aviso: a conta nasce, o e-mail NÃO sai. O cliente é
+  // avisado quando a Thaís quiser, pelo botão "Enviar acesso" do card.
+  if (origem === "EQUIPE") return { criou: true, jaTinhaAcesso: false, emailEnviado: false, conviteUrl: null };
   const r = await gerarConvite(usuario.id, usuario.nome, usuario.email, "CLIENTE");
   return { criou: true, jaTinhaAcesso: false, ...r };
 }

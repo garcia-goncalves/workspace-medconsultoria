@@ -2952,3 +2952,128 @@ preço — e **agora há teste lendo o arquivo do servidor**, além do que já l
 
 ⚠️ **Falta a Thaís preencher os dados bancários de verdade em produção.** Enquanto não preencher,
 a seção simplesmente não aparece — que é o comportamento desejado, mas é ausência, não conserto.
+
+---
+
+## ADR-128 — Quem avisa o cliente é a Thaís, e a equipe pode ver o Painel dele sem assinar por ele
+
+**Data:** 26/08/2026 (noite) · **Situação:** implementada, testada na tela, **não publicada**
+
+### Parte 1 — o e-mail automático
+
+**O problema, e não era onde parecia.** O dono pediu que cadastro **manual** de lead ou cliente
+parasse de disparar o e-mail de acesso, e que só o autocadastro em `/comecar` avisasse sozinho.
+Ao investigar, o cadastro manual de **lead** já não mandava nada ao cliente (só notificava a
+equipe). O e-mail saía por três outros caminhos:
+
+| Caminho | Antes |
+|---|---|
+| Cadastrar cliente manualmente | caixinha de confirmação **marcada por padrão** |
+| Converter lead em cliente | caixinha de confirmação **marcada por padrão** |
+| Contratar serviço na ficha | **sem caixinha nenhuma** — criava acesso e convidava |
+
+Ou seja: o e-mail saía porque **ninguém desmarcava**. Quem cadastra clica em "Confirmar" no
+automático — caixa marcada por padrão é regra que depende de alguém lembrar de desligá-la.
+
+**A decisão: a origem virou parâmetro obrigatório.** `garantirAcessoPortal` passou a exigir uma
+`OrigemDoAcesso`, e o compilador cobra a escolha de quem escrever a próxima chamada:
+
+- `AUTOCADASTRO` — o cliente se inscreveu em `/comecar`. Está esperando o e-mail naquele
+  instante; não mandar seria deixá-lo sem porta de entrada.
+- `EQUIPE` — alguém da casa cadastrou, converteu ou contratou por ele. **A conta nasce e o e-mail
+  não sai.**
+- `EQUIPE_COM_AVISO` — alguém da casa cadastrou **e marcou, naquele momento, "avisar o cliente
+  agora"**. A caixa nasce **desmarcada**: marcar é um ato, não um descuido.
+
+Descartado: só desmarcar a caixinha. Daqui a três meses alguém a remarca "por praticidade" e o
+comportamento volta calado, sem nada no código para impedir.
+
+### Parte 2 — o botão "Painel", e a sessão de suporte
+
+O dono pediu, com a analogia certa: *"como se fosse uma revenda de cPanel — temos liberdade de
+ver o painel do cliente"*. O cPanel de revenda faz três coisas que a versão ingênua ("logar como
+o cliente") não faz, e são elas que separam suporte de problema.
+
+**1. A sessão é identificada, não emprestada.** `Session.operadorId` guarda quem da equipe abriu.
+O `userId` continua sendo o dono do Portal — então **o isolamento do `portalProcedure` não muda
+uma linha**, ele segue filtrando tudo pelo `clienteId` da sessão. O que muda é o histórico saber
+dizer *"Thaís, vendo como Clínica X"*. Sem isso, tudo o que a equipe fizesse lá dentro ficaria
+registrado no nome do cliente — e ele reclamaria de algo que não fez, com o próprio sistema dando
+razão a ele.
+
+**2. Vê tudo, não assina nada.** Decisão do dono, entre três opções apresentadas. Aceitar uma
+proposta no Portal cria contrato e conta a receber (ADR-104); um clique errado da equipe viraria
+dívida no nome do cliente, sem prova de quem clicou.
+
+⚠️ **A trava mora no `portalProcedure`, não em cada ação.** Marcar ação por ação exigiria acertar
+a lista hoje e lembrar dela em toda ação nova — e a esquecida seria justamente a que morde, porque
+**no Portal escrever é sempre falar pelo cliente**: desistir do atendimento, cancelar serviço,
+pedir serviço novo, enviar briefing, apagar documento, abrir chamado. Barrando toda **mutação**
+num lugar só, ação nova nasce protegida. O `/upload`, que não passa pelo `portalProcedure`,
+repete a trava — senão sobraria justamente a porta por onde um arquivo entraria no nome do
+cliente.
+
+**3. Dura 30 minutos e tem volta em um clique.** A sessão do operador continua viva
+(`voltarParaSessionId`); voltar é trocar o cookie, não fazer login de novo. Prazo curto impede
+uma aba esquecida de virar acesso permanente ao dado de outra pessoa.
+
+**Quem pode:** ADMIN e acima, sempre; FUNCIONÁRIO só nos clientes sob a responsabilidade dele.
+Negando por padrão. O acesso fica em `activityLog` (`painel_cliente.entrou`/`.saiu`) — acesso a
+dado pessoal de terceiro precisa ser auditável, e isso não é capricho.
+
+**Sem aninhamento:** quem está em suporte volta ao próprio acesso antes de abrir outro painel.
+Aninhar faria a corrente de "voltar" mentir sobre onde a pessoa aterrissa.
+
+### Parte 3 — três estados no card, não dois
+
+O dono pediu o "Painel" para quem já tinha entrado. Ao desenhar, apareceu uma informação que a
+Thaís **não tinha e mais precisa**: saber que ela convidou e **ninguém apareceu**. Antes, um
+cliente que nunca entrou e um que entrou ontem tinham exatamente a mesma aparência no card.
+
+| Estado | O card mostra | O que ele diz |
+|---|---|---|
+| `SEM_ACESSO` | **Enviar acesso** | ninguém foi convidado ainda |
+| `CONVIDADO` | **Reenviar acesso** | *convidado há 6 dias, ainda não entrou* |
+| `ATIVO` | **Painel** | *último acesso há 2 dias* |
+
+Isso pediu `User.ultimoAcessoEm`, marcado **só no login com senha**. ⚠️ **Sessão de suporte da
+equipe NÃO atualiza o campo**: ele responde *"o CLIENTE veio?"*, e nós entrarmos no painel dele
+não é ele vindo.
+
+O "Painel" só aparece no estado `ATIVO` porque a sessão de suporte precisa de conta com senha
+definida — conta pendente seria recusada na primeira validação de sessão de qualquer jeito.
+
+### O defeito que só a tela mostrou
+
+Na primeira versão, `acessoAoPortal` recebia **a primeira conta de Portal por data**. A "Clínica
+teste" do banco local tinha **duas**: uma pendente antiga e uma ativa mais nova — e a ficha
+mostrava **"Enviar acesso" para um cliente que entrava no Portal normalmente**. Hoje a função
+recebe a **lista** e manda quem **realmente abre a porta**; a pendente só conta quando não há
+nenhuma ativa. E quando não há nenhuma ativa, a régua do *"convidado há N dias"* é a conta **mais
+antiga**: reenviar o convite não zera a espera do cliente.
+
+### Migração
+
+`20260827003000_sessao_de_suporte_e_ultimo_acesso` — três colunas **novas e nuláveis**
+(`Session.operadorId`, `Session.voltarParaSessionId`, `User.ultimoAcessoEm`), mais uma FK e um
+índice. Nada é apagado, nada é convertido, nenhuma linha existente muda de valor: toda sessão que
+já existe continua sendo sessão normal. `ON DELETE SET NULL` na FK de propósito — apagar quem deu
+suporte não pode sumir com o rastro do acesso.
+
+### As provas
+
+- `pnpm -r typecheck` e `pnpm lint` verdes; **441 testes de unidade**; **41 contra o MySQL de
+  verdade**, dos quais **17 novos** só para a sessão de suporte.
+- E2E isolado verde em `flows-portal`, `flows-comercial` e `rbac`.
+- **Na tela**, o percurso inteiro: a ficha da "Clínica teste" mostrou **"Painel do cliente"**;
+  clicar abriu o Portal com a faixa *"Você está vendo o Portal como Clínica teste, em modo de
+  suporte — só leitura"*; uma **mutação** (`portal.desistir`) foi recusada com **403 FORBIDDEN**
+  e o recado certo; uma **leitura** (`portal.resumo`) respondeu **200**; e "Voltar ao meu acesso"
+  devolveu a sessão da Thaís **sem novo login**. Zero erro de console.
+
+### O que ficou de fora
+
+- **O cliente não é avisado de que a equipe entrou no painel dele.** O acesso fica registrado e
+  é auditável, mas não há aviso ativo. Se um dia for desejado, o gancho já existe.
+- **Não há tela para ler o histórico de acessos ao painel.** Está no `activityLog`; falta a
+  visualização.
