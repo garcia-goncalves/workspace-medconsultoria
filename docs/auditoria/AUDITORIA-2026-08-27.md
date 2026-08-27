@@ -104,3 +104,66 @@ Corrigido: pré-venda aceita lead, pós-venda continua exigindo cliente. Zero mi
 
 ### A7 — Painel do lead não mostrava documento nenhum · **RESOLVIDO** (ADR-132)
 Emitir a proposta e não achá-la mais pelo funil. Nasceu o bloco "Documentos" no painel.
+
+---
+
+## Situação ao fim da 1ª janela (27/08/2026, ~11h30)
+
+### Resolvido e mesclado (`f9ca577`, PR #138 — CI 3/3 verde)
+- **A6** — documento/proposta agora aceita LEAD (ADR-132)
+- **A7** — painel do lead mostra os documentos (ADR-132)
+- **A1** — "Enviados hoje" parou de contar falha como envio (ADR-133)
+- **A5** — recaptura de lead parou de descartar telefone/empresa novos (ADR-133)
+
+### Em aberto
+
+**A3 — o lead novo dispara um e-mail para CADA ADMIN/ROOT ativo.** Investigado e
+explicado ao dono. Não é defeito: `capturarLead` avisa todos os ADMIN e ROOT porque o
+lead **nasce sem responsável** e o sistema não sabe quem vai atender. Em produção são
+**4 contas** (`root@`, `thiago.garcia@`, `andre.cintra@`, `thais.garcia@`); no local
+apareceram 6 por causa das contas de teste.
+
+A preferência por pessoa **já existe** (`PreferenciaEmail`, tela em Configurações), mas o
+padrão de fábrica é **tudo ligado** e ninguém entra ali para desligar.
+
+**Plano combinado com o dono, para a próxima janela:**
+1. **`root@` nunca recebe e-mail operacional** — é conta de sistema (ADR-89), ninguém lê
+   aquela caixa. Corta 1 dos 4 imediatamente.
+2. **Padrão de "lead novo" ligado só para quem toca o comercial (ADMIN)**; ROOT nominal vê
+   pelo sininho e liga o e-mail se quiser — a chave já existe, muda só o padrão.
+3. **Deixar a tela de preferências fácil de achar**, com texto explicando cada aviso.
+
+⚠️ Ao mexer, lembrar: a regra vive em `notificar()` (`notificacoes.service.ts:110-126`), num
+lugar só. Não espalhar checagem por chamador.
+
+**A2 / A8 — lixo de teste no catálogo de serviços.** `Servico E2E Briefing`,
+`Serviço E2E SVC049828`, `Serviço Guard SVC052678`, `Serviço E2E SVC114905`,
+`Serviço Guard SVC118255`. Aparecem na **página pública `/comecar`** e no **"Solicitar" do
+Portal do cliente** — os dois visíveis a quem não é da casa. Inofensivo no local;
+**conferir em produção antes do dado real**.
+
+**A4 — fim do formulário público é beco sem saída.** Depois de "Recebemos seu contato!"
+não há link nenhum. Refino pequeno.
+
+**A9 — conta de Portal com nome gerado** (`Portal · Clínica teste`). Dado de teste local;
+com cadastro real não acontece. Só observar.
+
+### Telas ainda NÃO percorridas
+Tarefas · Agenda · Projetos · E-mail · Mensagens · Ajustes · Serviços · Modelos ·
+Equipe e acessos · Sistema (exige ROOT — a Thaís é ADMIN, entrar como `root@`).
+
+### Já percorridas, sadias
+`/comecar` (captura) · Funil (card, painel, edição, passos automáticos, avanço de etapa) ·
+Documentos (lista, construtor, geração) · Clientes · Credenciamentos · Financeiro ·
+E-mails enviados · **Portal do cliente completo** (serviços, exigências, projetos,
+documentos, "Quem da clínica entra aqui", e-mails) · Início.
+
+Varredura automática: **20 rotas, zero erro de console, zero HTTP >= 400, zero
+NaN/Invalid Date/undefined** na tela.
+
+### Ambiente — não é defeito da aplicação
+O computador do dono **não tem servidor de e-mail**: toda tentativa falha com
+`connect ECONNREFUSED 127.0.0.1:587`. O **disparo** funciona (o registro sai com
+destinatário e assunto certos). A entrega só se prova em produção — onde já foi provada em
+22/08 (ADR-122). ⚠️ Para testar lá, use o botão **"Enviar acesso"** no card do lead: reenviar
+o formulário do site com e-mail já conhecido cai na recaptura e **não manda convite novo**.
