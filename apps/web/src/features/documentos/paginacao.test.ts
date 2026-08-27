@@ -50,6 +50,29 @@ describe("empacotar o documento em folhas A4", () => {
     expect(inteira).toContain("MedConsultoria");
   });
 
+  it("tabela grande na folha AINDA VAZIA é fatiada — quebrar deixaria a folha 1 só com o título", () => {
+    // A folha 1 tem menos espaço (cabeçalho da marca + título). Uma tabela que não cabe ali mas
+    // caberia numa folha cheia é fatiada de propósito: descê-la inteira produziria uma primeira
+    // folha com o título e nada mais. Só alcança tabela enorme — a assinatura tem 3 linhas.
+    const enorme: BlocoMedido = {
+      tipo: "tabela",
+      abre: "<table>",
+      cabecalho: "<thead><tr><th>Serviço</th></tr></thead>",
+      cabH: 10,
+      linhas: [
+        { html: "<tr><td>a</td></tr>", h: 40 },
+        { html: "<tr><td>b</td></tr>", h: 40 },
+        { html: "<tr><td>c</td></tr>", h: 30 },
+      ],
+      h: 110, // > primeira (100), mas <= demais (120)
+    };
+    const paginas = empacotarBlocos([enorme], folha);
+    expect(paginas.length, "a folha 1 não pode sair vazia").toBe(2);
+    expect(paginas[0]).toContain("<td>a</td>");
+    expect(paginas[1]).toContain("<td>c</td>");
+    expect(paginas[1], "cada fatia repete o cabeçalho da tabela").toContain("<thead>");
+  });
+
   it("tabela MAIOR que a folha é fatiada por linhas, repetindo o cabeçalho", () => {
     const grande: BlocoMedido = {
       tipo: "tabela",

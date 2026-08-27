@@ -333,30 +333,46 @@ export function paginarDocumento(props: DocumentoBrandedProps): string[] {
  * separadas**, com cabeçalho e rodapé em todas elas. O layout tem o tamanho de uma A4 real e
  * um `zoom` encolhe o conjunto para caber na largura disponível **sem espremer o conteúdo**.
  */
-export function DocumentoBranded(props: DocumentoBrandedProps) {
+export function DocumentoBranded({
+  tipo,
+  titulo,
+  clienteNome,
+  numero,
+  data,
+  conteudoMarkdown,
+  statusLabel,
+  rodapeExtra,
+}: DocumentoBrandedProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [pages, setPages] = useState<string[] | null>(null);
   const [zoom, setZoom] = useState(1);
-  const fallback = useMemo(() => documentoBrandedHtml(props), [props]);
-  // A repaginação é disparada pelo CONTEÚDO (a string), não pela identidade do objeto de
-  // props — que muda a cada render do pai e faria o documento repaginar à toa.
-  const propsRef = useRef(props);
-  propsRef.current = props;
+
+  /**
+   * ⚠️ As props chegam num objeto NOVO a cada render do pai. Depender dele significaria
+   * refazer `marked` + `DOMPurify` e repaginar o documento inteiro a cada tecla digitada em
+   * QUALQUER campo do diálogo "Novo documento" — que tem a prévia A4 aberta ao lado. Por isso
+   * os campos são desmontados e o objeto é remontado por VALOR.
+   */
+  const doc = useMemo<DocumentoBrandedProps>(
+    () => ({ tipo, titulo, clienteNome, numero, data, conteudoMarkdown, statusLabel, rodapeExtra }),
+    [tipo, titulo, clienteNome, numero, data, conteudoMarkdown, statusLabel, rodapeExtra],
+  );
+  const fallback = useMemo(() => documentoBrandedHtml(doc), [doc]);
 
   useLayoutEffect(() => {
-    setPages(paginarDocumento(propsRef.current));
-  }, [fallback]);
+    setPages(paginarDocumento(doc));
+  }, [doc]);
 
   // Fonte que chega depois muda a altura das linhas → repagina quando ela terminar de carregar.
   useEffect(() => {
     let vivo = true;
     document.fonts?.ready.then(() => {
-      if (vivo) setPages(paginarDocumento(propsRef.current));
+      if (vivo) setPages(paginarDocumento(doc));
     });
     return () => {
       vivo = false;
     };
-  }, [fallback]);
+  }, [doc]);
 
   // "Zoom" para caber na largura do container (nunca aumenta além de 1 → não espreme).
   useLayoutEffect(() => {

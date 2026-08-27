@@ -111,8 +111,14 @@ export function empacotarBlocos(blocos: BlocoMedido[], alturas: AlturasDaFolha):
       continue;
     }
 
-    // Tabela que cabe numa folha inteira NUNCA é fatiada — desce inteira.
-    // É o que impede a assinatura de sair partida (traço numa folha, nome na outra).
+    // Tabela que cabe numa folha inteira desce INTEIRA em vez de ser fatiada. É o que impede
+    // a assinatura de sair partida (traço numa folha, nome na outra).
+    //
+    // ⚠️ A exceção é a folha ainda VAZIA (`cur === ""`), que só acontece na primeira — onde o
+    // cabeçalho da marca e o título comem parte do espaço. Ali quebrar produziria uma folha com
+    // o título e mais nada, e a tabela começaria na folha 2: pior do que fatiar. Na prática só
+    // alcança tabela ENORME (mais de ~75% de uma folha) logo abaixo do título; o bloco de
+    // assinatura, que é o motivo desta regra existir, tem três linhas e nunca cai aqui.
     if (b.h <= alturas.demais && cur) {
       quebrar();
       cur += montarTabela(b.abre, b.cabecalho, b.linhas);
