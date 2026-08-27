@@ -13,7 +13,20 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-27 · auditoria de tela antes do dado real)
+## Estado atual (2026-08-27 · noite · ADR-134)
+
+> **Contexto:** o dono vai começar a cadastrar DADO REAL em produção e pediu a varredura completa
+> da aplicação, clicando. Relatório vivo em `docs/auditoria/AUDITORIA-2026-08-27.md`.
+
+- **📧 O AVISO DE LEAD NOVO PAROU DE VIRAR RUÍDO (ADR-134).** Relato do dono: *"um lead novo dispara 6 e-mails internos; com lead real chegando todo dia a equipe para de ler"*. **Não era esquecimento:** o lead nasce **sem responsável**, então `capturarLead` avisa toda conta ADMIN/ROOT ativa — quatro em produção. Em produção passa de **4 e-mails por lead para 2**, os dois que realmente atendem. ⚠️ **O sininho não mudou:** todo mundo continua vendo dentro do sistema; o que ficou mais estreito é só o e-mail.
+- **🤖 A CONTA DE SISTEMA NUNCA MAIS RECEBE E-MAIL OPERACIONAL (ADR-134).** `root@medconsultoria.com.br` é o ROOT primordial da ADR-89 — imutável, ninguém entra com ela, ninguém lê a caixa. ⚠️ **A recusa vale mesmo se alguém LIGAR a preferência à mão** — a régua é sobre a conta, não sobre a vontade de quem mexeu na tela. Comparação normalizada (maiúscula e espaço) e por **igualdade**, nunca `includes`: `root@medconsultoria.com.br.evil.com` é endereço de internet de verdade.
+- **🔔 "LEAD NOVO" NASCE LIGADO SÓ PARA ADMIN (ADR-134).** ROOT nominal (Thiago, André) vê pelo sininho e liga o e-mail na tela se quiser — quem toca o comercial é ADMIN. ⚠️ **`padraoDesligadoPara` é lista de EXCEÇÕES com padrão LIGADO** — o oposto de `MODELO_ACEITA_LEAD` (ADR-132) e `ACOES_LIBERADAS_PARA_EQUIPE` (ADR-131). É deliberado: lá o risco é **fazer demais**; aqui o risco é **avisar de menos**, e aviso que não chega é trabalho que não acontece. Categoria nova nasce **ligada**, e há teste que reprova a mudança silenciosa de padrão dos outros avisos.
+- **🎚️ A RÉGUA VIROU FUNÇÃO PURA, NUM LUGAR SÓ (ADR-134).** `decidirEmailOperacional` (`@app/shared`) reúne as **oito** condições que estavam espalhadas dentro do `notificar()`. ⚠️ **A tela de preferências lê a MESMA função** — sem isso ela mostraria "ligado" para um aviso que o servidor não manda, que é exatamente o modo de falha da ADR-133.
+- **🗂️ A TELA DE PREFERÊNCIAS FICOU LEGÍVEL (ADR-134).** Vinte e cinco interruptores em lista corrida viraram **seis seções** (Vendas e funil · Clientes e Portal · Credenciamento · Documentos · Financeiro · Agenda e tarefas · Sistema, esta só para ROOT), com o aviso que mais importa antes de alguém desligar algo: **desligar o e-mail não esconde o aviso do sistema**.
+- **Zero migração** — a tabela `PreferenciaEmail` já existia; mudou o **padrão**, não o banco.
+- **Provas (ADR-134):** typecheck e lint verdes · **472 testes de unidade** (12 novos na régua pura) · **6 de integração** contra o MySQL de verdade, provando que a listagem lê papel e e-mail do banco e aplica a mesma régua do envio · **na tela**, `/configuracoes` como ADMIN: seis seções, "Novo lead pelo site" ligado, **zero erro de console**.
+
+## Estado anterior (2026-08-27 · auditoria de tela antes do dado real)
 
 > **Contexto:** o dono vai começar a cadastrar DADO REAL em produção e pediu a varredura completa
 > da aplicação, clicando. Relatório vivo em `docs/auditoria/AUDITORIA-2026-08-27.md`.
@@ -25,7 +38,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - **📁 O PAINEL DO LEAD GANHOU O BLOCO "DOCUMENTOS" (ADR-132).** Sem ele a Thaís emitiria a proposta e **não a acharia mais pelo funil** — a mesma falha de costura entre telas das ADR-105 e ADR-128.
 - **📧 "ENVIADOS HOJE" CONTAVA FALHA COMO ENVIO.** O monitor mostrava, ao mesmo tempo, *Enviados (7 dias) 0*, *Taxa de entrega 0%* e *Enviados hoje 23* — três números que não podem ser verdade juntos. ⚠️ **É esse número que faz alguém concluir que o e-mail está saindo quando nenhum sai** — foi assim que a ADR-122 passou meses sem ser notada. Agora conta só `ENVIADO`, e **as falhas do dia aparecem ao lado**.
 - **🔁 RECAPTURA DE LEAD PARA DE JOGAR DADO FORA.** Quem voltava ao site informando a clínica que faltava, ou corrigindo o telefone, tinha o dado novo **descartado em silêncio** (só a mensagem entrava em observações). Agora **completa o que está vazio e nunca sobrescreve** — o inverso deixaria o formulário público apagar por cima a correção que a equipe fez à mão.
-- **⚠️ PENDÊNCIAS DA AUDITORIA, ainda abertas:** (1) o **catálogo público** (`/comecar`) e o **"Solicitar" do Portal** listam todo serviço ativo — no banco local há lixo de teste (`Serviço E2E SVC049828`, `Serviço Guard SVC052678`…); **conferir em produção antes do dado real**; (2) um lead novo dispara **6 notificações internas** — com lead real diário vira ruído e a equipe para de ler; (3) a varredura de tela **não terminou** (faltam Tarefas, Agenda, Projetos, E-mail, Mensagens, Ajustes, Serviços, Modelos, Equipe, Sistema).
+- **⚠️ PENDÊNCIAS DA AUDITORIA, ainda abertas:** (1) o **catálogo público** (`/comecar`) e o **"Solicitar" do Portal** listam todo serviço ativo — no banco local há lixo de teste (`Serviço E2E SVC049828`, `Serviço Guard SVC052678`…); **conferir em produção antes do dado real**; ~~(2) um lead novo dispara 6 notificações internas~~ **RESOLVIDO na ADR-134**; (3) a varredura de tela **não terminou** (faltam Tarefas, Agenda, Projetos, E-mail, Mensagens, Ajustes, Serviços, Modelos, Equipe, Sistema).
 - **📭 E-MAIL NÃO SAI DO LOCALHOST, e isso não é defeito da aplicação:** a máquina do dono não tem servidor de e-mail (`connect ECONNREFUSED 127.0.0.1:587`). O **disparo** funciona (o registro sai com destinatário e assunto certos); a **entrega** só se prova em produção, onde já foi provada em 22/08 (ADR-122).
 - **Provas (ADR-132):** typecheck e lint verdes · **460 testes de unidade** (4 novos na régua pura) · **8 de integração** contra o MySQL de verdade (5 do documento-para-lead + 3 do monitor de e-mails) · e2e `flows-documento-para-lead` (2 casos) · **na tela**: proposta gerada para o lead *MedLar Home Care*, banco com `PROSPECT` + `convertidoEmClienteId: null` + **um** cliente só, e a proposta de volta no painel do lead.
 
@@ -177,7 +190,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-133). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-134). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

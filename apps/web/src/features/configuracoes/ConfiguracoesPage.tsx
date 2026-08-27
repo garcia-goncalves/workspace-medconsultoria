@@ -9,6 +9,7 @@ import {
   changePasswordSchema,
   hasRoleLevel,
   ROLE_LABEL,
+  EMAIL_GRUPOS,
   type UpdateProfileInput,
   type ChangePasswordInput,
 } from "@app/shared";
@@ -254,23 +255,38 @@ function EmailsCard() {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="mb-4 text-sm text-muted-foreground">
-          Escolha quais e-mails automáticos você quer receber. E-mails de acesso e segurança (convite,
-          boas-vindas, redefinição de senha) são sempre enviados.
+        <p className="mb-1 text-sm text-muted-foreground">
+          Escolha quais e-mails automáticos você quer receber. Desligar um aviso aqui{" "}
+          <strong className="font-medium text-foreground">não</strong> o esconde do sistema: ele continua
+          aparecendo no sininho, no topo da tela — você só deixa de receber a cópia por e-mail.
         </p>
-        <div className="divide-y">
-          {prefs.data?.map((p) => (
-            <div key={p.tipo} className="flex items-center justify-between gap-4 py-3">
-              <div className="min-w-0">
-                <div className="text-sm font-medium">{p.label}</div>
-                <div className="text-xs text-muted-foreground">{p.descricao}</div>
+        <p className="mb-4 text-sm text-muted-foreground">
+          E-mails de acesso e segurança (convite, boas-vindas, redefinição de senha) são sempre enviados.
+        </p>
+        <div className="space-y-5">
+          {EMAIL_GRUPOS.filter((g) => prefs.data?.some((p) => p.grupo === g)).map((grupo) => (
+            <section key={grupo}>
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {grupo}
+              </h3>
+              <div className="divide-y">
+                {prefs.data
+                  ?.filter((p) => p.grupo === grupo)
+                  .map((p) => (
+                    <div key={p.tipo} className="flex items-center justify-between gap-4 py-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">{p.label}</div>
+                        <div className="text-xs text-muted-foreground">{p.descricao}</div>
+                      </div>
+                      <Toggle
+                        ativo={p.ativo}
+                        disabled={setPref.isPending}
+                        onToggle={() => setPref.mutate({ tipo: p.tipo, ativo: !p.ativo })}
+                      />
+                    </div>
+                  ))}
               </div>
-              <Toggle
-                ativo={p.ativo}
-                disabled={setPref.isPending}
-                onToggle={() => setPref.mutate({ tipo: p.tipo, ativo: !p.ativo })}
-              />
-            </div>
+            </section>
           ))}
         </div>
       </CardContent>

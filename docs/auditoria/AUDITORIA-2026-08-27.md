@@ -74,10 +74,21 @@ saía (ADR-122).
 "Serviço E2E SVC114905", "Serviço Guard SVC118255" — restos dos testes automatizados.
 Inofensivo no local; **em produção seria visível a um futuro cliente**.
 
-### A3 — Lead novo dispara 6 e-mails internos · AVALIAR
+### A3 — Lead novo dispara 6 e-mails internos · **RESOLVIDO** (ADR-134)
 Um único lead pelo site gerou notificação para andre.cintra@, root@, thiago.garcia@,
 thais.garcia@ (+2 contas locais). Com lead real chegando todo dia, isso vira ruído e a
-equipe para de ler. Conferir se as preferências por usuário resolvem.
+equipe para de ler.
+
+**Causa:** o lead nasce **sem responsável**, então o sistema avisa toda conta ADMIN/ROOT
+ativa — não é esquecimento, é a única saída quando não há a quem endereçar. A preferência
+por pessoa já existia; o padrão é que era "tudo ligado", e ninguém desliga o que não notou.
+
+**Conserto (ADR-134):** (1) a conta de sistema `root@` **nunca** recebe e-mail operacional,
+nem com a preferência ligada à mão; (2) "lead novo" **nasce ligado só para ADMIN** — o ROOT
+nominal vê pelo sininho e liga se quiser; (3) a tela de preferências virou **seis seções**
+com texto explicando que desligar o e-mail **não** esconde o aviso do sistema.
+Em produção, de 4 e-mails por lead para **2** — os dois que realmente atendem.
+A régua inteira mora em `decidirEmailOperacional` (`@app/shared`), a mesma que a tela lê.
 
 ### A4 — Fim do formulário público não tem saída · REFINO
 Depois de "Recebemos seu contato!" a tela fica sem nenhum link (nem para o site, nem para
