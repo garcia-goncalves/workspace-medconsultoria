@@ -16,6 +16,7 @@ import { ServicosPicker } from "../crm/leads/ServicosPicker";
 import { PortalServicos } from "./PortalServicos";
 import { PortalCredenciamento } from "./PortalCredenciamento";
 import { PortalMeusDocumentos } from "./PortalMeusDocumentos";
+import { PortalMinhaEquipe } from "./PortalMinhaEquipe";
 
 const statusLabel: Record<string, string> = {
   ATIVO: "Em andamento",
@@ -458,6 +459,10 @@ export function PortalHome() {
 
       {/* Seus documentos (o CLIENTE envia: RG, CPF, CRM…) — separado dos documentos da Med acima */}
       <PortalMeusDocumentos />
+
+      {/* Quem da clínica entra aqui (ADR-131). Fica DEPOIS do trabalho do dia a dia porque é
+          configuração: quem entra aqui mexe nisso uma vez e volta ao que veio fazer. */}
+      <PortalMinhaEquipe />
 
       <Card>
         <CardHeader>

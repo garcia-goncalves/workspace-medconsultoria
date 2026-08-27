@@ -64,6 +64,9 @@ export async function getUserFromSession(sid: string | undefined): Promise<Sessi
     role: user.role,
     avatarUrl: user.avatarUrl,
     clienteId: user.clienteId,
+    // PAPEL DENTRO DA CLÍNICA (ADR-131). Vem da SESSÃO, nunca do input — pelo mesmo motivo do
+    // `clienteId`: quem pede é a parte interessada em mentir.
+    papelPortal: user.papelPortal,
     senhaTrocadaEm: user.senhaTrocadaEm,
     // SESSÃO DE SUPORTE (ADR-128). Preenchido só quando alguém da equipe abriu o Painel deste
     // cliente. Quem lê isto: a faixa do Portal, o guarda das ações de compromisso e o registro

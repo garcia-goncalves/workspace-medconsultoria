@@ -60,6 +60,7 @@ import { ProjetoFormDialog } from "../../projetos/ProjetoFormDialog";
 import { TarefaFormDialog } from "../../tarefas/TarefaFormDialog";
 import { EmailsDoClienteCard } from "./EmailsDoClienteCard";
 import { PainelDoClienteBotao } from "../AcessoPortalBotao";
+import { PessoasDoPortalCard } from "./PessoasDoPortalCard";
 import { useDynamicCrumb } from "../../../components/layout/Breadcrumbs";
 
 const route = getRouteApi("/clientes/$clienteId");
@@ -313,6 +314,10 @@ export function ClienteDetailPage() {
 
           {/* O andamento de cada médico × operadora, depois que a proposta saiu (ADR-104). */}
           <CredenciamentoGradeCard clienteId={c.id} />
+
+          {/* Quem desta clínica entra no Portal (ADR-131) — médicos e secretárias com acesso
+              próprio, em vez de uma senha compartilhada. */}
+          <PessoasDoPortalCard clienteId={c.id} />
 
           {/* Suporte em destaque — o canal de conversa com o cliente, logo no topo */}
           <Card className="border-primary/30 ring-1 ring-primary/5">

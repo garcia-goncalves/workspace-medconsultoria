@@ -1,4 +1,5 @@
 import type { Role } from "./constants/roles.js";
+import type { PortalPapel } from "./portal-papeis.js";
 
 /** Usuário autenticado exposto ao front (sem campos sensíveis). */
 export interface SessionUser {
@@ -8,6 +9,13 @@ export interface SessionUser {
   role: Role;
   avatarUrl: string | null;
   clienteId: string | null;
+  /**
+   * PAPEL DENTRO DA CLÍNICA (ADR-131) — `RESPONSAVEL` fala pela clínica, `EQUIPE` toca o
+   * operacional. Nulo em conta interna da Med e nas contas de Portal anteriores a esta regra,
+   * que valem como responsável. Quem lê: o guarda das ações no `portalProcedure` e a tela do
+   * Portal, que esconde o botão que a pessoa não pode apertar.
+   */
+  papelPortal?: PortalPapel | null;
   /** Quando a pessoa definiu a PRÓPRIA senha. Nulo = nunca (senha veio do seed). */
   senhaTrocadaEm: Date | string | null;
   /**

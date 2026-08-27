@@ -9,12 +9,16 @@ import {
   cancelarServicoClienteSchema,
   atualizarContratacaoClienteSchema,
   hasRoleLevel,
+  convidarPessoaPortalSchema,
+  papelDaPessoaPortalSchema,
+  pessoaPortalSchema,
 } from "@app/shared";
 import { router, funcionarioProcedure, adminProcedure, rootProcedure } from "../../trpc/trpc.js";
 import * as service from "./clientes.service.js";
 import * as servicosCliente from "../servicos/servicos-cliente.service.js";
 import * as arquivos from "../arquivos/arquivos.service.js";
 import { listChamadosDoCliente } from "../mensagens/mensagens.service.js";
+import * as pessoas from "../portal/pessoas.service.js";
 
 export const clientesRouter = router({
   // Chamados de suporte do cliente (lista na ficha; a conversa fica em Mensagens).
@@ -60,6 +64,34 @@ export const clientesRouter = router({
   convidarPortal: funcionarioProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ input, ctx }) => service.convidarPortalCliente(ctx.user, input.id)),
+
+  // AS PESSOAS DA CLÍNICA NO PORTAL (ADR-131) — médicos e secretárias, cada um com o acesso
+  // dele. Aqui é o lado da EQUIPE DA MED: a Thaís convida e revoga pela ficha do cliente. O
+  // responsável da própria clínica faz o mesmo por `portal.pessoas`, chamando as MESMAS funções.
+  //
+  // ⚠️ Convidar e revogar acesso é `funcionarioProcedure` como o resto da ficha, mas note que
+  // `pessoas.service` confere o vínculo com o cliente em toda função: a rota diz quem é da casa,
+  // o serviço diz de qual clínica é a pessoa. As duas perguntas são diferentes.
+  pessoas: router({
+    list: funcionarioProcedure
+      .input(z.object({ clienteId: z.string() }))
+      .query(({ input }) => pessoas.listarPessoasDoPortal(input.clienteId)),
+    convidar: funcionarioProcedure
+      .input(convidarPessoaPortalSchema.extend({ clienteId: z.string() }))
+      .mutation(({ input, ctx }) => pessoas.convidarPessoaDoPortal({ ...input, autorId: ctx.user.id })),
+    alterarPapel: funcionarioProcedure
+      .input(papelDaPessoaPortalSchema.extend({ clienteId: z.string() }))
+      .mutation(({ input, ctx }) => pessoas.alterarPapelDaPessoa({ ...input, autorId: ctx.user.id })),
+    revogar: funcionarioProcedure
+      .input(pessoaPortalSchema.extend({ clienteId: z.string() }))
+      .mutation(({ input, ctx }) => pessoas.revogarAcessoDaPessoa({ ...input, autorId: ctx.user.id })),
+    devolver: funcionarioProcedure
+      .input(pessoaPortalSchema.extend({ clienteId: z.string() }))
+      .mutation(({ input, ctx }) => pessoas.devolverAcessoDaPessoa({ ...input, autorId: ctx.user.id })),
+    reenviarConvite: funcionarioProcedure
+      .input(pessoaPortalSchema.extend({ clienteId: z.string() }))
+      .mutation(({ input, ctx }) => pessoas.reenviarConviteDaPessoa({ ...input, autorId: ctx.user.id })),
+  }),
 
   // Arquivar cliente (exclusão LÓGICA: some das listas, preserva histórico) — só ADMIN+.
   remove: adminProcedure

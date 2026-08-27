@@ -1,6 +1,6 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
-import { hasRoleLevel, type Role } from "@app/shared";
+import { hasRoleLevel, podeNoPortal, PORTAL_SO_RESPONSAVEL, type Role } from "@app/shared";
 import type { Context } from "./context.js";
 import { recordCall } from "../observability/monitor.js";
 import { SUPORTE_SO_LEITURA } from "../modules/auth/painel-cliente.service.js";
@@ -51,7 +51,7 @@ export const rootProcedure = timed.use(requireRole("ROOT"));
  * — é o isolamento rígido (o cliente nunca vê dados internos nem de outros).
  */
 export const portalProcedure = timed.use(
-  middleware(({ ctx, next, type }) => {
+  middleware(({ ctx, next, type, path }) => {
     if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Não autenticado" });
     if (ctx.user.role !== "CLIENTE" || !ctx.user.clienteId) {
       throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito ao Portal do Cliente" });
@@ -69,6 +69,18 @@ export const portalProcedure = timed.use(
     // ela faz pelas telas internas, assinando com o próprio nome.
     if (type === "mutation" && ctx.user.operador) {
       throw new TRPCError({ code: "FORBIDDEN", message: SUPORTE_SO_LEITURA });
+    }
+    // QUEM, DENTRO DA CLÍNICA, PODE ISTO (ADR-131).
+    //
+    // Mora aqui pelo mesmo motivo da trava acima: numa clínica com médico, secretária e dono
+    // usando contas próprias, decidir permissão dentro de cada ação é apostar que ninguém vai
+    // esquecer — e a que esquecerem é a que cancela um serviço contratado. Aqui a ação nova
+    // nasce fechada, e liberar é acrescentar o nome dela em `ACOES_LIBERADAS_PARA_EQUIPE`.
+    //
+    // Só vale para MUTAÇÃO: os dois papéis leem tudo daquela clínica. A trava é sobre assinar,
+    // não sobre ver — a secretária precisa conferir a cobrança que ela mesma processa.
+    if (type === "mutation" && !podeNoPortal(ctx.user.papelPortal, path.replace(/^portal\./, ""))) {
+      throw new TRPCError({ code: "FORBIDDEN", message: PORTAL_SO_RESPONSAVEL });
     }
     return next({ ctx: { user: ctx.user, clienteId: ctx.user.clienteId } });
   }),

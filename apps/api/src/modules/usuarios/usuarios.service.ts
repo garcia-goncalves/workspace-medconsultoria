@@ -15,7 +15,7 @@ const CONVITE_TTL_MS = 72 * 60 * 60 * 1000;
  * O template acompanha o PAPEL: CLIENTE recebe as boas-vindas quentes do Portal;
  * a equipe interna recebe o convite padrão do Workspace.
  */
-async function gerarConvite(userId: string, nome: string, email: string, role: Role) {
+export async function gerarConvite(userId: string, nome: string, email: string, role: Role) {
   const token = await criarToken(userId, "CONVITE", CONVITE_TTL_MS);
   const url = `${config.WEB_ORIGIN}/definir-senha?token=${token}`;
   const template = role === "CLIENTE" ? "portal_boas_vindas" : "convite";
@@ -72,7 +72,19 @@ export async function garantirAcessoPortal(
   if (doEmail) return { ...nada, jaTinhaAcesso: true };
 
   const usuario = await prisma.user.create({
-    data: { nome: nome.trim(), email, passwordHash: null, ativo: false, role: "CLIENTE", clienteId },
+    data: {
+      nome: nome.trim(),
+      email,
+      passwordHash: null,
+      ativo: false,
+      role: "CLIENTE",
+      clienteId,
+      // A PRIMEIRA pessoa da clínica é o RESPONSAVEL (ADR-131) — é ela que aceita a proposta que
+      // deu origem a esta conta. As seguintes entram pelo convite explícito, onde quem convida
+      // escolhe o papel; e não pode ser o contrário: uma clínica cuja única pessoa fosse
+      // "equipe" nasceria sem ninguém que pudesse assinar nada.
+      papelPortal: "RESPONSAVEL",
+    },
     select: { id: true, nome: true, email: true },
   });
   // Cadastro feito pela EQUIPE sem pedir aviso: a conta nasce, o e-mail NÃO sai. O cliente é

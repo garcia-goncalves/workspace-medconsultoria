@@ -13,7 +13,18 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-27 · madrugada)
+## Estado atual (2026-08-27 · manhã)
+
+- **👥 VÁRIOS USUÁRIOS POR CLÍNICA (ADR-131) — o maior pedido em aberto, feito.** Cada médico e cada secretária entra com o próprio e-mail e a própria senha; acabou a conta única cuja senha circulava no WhatsApp da clínica. Dois papéis em `User.papelPortal`: **RESPONSAVEL** fala pela clínica (aceita proposta, contrata, cancela, convida) e **EQUIPE** toca o operacional (documento, formulário, agenda, suporte).
+- **🔒 A TRAVA É SOBRE ASSINAR, NÃO SOBRE VER (ADR-131).** Os dois papéis leem tudo daquela clínica, valores inclusive — mesma escolha da ADR-128. ⚠️ **A lista `ACOES_LIBERADAS_PARA_EQUIPE` é de LIBERAÇÕES e o padrão é NEGAR**, num lugar só (`portalProcedure`, só em mutação): **ação nova nasce fechada**. Quem escrever a próxima precisa decidir que a secretária pode. Papel **nulo vale como RESPONSAVEL** (contas anteriores à regra).
+- **🚫 A CLÍNICA NUNCA FICA SEM QUEM ASSINE (ADR-131).** `sobraResponsavel` (pura, testada) recusa rebaixar, desativar ou revogar o último responsável, em português. Ninguém revoga o próprio acesso. **Revogar é desativar, nunca excluir** — apagar deixaria "alguém" no lugar do nome de quem agiu (ADR-109); as sessões abertas caem junto.
+- **🖥️ DUAS TELAS, UM COMPONENTE E UM SERVIÇO (ADR-131).** Card *"Pessoas com acesso ao Portal"* na ficha (equipe da Med) e seção *"Quem da clínica entra aqui"* no Portal (o responsável convida os colegas sem passar pela Med). Mesmas regras nos dois lados — duas cópias divergiriam e a Thaís veria um estado enquanto o cliente vê outro.
+- **🐛 DOIS DEFEITOS QUE SÓ APARECERAM CLICANDO (ADR-131):** (1) ⚠️ **`ativo = false` é AMBÍGUO** — conta convidada e ainda sem senha também nasce inativa, e a secretária recém-convidada aparecia como **"acesso revogado"**. Nasceu `User.acessoRevogadoEm`; o mesmo engano estava em **três lugares** (a situação da lista, a mensagem de e-mail duplicado e a régua do "sobra responsável"). (2) a **primeira** pessoa da clínica entrava como *Equipe* e a clínica ficava sem ninguém para assinar — hoje o padrão do convite muda conforme a clínica, e há aviso amarelo enquanto ninguém falar por ela.
+- **📧 O convite daqui SEMPRE manda e-mail**, diferente de `garantirAcessoPortal` (ADR-128): lá a conta nasce como efeito colateral de cadastrar um cliente; aqui alguém digitou nome e e-mail e apertou "Convidar".
+- **⚠️ Duas migrações novas, ainda NÃO publicadas:** `20260827053330_usuarios_por_clinica` e `20260827054802_acesso_revogado_em`. Aditivas — três colunas nuláveis, uma FK `SET NULL`, um índice e um `UPDATE` marcando quem já tem acesso como RESPONSAVEL. Reverter é `DROP COLUMN` nas três.
+- **Provas (ADR-131):** typecheck e lint verdes · **585 testes** do `@app/api` (15 de integração novos contra o MySQL de verdade, provando isolamento entre clínicas; 14 de unidade na regra pura) · e2e `flows-pessoas-do-portal` verde no banco isolado · **na tela**, convite pela ficha e pelo Portal, e a prova de ponta a ponta: rebaixado a EQUIPE, `portal.cancelarServico` respondeu **403** em português e `portal.suporte.abrir` respondeu **200**.
+
+## Estado anterior (2026-08-27 · madrugada · ADR-130)
 
 - **📋 AUDITORIA DE FORMATAÇÃO DOS 16 MODELOS, CLICANDO EM TODOS (ADR-130).** O relato do dono era *"a proposta comercial de faturamento está desformatada"*; o defeito achado atinge **todos** os modelos: `.doc-body ul/ol` declarava `padding-left` e **nunca declarou `list-style`** — o reset do Tailwind zera o marcador em toda a aplicação, e a folha nunca o devolvia. A lista **numerada de seis passos** da proposta de faturamento chegava ao cliente **sem os números**. ⚠️ **E a janela de impressão NÃO carrega o Tailwind**, então lá os números apareciam: tela e PDF discordando de novo, pelo caminho oposto ao da ADR-129. Travado por teste que lê o `DOC_STYLES`.
 - **☐ O CHECKLIST CHEGAVA SEM CAIXA NENHUMA (ADR-130).** `marked` emite `- [ ]` como `<input type=checkbox>`, e `input` é **proibido** no sanitizador — corretamente. O efeito era o Checklist de credenciamento virar texto pelado. A caixa virou **caractere** (`☐`/`☑`), que atravessa sanitizador, impressão e Word. ⚠️ **A proibição do `input` fica como está.**
@@ -21,7 +32,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - **👁️ A PRÉVIA MOSTRA DADO REAL (ADR-130).** Com o cliente escolhido, a prévia dizia `[nome do cliente]` — escondendo o que se confere antes de gerar: como o papel fica **com o nome da clínica dentro**, que é mais comprido e quebra as linhas de outro jeito. E os rótulos deixaram de ser nome de código: `[dadosPagamento]` → *dados para pagamento*, `[clausulas_servicos]` → *condições de cada serviço*.
 - **🧹 PADRONIZAÇÃO ACHADA CLICANDO (ADR-130):** título **duplicado** no corpo de Contrato, Escopo e Recibo (o cabeçalho da folha já o imprime) · *"Suporte comercial"* era `###` filho da seção errada, virou `##` · os grupos do **Onboarding** eram negrito, não título — ⚠️ **negrito não é título e a paginação não o protege de ficar órfão** · a **descrição do serviço saiu de dentro da linha** da tabela e ganhou linha própria · *"5% do faturamento (Faturamento) — por mês"* virou **"Faturamento: 5% do faturamento mensal"** · `Foto 3x4` → `Foto 3×4`.
 - **📏 MEDIDO E NÃO MUDADO (ADR-130):** o vazio de meia folha na proposta de credenciamento **não é defeito** — sobravam 316px de conteúdo, mas com as margens o espaço útil era ~124px e a lista tem 193px. Fatiar deixaria "3 passos aqui, 3 na outra folha". Vale a regra da ADR-129: **o bloco desce inteiro**.
-- **⏭️ NÃO ENTROU, e é o maior:** **vários usuários por clínica** (médicos e secretárias com acesso próprio ao Portal). Mexe no banco e no Portal.
+- **✅ O item que faltava aqui — vários usuários por clínica — FOI FEITO na ADR-131** (ver Estado atual).
 - **🏦 Os dados bancários de produção JÁ FORAM preenchidos pelo dono** (conferido na tela em 27/08: Nubank / 0001 / 686169152-5 / Thais Garcia Gestão Saúde / PIX 34.270.022/0001-93).
 
 ## Estado anterior (2026-08-27 · ADR-129)
@@ -150,7 +161,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-130). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-131). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

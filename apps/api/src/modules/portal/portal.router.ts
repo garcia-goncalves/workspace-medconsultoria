@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { solicitarServicosSchema, salvarRespostaSchema, portalAbrirChamadoSchema, portalEnviarChamadoSchema, portalMeusDadosSchema } from "@app/shared";
+import { convidarPessoaPortalSchema, papelDaPessoaPortalSchema, pessoaPortalSchema, solicitarServicosSchema, salvarRespostaSchema, portalAbrirChamadoSchema, portalEnviarChamadoSchema, portalMeusDadosSchema } from "@app/shared";
 import { router, portalProcedure } from "../../trpc/trpc.js";
 import * as service from "./portal.service.js";
 import { desistenciaPeloCliente, retomarPeloCliente, solicitarServicosPeloCliente } from "../leads/leads.service.js";
@@ -11,6 +11,14 @@ import { credenciamentoParaOPortal } from "../servicos/credenciamento.service.js
 import { listarArquivos, removerArquivo } from "../arquivos/arquivos.service.js";
 import { getFormularioDoRequisito, salvarResposta } from "../formularios/formularios.service.js";
 import { listPorCliente } from "../emails/enviados.service.js";
+import {
+  listarPessoasDoPortal,
+  convidarPessoaDoPortal,
+  alterarPapelDaPessoa,
+  revogarAcessoDaPessoa,
+  devolverAcessoDaPessoa,
+  reenviarConviteDaPessoa,
+} from "./pessoas.service.js";
 
 export const portalRouter = router({
   resumo: portalProcedure.query(({ ctx }) => service.resumo(ctx.clienteId)),
@@ -70,6 +78,42 @@ export const portalRouter = router({
   removerArquivo: portalProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ input, ctx }) => removerArquivo(input.id, ctx.clienteId)),
+
+  // MINHA EQUIPE (ADR-131): o responsável da clínica convida os colegas dele sem passar pela
+  // Med. Médicos e secretárias com acesso próprio é o ponto todo desta entrega — se cada pedido
+  // de acesso precisasse de um chamado, a clínica voltaria a compartilhar uma senha só.
+  //
+  // ⚠️ **Nada aqui recebe `clienteId`**: ele vem da sessão, como em todo o Portal. E as
+  // mutações são barradas para quem é `EQUIPE` pelo guarda do `portalProcedure`, porque
+  // `pessoas.*` não está na lista de liberações — dar acesso é falar pela clínica.
+  pessoas: router({
+    list: portalProcedure.query(({ ctx }) => listarPessoasDoPortal(ctx.clienteId)),
+    convidar: portalProcedure
+      .input(convidarPessoaPortalSchema)
+      .mutation(({ input, ctx }) =>
+        convidarPessoaDoPortal({ ...input, clienteId: ctx.clienteId, autorId: ctx.user.id }),
+      ),
+    alterarPapel: portalProcedure
+      .input(papelDaPessoaPortalSchema)
+      .mutation(({ input, ctx }) =>
+        alterarPapelDaPessoa({ ...input, clienteId: ctx.clienteId, autorId: ctx.user.id }),
+      ),
+    revogar: portalProcedure
+      .input(pessoaPortalSchema)
+      .mutation(({ input, ctx }) =>
+        revogarAcessoDaPessoa({ ...input, clienteId: ctx.clienteId, autorId: ctx.user.id }),
+      ),
+    devolver: portalProcedure
+      .input(pessoaPortalSchema)
+      .mutation(({ input, ctx }) =>
+        devolverAcessoDaPessoa({ ...input, clienteId: ctx.clienteId, autorId: ctx.user.id }),
+      ),
+    reenviarConvite: portalProcedure
+      .input(pessoaPortalSchema)
+      .mutation(({ input, ctx }) =>
+        reenviarConviteDaPessoa({ ...input, clienteId: ctx.clienteId, autorId: ctx.user.id }),
+      ),
+  }),
 
   // Suporte = helpdesk de chamados/tickets. Sempre escopado ao clienteId da sessão.
   suporte: router({

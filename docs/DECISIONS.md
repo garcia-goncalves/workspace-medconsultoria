@@ -3285,3 +3285,115 @@ procedimento. **Vale a mesma regra da ADR-129 para tabelas: o bloco desce inteir
   dono na mesma conversa. Mexe no banco e no Portal, é o maior dos itens e não entrou aqui.
 - **O PDF final continua não sendo aberto** (a caixa de impressão trava a automação). O que se
   prova é que tela e impressão usam o mesmo CSS e a mesma paginação.
+
+---
+
+## ADR-131 — Vários usuários por clínica: cada médico e cada secretária com o próprio acesso, e a separação entre quem fala pela clínica e quem toca o operacional
+
+**Data:** 27/08/2026 · **Situação:** aceita
+
+### O pedido
+
+Do dono, no fim da conversa de 27/08: *"uma clínica pode ter VÁRIOS USUÁRIOS — médicos e
+secretárias com acesso PRÓPRIO ao Portal, não uma conta só"*. Era o maior item em aberto e o
+único que não coube na ADR-130.
+
+### O problema, como ele existia
+
+Cada clínica tinha **uma** conta de Portal, e o e-mail e a senha dela circulavam entre médicos,
+secretárias e o dono. Três estragos ao mesmo tempo:
+
+1. **A senha andava pelo WhatsApp da clínica.** Quem saía da clínica continuava com ela.
+2. **O histórico não sabia quem tinha agido.** Um aceite de proposta dizia "a Clínica X aceitou",
+   e não havia como saber quem.
+3. **Todo mundo podia tudo.** A secretária que só precisava anexar um documento tinha, sem querer,
+   o poder de cancelar um serviço contratado.
+
+O modelo de dados **já tolerava** várias contas por cliente (`User.clienteId`, e a ADR-128 já tinha
+registrado que um cliente pode ter duas). O que faltava era virar recurso de produto: convidar,
+nomear, dar papel e revogar por pessoa.
+
+### O que foi decidido
+
+**Dois papéis dentro da clínica** (`User.papelPortal`, enum `PortalPapel`):
+
+| Papel | Quem é | O que faz |
+|---|---|---|
+| `RESPONSAVEL` | dono, sócio, administrador | tudo — inclusive aceitar proposta, contratar, cancelar e convidar |
+| `EQUIPE` | médico, secretária, recepção | o dia a dia: documento, formulário, agenda, suporte |
+
+⚠️ **A trava é sobre ASSINAR, não sobre VER.** Os dois papéis leem tudo daquela clínica, valores
+inclusive — a mesma escolha da ADR-128 para a sessão de suporte. Esconder número da secretária
+resolveria um problema que ninguém relatou e criaria um que morde toda semana: ela não conseguiria
+conferir a cobrança que é justamente o trabalho dela.
+
+⚠️ **A lista é de LIBERAÇÕES, e o padrão é NEGAR** (`ACOES_LIBERADAS_PARA_EQUIPE`, em
+`@app/shared`). É o inverso do que parece natural, e é a lição da ADR-128 levada um passo adiante:
+numa lista de proibições, a ação que alguém esquecer de proibir é a que vai morder. Aqui **ação
+nova nasce fechada** — quem escrever a próxima precisa decidir conscientemente que a secretária
+pode. A trava mora no `portalProcedure`, num lugar só, e só vale para **mutação**.
+
+**Papel nulo vale como RESPONSAVEL.** São as contas anteriores a esta regra — a conta única da
+clínica, que sempre pôde tudo. Rebaixá-las em silêncio tiraria o poder de assinar de quem já
+assinava, e a clínica descobriria isso na hora de aceitar uma proposta. A migração marca as
+existentes explicitamente, para a **tela** não ficar com a coluna Papel em branco justamente para
+quem manda na clínica.
+
+**A clínica nunca fica sem quem assine** (`sobraResponsavel`, pura e testada): rebaixar, desativar
+ou revogar o último responsável é recusado, em português. Ninguém revoga o próprio acesso.
+
+**Revogar é desativar, nunca excluir.** A conta assina documento, abre chamado e aparece no
+histórico; apagá-la deixaria "alguém" no lugar do nome de quem agiu — o defeito que a ADR-109
+consertou. As sessões abertas caem junto (o `getUserFromSession` já recusa conta inativa a cada
+request; apagar as linhas é para a lista de sessões não mentir).
+
+**Duas telas, um componente e um serviço.** A equipe da Med usa o card *"Pessoas com acesso ao
+Portal"* na ficha do cliente; o responsável da clínica usa a seção *"Quem da clínica entra aqui"*
+no Portal. As duas passam pelas **mesmas** regras e pela mesma lista — duas cópias divergiriam no
+primeiro ajuste, e a Thaís veria um estado enquanto o cliente vê outro sobre a mesma pessoa.
+
+**O convite daqui SEMPRE manda e-mail**, diferente de `garantirAcessoPortal` (ADR-128). Lá o
+silêncio é a regra porque a conta nasce como efeito colateral de cadastrar um cliente; aqui alguém
+digitou nome e e-mail e apertou "Convidar" — o convite **é** o ato pedido, e uma conta criada sem
+o convite chegar seria um acesso que ninguém sabe que existe.
+
+### Os dois defeitos que só apareceram fazendo, com o teste verde
+
+**1. `ativo = false` é AMBÍGUO — e a secretária recém-convidada aparecia como "acesso revogado".**
+Conta convidada e ainda sem senha também nasce inativa. A primeira rodada de teste pegou a lista
+dizendo à clínica que tiramos um acesso que acabáramos de dar. Nasceu `User.acessoRevogadoEm`: um
+marcador explícito separa *"ainda não entrou"* de *"não entra mais"*, e de quebra responde
+**quando** o acesso caiu. ⚠️ O mesmo engano estava em **dois lugares** — a situação da lista e a
+mensagem de e-mail duplicado ("use Devolver acesso" para quem nunca teve acesso tirado) — e
+também na régua do "sobra responsável", onde a coluna crua travaria a clínica recém-criada.
+
+**2. A primeira pessoa da clínica entrava como "Equipe" e a clínica ficava sem ninguém para
+assinar.** Achado clicando: o formulário vinha com "Equipe" pré-selecionado, e nada na tela dizia
+que aquele acesso não podia aceitar proposta nenhuma. Hoje o padrão do convite **muda conforme a
+clínica** (sem responsável → "Responsável"), e há um aviso amarelo enquanto ninguém falar por ela.
+
+### O que ficou de fora, e por quê
+
+- **Ligar o usuário do Portal ao cadastro `Profissional`** (o médico credenciado). São cadastros
+  diferentes; misturá-los agora estragaria a grade do credenciamento (ADR-104).
+- **Permissão por tela ou por documento.** Complexidade sem caso relatado.
+- **Esconder valores da secretária.** Ver o que a clínica paga é o trabalho dela.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm lint` verdes · **585 testes** do `@app/api` (unidade + integração
+contra o MySQL de verdade), com **15 novos de integração** provando o isolamento entre clínicas e
+**14 de unidade** na regra pura · e2e `flows-pessoas-do-portal` verde no banco isolado · **na
+tela**: convite pela ficha e pelo Portal, promoção, recusa do último responsável em português, e a
+prova de ponta a ponta da trava — rebaixado a EQUIPE, `portal.cancelarServico` respondeu **403**
+com *"Só o responsável pela clínica pode fazer isso"*, enquanto `portal.suporte.abrir` respondeu
+**200**.
+
+### Migrações (ainda NÃO publicadas)
+
+`20260827053330_usuarios_por_clinica` — `User.papelPortal` (enum nulável), `User.convidadoPorId`
+(FK `SET NULL` + índice) e um `UPDATE` marcando como `RESPONSAVEL` quem já tem acesso hoje.
+`20260827054802_acesso_revogado_em` — `User.acessoRevogadoEm` (nulável).
+
+As duas são **aditivas**: nada é apagado, nada é convertido, nenhuma linha existente muda de
+sentido. Reverter é `DROP COLUMN` nas três colunas (a FK e o índice caem junto).
