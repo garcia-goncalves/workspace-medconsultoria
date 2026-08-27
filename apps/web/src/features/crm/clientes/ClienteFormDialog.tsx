@@ -100,9 +100,12 @@ export function ClienteFormDialog({
         confirmText: "Cadastrar cliente",
         icon: UserPlus,
         checkbox: {
-          label: "Enviar dados de acesso ao Portal por e-mail",
-          hint: `O cliente recebe um e-mail em ${data.email!.trim()} com o link e as instruções para acompanhar o atendimento.`,
-          default: true,
+          // NASCE DESMARCADA (ADR-128). Cadastro feito pela equipe não avisa o cliente sozinho:
+          // e-mail de boas-vindas é para quem se cadastrou em /comecar e está esperando por ele.
+          // Marcada por padrão, ninguém desmarcava — o "automático" era o descuido de todo dia.
+          label: "Avisar o cliente agora, por e-mail",
+          hint: `Deixe desmarcado para cadastrar em silêncio. Você envia o acesso quando quiser, pelo botão "Enviar acesso" na ficha. Marcando, ${data.email!.trim()} recebe o link agora.`,
+          default: false,
         },
       });
       if (!confirmado) return;

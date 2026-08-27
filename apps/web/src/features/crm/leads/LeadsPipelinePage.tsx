@@ -274,11 +274,13 @@ export function LeadsPipelinePage() {
       confirmText: "Converter",
       icon: temServico ? UserCheck : AlertTriangle,
       checkbox: {
-        label: "Enviar boas-vindas e acesso ao Portal por e-mail",
+        // NASCE DESMARCADA (ADR-128): converter é ato da equipe, e ato da equipe não dispara
+        // e-mail ao cliente por omissão. O acesso continua a um clique, no card.
+        label: "Avisar o cliente agora, por e-mail",
         hint: temEmail
-          ? `O cliente recebe as boas-vindas e o link de acesso em ${full!.email!.trim()}.`
+          ? `Deixe desmarcado para converter em silêncio. Marcando, ${full!.email!.trim()} recebe as boas-vindas e o link de acesso agora.`
           : "Este lead não tem e-mail cadastrado — nada será enviado.",
-        default: temEmail,
+        default: false,
       },
     });
     if (confirmado) convert.mutate({ id: l.id, enviarEmail: marcado });

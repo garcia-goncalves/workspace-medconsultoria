@@ -143,7 +143,11 @@ export async function login(
     await prisma.user.update({ where: { id: user.id }, data: { passwordHash: novo } }).catch(() => {});
   }
 
-  const sid = await createSession(user.id, userAgent, ip);
+  const sid = await createSession(user.id, { userAgent, ip });
+  // ÚLTIMO ACESSO (ADR-128): marcado só aqui, no login com senha. É o que o card do lead/cliente
+  // mostra para a Thaís saber se o cliente apareceu depois do convite. Sessão de suporte da
+  // equipe NÃO passa por aqui, de propósito — nós entrarmos no painel dele não é ele vindo.
+  await prisma.user.update({ where: { id: user.id }, data: { ultimoAcessoEm: new Date() } }).catch(() => {});
   await prisma.activityLog.create({ data: { userId: user.id, acao: "login" } });
 
   return { sid, user: toSessionUser(user) };
@@ -216,7 +220,9 @@ export async function aceitarConvite(
     where: { id: userId },
     data: { passwordHash: await hashPassword(novaSenha), ativo: true, senhaTrocadaEm: new Date() },
   });
-  const sid = await createSession(user.id, userAgent, ip);
+  const sid = await createSession(user.id, { userAgent, ip });
+  // Definir a senha pelo convite JÁ é entrar: o cliente atravessou a porta neste instante.
+  await prisma.user.update({ where: { id: user.id }, data: { ultimoAcessoEm: new Date() } }).catch(() => {});
   await prisma.activityLog.create({ data: { userId: user.id, acao: "convite_aceito" } });
   void enviarBoasVindas(user.nome, user.email).catch(() => {});
   // Automação do funil: o prospect ativou o acesso e entrou no Portal (sinal de
@@ -315,7 +321,8 @@ export async function redefinirSenha(
     data: { passwordHash: await hashPassword(novaSenha), ativo: true, senhaTrocadaEm: new Date() },
   });
   await prisma.session.deleteMany({ where: { userId } }); // derruba sessões antigas
-  const sid = await createSession(user.id, userAgent, ip);
+  const sid = await createSession(user.id, { userAgent, ip });
+  await prisma.user.update({ where: { id: user.id }, data: { ultimoAcessoEm: new Date() } }).catch(() => {});
   await prisma.activityLog.create({ data: { userId: user.id, acao: "senha_redefinida" } });
   return { sid, user: toSessionUser(user) };
 }

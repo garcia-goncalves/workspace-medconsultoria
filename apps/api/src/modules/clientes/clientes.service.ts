@@ -9,6 +9,7 @@ import type {
 } from "@app/shared";
 import { SITUACOES_CLIENTE } from "@app/shared";
 import { garantirAcessoPortal, convidarUsuario, reenviarConvite } from "../usuarios/usuarios.service.js";
+import { acessoAoPortal } from "../../lib/acesso-portal.js";
 import { emReais } from "../../lib/dinheiro.js";
 
 /** "" ou espaços → null; caso contrário, texto aparado. */
@@ -50,13 +51,17 @@ export async function listClientes(search?: string) {
         select: {
           contatos: true,
           projetos: { where: { deletedAt: null } },
-          // "Portal ativo" = já existe um acesso de cliente que consegue entrar (senha definida).
-          usuariosPortal: { where: { role: "CLIENTE", ativo: true, passwordHash: { not: null } } },
           // "No funil" = tem oportunidade aberta (upsell em andamento) ligada a este cliente.
           leadsPortal: { where: { deletedAt: null, convertidoEmClienteId: null, perdidoEm: null } },
           // Serviços contratados ativos (o que o cliente tem hoje).
           servicosContratados: { where: { status: "ATIVO" } },
         },
+      },
+      // A CONTA de Portal (ADR-128) — os três estados do card, não só "ativo ou não".
+      usuariosPortal: {
+        where: { role: "CLIENTE" },
+        select: { ativo: true, passwordHash: true, createdAt: true, ultimoAcessoEm: true },
+        orderBy: { createdAt: "asc" },
       },
     },
   });
@@ -77,11 +82,16 @@ export async function listClientes(search?: string) {
   });
   const proxMap = new Map(reunioes.map((r) => [r.clienteId, r._min.inicio]));
 
-  return clientes.map((c) => ({
-    ...c,
-    proximaReuniao: proxMap.get(c.id) ?? null,
-    emFunil: c._count.leadsPortal > 0,
-  }));
+  return clientes.map(({ usuariosPortal, ...c }) => {
+    const portal = acessoAoPortal(usuariosPortal);
+    return {
+      ...c,
+      proximaReuniao: proxMap.get(c.id) ?? null,
+      emFunil: c._count.leadsPortal > 0,
+      portalAtivo: portal.estado === "ATIVO",
+      portal,
+    };
+  });
 }
 
 /** Indicadores da base de CLIENTES (só ativos/inativos — prospects estão no Funil). */
@@ -237,11 +247,12 @@ export async function getCliente(id: string) {
     include: {
       contatos: { orderBy: [{ principal: "desc" }, { nome: "asc" }] },
       responsavel: { select: { nome: true } },
-      _count: {
-        select: {
-          // acesso de Portal já ativo (senha definida) x convite pendente (sem senha).
-          usuariosPortal: { where: { role: "CLIENTE", ativo: true, passwordHash: { not: null } } },
-        },
+      // A CONTA de Portal (ADR-128): o card precisa dos três estados, e para isso precisa saber
+      // quando a conta nasceu e quando o cliente entrou pela última vez.
+      usuariosPortal: {
+        where: { role: "CLIENTE" },
+        select: { ativo: true, passwordHash: true, createdAt: true, ultimoAcessoEm: true },
+        orderBy: { createdAt: "asc" },
       },
     },
   });
@@ -253,7 +264,9 @@ export async function getCliente(id: string) {
     orderBy: { createdAt: "desc" },
   });
 
-  return { ...cliente, notas, portalAtivo: cliente._count.usuariosPortal > 0 };
+  const { usuariosPortal, ...semConta } = cliente;
+  const portal = acessoAoPortal(usuariosPortal);
+  return { ...semConta, notas, portalAtivo: portal.estado === "ATIVO", portal };
 }
 
 export async function createCliente(
@@ -274,10 +287,12 @@ export async function createCliente(
   await prisma.activityLog.create({
     data: { userId, acao: "cliente.criado", entidadeTipo: "cliente", entidadeId: cliente.id },
   });
-  // O acesso ao Portal + boas-vindas só é enviado se a equipe optar (checkbox na confirmação).
-  // Best-effort: a criação do cliente não falha se o e-mail/acesso não puder ser provido.
+  // Cadastro MANUAL: o acesso só é criado — e o e-mail só sai — se a equipe marcar a caixa na
+  // confirmação, que hoje nasce **desmarcada** (ADR-128). Sem marcar, nada é criado e nada é
+  // enviado; a Thaís avisa o cliente quando quiser, pelo botão "Enviar acesso" da ficha.
+  // Best-effort: a criação do cliente não falha se o acesso não puder ser provido.
   if (enviarAcessoPortal && cliente.email) {
-    await garantirAcessoPortal(cliente.id, cliente.nome, cliente.email).catch(() => {});
+    await garantirAcessoPortal(cliente.id, cliente.nome, cliente.email, "EQUIPE_COM_AVISO").catch(() => {});
   }
   return cliente;
 }

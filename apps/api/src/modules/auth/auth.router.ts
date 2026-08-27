@@ -8,8 +8,9 @@ import {
   solicitarResetSchema,
   redefinirSenhaSchema,
 } from "@app/shared";
-import { router, publicProcedure, protectedProcedure } from "../../trpc/trpc.js";
-import { SESSION_COOKIE, SESSION_TTL_SECONDS, destroySession } from "../../lib/session.js";
+import { router, publicProcedure, protectedProcedure, funcionarioProcedure } from "../../trpc/trpc.js";
+import { SESSION_COOKIE, SESSION_TTL_SECONDS, destroySession, ttlDaSessao } from "../../lib/session.js";
+import { abrirPainelDoCliente, voltarDoPainel } from "./painel-cliente.service.js";
 import { isProd } from "../../config.js";
 import {
   login,
@@ -69,6 +70,39 @@ export const authRouter = router({
 
   /** Usuário autenticado atual (ou null). Base do "estou logado?" no front. */
   me: publicProcedure.query(({ ctx }) => ctx.user),
+
+  /**
+   * PAINEL DO CLIENTE (ADR-128) — a equipe abre o Portal deste cliente em modo de suporte.
+   *
+   * Troca o cookie por uma sessão que pertence ao cliente mas guarda quem entrou. A sessão do
+   * operador continua viva, então "voltar ao meu acesso" não pede login de novo. Dura 30 min.
+   */
+  entrarNoPainelDoCliente: funcionarioProcedure
+    .input(z.object({ clienteId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const raw = ctx.req.cookies[SESSION_COOKIE];
+      const unsigned = raw ? ctx.req.unsignCookie(raw) : null;
+      const sidAtual = unsigned?.valid ? unsigned.value ?? undefined : undefined;
+      const { sid, cliente } = await abrirPainelDoCliente(input.clienteId, ctx.user, sidAtual);
+      ctx.res.setCookie(SESSION_COOKIE, sid, { ...cookieOptions, maxAge: ttlDaSessao(true) });
+      return { cliente };
+    }),
+
+  /** Encerra a sessão de suporte e devolve o operador ao próprio acesso. */
+  voltarDoPainelDoCliente: protectedProcedure.mutation(async ({ ctx }) => {
+    const raw = ctx.req.cookies[SESSION_COOKIE];
+    const unsigned = raw ? ctx.req.unsignCookie(raw) : null;
+    const sidAtual = unsigned?.valid ? unsigned.value ?? undefined : undefined;
+    const { sid } = await voltarDoPainel(ctx.user, sidAtual);
+    if (sid) {
+      ctx.res.setCookie(SESSION_COOKIE, sid, cookieOptions);
+      return { voltou: true };
+    }
+    // A sessão original expirou enquanto a pessoa estava no painel: sai limpo, a tela manda
+    // para o login. Melhor do que deixá-la presa numa sessão de suporte que ela nao quer mais.
+    ctx.res.clearCookie(SESSION_COOKIE, { path: "/" });
+    return { voltou: false };
+  }),
 
   /** Verifica um token de convite (para a tela de definir senha). Público. */
   validarConvite: publicProcedure

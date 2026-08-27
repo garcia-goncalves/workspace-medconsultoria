@@ -192,7 +192,11 @@ export async function ativarServicoCliente(
     ]);
     if (cliente?.email) {
       // Garante que o cliente TENHA acesso ao Portal antes de convidá-lo a acessá-lo (idempotente).
-      await garantirAcessoPortal(clienteId, cliente.nome, cliente.email).catch(() => {});
+      // ⚠️ Origem EQUIPE (ADR-128): quem contratou o serviço foi alguém da casa, então a conta
+      // nasce SEM e-mail de convite. O aviso que sai daqui é o "serviço ativado", que a pessoa
+      // pediu explicitamente ao marcar `avisarCliente` — não o convite de acesso, que sairia
+      // sozinho por um caminho que não tem caixa de confirmação nenhuma.
+      await garantirAcessoPortal(clienteId, cliente.nome, cliente.email, "EQUIPE").catch(() => {});
       void enviarEmailTemplate("servico_ativado", cliente.email, {
         nome: cliente.nome,
         servico: servico?.nome ?? "serviço",

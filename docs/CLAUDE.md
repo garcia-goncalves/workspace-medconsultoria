@@ -205,6 +205,8 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 
 95. **A proposta de faturamento virou o papel real da Thaís, e o dinheiro saiu de dois lugares novos (ADR-127).** O corpo do modelo passou a ser a **transcrição** do papel que ela manda hoje — lapidado na forma, intocado no conteúdo — com abertura própria, **Objetivo da parceria**, **Como funciona o nosso serviço** (o que a Clínica precisa entregar, antes das seis etapas), **Suporte comercial**, **Gestão e acompanhamento**, **Prazos e rotina**, investimento, dados para pagamento e **Confidencialidade**. ⚠️ **O Faturamento é SÓ percentual, e a porcentagem varia por cliente** (ordem do dono, que corrigiu o próprio papel de exemplo): a tabela de faixas **não entrou**, e o sistema já fazia isso — `Servico.percentual` como padrão, editável dentro de cada proposta. Nasceu o bloco **{{dadosPagamento}}** (banco, agência, conta, titular, chave PIX em `IdentidadeInstitucional`, editáveis em Ajustes → Dados da empresa), que sai na comercial e na de faturamento e **NÃO sai na de credenciamento** — ali a cobrança só nasce na aprovação da operadora (ADR-104); ⚠️ campo em branco **some** do papel em vez de virar rótulo solto. **"Condições de pagamento" saiu das propostas** (é sempre PIX) e a **frase do repasse virou automática** sempre que há serviço cobrado só por percentual, vinda de `Servico.condicaoPagamento` (ADR-125), inclusive em proposta misturada. ⚠️ **O faturamento médio mensal saiu do papel do cliente e ficou no funil**: imprimir a conta era promessa que envelhece no mês seguinte, e sem o número o lead voltaria a valer R$ 0,00 — o marcador `{{faturamento_mensal}}` foi **removido** do servidor e da prévia, e o campo do construtor passou a avisar que não sai no documento. Achado de passagem: `categoria === "Faturamento"` estava de volta em **quatro** lugares do `documentos.service.ts` (4ª vez) — corrigido, com teste que agora lê também o arquivo do servidor — ADR-127.
 
+96. **Quem avisa o cliente é a Thaís, e a equipe pode ver o Painel dele sem assinar por ele (ADR-128).** E-mail de boas-vindas/acesso passou a ser **só do autocadastro em `/comecar`**: `garantirAcessoPortal` exige uma `OrigemDoAcesso` (`AUTOCADASTRO` · `EQUIPE` · `EQUIPE_COM_AVISO`), e as caixinhas de confirmação de cadastrar cliente e converter lead nascem **desmarcadas** — antes vinham marcadas, e o "automático" era o descuido de todo dia. Nasceu o botão **Painel**: uma **sessão de suporte** onde `Session.operadorId` guarda quem entrou e o `userId` continua sendo o cliente, então ⚠️ **o isolamento do Portal não muda uma linha**. A equipe **vê tudo e não assina nada** — a trava mora no `portalProcedure`, barrando toda **mutação**, porque no Portal escrever é sempre falar pelo cliente; o `/upload` a repete. Dura 30 min, volta em um clique sem novo login, ADMIN+ sempre e funcionário só nos clientes dele, tudo registrado em `activityLog`. O card do Portal passou a ter **três estados** (enviar · reenviar, dizendo há quantos dias o convite está parado · Painel, com o último acesso), o que pediu `User.ultimoAcessoEm` — marcado só no login do CLIENTE. ⚠️ Defeito achado na tela: um cliente pode ter **duas** contas de Portal, e pegar "a primeira por data" mostrava "Enviar acesso" para quem já entrava — ADR-128.
+
 ---
 
 ## 7. Regras de negócio (núcleo)
@@ -469,6 +471,34 @@ assinada não. O marcador `{{faturamento_mensal}}` foi **removido** do servidor 
 número não pode nem ter caminho até o cliente. Ele continua sendo perguntado no construtor
 (marcado *"não aparece no documento"*) e continua alimentando o valor do negócio no funil — sem
 ele o lead de faturamento voltaria a valer R$ 0,00, o defeito que a ADR-125 consertou.
+
+---
+
+## 12.10. O Painel do cliente visto pela equipe (ADR-128)
+
+**É sessão de suporte, não login emprestado.** `Session.operadorId` guarda quem da equipe entrou;
+o `userId` continua sendo o dono do Portal. Consequência que importa: **o `portalProcedure` não
+mudou** — ele segue filtrando tudo pelo `clienteId` da sessão, e a sessão de suporte enxerga
+exatamente o que aquele cliente enxerga, nem um registro a mais.
+
+**Vê tudo, não assina nada.** O `portalProcedure` recusa toda **mutação** vinda de sessão com
+`operadorId`. A trava é uma só, e não uma lista de ações, porque no Portal escrever é sempre
+falar pelo cliente — desistir do atendimento, cancelar serviço, pedir serviço novo, enviar
+briefing, apagar documento, abrir chamado. Ação nova nasce protegida. O `/upload` repete a trava
+porque não passa pelo `portalProcedure`.
+
+**30 minutos, e volta em um clique.** `voltarParaSessionId` guarda a sessão do operador, que
+continua viva: voltar troca o cookie, não pede login. Expirada a original, a tela manda para o
+login em vez de prender a pessoa numa sessão que ela não quer mais.
+
+**Quem pode:** ADMIN+ sempre; FUNCIONÁRIO só nos clientes sob a responsabilidade dele. Registrado
+em `activityLog` (`painel_cliente.entrou` / `.saiu`) — acesso a dado pessoal de terceiro precisa
+ser auditável.
+
+**Não aninha:** quem está em suporte volta ao próprio acesso antes de abrir outro painel.
+
+⚠️ **Ficou de fora:** o cliente não é avisado de que a equipe entrou (fica registrado, mas sem
+aviso ativo), e não há tela para ler esse histórico.
 
 ---
 

@@ -3,6 +3,7 @@ import superjson from "superjson";
 import { hasRoleLevel, type Role } from "@app/shared";
 import type { Context } from "./context.js";
 import { recordCall } from "../observability/monitor.js";
+import { SUPORTE_SO_LEITURA } from "../modules/auth/painel-cliente.service.js";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -50,10 +51,24 @@ export const rootProcedure = timed.use(requireRole("ROOT"));
  * — é o isolamento rígido (o cliente nunca vê dados internos nem de outros).
  */
 export const portalProcedure = timed.use(
-  middleware(({ ctx, next }) => {
+  middleware(({ ctx, next, type }) => {
     if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Não autenticado" });
     if (ctx.user.role !== "CLIENTE" || !ctx.user.clienteId) {
       throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito ao Portal do Cliente" });
+    }
+    // SESSÃO DE SUPORTE (ADR-128): a equipe **vê tudo e não assina nada**.
+    //
+    // A trava mora AQUI, e não em cada ação, de propósito. Marcar ação por ação exige acertar a
+    // lista hoje e lembrar dela em toda ação nova — e a que alguém esquecer é justamente a que
+    // vai morder, porque no Portal escrever é sempre falar pelo cliente: desistir do
+    // atendimento, cancelar serviço, pedir serviço novo, enviar briefing, apagar documento,
+    // abrir chamado. Barrando toda MUTAÇÃO num lugar só, ação nova nasce protegida.
+    //
+    // Leitura segue livre — é para isso que a equipe entra no painel. E o que a equipe
+    // legitimamente precisa escrever (anexar documento, mudar dado cadastral, abrir conversa)
+    // ela faz pelas telas internas, assinando com o próprio nome.
+    if (type === "mutation" && ctx.user.operador) {
+      throw new TRPCError({ code: "FORBIDDEN", message: SUPORTE_SO_LEITURA });
     }
     return next({ ctx: { user: ctx.user, clienteId: ctx.user.clienteId } });
   }),

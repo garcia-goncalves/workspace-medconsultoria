@@ -59,6 +59,7 @@ import { situacaoVar } from "./ClientesListPage";
 import { ProjetoFormDialog } from "../../projetos/ProjetoFormDialog";
 import { TarefaFormDialog } from "../../tarefas/TarefaFormDialog";
 import { EmailsDoClienteCard } from "./EmailsDoClienteCard";
+import { PainelDoClienteBotao } from "../AcessoPortalBotao";
 import { useDynamicCrumb } from "../../../components/layout/Breadcrumbs";
 
 const route = getRouteApi("/clientes/$clienteId");
@@ -246,10 +247,10 @@ export function ClienteDetailPage() {
             <ListTodo className="h-4 w-4" />
             Delegar tarefa
           </Button>
+          {/* Cliente que já entrou: em vez do selo "Portal ativo", que só informava, o botão
+              que ABRE o painel dele em modo de suporte (ADR-128). */}
           {c.portalAtivo ? (
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1.5 text-sm font-medium text-primary" title="O cliente já tem acesso ativo ao Portal">
-              <KeyRound className="h-4 w-4" /> Portal ativo
-            </span>
+            <PainelDoClienteBotao clienteId={c.id} portal={c.portal} />
           ) : (
             <Button
               variant="outline"

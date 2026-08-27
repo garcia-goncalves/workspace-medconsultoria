@@ -5,6 +5,7 @@ import { extname } from "node:path";
 import { prisma } from "@app/db";
 import type { SessionUser } from "@app/shared";
 import { getUserFromSession, SESSION_COOKIE } from "../lib/session.js";
+import { SUPORTE_SO_LEITURA } from "../modules/auth/painel-cliente.service.js";
 import {
   salvarArquivo,
   salvarAvatar,
@@ -44,6 +45,12 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
     const user = await usuarioDaRequest(req);
     if (!user) return reply.code(401).send({ error: "Não autenticado." });
     const isCliente = user.role === "CLIENTE";
+    // SESSÃO DE SUPORTE (ADR-128): a equipe vendo o Portal como o cliente é SÓ LEITURA. Este
+    // endpoint não passa pelo `portalProcedure`, onde a trava mora — então a repete aqui, senão
+    // sobraria justamente a porta por onde um arquivo entraria no nome do cliente.
+    if (isCliente && user.operador) {
+      return reply.code(403).send({ error: SUPORTE_SO_LEITURA });
+    }
 
     const campos: Record<string, string> = {};
     let salvo:

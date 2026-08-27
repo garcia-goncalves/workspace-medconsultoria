@@ -5,6 +5,7 @@ import { situacaoDocumento, planejarEstimativaDoLead, tituloDoPassoDeEstimativa 
 import { listStages } from "../pipeline/pipeline.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { convidarUsuario, reenviarConvite, garantirAcessoPortal } from "../usuarios/usuarios.service.js";
+import { acessoAoPortal } from "../../lib/acesso-portal.js";
 import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js";
 import { planejarProvisaoDaConversao } from "../servicos/credenciamento.service.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
@@ -694,17 +695,26 @@ export async function listLeads() {
     include: {
       responsavel: { select: { nome: true } },
       servicos: { select: { id: true, nome: true }, orderBy: { ordem: "asc" } },
-      // "Portal ativo" fiel = tem usuário de Portal que consegue entrar (senha definida) —
-      // mesmo critério da lista de clientes. Evita o falso-positivo de só ter clienteId.
+      // A CONTA de Portal em si, não só a contagem (ADR-128): o card precisa dos TRÊS estados
+      // — sem acesso / convidado e ainda não entrou / entrou —, e para isso precisa saber
+      // quando a conta nasceu e quando o cliente entrou pela última vez.
       clientePortal: {
-        select: { _count: { select: { usuariosPortal: { where: { role: "CLIENTE", ativo: true, passwordHash: { not: null } } } } } },
+        select: {
+          usuariosPortal: {
+            where: { role: "CLIENTE" },
+            select: { ativo: true, passwordHash: true, createdAt: true, ultimoAcessoEm: true },
+            orderBy: { createdAt: "asc" },
+          },
+        },
       },
     },
   });
-  return leads.map(({ clientePortal, ...l }) => ({
-    ...mapLead(l),
-    portalAtivo: (clientePortal?._count.usuariosPortal ?? 0) > 0,
-  }));
+  return leads.map(({ clientePortal, ...l }) => {
+    const portal = acessoAoPortal(clientePortal?.usuariosPortal);
+    // `portalAtivo` continua existindo com o MESMO significado de antes (entra de verdade) —
+    // várias telas já leem esse nome, e trocá-lo por prazer seria quebrar o que funciona.
+    return { ...mapLead(l), portalAtivo: portal.estado === "ATIVO", portal };
+  });
 }
 
 /** Leads perdidos (para o relatório de ganho/perda e a reabertura). */
@@ -1360,7 +1370,7 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
   // tinha (ex.: lead antigo), cria o acesso e as boas-vindas já saem com o link.
   if (enviarEmail) {
     try {
-      const acesso = await garantirAcessoPortal(clienteId, nomeCliente, lead.email);
+      const acesso = await garantirAcessoPortal(clienteId, nomeCliente, lead.email, "EQUIPE_COM_AVISO");
       if (acesso.jaTinhaAcesso && lead.email) {
         void enviarEmailTemplate("cliente_boas_vindas", lead.email, { nome: nomeCliente, link: config.WEB_ORIGIN }).catch(() => {});
       }
@@ -1465,7 +1475,7 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
   // confirmação simples de recebimento.
   try {
     const clienteId = await garantirClienteDoLead(lead, null);
-    const acesso = await garantirAcessoPortal(clienteId, lead.nome, lead.email);
+    const acesso = await garantirAcessoPortal(clienteId, lead.nome, lead.email, "AUTOCADASTRO");
     if (!acesso.criou && lead.email) {
       void enviarEmailTemplate("lead_confirmacao", lead.email, { nome: input.nome.trim() }).catch(() => {});
     }
