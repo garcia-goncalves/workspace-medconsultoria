@@ -95,3 +95,12 @@ mensagem entra em `observacoes`. Telefone, empresa e nome informados na 2ª vez 
 descartados em silêncio.
 **Conserto seguro:** preencher só o que está VAZIO no lead; nunca sobrescrever valor que a
 equipe já corrigiu à mão.
+
+### A6 — Documento/proposta só oferecia CLIENTE, nunca LEAD · **RESOLVIDO** (ADR-132, PR #138)
+Achado pela auditoria e confirmado pelo dono na mesma hora. `clientes.list` exclui prospect de
+propósito (ADR-24), mas era ele que alimentava o "Novo documento" — e a proposta é o papel que
+se manda para quem AINDA NÃO É cliente. A saída na tela era converter o lead antes da hora.
+Corrigido: pré-venda aceita lead, pós-venda continua exigindo cliente. Zero migração.
+
+### A7 — Painel do lead não mostrava documento nenhum · **RESOLVIDO** (ADR-132)
+Emitir a proposta e não achá-la mais pelo funil. Nasceu o bloco "Documentos" no painel.

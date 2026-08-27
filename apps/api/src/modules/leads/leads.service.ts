@@ -1460,9 +1460,18 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
     });
     if (existente) {
       const msg = clean(input.mensagem);
+      // COMPLETA o que falta, nunca sobrescreve o que já tem valor (27/08/2026).
+      // Antes, a recaptura guardava só a mensagem: quem voltasse ao site informando a clínica
+      // que esqueceu, ou corrigindo o telefone, tinha o dado novo descartado em silêncio. E o
+      // inverso seria pior — deixar o formulário público apagar por cima a correção que a
+      // equipe fez à mão na ficha. Por isso a regra é "preenche buraco", e só.
+      const completar = (atual: string | null, novo: string | null) =>
+        atual == null || atual === "" ? novo ?? undefined : undefined;
       await prisma.lead.update({
         where: { id: existente.id },
         data: {
+          empresa: completar(existente.empresa, clean(input.empresa)),
+          telefone: completar(existente.telefone, clean(input.telefone)),
           observacoes:
             [existente.observacoes, msg && `Novo contato pelo site: ${msg}`].filter(Boolean).join("\n\n") ||
             existente.observacoes,

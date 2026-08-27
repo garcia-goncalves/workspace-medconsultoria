@@ -45,12 +45,16 @@ test("proposta para um lead: aparece no seletor, gera e volta no painel do lead"
   await expect(page.getByText(nomeNoPapel).first()).toBeVisible();
 
   // O lead continua NO FUNIL (propor não converte) e a proposta aparece no painel dele.
+  // ⚠️ No card, o BOTÃO é o nome da PESSOA; a clínica fica num elemento ao lado. Procurar o
+  // botão pelo nome da clínica passava no banco de desenvolvimento por acidente (um card com
+  // outra estrutura) e falhava no banco limpo da CI.
+  const pessoa = (rotuloLead.includes("(") ? rotuloLead.split("(")[1]!.replace(")", "") : rotuloLead).trim();
   await page.goto("/leads");
-  const cardDoLead = page.locator("main button").filter({ hasText: nomeNoPapel }).first();
-  await expect(cardDoLead, "o lead não pode ter saído do funil ao receber a proposta").toBeVisible({
-    timeout: 15_000,
-  });
-  await cardDoLead.click();
+  await expect(
+    page.locator("main").getByText(nomeNoPapel, { exact: false }).first(),
+    "o lead não pode ter saído do funil ao receber a proposta",
+  ).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: pessoa, exact: true }).first().click();
   const painel = page.locator("aside").last();
   await expect(painel.getByText("Documentos", { exact: false }).first()).toBeVisible({ timeout: 10_000 });
   await expect(painel.getByText(/Proposta comercial/).first()).toBeVisible();

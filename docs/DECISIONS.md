@@ -3475,3 +3475,51 @@ sem parêntese) · e2e `flows-documento-para-lead` (2 casos) · **na tela**: pro
 gerada para o lead *MedLar Home Care*, papel abrindo com *"Prezado(a) MedLar Home Care"*, banco
 mostrando `situacaoComercial: PROSPECT` com `convertidoEmClienteId: null` e **um** cliente só, e a
 proposta de volta no painel do lead como *"Proposta comercial - MedLar Home Care · Rascunho"*.
+
+---
+
+## ADR-133 — Dois números que mentiam: "enviados hoje" contando falha, e a recaptura de lead jogando dado fora
+
+**27/08/2026 · achados na auditoria de tela que antecede o dado real em produção.**
+
+### 1. "Enviados hoje" contava tentativa, não entrega
+
+O monitor de e-mails mostrava, ao mesmo tempo e na mesma tela:
+
+| Enviados (7 dias) | Falhas (7 dias) | Enviados hoje | Taxa de entrega |
+|---|---|---|---|
+| 0 | 48 | **23** | 0% |
+
+Os quatro números não podem ser verdade juntos — hoje está **dentro** dos últimos 7 dias. A causa
+era uma linha: a contagem do dia não filtrava `status`, e o rótulo dizia *"Enviados hoje"*.
+
+**Por que isso importa mais do que parece.** O modo de falha não é uma tela feia: é alguém bater o
+olho no painel, ler *"40 enviados hoje"* e concluir que o e-mail está funcionando enquanto **nenhum
+sai**. Foi exatamente assim que a ADR-122 passou meses despercebida — a taxa de entrega esteve em
+**0% desde sempre** e ninguém notou, porque havia um número grande e tranquilizador ao lado.
+
+**Decisão:** `hoje` conta só `ENVIADO`, e nasceu `falhasHoje`, exibido ao lado do número — em tom
+de alerta quando houve falha e nenhuma entrega. Um dia inteiro de e-mail recusado precisa
+**aparecer no dia em que acontece**, não uma semana depois.
+
+⚠️ Travado por teste de integração que compara os números do resumo entre si: se `enviados7d` é
+zero, `hoje` **tem** de ser zero.
+
+### 2. A recaptura de lead descartava telefone e empresa novos
+
+Quem já é lead e preenche o formulário do site outra vez cai em `capturarLead` → ramo de
+recaptura, que atualizava **só** `observacoes` e os serviços. Telefone corrigido e a clínica que
+faltava na primeira vez eram **descartados em silêncio**.
+
+**Decisão: completa o buraco, nunca sobrescreve.** `empresa` e `telefone` são gravados apenas
+quando o lead está com o campo vazio. O inverso seria pior que o defeito — deixar o formulário
+público apagar por cima a correção que a equipe fez à mão na ficha.
+
+**O que ficou de fora:** atualizar o **nome**. Nome é o campo que a equipe mais corrige à mão
+("Dr. Nogueira" no lugar de "nogueira"), e o ganho não paga o risco.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm lint` verdes · **3 testes de integração** novos contra o MySQL de
+verdade · **na tela**: o painel passou a mostrar *"Enviados hoje 0 · 24 falha(s) hoje"*, com os
+quatro números concordando entre si.

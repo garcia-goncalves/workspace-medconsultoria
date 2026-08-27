@@ -69,7 +69,9 @@ test("grade médico × operadora: monta o preço, gera a proposta numerada e cob
     const d = page.getByRole("dialog");
     await d.getByPlaceholder("Escolha o tipo de documento…").fill("credenciamento");
     await page.getByRole("option", { name: /Proposta de credenciamento/ }).click();
-    await d.getByPlaceholder("Buscar cliente…").fill(`Clínica ${RUN}`);
+    // O campo aceita cliente E lead desde a ADR-132, então o texto de dentro dele mudou:
+    // "Buscar cliente ou lead…" na proposta, "Buscar cliente…" nos documentos de pós-venda.
+    await d.getByPlaceholder(/Buscar cliente/).fill(`Clínica ${RUN}`);
     await page.getByRole("option", { name: `Clínica ${RUN}` }).click();
 
     // UMA operadora por proposta (ADR-126): escolhe-se a operadora e, só então, os médicos
