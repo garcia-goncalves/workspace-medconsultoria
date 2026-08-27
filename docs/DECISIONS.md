@@ -3172,3 +3172,116 @@ marcada por **classe**, não por seletor posicional.
 - **A conferência do PDF final foi feita medindo a janela de impressão, não abrindo o arquivo.**
   Abrir a caixa de diálogo de impressão trava a automação; o que se mediu foi a caixa de cada
   folha na largura exata de uma A4. É prova forte, não é o PDF aberto.
+
+---
+
+## ADR-130 — Auditoria de formatação dos 16 modelos: a lista sem marcador, a caixa que o sanitizador comia, e a proposta comercial que oferecia serviço com proposta própria
+
+**Data:** 27/08/2026 · **Situação:** aceita · **PR:** #135
+
+### O pedido
+
+O dono relatou, na tela, que *"a proposta comercial de faturamento está desformatada, está
+quebrada"*, e ampliou: **todos os modelos precisam ser impecáveis, incluindo pontuação e
+numeração**, com a exigência explícita de clicar em todos no navegador — varredura automatizada
+não bastava.
+
+### O defeito principal: o reset do Tailwind apagava TODO marcador de lista
+
+`.doc-body ul, .doc-body ol` declarava `padding-left` e **nunca declarou `list-style`**. O
+preflight do Tailwind zera `list-style` em todo `ul`/`ol` da aplicação, e a folha do documento
+nunca o devolveu. Consequências, todas visíveis e nenhuma detectável por `tsc` ou por teste:
+
+- A lista **numerada de seis passos** da proposta de faturamento (*"1. Análise criteriosa… 6.
+  Acompanhamento contínuo"*) chegava ao cliente **sem os números** — seis frases soltas.
+- Toda lista com bala perdia a bala: as obrigações do contrato, as diretrizes da pauta de
+  postagem, os passos do plano de trabalho do credenciamento.
+- ⚠️ **E a janela de impressão NÃO carrega o Tailwind** — lá os marcadores apareciam. Ou seja:
+  **tela e PDF discordavam de novo**, pelo caminho oposto ao que a ADR-129 fechou na véspera.
+
+Corrigido declarando `list-style` explicitamente no `DOC_STYLES`, que é compartilhado pela tela e
+pela impressão. **Nunca remova essas linhas confiando no padrão do navegador** — aqui o padrão do
+navegador não vale, porque o reset já passou por cima. Travado por teste que lê o `DOC_STYLES`.
+
+### O checklist chegava ao médico sem caixa nenhuma
+
+`marked` emite `- [ ]` como `<input type="checkbox">`, e `input` está na lista de tags
+**proibidas** do sanitizador — corretamente: campo de formulário dentro de documento do cliente
+não tem uso legítimo. O efeito colateral era o **Checklist de documentos — Credenciamento** e o
+**Checklist de onboarding** chegarem como listas de texto pelado, sem caixa para marcar.
+
+A caixa virou **caractere** (`☐` / `☑`), que atravessa o sanitizador, a impressão e o Word sem
+depender de tag de formulário. A proibição do `input` **fica como está**.
+
+### Regra de negócio: qual proposta serve para quê (decisão do dono, 27/08)
+
+- **Proposta comercial** é o modelo padrão, o que junta os serviços numa proposta só — e
+  **credenciamento e faturamento ficam FORA dela**. Cada um já tem proposta própria com regra de
+  cobrança própria (credenciamento só é cobrado no sucesso da operadora, ADR-104; faturamento é só
+  percentual, ADR-127). Oferecê-los na comercial produziria dois papéis dizendo o mesmo com
+  números diferentes.
+- **A proposta de faturamento não tem mais "Serviços da proposta".** O serviço dela é sempre um só:
+  ele entra marcado sozinho e a tela pergunta apenas o **percentual**, que varia por cliente. Com
+  mais de um serviço percentual no catálogo a lista reaparece — o sistema não adivinha em silêncio.
+- ⚠️ **Quem separa é o PREÇO** (`ehServicoSomentePercentual`) **e o nome canônico do credenciamento**
+  (`ehServicoDeCredenciamento`), **nunca** `categoria === "Faturamento"` — comparação que já
+  precisou ser removida quatro vezes deste código.
+
+### A prévia passou a mostrar dado real
+
+Com o cliente já escolhido, a prévia do "Novo documento" mostrava `[nome do cliente]`. Isso esconde
+exatamente o que se confere antes de gerar: **como o documento fica com o nome da clínica dentro** —
+que é mais comprido que o rótulo e quebra as linhas de outro jeito. Agora `previewModelo` recebe
+nome, CNPJ, e-mail, telefone, data e consultora; o rótulo entre colchetes fica só para o que ainda
+não existe.
+
+E os rótulos deixaram de ser nome de código: `[dadosPagamento]`, `[clausulas_servicos]`,
+`[fora_escopo]` viraram *dados para pagamento*, *condições de cada serviço*, *o que não está
+incluído*. Campo novo que a Thaís crie cai num tradutor genérico (sublinhado e camelCase viram
+palavras), então nunca volta a aparecer identificador cru.
+
+### Padronização encontrada CLICANDO nos 16 modelos
+
+- **Título duplicado em três modelos.** Contrato, Escopo e Recibo repetiam no corpo o título que o
+  cabeçalho da folha já imprime — *"Contrato de prestação de serviços"* seguido de *"CONTRATO DE
+  PRESTAÇÃO DE SERVIÇOS"*. Removido. (O `# DESCRIÇÃO DA PROPOSTA` do credenciamento e o
+  `# PROPOSTA — MÓDULO DE FATURAMENTO` ficam: são seções reais, com texto diferente do título.)
+- **Hierarquia errada na proposta de faturamento.** *"Suporte comercial"* era `###`, filho de *"Como
+  funciona o nosso serviço"* — mas ele é irmão de *"Gestão e acompanhamento"*. Virou `##`.
+- **Dois checklists, dois desenhos.** No Onboarding os grupos eram parágrafo em negrito (pretos e
+  miúdos); no Checklist de documentos, títulos de verdade (azuis). ⚠️ Além da estética, **negrito
+  não é título e a paginação não o protege de ficar órfão** no pé da folha. Padronizados em `##`, e
+  a linha *"Onboarding de {{cliente.nome}}"* saiu (o cabeçalho já traz os dois).
+- **Tabela de serviços torta.** A descrição do serviço era emendada ao nome com travessão, dentro da
+  célula: a coluna "Serviço" ocupava quatro linhas e a de "Investimento" ficava com duas palavras
+  espremidas. A descrição foi para uma **linha própria** dentro da célula.
+- **Investimento redundante.** *"5% do faturamento (Faturamento) — por mês"* punha o nome do serviço
+  entre parênteses no meio do valor e repetia "por mês" logo depois de "do faturamento/mês". Virou
+  **"Faturamento: 5% do faturamento mensal"**.
+- **`Foto 3x4` → `Foto 3×4`** (sinal de multiplicação).
+
+### O que foi medido e NÃO virou mudança
+
+Na proposta de credenciamento, a lista dos seis passos desce inteira e deixa quase meia folha em
+branco. **Foi medido na tela**: sobravam 316px de conteúdo, mas com as margens entre blocos o
+espaço útil real era ~124px e a lista tem 193px — **a paginação está certa**. Fatiar a lista por
+itens deixaria "3 passos aqui, 3 na próxima folha", que é pior para uma lista numerada de
+procedimento. **Vale a mesma regra da ADR-129 para tabelas: o bloco desce inteiro.**
+
+### Provas
+
+- `pnpm -r typecheck` (5 pacotes) e `pnpm lint` verdes · **153 testes de unidade na web** (12 novos)
+  e **441 na API** · e2e isolado `flows-documentos-paginacao` **6/6 verde**, incluindo a auditoria
+  automatizada dos 16 modelos (zero título órfão, zero estouro, contador certo).
+- **Na tela, clicando nos 16 modelos um a um**, conforme exigido: numeração e balas presentes,
+  caixas do checklist visíveis, nenhum rótulo com nome de código, nenhum título duplicado.
+- **Proposta 0231 gerada de verdade** para a Clínica Vida Plena: hierarquia `H1 → H2 → H3` correta,
+  tabela de serviços equilibrada, bloco bancário com os dados reais que o dono preencheu em
+  Ajustes, e a prévia mostrando *"Prezado(a) Clínica Vida Plena"* em vez do rótulo.
+
+### O que ficou de fora
+
+- **Vários usuários por clínica** (médicos e secretárias com acesso próprio ao Portal) — pedido do
+  dono na mesma conversa. Mexe no banco e no Portal, é o maior dos itens e não entrou aqui.
+- **O PDF final continua não sendo aberto** (a caixa de impressão trava a automação). O que se
+  prova é que tela e impressão usam o mesmo CSS e a mesma paginação.

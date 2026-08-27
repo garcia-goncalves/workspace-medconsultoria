@@ -92,8 +92,21 @@ export const DOC_STYLES = `
   .doc-body > *:first-child { margin-top:0; }
   .doc-body p { margin:0 0 12px; }
   .doc-body strong { color:${C.texto}; font-weight:700; }
+  /* MARCADOR DE LISTA — o reset do Tailwind zera \`list-style\` em todo \`ul\`/\`ol\` da aplicação,
+     e a folha nunca o devolvia: na TELA a lista numerada saía sem número e a com bala sem bala,
+     enquanto na janela de impressão (que não carrega o Tailwind) os dois apareciam. Tela e papel
+     discordando de novo, pelo caminho oposto ao da ADR-129. Declarado explicitamente aqui, o
+     mesmo CSS vale nos dois lugares. */
   .doc-body ul,.doc-body ol { margin:0 0 12px; padding-left:22px; }
-  .doc-body li { margin:3px 0; }
+  .doc-body ul { list-style:disc outside; }
+  .doc-body ol { list-style:decimal outside; }
+  .doc-body ul ul { list-style:circle outside; }
+  .doc-body li { margin:3px 0; display:list-item; }
+  .doc-body li::marker { color:${C.azulEscuro}; font-weight:600; }
+  /* Item de checklist (\`- [ ]\`) traz a própria caixa e dispensa o marcador da lista. */
+  .doc-body li.doc-task { list-style:none; margin-left:-18px; }
+  .doc-body .doc-check { display:inline-block; width:14px; margin-right:6px;
+    color:${C.azulEscuro}; font-weight:700; }
   .doc-body a { color:${C.link}; }
   .doc-body hr { border:0; border-top:1px solid ${C.borda}; margin:20px 0; }
   .doc-body blockquote { margin:0 0 12px; padding:8px 14px; border-left:3px solid ${C.verde};
@@ -151,10 +164,27 @@ export function sanitize(html: string): string {
  */
 const THEAD_VAZIO = /<thead>\s*<tr>(?:\s*<th[^>]*>(?:\s|&nbsp;)*<\/th>)+\s*<\/tr>\s*<\/thead>/gi;
 
+/**
+ * Caixa de seleção do checklist (`- [ ]` / `- [x]`). O `marked` a emite como `<input
+ * type=checkbox>`, e a tag `input` é PROIBIDA no sanitizador (e continua proibida — formulário
+ * dentro de documento do cliente não tem uso legítimo). O efeito colateral era o checklist
+ * chegar ao cliente como texto pelado, sem caixa nenhuma. A caixa passa a ser um caractere,
+ * que atravessa o sanitizador, a impressão e o Word sem depender de tag de formulário.
+ */
+const CHECKBOX = /<input([^>]*?)type="checkbox"([^>]*?)>/gi;
+export function trocarCheckboxPorSimbolo(html: string): string {
+  return html.replace(CHECKBOX, (_m, a: string, b: string) =>
+    `<span class="doc-check">${/\bchecked\b/i.test(a + b) ? "☑" : "☐"}</span>`,
+  );
+}
+
 /** Markdown (GFM) → HTML seguro (sanitizado). */
 export function renderMarkdown(md: string): string {
   const raw = marked.parse(md ?? "", { gfm: true, breaks: true, async: false }) as string;
-  return sanitize(raw.replace(THEAD_VAZIO, ""));
+  const comCaixa = trocarCheckboxPorSimbolo(raw)
+    // O item que ganhou caixa não deve exibir também a bala da lista.
+    .replace(/<li([^>]*)>(\s*)<span class="doc-check">/g, '<li$1 class="doc-task">$2<span class="doc-check">');
+  return sanitize(comCaixa.replace(THEAD_VAZIO, ""));
 }
 
 function esc(s: string): string {
@@ -166,17 +196,93 @@ function esc(s: string): string {
  * verdade). Usado na página do modelo e no diálogo "Novo documento" — assim o usuário vê como
  * o documento vai ficar (e cada modelo, ex.: proposta comercial × credenciamento, fica visível).
  */
-export function previewModelo(corpo: string): string {
+/**
+ * Dado REAL para a prévia. Quem tem o cliente escolhido (o diálogo "Novo documento") passa o
+ * que sabe; o que não vier continua caindo no rótulo entre colchetes.
+ */
+export type DadosDaPrevia = {
+  clienteNome?: string | null;
+  clienteEmail?: string | null;
+  clienteCnpj?: string | null;
+  clienteTelefone?: string | null;
+  data?: string | null;
+  consultora?: string | null;
+};
+
+export function previewModelo(corpo: string, dados?: DadosDaPrevia): string {
+  // Rótulo só onde NÃO há dado. Com o cliente já escolhido na tela, ver "[nome do cliente]" na
+  // prévia esconde justamente o que se quer conferir antes de gerar: como o documento fica
+  // COM o nome da clínica dentro, que é mais comprido e quebra as linhas de outro jeito.
+  const ou = (v: string | null | undefined, rotulo: string) => (v?.trim() ? v.trim() : rotulo);
   return corpo
     .replace(/\{\{\s*servicos\s*\}\}/g, "_(aqui entram os serviços e o investimento que você escolher)_")
     .replace(/\{\{\s*operadoras\s*\}\}/g, "_(aqui entram as operadoras que você selecionar)_")
+    .replace(/\{\{\s*convenios\s*\}\}/g, "_(aqui entram os convênios que você selecionar)_")
     .replace(/\{\{\s*apresentacao\s*\}\}/g, "_(aqui entra a apresentação)_")
-    .replace(/\{\{\s*cliente\.nome\s*\}\}/g, "[nome do cliente]")
-    .replace(/\{\{\s*cliente\.email\s*\}\}/g, "[e-mail do cliente]")
-    .replace(/\{\{\s*cliente\.(documento|cnpj)\s*\}\}/g, "[CNPJ]")
-    .replace(/\{\{\s*cliente\.telefone\s*\}\}/g, "[telefone]")
-    .replace(/\{\{\s*data\s*\}\}/g, "[data]")
-    .replace(/\{\{\s*([\w.]+)\s*\}\}/g, "[$1]");
+    .replace(/\{\{\s*cliente\.nome\s*\}\}/g, () => ou(dados?.clienteNome, "[nome do cliente]"))
+    .replace(/\{\{\s*cliente\.email\s*\}\}/g, () => ou(dados?.clienteEmail, "[e-mail do cliente]"))
+    .replace(/\{\{\s*cliente\.(documento|cnpj)\s*\}\}/g, () => ou(dados?.clienteCnpj, "[CNPJ]"))
+    .replace(/\{\{\s*cliente\.telefone\s*\}\}/g, () => ou(dados?.clienteTelefone, "[telefone]"))
+    .replace(/\{\{\s*data\s*\}\}/g, () => ou(dados?.data, "[data]"))
+    .replace(/\{\{\s*consultora\s*\}\}/g, () => ou(dados?.consultora, "[consultora]"))
+    .replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, campo: string) => `[${rotuloDoCampo(campo)}]`);
+}
+
+/**
+ * Rótulo em PORTUGUÊS para um campo do modelo. Sem isto a prévia mostra o nome do
+ * identificador cru — `[dadosPagamento]`, `[clausulas_servicos]`, `[fora_escopo]` — no meio de
+ * um documento que vai para o médico. Nome de código é a marca de software mal acabado, e a
+ * prévia é justamente o que a Thaís olha antes de mandar.
+ */
+const ROTULOS: Record<string, string> = {
+  dadosPagamento: "dados para pagamento",
+  clausulas_servicos: "condições de cada serviço",
+  fora_escopo: "o que não está incluído",
+  proximos_passos: "próximos passos",
+  proximas_acoes: "próximas ações",
+  decisoes_necessarias: "decisões a tomar",
+  pontos_chave: "pontos que não podemos esquecer",
+  pontos_fortes: "pontos fortes",
+  valor_extenso: "valor por extenso",
+  forma_pagamento: "forma de pagamento",
+  data_reuniao: "data da reunião",
+  data_hora: "data e hora",
+  profissionais_nomes: "nomes dos profissionais",
+  total_faturado: "total faturado",
+  total_glosado: "total glosado",
+  glosas_recuperadas: "glosas recuperadas",
+  percentual_glosa: "% de glosa",
+  motivos_glosa: "motivos de glosa",
+  atencao: "pontos de atenção",
+  situacao: "situação atual",
+  entregaveis: "entregáveis",
+  var_alcance: "variação do alcance",
+  var_seguidores: "variação dos seguidores",
+  var_engajamento: "variação do engajamento",
+  var_leads: "variação dos leads",
+  // O identificador não tem acento; o rótulo em português tem. Sem isto sai "[decisoes]".
+  decisoes: "discussões e decisões",
+  topicos: "tópicos",
+  observacoes: "observações",
+  periodo: "período",
+  recomendacoes: "recomendações",
+  acoes: "ações",
+  servico: "serviço",
+  numero: "número",
+  contratada: "razão social da MedConsultoria",
+  objeto: "serviços contratados",
+};
+
+export function rotuloDoCampo(campo: string): string {
+  const conhecido = ROTULOS[campo];
+  if (conhecido) return conhecido;
+  // Desconhecido: pelo menos deixa de parecer código — `sublinhado_junto` vira palavras e
+  // `camelCase` vira "camel case". Campo novo criado pela Thaís cai aqui e continua legível.
+  return campo
+    .replace(/[._]+/g, " ")
+    .replace(/([a-zà-ÿ0-9])([A-ZÀ-Þ])/g, "$1 $2")
+    .toLowerCase()
+    .trim();
 }
 
 /** Cabeçalho da 1ª folha — marca, tipo, número, data e cliente. */

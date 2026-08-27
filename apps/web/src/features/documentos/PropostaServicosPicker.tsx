@@ -1,5 +1,5 @@
-import { useMemo, type Dispatch, type SetStateAction } from "react";
-import { ehServicoSomentePercentual, temPercentual } from "@app/shared";
+import { useEffect, useMemo, type Dispatch, type SetStateAction } from "react";
+import { ehServicoDeCredenciamento, ehServicoSomentePercentual, temPercentual } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -28,12 +28,51 @@ export function PropostaServicosPicker({
   sel,
   setSel,
   titulo = "Serviços da proposta",
+  escopo = "TUDO",
 }: {
   sel: Record<string, PropostaSel>;
   setSel: Dispatch<SetStateAction<Record<string, PropostaSel>>>;
   titulo?: string;
+  /**
+   * QUAIS serviços este documento pode oferecer (decisão de produto de 27/08):
+   *
+   * - `COMERCIAL` — a proposta padrão, que junta os serviços numa proposta só. **Credenciamento
+   *   e Faturamento ficam de fora**: cada um tem proposta própria, com regra de cobrança própria
+   *   (o credenciamento só é cobrado no sucesso da operadora — ADR-104; o faturamento é só
+   *   percentual — ADR-127). Oferecê-los aqui produziria dois papéis dizendo o mesmo com
+   *   números diferentes.
+   * - `FATURAMENTO` — a proposta de faturamento tem UM serviço, sempre o mesmo. Não há o que
+   *   escolher: o serviço entra sozinho e a tela pergunta só o percentual, que varia por cliente.
+   * - `TUDO` — o contrato, que lista o que o cliente contratou de fato, seja qual for.
+   *
+   * ⚠️ Quem separa é o PREÇO (`ehServicoSomentePercentual`) e o NOME canônico do credenciamento
+   * (`ehServicoDeCredenciamento`), NUNCA a comparação `categoria === "Faturamento"` — que já
+   * precisou ser removida quatro vezes deste código (ADR-125/126/127).
+   */
+  escopo?: "COMERCIAL" | "FATURAMENTO" | "TUDO";
 }) {
   const servicos = trpc.servicos.ativos.useQuery();
+
+  const doEscopo = useMemo(() => {
+    const todos = servicos.data ?? [];
+    if (escopo === "FATURAMENTO") return todos.filter((s) => ehServicoSomentePercentual(s));
+    if (escopo === "COMERCIAL")
+      return todos.filter((s) => !ehServicoSomentePercentual(s) && !ehServicoDeCredenciamento(s.nome));
+    return todos;
+  }, [servicos.data, escopo]);
+
+  // Proposta de faturamento com UM serviço possível: ele entra marcado, sem pedir clique. Com
+  // mais de um (a Thaís pode criar outro serviço percentual), a lista aparece e ela escolhe —
+  // é o que impede a tela de adivinhar errado em silêncio.
+  const unico = escopo === "FATURAMENTO" && doEscopo.length === 1 ? doEscopo[0] : null;
+  useEffect(() => {
+    if (!unico) return;
+    setSel((prev) =>
+      prev[unico.id]
+        ? prev
+        : { [unico.id]: { valor: 0, qtd: 1, recorrencia: "MENSAL", percentual: unico.percentual ?? null, categoria: unico.categoria } },
+    );
+  }, [unico, setSel]);
 
   const toggle = (s: NonNullable<typeof servicos.data>[number]) =>
     setSel((prev) => {
@@ -75,7 +114,7 @@ export function PropostaServicosPicker({
         {titulo}
       </Label>
       <div className="max-h-[26vh] space-y-1 overflow-y-auto rounded-lg border p-2">
-        {(servicos.data ?? []).map((s) => {
+        {doEscopo.map((s) => {
           const marcado = !!sel[s.id];
           const item = sel[s.id];
           const soPercentual = ehServicoSomentePercentual(s);

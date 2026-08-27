@@ -160,7 +160,7 @@ Para cada procedimento, a MedConsultoria precisa receber:
 
 Nosso diferencial está na atuação proativa: maximizar o valor recebido e reduzir perdas financeiras.
 
-### Suporte comercial
+## Suporte comercial
 
 O suporte comercial fica a cargo de **Leandro**, à frente das negociações e das tratativas com as operadoras.
 
@@ -197,9 +197,7 @@ Cordialmente,
   {
     nome: "Contrato de prestação de serviços",
     tipo: "CONTRATO",
-    corpo: `**CONTRATO DE PRESTAÇÃO DE SERVIÇOS**
-
-Pelo presente instrumento particular, de um lado {{contratada}}, doravante denominada **CONTRATADA**; e de outro **{{cliente.nome}}**, inscrita sob o CNPJ nº {{cliente.cnpj}}, e-mail {{cliente.email}}, doravante denominada(o) **CONTRATANTE**; têm entre si justo e contratado o quanto segue.
+    corpo: `Pelo presente instrumento particular, de um lado {{contratada}}, doravante denominada **CONTRATADA**; e de outro **{{cliente.nome}}**, inscrita sob o CNPJ nº {{cliente.cnpj}}, e-mail {{cliente.email}}, doravante denominada(o) **CONTRATANTE**; têm entre si justo e contratado o quanto segue.
 
 ## 1. Objeto
 A CONTRATADA prestará à CONTRATANTE os seguintes serviços:
@@ -247,9 +245,7 @@ As condições abaixo se aplicam a cada serviço efetivamente contratado pela CO
   {
     nome: "Escopo de trabalho",
     tipo: "ESCOPO",
-    corpo: `**ESCOPO DE TRABALHO**
-
-**Cliente:** {{cliente.nome}}
+    corpo: `**Cliente:** {{cliente.nome}}
 **Serviço:** {{servico}}
 
 ## Objetivo
@@ -312,18 +308,16 @@ As condições abaixo se aplicam a cada serviço efetivamente contratado pela CO
   {
     nome: "Checklist de onboarding do cliente",
     tipo: "ONBOARDING",
-    corpo: `## Onboarding de {{cliente.nome}}
-
-**Boas-vindas e alinhamento**
+    corpo: `## Boas-vindas e alinhamento
 - [ ] Proposta aceita e contrato assinado
 - [ ] Reunião de kickoff realizada
 - [ ] Responsável e equipe definidos
 
-**Acessos e informações**
+## Acessos e informações
 - [ ] Documentos e acessos recebidos
 - [ ] Ferramentas e relatórios configurados
 
-**Plano de trabalho**
+## Plano de trabalho
 - [ ] Cronograma e metas acordados
 - [ ] Primeiro alinhamento de resultados agendado
 
@@ -341,7 +335,7 @@ As condições abaixo se aplicam a cada serviço efetivamente contratado pela CO
 - [ ] Título de especialista / RQE (se houver)
 - [ ] Comprovante de endereço
 - [ ] Dados bancários
-- [ ] Foto 3x4 (se solicitada pela operadora)
+- [ ] Foto 3×4 (se solicitada pela operadora)
 
 ## Da clínica / PJ (quando aplicável)
 - [ ] CNPJ e contrato social
@@ -464,9 +458,7 @@ _A lista pode variar conforme a operadora / convênio._
   {
     nome: "Recibo",
     tipo: "RECIBO",
-    corpo: `**RECIBO**
-
-Recebemos de **{{cliente.nome}}** a importância de **{{valor}}** ({{valor_extenso}}), referente a **{{referente}}**.
+    corpo: `Recebemos de **{{cliente.nome}}** a importância de **{{valor}}** ({{valor_extenso}}), referente a **{{referente}}**.
 
 **Forma de pagamento:** {{forma_pagamento}} &nbsp;·&nbsp; **Data:** {{data}}
 
