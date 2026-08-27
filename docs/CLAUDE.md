@@ -208,6 +208,7 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 96. **Quem avisa o cliente é a Thaís, e a equipe pode ver o Painel dele sem assinar por ele (ADR-128).** E-mail de boas-vindas/acesso passou a ser **só do autocadastro em `/comecar`**: `garantirAcessoPortal` exige uma `OrigemDoAcesso` (`AUTOCADASTRO` · `EQUIPE` · `EQUIPE_COM_AVISO`), e as caixinhas de confirmação de cadastrar cliente e converter lead nascem **desmarcadas** — antes vinham marcadas, e o "automático" era o descuido de todo dia. Nasceu o botão **Painel**: uma **sessão de suporte** onde `Session.operadorId` guarda quem entrou e o `userId` continua sendo o cliente, então ⚠️ **o isolamento do Portal não muda uma linha**. A equipe **vê tudo e não assina nada** — a trava mora no `portalProcedure`, barrando toda **mutação**, porque no Portal escrever é sempre falar pelo cliente; o `/upload` a repete. Dura 30 min, volta em um clique sem novo login, ADMIN+ sempre e funcionário só nos clientes dele, tudo registrado em `activityLog`. O card do Portal passou a ter **três estados** (enviar · reenviar, dizendo há quantos dias o convite está parado · Painel, com o último acesso), o que pediu `User.ultimoAcessoEm` — marcado só no login do CLIENTE. ⚠️ Defeito achado na tela: um cliente pode ter **duas** contas de Portal, e pegar "a primeira por data" mostrava "Enviar acesso" para quem já entrava — ADR-128.
 
 97. **Vários usuários por clínica: cada médico e cada secretária com o próprio acesso (ADR-131).** Acabou a conta única cuja senha circulava entre a equipe da clínica. `User.papelPortal` separa **RESPONSAVEL** (fala pela clínica: aceita proposta, contrata, cancela, convida) de **EQUIPE** (o operacional: documento, formulário, agenda, suporte). ⚠️ **A trava é sobre ASSINAR, não sobre VER** — os dois leem tudo daquela clínica, valores inclusive, pela mesma razão da ADR-128. ⚠️ **`ACOES_LIBERADAS_PARA_EQUIPE` é lista de LIBERAÇÕES e o padrão é NEGAR**, no `portalProcedure` e só em mutação: **ação nova nasce fechada**. Papel nulo vale como RESPONSAVEL (contas anteriores à regra). `sobraResponsavel` impede a clínica de ficar sem quem assine; revogar **desativa, nunca exclui**, e derruba as sessões. Duas telas — card na ficha e seção no Portal — com um componente e um serviço só. ⚠️ Dois defeitos achados clicando: `ativo = false` é **ambíguo** (convidado × revogado), o que fez nascer `User.acessoRevogadoEm`; e a **primeira** pessoa entrava como *Equipe*, deixando a clínica sem ninguém para assinar — ADR-131.
+98. **Documento para quem ainda é LEAD (ADR-132).** O "Novo documento" passou a oferecer **clientes E leads em negociação** — a proposta é justamente o papel que se manda para quem ainda não é cliente, e antes a única saída era converter o lead antes da hora. O corte é o **aceite**: pré-venda aceita lead (proposta, escopo, diagnóstico, plano de ação, ata, pauta de reunião, briefing); pós-venda continua exigindo cliente (contrato, recibo, onboarding, checklist, relatórios, pauta de postagem). ⚠️ **`MODELO_ACEITA_LEAD` é lista de LIBERAÇÕES com padrão fechado** — tipo novo nasce fechado e o teste cobra a decisão. ⚠️ **Zero migração:** o documento continua em `clienteId`, porque o lead já tem um `Cliente` **PROSPECT** por trás (`garantirClienteDoLead`, ADR-128); a tela troca um pelo outro ao gerar. ⚠️ **Propor NÃO converte** — o lead segue no funil e o cliente fica `PROSPECT`, fora da página Clientes. ⚠️ O **rótulo da lista** (`Clínica X (Fulano)`) **não é** o nome impresso (só `Clínica X`) — ADR-132.
 
 ---
 
@@ -536,6 +537,37 @@ antes de o marcador existir: a situação da lista, a mensagem de e-mail duplica
 "sobra responsável".
 
 ---
+
+## 12.12. Documento para quem ainda é lead (ADR-132)
+
+O seletor de **Novo documento** oferece duas listas: **Clientes** e **Leads em negociação** (estes
+marcados com a etapa do funil, que é o que diz se cabe propor agora).
+
+**Quem decide o que aparece:** `MODELO_ACEITA_LEAD`, em `@app/shared` — lida pelo servidor e pela
+tela, para não divergirem. É lista de **liberações**, padrão **fechado**:
+
+| Aceita lead (pré-venda) | Só cliente (pós-venda) |
+|---|---|
+| Proposta · Escopo · Diagnóstico · Plano de ação · Ata · Pauta de reunião · Briefing | Contrato · Recibo · Onboarding · Checklist · Relatórios · Pauta de postagem |
+
+⚠️ **Tipo de modelo novo nasce FECHADO** e `documento-aceita-lead.test.ts` reprova quem o
+acrescentar sem decidir.
+
+**Como funciona por baixo, sem migração:** o `Documento` continua apontando para `clienteId`. O
+lead já tem (ou ganha) um `Cliente` **PROSPECT** — o mesmo do acesso ao Portal do prospect
+(ADR-128). Ao gerar, a tela chama `documentos.clienteDoLead` (idempotente) e troca um pelo outro;
+as seis formas de gerar documento não mudaram uma linha.
+
+⚠️ **Propor não converte.** O cliente fica `PROSPECT` (fora da página Clientes, ADR-24) e o lead
+segue no funil com `convertidoEmClienteId` nulo — travado por teste de integração. Sem isso,
+emitir proposta viraria conversão silenciosa, com a provisão financeira da ADR-108 junto.
+
+⚠️ **Dois nomes, de propósito:** `rotulo` (`Clínica X (Fulano)`) serve para **escolher** entre
+clínicas parecidas; `nomeNoDocumento` (`Clínica X`) é o que sai **impresso**. Trocar um pelo outro
+faz o papel abrir com *"Prezado(a) Clínica X (Fulano)"*.
+
+O painel do lead ganhou o bloco **Documentos** — sem ele a Thaís emitiria a proposta e não a
+acharia mais pelo funil (a falha de costura das ADR-105 e ADR-128).
 
 ## 13. O que NÃO fazer agora
 

@@ -85,6 +85,21 @@ export const documentosRouter = router({
     .input(criarContratoSchema)
     .mutation(({ input, ctx }) => documentos.criarContrato(input, ctx.user.id)),
 
+  /**
+   * Quem pode receber um documento: clientes E leads em negociação (27/08/2026).
+   * A tela agrupa as duas listas; o corte de QUAIS tipos aceitam lead é do
+   * `MODELO_ACEITA_LEAD` em `@app/shared`, para servidor e tela não divergirem.
+   */
+  destinatarios: funcionarioProcedure.query(() => documentos.destinatariosDeDocumento()),
+
+  /**
+   * Traduz o lead escolhido no `Cliente` PROSPECT que o representa (criando-o se preciso),
+   * para o documento continuar apontando para `clienteId` como sempre. Idempotente.
+   */
+  clienteDoLead: funcionarioProcedure
+    .input(z.object({ leadId: z.string().min(1) }))
+    .mutation(({ input, ctx }) => documentos.clienteDoLeadParaDocumento(input.leadId, ctx.user.id)),
+
   /** Contexto do cliente (serviços contratados, investimento, proposta aceita) p/ auto-preencher. */
   contextoCliente: funcionarioProcedure
     .input(contextoClienteDocSchema)

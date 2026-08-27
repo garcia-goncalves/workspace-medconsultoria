@@ -23,6 +23,7 @@ import {
   totalDaGrade,
   valorPorExtenso,
   UMA_OPERADORA_POR_PROPOSTA,
+  SITUACOES_CLIENTE,
 } from "@app/shared";
 import { aiService } from "../../lib/ai.js";
 import { avancarLeadPorClienteAuto, garantirClienteDoLead } from "../leads/leads.service.js";
@@ -1253,4 +1254,81 @@ export async function gerarPautaReuniao(input: GerarPautaInput, userId: string) 
     data: { userId, acao: "documento.ia_pauta", entidadeTipo: "documento", entidadeId: doc.id },
   });
   return doc;
+}
+
+// ── Destinatário do documento: cliente OU lead (27/08/2026, ordem do dono) ──
+
+/**
+ * Quem pode receber um documento: os clientes de verdade **e** os leads ainda em negociação.
+ *
+ * Até 27/08/2026 o "Novo documento" só oferecia clientes (`clientes.list`, que exclui
+ * prospect de propósito — lead vive no Funil, ADR-24). Só que a proposta é justamente o
+ * documento que se manda para quem AINDA NÃO É cliente: a saída era converter o lead antes
+ * da hora, sujando a base com quem talvez nunca feche.
+ *
+ * Devolve as duas listas separadas para a tela agrupá-las — misturar num balaio só faria
+ * "Clínica X" aparecer duas vezes sem dizer qual é qual.
+ */
+export async function destinatariosDeDocumento() {
+  const [clientes, leads] = await Promise.all([
+    prisma.cliente.findMany({
+      where: { deletedAt: null, situacaoComercial: { in: [...SITUACOES_CLIENTE] } },
+      orderBy: { nome: "asc" },
+      select: { id: true, nome: true },
+    }),
+    prisma.lead.findMany({
+      // Lead ativo = não removido, não convertido e não perdido. Lead convertido já tem
+      // cliente próprio na lista de cima; oferecê-lo duas vezes seria a mesma armadilha
+      // que a ADR-128 pagou com as duas contas de Portal.
+      where: { deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
+      orderBy: [{ empresa: "asc" }, { nome: "asc" }],
+      select: {
+        id: true,
+        nome: true,
+        empresa: true,
+        pipelineStage: { select: { nome: true } },
+      },
+    }),
+  ]);
+
+  return {
+    clientes,
+    leads: leads.map((l) => {
+      const empresa = l.empresa?.trim();
+      return {
+        id: l.id,
+        // DUAS coisas diferentes, de propósito:
+        // `rotulo` é para ESCOLHER na lista — traz o nome de quem fala entre parênteses,
+        //   porque duas clínicas podem ter nome parecido e é a pessoa que desempata.
+        // `nomeNoDocumento` é o que sai IMPRESSO — só a clínica. Um papel que abre com
+        //   "Prezado(a) MedLar Home Care (Carlos Mendes)" não se manda para ninguém.
+        rotulo: empresa ? `${empresa} (${l.nome})` : l.nome,
+        nomeNoDocumento: empresa || l.nome,
+        etapa: l.pipelineStage?.nome ?? null,
+      };
+    }),
+  };
+}
+
+/**
+ * Traduz um lead no cliente que o representa, criando-o se ainda não existir.
+ *
+ * O truque que evita migração: **todo lead já pode ter um `Cliente` PROSPECT por trás** —
+ * é o mesmo que dá acesso ao Portal do prospect (`garantirClienteDoLead`, ADR-128). Então o
+ * documento continua apontando para `clienteId`, como sempre; quem muda é só quem a tela
+ * deixa escolher. Zero coluna nova, zero caminho paralelo de gravação.
+ *
+ * Idempotente: chamar duas vezes devolve o mesmo cliente.
+ */
+export async function clienteDoLeadParaDocumento(leadId: string, atorId?: string | null) {
+  const lead = await prisma.lead.findFirst({
+    where: { id: leadId, deletedAt: null },
+    select: {
+      id: true, nome: true, empresa: true, cnpj: true, email: true,
+      telefone: true, observacoes: true, responsavelId: true, clienteId: true,
+    },
+  });
+  if (!lead) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado." });
+  const clienteId = await garantirClienteDoLead(lead, atorId ?? null);
+  return { clienteId };
 }

@@ -455,6 +455,40 @@ export async function getLeadDetalhe(id: string) {
     return { key: s.key, label: s.label, variant: s.variant };
   };
 
+  /**
+   * Documentos do lead (27/08/2026). Desde que a proposta pode ser emitida para quem ainda
+   * é lead, o painel precisa mostrá-la: emitir a proposta e depois não achá-la por lugar
+   * nenhum do funil é a mesma falha de costura das ADRs 105 e 128 — a tela ao lado dizendo
+   * uma coisa enquanto o dado diz outra.
+   *
+   * Os documentos vivem no `Cliente` PROSPECT por trás do lead; sem cliente ligado, não há
+   * documento a mostrar.
+   */
+  const documentosDoLead = lead.clienteId
+    ? (
+        await prisma.documento.findMany({
+          where: { clienteId: lead.clienteId, deletedAt: null },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          select: {
+            id: true, titulo: true, createdAt: true,
+            status: true, modelo: { select: { tipo: true } },
+            enviadoEm: true, propostaSolicitadaEm: true, propostaStatus: true,
+            assinaturaSolicitadaEm: true, assinadoEm: true, deletedAt: true,
+          },
+        })
+      ).map((d) => {
+        const s = situacaoDocumento(d);
+        return {
+          id: d.id,
+          titulo: d.titulo,
+          tipo: d.modelo?.tipo ?? null,
+          createdAt: d.createdAt,
+          situacao: { key: s.key, label: s.label, variant: s.variant },
+        };
+      })
+    : [];
+
   const stages = await prisma.pipelineStage.findMany({ orderBy: { ordem: "asc" } });
   const idx = stages.findIndex((s) => s.id === lead.pipelineStageId);
   const proxima = idx >= 0 && idx < stages.length - 1 ? stages[idx + 1]! : null;
@@ -511,6 +545,7 @@ export async function getLeadDetalhe(id: string) {
       // Passos de evento (documento) continuam ticáveis na mão, então não travam.
       auto: p.autoRegra != null && REGRAS_DERIVADAS.has(p.autoRegra),
     })),
+    documentos: documentosDoLead,
     proxima: proxima ? { id: proxima.id, nome: proxima.nome } : null,
     faltamObrig,
     prontoParaAvancar: !!proxima && faltamObrig === 0 && passos.length > 0,

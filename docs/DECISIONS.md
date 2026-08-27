@@ -3397,3 +3397,81 @@ com *"Só o responsável pela clínica pode fazer isso"*, enquanto `portal.supor
 
 As duas são **aditivas**: nada é apagado, nada é convertido, nenhuma linha existente muda de
 sentido. Reverter é `DROP COLUMN` nas três colunas (a FK e o índice caem junto).
+
+---
+
+## ADR-132 — Documento para quem ainda é lead: a proposta vai para quem AINDA NÃO É cliente
+
+**27/08/2026 · ordem do dono, durante a auditoria de tela que antecede o dado real.**
+
+### O problema, nas palavras dele
+
+> *"Quando estou criando um documento/proposta só aparece para eu selecionar CLIENTES. Não
+> aparece LEADS. Preciso que apareçam os LEADS também (em todos os documentos que fizer sentido)."*
+
+O relato apareceu enquanto a auditoria percorria o funil de ponta a ponta e batia no mesmo muro:
+um lead recém-capturado pelo site não existia no seletor de "Novo documento". Não era defeito de
+implementação — era o desenho: `clientes.list` filtra `situacaoComercial in {ATIVO, INATIVO}` de
+propósito (ADR-24), porque a página **Clientes** não pode virar depósito de quem talvez nunca
+feche. Só que o mesmo endpoint alimentava o seletor de documentos, e **a proposta é justamente o
+papel que se manda para quem ainda não é cliente**. A única saída que a tela oferecia era converter
+o lead antes da hora — sujando a base e disparando a provisão financeira da conversão (ADR-108).
+
+### A decisão
+
+**O seletor passa a oferecer as duas listas, e o corte é o ACEITE.**
+
+Documentos de **pré-venda** aceitam lead: **Proposta** (comercial, credenciamento e faturamento),
+**Escopo**, **Diagnóstico inicial**, **Plano de ação**, **Ata de reunião**, **Pauta de reunião** e
+**Briefing**. O funil confirma o desenho: *"Apresentar diagnóstico e plano de recuperação de
+glosas"* já é passo da etapa **Proposta**.
+
+Documentos de **pós-venda** continuam exigindo cliente: **Contrato**, **Recibo**, **Onboarding**,
+**Checklist**, **Relatórios** e **Pauta de postagem**. O caso que fecha o argumento é o contrato:
+quem aceita a proposta **vira cliente automaticamente**, então um contrato apontando para lead
+significaria assinatura sem cliente por trás.
+
+A régua mora em `MODELO_ACEITA_LEAD` (`@app/shared`), lida pelo servidor **e** pela tela. É lista
+de **liberações** com padrão fechado, como a `ACOES_LIBERADAS_PARA_EQUIPE` da ADR-131: **tipo novo
+nasce fechado**, e um teste reprova quem acrescentar tipo sem decidir.
+
+### O que NÃO mudou — e é o que torna isto barato
+
+**Zero migração.** O documento continua apontando para `Documento.clienteId`. O truque é que
+**todo lead já pode ter um `Cliente` PROSPECT por trás** — é o mesmo registro que dá acesso ao
+Portal do prospect desde a ADR-128 (`garantirClienteDoLead`). Ao gerar, a tela troca o lead pelo
+cliente-prospect (`documentos.clienteDoLead`, idempotente) e daí para baixo o fluxo é o de sempre:
+nenhuma das **seis** formas de gerar documento precisou saber que leads existem.
+
+⚠️ **Propor NÃO converte.** O `Cliente` nasce `PROSPECT`, some da página Clientes (ADR-24) e o
+lead segue no funil com `convertidoEmClienteId` nulo. Isso está travado por teste de integração —
+sem ele, "emitir proposta" viraria uma conversão silenciosa com provisão financeira junto.
+
+### Duas armadilhas pagas
+
+**1. O rótulo da lista não pode ir para o papel.** Para *escolher* entre clínicas parecidas, o
+seletor mostra `Clínica X (Fulano)` — é a pessoa que desempata. Mas a prévia saiu com *"Prezado(a)
+MedLar Home Care (Carlos Mendes)"*, e papel nenhum se manda assim. Hoje o servidor devolve as duas
+coisas separadas: `rotulo` (escolher) e `nomeNoDocumento` (imprimir, só a clínica).
+
+**2. Emitir e não achar depois.** Com a proposta gerada, o painel do lead **não mostrava documento
+nenhum** — a Thaís emitiria e perderia o papel de vista. É a mesma falha de costura entre telas das
+ADR-105 e ADR-128. Nasceu o bloco **Documentos** no painel do lead, com a situação de cada um.
+
+### O que ficou de fora
+
+- **Contrato para lead**, pelo motivo acima.
+- **Criar o cliente-prospect no momento de ESCOLHER** (em vez de ao gerar): abrir o seletor e
+  desistir criaria registro à toa.
+- **Mostrar lead perdido, removido ou já convertido.** O convertido já está na lista de clientes;
+  oferecê-lo duas vezes seria a armadilha das duas contas de Portal da ADR-128.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm lint` verdes · **4 testes de unidade** na régua pura (inclusive o que
+reprova tipo novo sem decisão) · **5 de integração** contra o MySQL de verdade (lead aparece,
+perdido/convertido/removido não aparecem, tradução idempotente, lead continua lead, nome impresso
+sem parêntese) · e2e `flows-documento-para-lead` (2 casos) · **na tela**: proposta comercial
+gerada para o lead *MedLar Home Care*, papel abrindo com *"Prezado(a) MedLar Home Care"*, banco
+mostrando `situacaoComercial: PROSPECT` com `convertidoEmClienteId: null` e **um** cliente só, e a
+proposta de volta no painel do lead como *"Proposta comercial - MedLar Home Care · Rascunho"*.

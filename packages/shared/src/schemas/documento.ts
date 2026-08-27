@@ -60,6 +60,44 @@ export const DOC_INTERACAO: Record<TipoModelo, DocInteracao> = {
   RECIBO: "nenhum",
 };
 
+/**
+ * Um documento deste tipo pode ser feito para quem AINDA É LEAD?
+ *
+ * O funil da Med vende antes de o cliente existir: a Thaís manda proposta, escopo,
+ * diagnóstico e plano de ação para quem ainda está negociando — e marca reunião com
+ * ata e pauta antes de qualquer assinatura. Até 27/08/2026 o "Novo documento" só
+ * oferecia CLIENTES, e a única saída era converter o lead antes da hora, o que suja
+ * a base de clientes com quem talvez nunca feche.
+ *
+ * O corte é o ACEITE: o que nasce DEPOIS de fechar continua exigindo cliente —
+ * contrato (assinatura), recibo (cobrança), onboarding e checklist (execução) e os
+ * relatórios (acompanhamento de quem já paga). Quem aceita a proposta vira cliente
+ * automaticamente, então o contrato nunca precisa apontar para um lead.
+ *
+ * Lista de LIBERAÇÕES, como `ACOES_LIBERADAS_PARA_EQUIPE` (ADR-131): tipo novo nasce
+ * fechado, e quem o criar decide conscientemente se cabe pré-venda.
+ */
+export const MODELO_ACEITA_LEAD: Record<TipoModelo, boolean> = {
+  PROPOSTA: true, // o motivo de tudo — comercial, credenciamento e faturamento
+  ESCOPO: true, // anexo da proposta, apresentado junto
+  DIAGNOSTICO: true, // "Apresentar diagnóstico…" é passo da etapa Proposta do funil
+  PLANO_ACAO: true, // idem — plano de recuperação de glosas entra na negociação
+  ATA: true, // reunião com o lead também gera ata
+  PAUTA_REUNIAO: true, // e pauta, antes da reunião
+  BRIEFING: true, // o prospect já tem Portal e pode preencher formulário antes de fechar
+  CONTRATO: false, // nasce do aceite; quem aceitou já é cliente
+  RECIBO: false, // cobrança pressupõe contrato
+  ONBOARDING: false, // execução começa depois de contratar
+  CHECKLIST: false, // idem (documentos do credenciamento contratado)
+  RELATORIO: false, // acompanhamento de quem já é cliente
+  PAUTA_POSTAGEM: false, // calendário editorial de cliente ativo
+};
+
+/** `true` quando o tipo pode ser emitido para um lead. Sem modelo escolhido, `false`. */
+export function modeloAceitaLead(tipo: TipoModelo | null | undefined): boolean {
+  return tipo ? MODELO_ACEITA_LEAD[tipo] === true : false;
+}
+
 export const TIPO_MODELO_LABEL: Record<TipoModelo, string> = {
   PROPOSTA: "Proposta",
   CONTRATO: "Contrato",
