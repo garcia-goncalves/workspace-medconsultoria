@@ -384,6 +384,29 @@ export function LeadDetailPanel({
                   {avancar.error && <p className="mt-2 text-xs text-destructive">{avancar.error.message}</p>}
                 </section>
 
+                {/* Documentos emitidos para este lead (27/08/2026) — proposta, escopo, ata… */}
+                {d.documentos.length > 0 && (
+                  <section>
+                    <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <FileText className="h-3.5 w-3.5" /> Documentos
+                    </h3>
+                    <ul className="space-y-1.5">
+                      {d.documentos.map((doc) => (
+                        <li key={doc.id}>
+                          <button
+                            type="button"
+                            onClick={() => navigate({ to: "/documentos/$documentoId", params: { documentoId: doc.id } })}
+                            className="flex w-full items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left transition-colors hover:bg-accent"
+                          >
+                            <span className="min-w-0 flex-1 truncate text-sm">{doc.titulo}</span>
+                            <Badge variant={doc.situacao.variant}>{doc.situacao.label}</Badge>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
                 {/* A conversa com o lead: envios automáticos + o que a equipe trocou pela caixa (ADR-97) */}
                 <section>
                   <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">

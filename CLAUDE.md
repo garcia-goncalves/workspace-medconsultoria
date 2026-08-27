@@ -13,7 +13,23 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-27 · manhã)
+## Estado atual (2026-08-27 · auditoria de tela antes do dado real)
+
+> **Contexto:** o dono vai começar a cadastrar DADO REAL em produção e pediu a varredura completa
+> da aplicação, clicando. Relatório vivo em `docs/auditoria/AUDITORIA-2026-08-27.md`.
+
+- **📄 A PROPOSTA VAI PARA QUEM AINDA É LEAD (ADR-132).** O "Novo documento" só oferecia CLIENTES — e a proposta é justamente o papel que se manda para quem **ainda não é** cliente. Não era esquecimento: `clientes.list` exclui prospect de propósito (ADR-24), mas era ele que alimentava o seletor; a única saída na tela era **converter o lead antes da hora**, sujando a base e disparando a provisão financeira da conversão (ADR-108). Hoje o campo é **"Cliente ou lead"**, com a etapa do funil ao lado de cada lead.
+- **✂️ O CORTE É O ACEITE (ADR-132).** Pré-venda aceita lead: **proposta** (as 3), **escopo**, **diagnóstico**, **plano de ação**, **ata**, **pauta de reunião**, **briefing**. Pós-venda exige cliente: **contrato**, **recibo**, **onboarding**, **checklist**, **relatórios**, **pauta de postagem** — quem aceita a proposta **vira cliente automaticamente**, então contrato para lead seria assinatura sem cliente por trás. ⚠️ **`MODELO_ACEITA_LEAD` (`@app/shared`) é lista de LIBERAÇÕES com padrão FECHADO** — tipo novo nasce fechado e o teste cobra a decisão de quem o acrescentar.
+- **🎯 ZERO MIGRAÇÃO, e é o que torna isto barato (ADR-132).** O documento continua em `Documento.clienteId`: **todo lead já tem (ou ganha) um `Cliente` PROSPECT por trás** — o mesmo do acesso ao Portal do prospect (ADR-128). A tela troca um pelo outro ao gerar (`documentos.clienteDoLead`, idempotente) e **nenhuma das SEIS formas de gerar documento mudou uma linha**. ⚠️ **Propor NÃO converte:** o cliente fica `PROSPECT` (fora da página Clientes) e o lead segue no funil — travado por teste de integração, senão "emitir proposta" viraria conversão silenciosa **com provisão financeira junto**.
+- **🏷️ DOIS NOMES, DE PROPÓSITO (ADR-132).** `rotulo` (`Clínica X (Fulano)`) serve para **escolher** entre clínicas parecidas; `nomeNoDocumento` (`Clínica X`) é o que sai **impresso**. Achado na prévia: o papel abria com *"Prezado(a) MedLar Home Care (Carlos Mendes)"*.
+- **📁 O PAINEL DO LEAD GANHOU O BLOCO "DOCUMENTOS" (ADR-132).** Sem ele a Thaís emitiria a proposta e **não a acharia mais pelo funil** — a mesma falha de costura entre telas das ADR-105 e ADR-128.
+- **📧 "ENVIADOS HOJE" CONTAVA FALHA COMO ENVIO.** O monitor mostrava, ao mesmo tempo, *Enviados (7 dias) 0*, *Taxa de entrega 0%* e *Enviados hoje 23* — três números que não podem ser verdade juntos. ⚠️ **É esse número que faz alguém concluir que o e-mail está saindo quando nenhum sai** — foi assim que a ADR-122 passou meses sem ser notada. Agora conta só `ENVIADO`, e **as falhas do dia aparecem ao lado**.
+- **🔁 RECAPTURA DE LEAD PARA DE JOGAR DADO FORA.** Quem voltava ao site informando a clínica que faltava, ou corrigindo o telefone, tinha o dado novo **descartado em silêncio** (só a mensagem entrava em observações). Agora **completa o que está vazio e nunca sobrescreve** — o inverso deixaria o formulário público apagar por cima a correção que a equipe fez à mão.
+- **⚠️ PENDÊNCIAS DA AUDITORIA, ainda abertas:** (1) o **catálogo público** (`/comecar`) e o **"Solicitar" do Portal** listam todo serviço ativo — no banco local há lixo de teste (`Serviço E2E SVC049828`, `Serviço Guard SVC052678`…); **conferir em produção antes do dado real**; (2) um lead novo dispara **6 notificações internas** — com lead real diário vira ruído e a equipe para de ler; (3) a varredura de tela **não terminou** (faltam Tarefas, Agenda, Projetos, E-mail, Mensagens, Ajustes, Serviços, Modelos, Equipe, Sistema).
+- **📭 E-MAIL NÃO SAI DO LOCALHOST, e isso não é defeito da aplicação:** a máquina do dono não tem servidor de e-mail (`connect ECONNREFUSED 127.0.0.1:587`). O **disparo** funciona (o registro sai com destinatário e assunto certos); a **entrega** só se prova em produção, onde já foi provada em 22/08 (ADR-122).
+- **Provas (ADR-132):** typecheck e lint verdes · **460 testes de unidade** (4 novos na régua pura) · **8 de integração** contra o MySQL de verdade (5 do documento-para-lead + 3 do monitor de e-mails) · e2e `flows-documento-para-lead` (2 casos) · **na tela**: proposta gerada para o lead *MedLar Home Care*, banco com `PROSPECT` + `convertidoEmClienteId: null` + **um** cliente só, e a proposta de volta no painel do lead.
+
+## Estado anterior (2026-08-27 · manhã · ADR-131)
 
 - **👥 VÁRIOS USUÁRIOS POR CLÍNICA (ADR-131) — o maior pedido em aberto, feito.** Cada médico e cada secretária entra com o próprio e-mail e a própria senha; acabou a conta única cuja senha circulava no WhatsApp da clínica. Dois papéis em `User.papelPortal`: **RESPONSAVEL** fala pela clínica (aceita proposta, contrata, cancela, convida) e **EQUIPE** toca o operacional (documento, formulário, agenda, suporte).
 - **🔒 A TRAVA É SOBRE ASSINAR, NÃO SOBRE VER (ADR-131).** Os dois papéis leem tudo daquela clínica, valores inclusive — mesma escolha da ADR-128. ⚠️ **A lista `ACOES_LIBERADAS_PARA_EQUIPE` é de LIBERAÇÕES e o padrão é NEGAR**, num lugar só (`portalProcedure`, só em mutação): **ação nova nasce fechada**. Quem escrever a próxima precisa decidir que a secretária pode. Papel **nulo vale como RESPONSAVEL** (contas anteriores à regra).
@@ -161,7 +177,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-131). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-133). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

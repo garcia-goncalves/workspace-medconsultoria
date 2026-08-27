@@ -123,7 +123,15 @@ export function EmailsEnviadosMonitorPage() {
               value={String(r.falhas7d)}
               hint={r.ultimaFalhaEm ? `última em ${dataHora(r.ultimaFalhaEm)}` : "nenhuma falha recente"}
             />
-            <StatCard icon={Inbox} label="Enviados hoje" value={String(r.hoje)} />
+            <StatCard
+              icon={Inbox}
+              label="Enviados hoje"
+              value={String(r.hoje)}
+              // A falha do dia fica ao lado do envio do dia: sem isso, um dia inteiro de e-mail
+              // recusado aparece como "0 enviados" e se confunde com "dia parado".
+              hint={r.falhasHoje > 0 ? `${r.falhasHoje} falha(s) hoje` : undefined}
+              tom={r.falhasHoje > 0 && r.hoje === 0 ? "danger" : undefined}
+            />
             <StatCard icon={Percent} label="Taxa de entrega" value={`${Math.round(r.taxaEntrega * 100)}%`} hint="últimos 7 dias" />
           </>
         )}

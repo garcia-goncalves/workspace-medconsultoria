@@ -162,10 +162,16 @@ export async function resumoEnviados() {
   const inicioHoje = new Date();
   inicioHoje.setHours(0, 0, 0, 0);
 
-  const [enviados7d, falhas7d, hoje, ultimaFalha, usados] = await Promise.all([
+  // ⚠️ "hoje" conta só o que SAIU. Até 27/08/2026 contava toda tentativa, entregue ou não, sob
+  // o rótulo "Enviados hoje" — e a tela chegou a mostrar, ao mesmo tempo, "Enviados (7 dias) 0",
+  // "Taxa de entrega 0%" e "Enviados hoje 23". É exatamente esse número que faz alguém concluir
+  // que o e-mail está funcionando quando nenhum saiu: foi assim que a ADR-122 passou meses sem
+  // ser notada. As falhas do dia vêm ao lado, para o problema aparecer no dia em que acontece.
+  const [enviados7d, falhas7d, hoje, falhasHoje, ultimaFalha, usados] = await Promise.all([
     prisma.emailEnviado.count({ where: { status: "ENVIADO", createdAt: { gte: seteDias } } }),
     prisma.emailEnviado.count({ where: { status: "FALHOU", createdAt: { gte: seteDias } } }),
-    prisma.emailEnviado.count({ where: { createdAt: { gte: inicioHoje } } }),
+    prisma.emailEnviado.count({ where: { status: "ENVIADO", createdAt: { gte: inicioHoje } } }),
+    prisma.emailEnviado.count({ where: { status: "FALHOU", createdAt: { gte: inicioHoje } } }),
     prisma.emailEnviado.findFirst({ where: { status: "FALHOU" }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
     prisma.emailEnviado.findMany({ distinct: ["template"], select: { template: true }, orderBy: { template: "asc" } }),
   ]);
@@ -180,6 +186,7 @@ export async function resumoEnviados() {
     enviados7d,
     falhas7d,
     hoje,
+    falhasHoje,
     taxaEntrega: total7d ? enviados7d / total7d : 1,
     isEmailReal,
     ultimaFalhaEm: ultimaFalha?.createdAt ?? null,

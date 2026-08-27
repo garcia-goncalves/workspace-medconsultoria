@@ -9,6 +9,7 @@ import {
   ehServicoSomentePercentual,
   fraseDoRepasse,
   montarDadosPagamento,
+  modeloAceitaLead,
   type CelulaGrade,
   type TipoModelo,
 } from "@app/shared";
@@ -86,12 +87,20 @@ export function NovoDocumentoDialog({
   // Quem está emitindo assina a proposta de credenciamento como consultora responsável.
   const { user: usuario } = useAuth();
   const modelos = trpc.documentos.modelos.list.useQuery(undefined, { enabled: open });
-  const clientes = trpc.clientes.list.useQuery(undefined, { enabled: open && !clienteFixo });
+  // Destinatários: clientes E leads em negociação (27/08/2026). Ver `destinatariosDeDocumento`.
+  const destinatarios = trpc.documentos.destinatarios.useQuery(undefined, { enabled: open && !clienteFixo });
   const ia = trpc.ia.disponivel.useQuery(undefined, { enabled: open });
   const servicosAtivos = trpc.servicos.ativos.useQuery(undefined, { enabled: open });
 
   const [modeloId, setModeloId] = useState("");
-  const [clienteId, setClienteId] = useState("");
+  /**
+   * Destino do documento, com prefixo: `c:<id>` cliente · `l:<id>` lead.
+   * O prefixo existe porque uma clínica pode estar nas DUAS listas com o mesmo nome, e
+   * porque o lead só vira `clienteId` na hora de gerar (`documentos.clienteDoLead`).
+   */
+  const [destino, setDestino] = useState("");
+  const clienteId = destino.startsWith("c:") ? destino.slice(2) : "";
+  const leadId = destino.startsWith("l:") ? destino.slice(2) : "";
   const [titulo, setTitulo] = useState("");
   // Genérico (preencher campos × IA)
   const [modoGen, setModoGen] = useState<"MANUAL" | "IA">("MANUAL");
@@ -136,7 +145,7 @@ export function NovoDocumentoDialog({
   useEffect(() => {
     if (!open) return;
     setModeloId("");
-    setClienteId(clienteFixo ?? "");
+    setDestino(clienteFixo ? `c:${clienteFixo}` : "");
     setTitulo("");
     setModoGen("MANUAL");
     setVars({});
@@ -225,6 +234,37 @@ export function NovoDocumentoDialog({
   const identidade = trpc.identidade.get.useQuery(undefined, { enabled: open && modo === "PROPOSTA" });
   const tabelaPagamento = identidade.data ? montarDadosPagamento(identidade.data) : "";
   const blocoPagamento = tabelaPagamento ? "## Dados para pagamento" + "\n\n" + tabelaPagamento : "";
+
+  // Só os documentos de PRÉ-venda oferecem lead (`MODELO_ACEITA_LEAD`, em @app/shared —
+  // servidor e tela leem a MESMA lista, para não divergirem).
+  const aceitaLead = modeloAceitaLead(modelo?.tipo);
+
+  /** Opções do seletor: clientes primeiro; leads depois, marcados com a etapa do funil. */
+  const opcoesDestino = useMemo(() => {
+    const d = destinatarios.data;
+    if (!d) return [];
+    const clientes = d.clientes.map((c) => ({
+      value: `c:${c.id}`, label: c.nome, hint: "Cliente", noDocumento: c.nome,
+    }));
+    if (!aceitaLead) return clientes;
+    const leads = d.leads.map((l) => ({
+      value: `l:${l.id}`,
+      label: l.rotulo,
+      // A etapa é o que diz à Thaís se cabe propor agora — "Lead" sozinho não informa nada.
+      hint: l.etapa ? `Lead · ${l.etapa}` : "Lead",
+      noDocumento: l.nomeNoDocumento,
+    }));
+    return [...clientes, ...leads];
+  }, [destinatarios.data, aceitaLead]);
+
+  // O que vai IMPRESSO — nunca o rótulo da lista (que traz a pessoa entre parênteses).
+  const nomeDoDestino = opcoesDestino.find((o) => o.value === destino)?.noDocumento ?? null;
+
+  // Trocar para um tipo que NÃO aceita lead (ex.: Contrato) com um lead escolhido deixaria
+  // o campo mostrando alguém que aquele documento não pode ter. Limpa em vez de gerar errado.
+  useEffect(() => {
+    if (leadId && !aceitaLead) setDestino("");
+  }, [leadId, aceitaLead]);
 
   // Contexto do cliente (serviços contratados, investimento, proposta aceita) → auto-preenchimento.
   const contexto = trpc.documentos.contextoCliente.useQuery(
@@ -517,9 +557,9 @@ export function NovoDocumentoDialog({
     // data de hoje e quem assina. Rótulo entre colchetes fica só para o que ainda não existe.
     // Ver a proposta com "[nome do cliente]" no lugar de "Clínica Vida Plena" escondia
     // justamente o que se confere antes de gerar: como o documento fica com o nome dentro.
-    const c = contexto.data?.cliente ?? clientes.data?.find((x) => x.id === clienteId) ?? null;
+    const c = contexto.data?.cliente ?? null;
     return previewModelo(corpo, {
-      clienteNome: c?.nome ?? null,
+      clienteNome: c?.nome ?? nomeDoDestino,
       clienteEmail: c?.email ?? null,
       clienteCnpj: c?.cnpj ?? null,
       clienteTelefone: c?.telefone ?? null,
@@ -541,22 +581,42 @@ export function NovoDocumentoDialog({
   const gerarIA = trpc.documentos.gerarComIA.useMutation({ onSuccess });
   const criarProposta = trpc.documentos.criarProposta.useMutation({ onSuccess });
   const criarContrato = trpc.documentos.criarContrato.useMutation({ onSuccess });
+  // Traduz o lead escolhido no cliente PROSPECT por trás dele (idempotente).
+  const clienteDoLead = trpc.documentos.clienteDoLead.useMutation();
   const resumir = trpc.documentos.resumirReuniao.useMutation({ onSuccess });
   const gerarPauta = trpc.documentos.gerarPauta.useMutation({ onSuccess });
   const pending =
-    create.isPending || gerarIA.isPending || criarProposta.isPending || criarContrato.isPending || resumir.isPending || gerarPauta.isPending;
+    create.isPending || gerarIA.isPending || criarProposta.isPending || criarContrato.isPending || resumir.isPending || gerarPauta.isPending ||
+    clienteDoLead.isPending;
   const erro =
     create.error?.message ??
     gerarIA.error?.message ??
     criarProposta.error?.message ??
     criarContrato.error?.message ??
     resumir.error?.message ??
-    gerarPauta.error?.message;
+    gerarPauta.error?.message ??
+    clienteDoLead.error?.message;
 
-  const clienteArg = clienteId || undefined;
   const tituloArg = titulo.trim() || undefined;
 
-  const executar = () => {
+  /**
+   * Gera o documento. Quando o destino é um LEAD, primeiro traduz o lead no `Cliente`
+   * PROSPECT que o representa — daí para baixo o fluxo é exatamente o de sempre, e nenhuma
+   * das seis formas de gerar precisou saber que leads existem.
+   */
+  const executar = async () => {
+    let clienteArg = clienteId || undefined;
+    if (leadId) {
+      try {
+        clienteArg = (await clienteDoLead.mutateAsync({ leadId })).clienteId;
+      } catch {
+        return; // a mensagem do erro já aparece por `clienteDoLead.error`
+      }
+    }
+    executarCom(clienteArg);
+  };
+
+  const executarCom = (clienteArg: string | undefined) => {
     if (modo === "PROPOSTA") {
       criarProposta.mutate({
         clienteId: clienteArg,
@@ -728,15 +788,20 @@ export function NovoDocumentoDialog({
           </div>
           {!clienteFixo && (
             <div className="space-y-1.5">
-              <Label htmlFor="cliente">Cliente</Label>
+              <Label htmlFor="cliente">{aceitaLead ? "Cliente ou lead" : "Cliente"}</Label>
               <Combobox
                 id="cliente"
-                value={clienteId}
-                onChange={setClienteId}
-                options={(clientes.data ?? []).map((c) => ({ value: c.id, label: c.nome }))}
-                placeholder="Buscar cliente…"
-                emptyText="Nenhum cliente encontrado."
+                value={destino}
+                onChange={setDestino}
+                options={opcoesDestino}
+                placeholder={aceitaLead ? "Buscar cliente ou lead…" : "Buscar cliente…"}
+                emptyText={aceitaLead ? "Nenhum cliente ou lead encontrado." : "Nenhum cliente encontrado."}
               />
+              {aceitaLead && (
+                <p className="text-[11px] text-muted-foreground">
+                  Leads em negociação também aparecem aqui — dá para propor antes de o cliente existir.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -1030,7 +1095,7 @@ export function NovoDocumentoDialog({
                 <DocumentoBranded
                   tipo={TIPO_MODELO_LABEL[modelo.tipo]}
                   titulo={titulo.trim() || modelo.nome}
-                  clienteNome={clientes.data?.find((c) => c.id === clienteId)?.nome ?? null}
+                  clienteNome={nomeDoDestino}
                   conteudoMarkdown={conteudoPreview()}
                 />
               </div>
