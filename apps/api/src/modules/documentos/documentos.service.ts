@@ -181,17 +181,22 @@ function montarServicos(itens: ItemServico[], servicos: ServicoInfo[]): { tabela
     }
     if (it.percentual != null && it.percentual > 0) {
       partes.push(`${fmtPct(it.percentual)} do faturamento/mês`);
-      percentuais.push(`${fmtPct(it.percentual)} do faturamento (${s?.nome ?? "serviço"})`);
+      // "5% do faturamento (Faturamento) — por mês" punha o nome do serviço entre parênteses no
+      // meio do valor e repetia "por mês" logo depois de "do faturamento/mês". Vira rótulo.
+      percentuais.push(`**${s?.nome ?? "Serviço"}:** ${fmtPct(it.percentual)} do faturamento mensal`);
     }
     const preco = partes.length ? partes.join(" + ") : "a combinar";
     const nome = s?.nome ?? "Serviço";
-    const desc = s?.descricao ? ` — ${s.descricao}` : "";
+    // A descrição vai numa LINHA PRÓPRIA dentro da célula. Emendada ao nome com travessão, ela
+    // fazia a coluna "Serviço" ocupar quatro linhas enquanto a de investimento ficava com duas
+    // palavras espremidas — a tabela saía torta no papel que vai ao médico.
+    const desc = s?.descricao ? `<br>${s.descricao}` : "";
     return `| **${nome}**${desc} | ${preco} |`;
   });
   const investimento: string[] = [];
   if (totalAvulso > 0) investimento.push(`- **À vista (1x):** ${brl(totalAvulso)}`);
   if (totalMensal > 0) investimento.push(`- **Mensal:** ${brl(totalMensal)}/mês`);
-  for (const p of percentuais) investimento.push(`- **${p}** — por mês`);
+  for (const p of percentuais) investimento.push(`- ${p}`);
   if (investimento.length === 0) investimento.push("- A combinar");
   return {
     tabela: `| Serviço | Investimento |\n| --- | --- |\n${linhasTabela.join("\n")}`,

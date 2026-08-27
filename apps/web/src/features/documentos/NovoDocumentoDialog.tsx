@@ -30,6 +30,7 @@ import { SmartCampos } from "./SmartCampos";
 import { AudioTranscricao } from "./AudioTranscricao";
 import { DocumentoBranded, previewModelo } from "./DocumentoBranded";
 import { formatBRL, valorPorExtenso } from "../../lib/masks";
+import { data as fmtData } from "../../lib/format-date";
 import { useAuth } from "../../lib/auth-context";
 
 const FORMAS_PAGAMENTO = ["PIX", "Dinheiro", "Cartão de crédito", "Cartão de débito", "Transferência", "Boleto"] as const;
@@ -413,10 +414,11 @@ export function NovoDocumentoDialog({
         }
         if (i.percentual != null && i.percentual > 0) {
           partes.push(`${i.percentual}% do faturamento/mês`);
-          pcts.push(`${i.percentual}% do faturamento (${servDe(id)?.nome ?? "serviço"})`);
+          pcts.push(`**${servDe(id)?.nome ?? "Serviço"}:** ${i.percentual}% do faturamento mensal`);
         }
         const preco = partes.length ? partes.join(" + ") : "a combinar";
-        const desc = servDe(id)?.descricao ? ` — ${servDe(id)?.descricao}` : "";
+        // Descrição em LINHA PRÓPRIA na célula — espelha `montarServicos` no servidor.
+        const desc = servDe(id)?.descricao ? `<br>${servDe(id)?.descricao}` : "";
         return `| **${servDe(id)?.nome ?? "Serviço"}**${desc} | ${preco} |`;
       });
       const tabela = ids.length
@@ -425,7 +427,7 @@ export function NovoDocumentoDialog({
       const inv: string[] = [];
       if (av > 0) inv.push(`- **À vista (1x):** ${formatBRL(av)}`);
       if (me > 0) inv.push(`- **Mensal:** ${formatBRL(me)}/mês`);
-      for (const p of pcts) inv.push(`- **${p}** — por mês`);
+      for (const p of pcts) inv.push(`- ${p}`);
       if (!inv.length) inv.push("- A combinar");
       const extras = [prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : ""].filter(Boolean);
       const bloco = [`## Serviços propostos\n\n${tabela}`, `## Investimento\n\n${inv.join("\n")}`];
@@ -511,7 +513,19 @@ export function NovoDocumentoDialog({
         }
       }
     }
-    return previewModelo(corpo);
+    // A prévia mostra o DADO REAL do cliente já escolhido — nome, CNPJ, e-mail, telefone, a
+    // data de hoje e quem assina. Rótulo entre colchetes fica só para o que ainda não existe.
+    // Ver a proposta com "[nome do cliente]" no lugar de "Clínica Vida Plena" escondia
+    // justamente o que se confere antes de gerar: como o documento fica com o nome dentro.
+    const c = contexto.data?.cliente ?? clientes.data?.find((x) => x.id === clienteId) ?? null;
+    return previewModelo(corpo, {
+      clienteNome: c?.nome ?? null,
+      clienteEmail: c?.email ?? null,
+      clienteCnpj: c?.cnpj ?? null,
+      clienteTelefone: c?.telefone ?? null,
+      data: fmtData(new Date()),
+      consultora: usuario?.nome ?? null,
+    });
   };
 
   const onSuccess = (doc: { id: string }) => {
@@ -749,7 +763,12 @@ export function NovoDocumentoDialog({
               />
             ) : (
               <>
-                <PropostaServicosPicker sel={sel} setSel={setSel} />
+                <PropostaServicosPicker
+                  sel={sel}
+                  setSel={setSel}
+                  escopo={ehFaturamento ? "FATURAMENTO" : "COMERCIAL"}
+                  titulo={ehFaturamento ? "Serviço e percentual" : "Serviços da proposta"}
+                />
                 {ehFaturamento && (
                   <>
                     <ConveniosPicker selecionados={conveniosSel} setSelecionados={setConveniosSel} />
