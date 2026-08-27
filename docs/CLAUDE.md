@@ -474,6 +474,8 @@ ele o lead de faturamento voltaria a valer R$ 0,00, o defeito que a ADR-125 cons
 
 ---
 
+97. **O PDF do documento não usava a paginação que a tela mostrava (ADR-129).** O preview media os blocos e distribuía o conteúdo em folhas A4; `imprimirDocumento` jogava o documento **inteiro numa folha só** e deixava o navegador cortar onde quisesse, **sem uma regra `break-inside` sequer** — o que a Thaís conferia na tela **não era** o que chegava ao médico. Hoje tela e impressão usam a **mesma** `paginarDocumento`, e a folha da tela virou uma **A4 de verdade** (793×1122 px a 96dpi), porque medir numa A4 encolhida com a fonte em tamanho normal fazia o texto ocupar proporcionalmente mais espaço na tela do que no papel. Cabeçalho e rodapé passam a sair em **todas** as folhas — capa completa só na 1ª, **cabeçalho corrido** nas demais — e nasceu o **"Página N de M"**. ⚠️ A decisão de onde quebrar virou **função pura testada** (`paginacao.ts`): tabela que cabe numa folha **nunca** é fatiada (é o que impede a **assinatura partida**), tabela maior é fatiada por **linhas inteiras** repetindo o cabeçalho, e **título carrega a fila de títulos abaixo dele mais o começo do conteúdo**. ⚠️ Três defeitos só a tela mostrou, com os testes verdes: duas versões da régua do título órfão (parágrafo não se parte; título pode ser seguido de outro título) e a **última folha quebrando depois**, que punha uma folha em branco no fim do PDF — `:last-child` não casa porque o último filho da janela de impressão é a tag `<script>`. Auditado na tela: **16/16 modelos** e **18 documentos reais (45 folhas)** sem defeito — ADR-129.
+
 ## 12.10. O Painel do cliente visto pela equipe (ADR-128)
 
 **É sessão de suporte, não login emprestado.** `Session.operadorId` guarda quem da equipe entrou;
