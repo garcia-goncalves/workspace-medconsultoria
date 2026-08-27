@@ -501,6 +501,9 @@ ser auditável.
 
 **Não aninha:** quem está em suporte volta ao próprio acesso antes de abrir outro painel.
 
+⚠️ **Ficou de fora:** o cliente não é avisado de que a equipe entrou (fica registrado, mas sem
+aviso ativo), e não há tela para ler esse histórico.
+
 ## 12.11. As pessoas de uma clínica no Portal (ADR-131)
 
 **Uma clínica não é uma pessoa.** Cada médico e cada secretária tem conta própria, ligada ao mesmo
@@ -531,9 +534,6 @@ desativar ou revogar o último responsável. Ninguém revoga o próprio acesso.
 decide "revogado" é **`User.acessoRevogadoEm`**, e não a coluna `ativo` — três lugares erraram isso
 antes de o marcador existir: a situação da lista, a mensagem de e-mail duplicado e a régua do
 "sobra responsável".
-
-⚠️ **Ficou de fora:** o cliente não é avisado de que a equipe entrou (fica registrado, mas sem
-aviso ativo), e não há tela para ler esse histórico.
 
 ---
 
