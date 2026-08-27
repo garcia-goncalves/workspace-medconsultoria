@@ -82,7 +82,7 @@ const SECOES: { titulo: string; descricao: string; itens: AjusteItem[] }[] = [
       {
         icon: Landmark,
         label: "Dados da empresa",
-        desc: "Marca, contato e dados jurídicos (razão social, CNPJ, endereço, foro) que entram nos contratos, propostas e e-mails.",
+        desc: "Marca, contato, dados jurídicos (razão social, CNPJ, endereço, foro) e os dados para pagamento (banco e chave PIX) que entram nos contratos, propostas e e-mails.",
         dialog: "identidade",
         minRole: "ADMIN",
       },

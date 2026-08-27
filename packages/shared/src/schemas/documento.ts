@@ -284,11 +284,16 @@ export const criarPropostaSchema = z
     /**
      * FATURAMENTO: quanto a clínica fatura por mês, em média. É a MESMA base que a Qualificação
      * do funil pergunta (`Lead.faturamentoMensalEstimado`) — corrigi-la aqui corrige lá, um
-     * número só andando para frente.
+     * número só andando para frente. **Não sai no documento** (ADR-127): serve para calcular o
+     * valor do negócio no funil. Imprimir a conta no papel seria promessa que envelhece no mês
+     * seguinte, porque o faturamento da clínica sobe e desce e a proposta assinada não.
      */
     faturamentoMensal: z.number().nonnegative().max(1_000_000_000).optional(),
     prazo: z.string().trim().max(200).optional().or(z.literal("")),
-    condicoes: z.string().trim().max(300).optional().or(z.literal("")),
+    // `condicoes` (Condições de pagamento) foi REMOVIDO em 26/08/2026, ADR-127: não há condição
+    // a negociar — é sempre PIX, e o PIX sai no bloco `{{dadosPagamento}}`, vindo de Ajustes →
+    // Dados da empresa. Quando o repasse do faturamento é pago virou frase automática, montada a
+    // partir de `Servico.condicaoPagamento`.
     observacoes: z.string().trim().max(2000).optional().or(z.literal("")),
     titulo: textoOpcional,
     /** Se true, a IA escreve a apresentação/escopo (quando disponível). */

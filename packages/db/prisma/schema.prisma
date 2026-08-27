@@ -374,6 +374,17 @@ model IdentidadeInstitucional {
   cnpj                    String?
   enderecoCompleto        String?  @db.Text
   foro                    String?  @db.Text
+  /// DADOS PARA PAGAMENTO — o bloco `{{dadosPagamento}}` das propostas. Moram aqui, e não no
+  /// corpo do modelo, porque conta bancária é dado da EMPRESA e muda uma vez a cada anos: quem
+  /// digita é a Thaís, em Ajustes → Dados da empresa, sem publicação nenhuma. Todos nuláveis de
+  /// propósito — enquanto estiverem em branco, o bloco inteiro SOME do papel, em vez de sair
+  /// pela metade com "Agência: " vazio na frente do cliente. A proposta de CREDENCIAMENTO não
+  /// mostra este bloco: ali a Thaís só cobra depois do sucesso na operadora (ADR-104).
+  bancoNome               String?
+  bancoAgencia            String?
+  bancoConta              String?
+  bancoTitular            String?  @db.Text
+  pixChave                String?
   /// A partir de quantos dias sem andar um credenciamento pede atenção no painel.
   /// 60 é o prazo real das operadoras, dito pela Thaís em 11/08/2026. Editável porque
   /// operadora muda de ritmo e ela não deve precisar de alteração de código para ajustar.

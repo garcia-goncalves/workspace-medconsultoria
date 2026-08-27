@@ -22,7 +22,8 @@ import { createLead } from "../modules/leads/leads.service.js";
  * O que se prova aqui:
  *  1. operadora nasce marcada nas DUAS listas, e o filtro por uso realmente recorta;
  *  2. duas operadoras na mesma proposta são RECUSADAS, na grade e no formato antigo;
- *  3. a proposta de faturamento escreve a conta no papel (faturamento × percentual);
+ *  3. a proposta de faturamento NÃO escreve a conta no papel (ADR-127) e traz o bloco de
+ *     dados para pagamento e a frase de quando o repasse é pago;
  *  4. os convênios viajam DENTRO do item e chegam ao `ClienteServico` pela sincronização do
  *     aceite (o mesmo caminho que serviço e preço já percorrem);
  *  5. o faturamento informado na proposta volta para o LEAD e recalcula o valor do negócio;
@@ -87,7 +88,7 @@ beforeAll(async () => {
     data: {
       nome: `${PFX}-modelo-faturamento`,
       tipo: "PROPOSTA",
-      corpo: `Prezado(a) {{cliente.nome}},\n\n## Convênios\n\n{{convenios}}\n\nRemuneração: {{percentual}} sobre {{faturamento_mensal}}.\n\n{{servicos}}`,
+      corpo: `Prezado(a) {{cliente.nome}},\n\n## Convênios\n\n{{convenios}}\n\nRemuneração: {{percentual}}.\n\n{{dadosPagamento}}\n\n{{servicos}}`,
       editadoManualmente: true,
     },
   });
@@ -165,7 +166,7 @@ describe("a proposta de credenciamento é de UMA operadora", () => {
 });
 
 describe("a proposta de faturamento", () => {
-  it("escreve a CONTA no papel e guarda os convênios dentro do item", async () => {
+  it("NÃO escreve a conta no papel, e guarda os convênios dentro do item", async () => {
     const doc = await criarProposta(
       {
         clienteId,
@@ -178,12 +179,20 @@ describe("a proposta de faturamento", () => {
     );
     documentos.push(doc.id);
 
-    // O papel mostra a conta feita, não o percentual solto. O `toLocaleString` do pt-BR separa
-    // "R$" do número com espaço NÃO separável (U+00A0) — comparar com espaço comum falharia
-    // contra um documento correto, que é o pior tipo de teste vermelho.
+    // O `toLocaleString` do pt-BR separa "R$" do número com espaço NÃO separável (U+00A0) —
+    // comparar com espaço comum falharia contra um documento CORRETO, que é o pior tipo de
+    // teste vermelho.
     const papel = doc.conteudo.replace(/\u00a0/g, " ");
-    expect(papel).toContain("R$ 6.000,00/mês");
-    expect(papel).toContain("R$ 120.000,00");
+    // ADR-127: nem a conta feita, nem o faturamento da clínica saem no papel do cliente. Eram
+    // promessa que envelhece no mês seguinte — o faturamento sobe e desce, a proposta assinada
+    // não. O número continua vivo do lado de dentro (ver o teste seguinte).
+    expect(papel).not.toContain("R$ 6.000,00");
+    expect(papel).not.toContain("R$ 120.000,00");
+    // O que o papel diz sobre dinheiro: o percentual, e QUANDO o repasse é pago.
+    expect(papel).toContain("5%");
+    expect(papel).toContain("após o crédito na conta da Clínica");
+    // E o marcador dos dados para pagamento foi CONSUMIDO — nunca sai cru no papel.
+    expect(papel).not.toContain("{{dadosPagamento}}");
     expect(papel).toContain(`${PFX}-Unimed`);
     expect(papel).toContain(`${PFX}-SoFaturamento`);
     // E NÃO cita a operadora que não foi escolhida.

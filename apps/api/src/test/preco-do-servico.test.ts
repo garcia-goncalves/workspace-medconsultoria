@@ -77,3 +77,28 @@ describe("a decisão da TELA não casa por nome de categoria", () => {
     expect(picker).toContain("ehServicoSomentePercentual");
   });
 });
+
+describe("a decisão do SERVIDOR de documentos também não casa por nome de categoria", () => {
+  // Quarta vez que esta comparação precisou sair daqui (ADR-125, 126 e 127). Em 26/08/2026 ela
+  // estava de volta em QUATRO lugares do `documentos.service.ts`, montando o item da proposta a
+  // partir do cliente e do lead: `categoria === "Faturamento" ? emReais(percentual) : null`
+  // jogava fora o percentual de qualquer serviço de outra categoria. Ninguém tinha sido mordido
+  // ainda; seria mordido no dia em que a Thaís pusesse % num serviço de Gestão, ou renomeasse a
+  // categoria na tela — a proposta sairia sem o percentual, sem erro nenhum.
+  const servidor = readFileSync(
+    fileURLToPath(new URL("../modules/documentos/documentos.service.ts", import.meta.url)),
+    "utf-8",
+  );
+
+  it('o servidor de documentos não compara com "Faturamento"', () => {
+    const semComentarios = servidor
+      .split("\n")
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join("\n");
+    expect(semComentarios).not.toMatch(/categoria\s*===\s*["']Faturamento["']/);
+  });
+
+  it("o servidor usa a regra de preço compartilhada para decidir a frase do repasse", () => {
+    expect(servidor).toContain("ehServicoSomentePercentual");
+  });
+});

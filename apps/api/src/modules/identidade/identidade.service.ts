@@ -44,6 +44,12 @@ export type IdentidadeInput = {
   cnpj: string | null;
   enderecoCompleto: string | null;
   foro: string | null;
+  /** Dados para pagamento — saem no bloco `{{dadosPagamento}}` das propostas (ADR-127). */
+  bancoNome: string | null;
+  bancoAgencia: string | null;
+  bancoConta: string | null;
+  bancoTitular: string | null;
+  pixChave: string | null;
   /** Dias sem andar até um credenciamento pedir atenção no painel (padrão 60, da Thaís). */
   credenciamentoPrazoDias: number;
 };
@@ -69,6 +75,11 @@ export async function atualizarIdentidade(input: IdentidadeInput) {
     cnpj: ouNull(input.cnpj),
     enderecoCompleto: ouNull(input.enderecoCompleto),
     foro: ouNull(input.foro),
+    bancoNome: ouNull(input.bancoNome),
+    bancoAgencia: ouNull(input.bancoAgencia),
+    bancoConta: ouNull(input.bancoConta),
+    bancoTitular: ouNull(input.bancoTitular),
+    pixChave: ouNull(input.pixChave),
     credenciamentoPrazoDias: input.credenciamentoPrazoDias,
   };
   return prisma.identidadeInstitucional.upsert({

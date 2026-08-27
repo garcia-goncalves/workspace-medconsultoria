@@ -2838,3 +2838,117 @@ Então:
 - **A escrita de volta no lead não foi exercida na tela** — o cliente usado na prova já tinha sido
   convertido, então não havia lead em negociação para corrigir (o comportamento correto é não
   mexer). Quem prova esse caminho é o teste de integração, contra o MySQL de verdade.
+
+---
+
+## ADR-127 — A proposta de faturamento passa a ser o papel real da Thaís, e o dinheiro sai de dois lugares novos
+
+**Data:** 26/08/2026 (noite) · **Situação:** implementada, testada na tela, **não publicada**
+
+### O problema
+
+A "Proposta de faturamento médico" nascida na ADR-126 era uma versão **genérica escrita por mim**.
+O dono mandou o papel que a Thaís realmente usa (Proposta 33 — Prisma Visão / Dr. Luis Paves) e
+disse a regra: **a estrutura do conteúdo dela é intocável; a forma pode ser lapidada.**
+
+Comparando os dois, o papel dela tem sete coisas que o sistema não guardava em lugar nenhum:
+
+1. Uma abertura institucional própria do faturamento (foco em glosa e fluxo financeiro);
+2. **Objetivo da parceria**, com a lista de operadoras;
+3. **Como funciona o nosso serviço** — e, antes das seis etapas, **o que a Clínica precisa
+   entregar** (dados do paciente, autorizações, tabelas, acesso à plataforma e aos portais);
+4. **Suporte comercial** nominal, à frente das negociações com as operadoras;
+5. **Gestão e acompanhamento** — quem coordena e que relatórios entrega;
+6. **Prazos e rotina de faturamento**;
+7. **Dados bancários e chave PIX**, e quem paga o portador do envio físico.
+
+E uma contradição direta com o que estava no ar: o modelo publicado dizia, com todas as letras,
+*"Não há valor fixo, taxa de adesão nem cobrança mínima"*, enquanto o papel de exemplo cobrava
+valor fixo na faixa mais baixa.
+
+### As decisões
+
+**1. O Faturamento é SÓ percentual, e a porcentagem varia por cliente.** Ordem do dono, que
+corrige o próprio papel de exemplo: a tabela de faixas (fixo embaixo, percentual em cima) **não
+entra**. O sistema já sabia fazer isto — `Servico.percentual` é o padrão e o campo é editável
+dentro de cada proposta (`PropostaServicosPicker.tsx`). **Zero código de preço novo, zero
+migração.** A tabela do exemplo tinha, aliás, dois defeitos que teriam virado defeito nosso: o
+valor `R$ 1.1200,00`, que não é um número, e um buraco entre R$ 25.000 e R$ 100.000.
+
+**2. "Condições de pagamento" sai das propostas.** Não há condição a negociar: é sempre PIX. O
+campo livre foi removido do construtor, do schema (`condicoes`) e dos três formatos de proposta.
+
+**3. Nasce o bloco "Dados para pagamento", em Ajustes → Dados da empresa.** Cinco colunas novas e
+nuláveis em `IdentidadeInstitucional` (`bancoNome`, `bancoAgencia`, `bancoConta`, `bancoTitular`,
+`pixChave`), migração `20260826230000_dados_para_pagamento`, e o marcador `{{dadosPagamento}}`.
+Sai na **Proposta comercial** e na **Proposta de faturamento médico**; **não sai na de
+credenciamento** — ordem do dono: ali a Thaís só cobra depois do sucesso do credenciamento na
+operadora, e a conta a receber nasce na aprovação, não no aceite (ADR-104).
+
+⚠️ **A regra do vazio é a parte que importa.** Campo em branco não vira `Agência: ` na frente do
+cliente — a linha some. Com os cinco em branco, **a seção inteira some**. Melhor faltar do que
+sair pela metade. É função pura testada (`montarDadosPagamento`, em `@app/shared`).
+
+**4. A frase do repasse deixa de ser campo e passa a ser automática.** Sempre que a proposta
+inclui um serviço cobrado **só por percentual**, o documento diz sozinho quando o repasse cai —
+inclusive em proposta misturada com serviços de valor fixo. O texto continua vindo de
+`Servico.condicaoPagamento` (ADR-125), editável pela Thaís na tela de Serviços: mudar uma vírgula
+não é publicação. `FRASE_REPASSE_FATURAMENTO` é só o valor de partida, para a proposta nunca sair
+muda sobre quando se paga.
+
+**5. O faturamento médio mensal SAI do papel do cliente e FICA no funil.** Recomendação minha,
+aceita pelo dono, depois de ele levantar a dúvida certa: *"às vezes o cliente pode faturar muito
+ou pouco e teremos que toda hora ficar mudando a média"*.
+
+O número tinha dois usos e só um deles incomodava. No **papel**, imprimir *"Valor estimado do
+serviço: R$ 6.000,00/mês (5% de R$ 120.000,00)"* é uma promessa que envelhece no mês seguinte — o
+faturamento da clínica sobe e desce, e a proposta assinada não acompanha. No **funil**, sem ele o
+lead de faturamento volta a valer **R$ 0,00** no card e no total da coluna, que foi exatamente o
+defeito que a ADR-125 consertou pela manhã.
+
+Então: a conta impressa saiu, e **o marcador `{{faturamento_mensal}}` foi removido do servidor e
+da prévia** — não basta parar de usar, o número não pode nem ter caminho até o papel. O campo
+continua no construtor, marcado *"não aparece no documento"*, alimentando `reconciliarPassosAuto`
+como antes. Como não vai mais ao cliente, **ninguém precisa mantê-lo atualizado**: virou chute de
+trabalho, não compromisso.
+
+**6. A numeração das seções saiu.** Era minha, não dela — o papel da Thaís não numera. Tirá-la
+resolveu de quebra um desleixo que a prévia mostrou: o título **Investimento** aparecia duas
+vezes seguidas, porque o bloco `{{servicos}}` já traz o seu.
+
+### O que ficou fora, e por quê
+
+- **A plataforma de gestão da clínica** (o "Feegow Clinic" do exemplo) sai como texto genérico —
+  *"a plataforma de gestão utilizada pela Clínica"*. Criar campo no cadastro do cliente para uma
+  palavra não se paga; quem monta a proposta escreve o nome no documento, que é editável.
+- **Os nomes de quem coordena e de quem dá suporte comercial** moram no **corpo do modelo**, não
+  em campo do banco. A Thaís os troca em Ajustes → Modelos, sem publicação nenhuma.
+- **`Servico.condicaoPagamento` não foi apagada.** Migração destrutiva por um campo de um dia não
+  se paga; ela continua viva, com outro papel — a frase do repasse daquele serviço.
+- **`{{percentual}}` continua existindo** como marcador, para quem quiser citar a porcentagem no
+  corpo. O nosso modelo não usa: quem mostra o preço é a tabela do `{{servicos}}`.
+
+### O achado de passagem: a comparação por categoria, pela quarta vez
+
+Auditando o arquivo, `categoria === "Faturamento" ? emReais(percentual) : null` estava de volta em
+**quatro lugares** de `documentos.service.ts`, montando o item da proposta a partir do cliente e
+do lead. O efeito: **qualquer serviço percentual de outra categoria perderia o percentual em
+silêncio** ao virar proposta. Ninguém tinha sido mordido; seria mordido no dia em que a Thaís
+pusesse % num serviço de Gestão, ou renomeasse a categoria na tela. Corrigido — quem decide é o
+preço — e **agora há teste lendo o arquivo do servidor**, além do que já lia o da tela.
+
+### As provas
+
+- `pnpm -r typecheck` e `pnpm lint` verdes; **441 testes de unidade** (13 novos em
+  `pagamento-da-proposta.test.ts` e na trava anti-regressão) e **29 contra o MySQL de verdade**.
+- E2E isolado verde em `flows-documentos-criar`, `flows-documentos-ui`, `flows-comercial` e
+  `flows-ajustes-catalogos`.
+- **Na tela:** Ajustes → Dados da empresa gravou e devolveu os cinco campos; o construtor da
+  proposta **não tem mais** o campo "Condições de pagamento"; e a **proposta 0230** (Clínica Vida
+  Plena) saiu com as seções do papel da Thaís na ordem dela, os convênios, a frase do repasse, o
+  bloco bancário com `Nubank / 0001 / 686169152-5 / Thais Garcia Gestão Saúde /
+  34.270.022/0001-93`, **sem** a conta impressa, **sem** marcador cru e **sem** um único erro de
+  console.
+
+⚠️ **Falta a Thaís preencher os dados bancários de verdade em produção.** Enquanto não preencher,
+a seção simplesmente não aparece — que é o comportamento desejado, mas é ausência, não conserto.

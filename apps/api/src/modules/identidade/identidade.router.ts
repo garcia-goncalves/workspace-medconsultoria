@@ -24,6 +24,13 @@ export const identidadeRouter = router({
         cnpj: juridico,
         enderecoCompleto: juridico,
         foro: juridico,
+        // DADOS PARA PAGAMENTO. Nulável como os jurídicos: enquanto em branco, o bloco some do
+        // papel em vez de sair pela metade na frente do cliente.
+        bancoNome: juridico,
+        bancoAgencia: juridico,
+        bancoConta: juridico,
+        bancoTitular: juridico,
+        pixChave: juridico,
         // Prazo do painel de credenciamentos. O teto de 365 evita desligar o alerta sem
         // querer digitando um número grande — para desligar de verdade, existe o filtro.
         credenciamentoPrazoDias: z.number().int().min(1).max(365),
@@ -36,6 +43,11 @@ export const identidadeRouter = router({
         cnpj: input.cnpj ?? null,
         enderecoCompleto: input.enderecoCompleto ?? null,
         foro: input.foro ?? null,
+        bancoNome: input.bancoNome ?? null,
+        bancoAgencia: input.bancoAgencia ?? null,
+        bancoConta: input.bancoConta ?? null,
+        bancoTitular: input.bancoTitular ?? null,
+        pixChave: input.pixChave ?? null,
       }),
     ),
 });

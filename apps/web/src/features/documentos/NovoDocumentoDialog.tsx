@@ -2,7 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Sparkles, Loader2, FileSignature, CalendarClock, ClipboardList, Eye, FileSignature as FileSign, HeartHandshake, FileText, Receipt } from "lucide-react";
 import { cn } from "@app/ui";
-import { extrairVariaveis, DOC_INTERACAO, TIPO_MODELO_LABEL, type CelulaGrade, type TipoModelo } from "@app/shared";
+import {
+  extrairVariaveis,
+  DOC_INTERACAO,
+  TIPO_MODELO_LABEL,
+  ehServicoSomentePercentual,
+  fraseDoRepasse,
+  montarDadosPagamento,
+  type CelulaGrade,
+  type TipoModelo,
+} from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
@@ -91,10 +100,6 @@ export function NovoDocumentoDialog({
   const [sel, setSel] = useState<Record<string, PropostaSel>>({});
   const [vigenciaMeses, setVigenciaMeses] = useState(12);
   const [prazo, setPrazo] = useState("");
-  const [condicoes, setCondicoes] = useState("");
-  // A condição de pagamento é PRÉ-PREENCHIDA pelos serviços escolhidos (ADR-125), mas proposta
-  // se negocia: assim que alguém digita ali, o preenchimento automático para de mexer.
-  const condicoesTocadas = useRef(false);
   const [observacoes, setObservacoes] = useState("");
   const [usarIA, setUsarIA] = useState(false);
   // Proposta de credenciamento: a grade médico × operadora (ADR-104) e, para o cliente sem
@@ -139,8 +144,6 @@ export function NovoDocumentoDialog({
     setVigenciaMeses(12);
     appliedKey.current = "";
     setPrazo("");
-    setCondicoes("");
-    condicoesTocadas.current = false;
     setObservacoes("");
     setUsarIA(false);
     setOperadoraProposta(null);
@@ -196,29 +199,31 @@ export function NovoDocumentoDialog({
   );
 
   /**
-   * A condição de pagamento vem do CADASTRO do serviço, não da memória de quem digita.
+   * A FRASE DO REPASSE — quando o cliente paga o percentual do faturamento (ADR-125/127).
    *
-   * O caso que originou (ADR-125): o Faturamento de contas médicas tem sempre a mesma condição
-   * — o repasse é após o crédito na conta da clínica — e ela dependia de alguém lembrar de
-   * escrevê-la, igual, em toda proposta. Proposta muda sobre quando se paga vira discussão
-   * depois, e some do documento se ninguém digitar.
+   * Deixou de ser um campo editável ("Condições de pagamento") e passou a ser DERIVADA dos
+   * serviços escolhidos: não há condição a negociar, é sempre PIX, e o PIX sai no bloco de dados
+   * para pagamento. O que sobra a dizer é QUANDO o repasse cai — e esse texto mora no cadastro
+   * do serviço, editável pela Thaís, nunca na memória de quem digita.
    *
-   * Dois cuidados: só preenche enquanto ninguém tocou no campo (proposta se negocia), e junta
-   * as condições de TODOS os serviços escolhidos, sem repetir — no caso misturado o cliente
-   * precisa ler as duas.
+   * Quem entra na conta é o serviço cobrado SÓ por percentual, decidido pelo preço do item desta
+   * proposta e nunca pela categoria do catálogo.
    */
-  const idsSelecionados = Object.keys(sel).sort().join(",");
-  useEffect(() => {
-    if (condicoesTocadas.current) return;
-    const escolhidos = new Set(idsSelecionados ? idsSelecionados.split(",") : []);
-    const frases: string[] = [];
-    for (const sv of servicosAtivos.data ?? []) {
-      if (!escolhidos.has(sv.id)) continue;
-      const frase = sv.condicaoPagamento?.trim();
-      if (frase && !frases.includes(frase)) frases.push(frase);
-    }
-    setCondicoes(frases.join(" "));
-  }, [idsSelecionados, servicosAtivos.data]);
+  const fraseRepasse = useMemo(() => {
+    const percentuais = Object.entries(sel).filter(([, i]) =>
+      ehServicoSomentePercentual({ valor: i.valor, percentual: i.percentual ?? null }),
+    );
+    if (!percentuais.length) return "";
+    return fraseDoRepasse(
+      percentuais.map(([id]) => (servicosAtivos.data ?? []).find((sv) => sv.id === id)?.condicaoPagamento),
+    );
+  }, [sel, servicosAtivos.data]);
+
+  // Dados bancários de Ajustes -> Dados da empresa, para a prévia mostrar o mesmo bloco que o
+  // servidor vai gravar. Vazio em Ajustes = bloco ausente nos dois lados.
+  const identidade = trpc.identidade.get.useQuery(undefined, { enabled: open && modo === "PROPOSTA" });
+  const tabelaPagamento = identidade.data ? montarDadosPagamento(identidade.data) : "";
+  const blocoPagamento = tabelaPagamento ? "## Dados para pagamento" + "\n\n" + tabelaPagamento : "";
 
   // Contexto do cliente (serviços contratados, investimento, proposta aceita) → auto-preenchimento.
   const contexto = trpc.documentos.contextoCliente.useQuery(
@@ -321,10 +326,7 @@ export function NovoDocumentoDialog({
     // PROPOSTA DE CREDENCIAMENTO: preenche {{operadoras}}, {{profissionais}} e {{servicos}},
     // espelhando o servidor — a prévia tem de mostrar a proposta que vai sair, não um esboço.
     if (ehCredenciamento) {
-      const extras = [
-        prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : "",
-        condicoes.trim() ? `**Condições de pagamento:** ${condicoes.trim()}` : "",
-      ].filter(Boolean);
+      const extras = [prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : ""].filter(Boolean);
 
       let nomesOperadoras: string[];
       let profissionaisTxt = "";
@@ -425,20 +427,12 @@ export function NovoDocumentoDialog({
       if (me > 0) inv.push(`- **Mensal:** ${formatBRL(me)}/mês`);
       for (const p of pcts) inv.push(`- **${p}** — por mês`);
       if (!inv.length) inv.push("- A combinar");
-      const extras = [
-        prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : "",
-        condicoes.trim() ? `**Condições de pagamento:** ${condicoes.trim()}` : "",
-      ].filter(Boolean);
+      const extras = [prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : ""].filter(Boolean);
       const bloco = [`## Serviços propostos\n\n${tabela}`, `## Investimento\n\n${inv.join("\n")}`];
-      // Espelha o servidor: com o faturamento informado, o papel mostra a CONTA feita, não só
-      // o percentual solto (ADR-126).
-      if (ehFaturamento && faturamentoMensal > 0 && percentualDaProposta > 0) {
-        bloco.push(
-          `**Faturamento mensal médio informado:** ${formatBRL(faturamentoMensal)}  \n` +
-            `**Valor estimado do serviço:** ${formatBRL(valorEstimadoDoFaturamento)}/mês (${percentualDaProposta}% de ${formatBRL(faturamentoMensal)}).  \n` +
-            `_Valor de referência: a cobrança acompanha o faturamento efetivamente apurado no mês._`,
-        );
-      }
+      // Espelha o servidor (ADR-127): o papel NÃO imprime mais a conta "R$ X/mês (Y% de R$ Z)"
+      // — o faturamento da clínica muda todo mês e o documento assinado não acompanha. O que
+      // entra é a frase de QUANDO o repasse é pago.
+      if (fraseRepasse) bloco.push(fraseRepasse);
       if (extras.length) bloco.push(extras.join("  \n"));
       if (observacoes.trim()) bloco.push(observacoes.trim());
       const apresentacao =
@@ -457,13 +451,10 @@ export function NovoDocumentoDialog({
                 .join("\n")
             : "_(selecione os convênios ao lado)_",
         )
-        .replace(
-          /\{\{\s*faturamento_mensal\s*\}\}/g,
-          faturamentoMensal > 0 ? formatBRL(faturamentoMensal) : "_(a informar)_",
-        )
         .replace(/\{\{\s*percentual\s*\}\}/g, percentualDaProposta > 0 ? `${percentualDaProposta}%` : "_(a combinar)_")
         .replace(/\{\{\s*numero\s*\}\}/g, "_(gerado ao criar)_")
         .replace(/\{\{\s*consultora\s*\}\}/g, usuario.nome || "MedConsultoria")
+        .replace(/\{\{\s*dadosPagamento\s*\}\}/g, blocoPagamento)
         .replace(/\{\{\s*apresentacao\s*\}\}/g, apresentacao);
     }
     if (modo === "CONTRATO") {
@@ -582,7 +573,6 @@ export function NovoDocumentoDialog({
                 : {}),
             }),
         prazo: prazo || undefined,
-        condicoes: condicoes || undefined,
         observacoes: observacoes || undefined,
         usarIA,
       });
@@ -766,7 +756,7 @@ export function NovoDocumentoDialog({
                     <div className="space-y-1">
                       <Label
                         htmlFor="prop-faturamento"
-                        hint="Quanto a clínica fatura por mês, em média. É a mesma informação da Qualificação no funil — corrigir aqui corrige lá."
+                        hint="Quanto a clínica fatura por mês, em média. NÃO sai no documento: serve para calcular o valor do negócio no funil. É a mesma informação da Qualificação — corrigir aqui corrige lá."
                       >
                         Faturamento mensal médio da clínica
                       </Label>
@@ -783,8 +773,9 @@ export function NovoDocumentoDialog({
                         <p className="rounded-md bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
                           Valor do negócio:{" "}
                           <strong className="text-foreground">{formatBRL(valorEstimadoDoFaturamento)}/mês</strong> (
-                          {percentualDaProposta}% de {formatBRL(faturamentoMensal)}). Este número também atualiza o
-                          card do lead no funil.
+                          {percentualDaProposta}% de {formatBRL(faturamentoMensal)}). Atualiza o card do lead no funil
+                          e <strong className="text-foreground">não aparece no documento</strong> — o faturamento da
+                          clínica muda todo mês, a proposta assinada não.
                         </p>
                       ) : (
                         <p className="text-xs text-muted-foreground">
@@ -796,24 +787,19 @@ export function NovoDocumentoDialog({
                 )}
               </>
             )}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="prop-prazo">Prazo estimado</Label>
-                <Input id="prop-prazo" value={prazo} onChange={(e) => setPrazo(e.target.value)} placeholder="Ex.: 60 dias" />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="prop-cond">Condições de pagamento</Label>
-                <Input
-                  id="prop-cond"
-                  value={condicoes}
-                  onChange={(e) => {
-                    condicoesTocadas.current = true;
-                    setCondicoes(e.target.value);
-                  }}
-                  placeholder="Ex.: 30% + 2x"
-                />
-              </div>
+            {/* "Condições de pagamento" saiu daqui (ADR-127): não há condição a negociar — é
+                sempre PIX, e o PIX sai no bloco de dados para pagamento, vindo de Ajustes.
+                Quando o repasse do faturamento é pago vira frase automática na proposta. */}
+            <div className="space-y-1">
+              <Label htmlFor="prop-prazo">Prazo estimado</Label>
+              <Input id="prop-prazo" value={prazo} onChange={(e) => setPrazo(e.target.value)} placeholder="Ex.: 60 dias" />
             </div>
+            {fraseRepasse && (
+              <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                A proposta vai dizer, sozinha: <span className="text-foreground">{fraseRepasse}</span> Para mudar esse
+                texto, edite o serviço em Ajustes → Serviços.
+              </p>
+            )}
             <div className="space-y-1">
               <Label htmlFor="prop-obs">Observações</Label>
               <Textarea id="prop-obs" rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />

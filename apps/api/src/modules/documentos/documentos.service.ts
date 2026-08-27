@@ -13,6 +13,9 @@ import type {
 } from "@app/shared";
 import type { TipoModelo } from "@app/shared";
 import {
+  ehServicoSomentePercentual,
+  fraseDoRepasse,
+  montarDadosPagamento,
   formatarCNPJ,
   formatarNumeroProposta,
   NUMERO_PROPOSTA_INICIAL,
@@ -150,8 +153,6 @@ export async function createDocumento(input: CreateDocumentoInput, userId: strin
 }
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-/** Arredonda para centavos sem o erro clássico de ponto flutuante (mesmo cálculo do funil). */
-const emCentavos = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const fmtPct = (v: number) => `${v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
 
 type ItemServico = { servicoId: string; valor?: number; quantidade?: number; recorrencia: "AVULSO" | "MENSAL"; percentual?: number | null };
@@ -212,10 +213,11 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     : null;
 
   // Prazo/condições/observações entram nos dois formatos.
-  const extras = [
-    input.prazo?.trim() ? `**Prazo estimado:** ${input.prazo.trim()}` : "",
-    input.condicoes?.trim() ? `**Condições de pagamento:** ${input.condicoes.trim()}` : "",
-  ].filter(Boolean);
+  // **"Condições de pagamento" NÃO entra mais na proposta** (ADR-127): não há condição a
+  // negociar — é sempre PIX, e o PIX sai no bloco `{{dadosPagamento}}`, vindo de Ajustes. O que
+  // o cliente precisa saber sobre QUANDO o repasse do faturamento é pago virou frase própria,
+  // montada na seção do investimento.
+  const extras = [input.prazo?.trim() ? `**Prazo estimado:** ${input.prazo.trim()}` : ""].filter(Boolean);
 
   // Três trilhas de investimento: COMERCIAL (catálogo de serviços) × CREDENCIAMENTO POR PESSOA
   // (a grade médico × operadora, ADR-104) × CREDENCIAMENTO POR OPERADORA (o formato antigo, que
@@ -309,7 +311,7 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     // COMERCIAL: catálogo de serviços com preços (tabela + investimento total).
     const servicos = await prisma.servico.findMany({
       where: { id: { in: input.itens.map((i) => i.servicoId) } },
-      select: { id: true, nome: true, descricao: true },
+      select: { id: true, nome: true, descricao: true, condicaoPagamento: true },
     });
     const r = montarServicos(input.itens, servicos);
     servicosNomes = r.nomes;
@@ -318,18 +320,24 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
       `## Serviços propostos\n\n${r.tabela}`,
       `## Investimento\n\n${r.investimento}`,
     ];
-    // FATURAMENTO (ADR-126): quando a proposta informa quanto a clínica fatura por mês, o
-    // documento mostra a CONTA feita — faturamento × percentual —, não só o percentual solto.
-    // "5% do faturamento" não diz nada a quem vai assinar; "R$ 6.000,00/mês (5% de R$ 120 mil)"
-    // diz. A conta é a mesma do funil (`planejarEstimativaDoLead`), para o papel e o card não
-    // divergirem num centavo.
-    if (faturamentoMensal !== null && percentualDaProposta > 0) {
-      const estimado = emCentavos((faturamentoMensal * percentualDaProposta) / 100);
-      bloco.push(
-        `**Faturamento mensal médio informado:** ${brl(faturamentoMensal)}  \n` +
-          `**Valor estimado do serviço:** ${brl(estimado)}/mês (${fmtPct(percentualDaProposta)} de ${brl(faturamentoMensal)}).  \n` +
-          `_Valor de referência: a cobrança acompanha o faturamento efetivamente apurado no mês._`,
-      );
+    // A FRASE DO REPASSE (ADR-127). Sempre que a proposta inclui um serviço cobrado **só por
+    // percentual** — o Faturamento de contas médicas —, o papel precisa dizer QUANDO o repasse é
+    // pago. Vale também na proposta misturada: quem contrata Faturamento + Gestão lê a frase do
+    // mesmo jeito.
+    //
+    // Quem decide o que é "só percentual" é o PREÇO DO ITEM desta proposta, nunca a categoria do
+    // catálogo — é a quarta vez que essa comparação precisa sair daqui (ADR-125/126/127). O item
+    // manda, e não o catálogo, porque a porcentagem se negocia proposta a proposta.
+    //
+    // O que NÃO sai mais: a conta impressa "R$ 6.000,00/mês (5% de R$ 120.000,00)". Era uma
+    // promessa que envelhece no mês seguinte — o faturamento da clínica sobe e desce, o papel
+    // assinado não. O documento passa a dizer o percentual sobre o efetivamente faturado e
+    // recebido; o faturamento médio informado continua vivo, mas só do lado de dentro,
+    // alimentando o valor do negócio no funil (ADR-125).
+    const condicaoDoServico = new Map(servicos.map((sv) => [sv.id, sv.condicaoPagamento]));
+    const itensSoPercentual = input.itens.filter((i) => ehServicoSomentePercentual({ valor: i.valor, percentual: i.percentual ?? null }));
+    if (itensSoPercentual.length) {
+      bloco.push(fraseDoRepasse(itensSoPercentual.map((i) => condicaoDoServico.get(i.servicoId))));
     }
     if (extras.length) bloco.push(extras.join("  \n"));
     if (input.observacoes?.trim()) bloco.push(input.observacoes.trim());
@@ -401,16 +409,28 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
   const consultora =
     (await prisma.user.findUnique({ where: { id: userId }, select: { nome: true } }))?.nome ?? "MedConsultoria";
 
+  // DADOS PARA PAGAMENTO (ADR-127). Saem em toda proposta cujo modelo declare o marcador — a
+  // comercial padrão e a de faturamento. A de CREDENCIAMENTO **não** o declara, de propósito:
+  // ali a Thaís só cobra depois do sucesso do credenciamento na operadora, e a conta a receber
+  // nasce na aprovação, não no aceite (ADR-104).
+  //
+  // Sem nada cadastrado em Ajustes, `montarDadosPagamento` devolve "" e o TÍTULO some junto —
+  // uma seção "Dados para pagamento" vazia no papel do cliente é pior que seção nenhuma.
+  const dadosBancarios = await prisma.identidadeInstitucional.findUnique({
+    where: { id: "default" },
+    select: { bancoNome: true, bancoAgencia: true, bancoConta: true, bancoTitular: true, pixChave: true },
+  });
+  const tabelaPagamento = dadosBancarios ? montarDadosPagamento(dadosBancarios) : "";
+  const dadosPagamentoBloco = tabelaPagamento ? `## Dados para pagamento
+
+${tabelaPagamento}` : "";
+
   let conteudo: string;
   if (modelo?.corpo?.includes("{{servicos}}")) {
     const comMarcadores = modelo.corpo
       .replace(/\{\{\s*servicos\s*\}\}/g, blocoServicos)
       .replace(/\{\{\s*operadoras\s*\}\}/g, operadorasBloco)
       .replace(/\{\{\s*convenios\s*\}\}/g, conveniosBloco)
-      .replace(
-        /\{\{\s*faturamento_mensal\s*\}\}/g,
-        faturamentoMensal !== null && faturamentoMensal > 0 ? brl(faturamentoMensal) : "_(a informar)_",
-      )
       .replace(
         /\{\{\s*percentual\s*\}\}/g,
         percentualDaProposta > 0 ? fmtPct(percentualDaProposta) : "_(a combinar)_",
@@ -424,6 +444,7 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
         /\{\{\s*valor_extenso\s*\}\}/g,
         totalCredenciamento > 0 ? valorPorExtenso(totalCredenciamento) : "_(a combinar)_",
       )
+      .replace(/\{\{\s*dadosPagamento\s*\}\}/g, dadosPagamentoBloco)
       .replace(/\{\{\s*apresentacao\s*\}\}/g, apresentacao);
     conteudo = render(comMarcadores, {}, cliente);
   } else {
@@ -552,7 +573,7 @@ async function itensDoCliente(clienteId: string): Promise<{ itens: ItemContexto[
         valor: emReaisOu(c.valor),
         quantidade: 1,
         recorrencia: (c.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-        percentual: c.servico.categoria === "Faturamento" ? emReais(c.percentual) : null,
+        percentual: emReais(c.percentual),
       })),
     };
   }
@@ -572,7 +593,7 @@ async function itensDoCliente(clienteId: string): Promise<{ itens: ItemContexto[
         valor: emReaisOu(s.valor),
         quantidade: 1,
         recorrencia: (s.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-        percentual: s.categoria === "Faturamento" ? emReais(s.percentual) : null,
+        percentual: emReais(s.percentual),
       })),
     };
   }
@@ -786,7 +807,7 @@ export async function gerarPropostaAutoParaLead(leadId: string, userId: string) 
     valor: emReaisOu(s.valor),
     quantidade: 1,
     recorrencia: (s.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-    percentual: s.categoria === "Faturamento" ? emReais(s.percentual) : null,
+    percentual: emReais(s.percentual),
   }));
 
   const doc = await criarProposta({ clienteId, itens, usarIA: false }, userId);
@@ -904,7 +925,7 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
       valor: emReaisOu(s.valor),
       quantidade: 1,
       recorrencia: (s.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-      percentual: s.categoria === "Faturamento" ? emReais(s.percentual) : null,
+      percentual: emReais(s.percentual),
     }));
     const doc = await criarProposta({ clienteId, itens, usarIA: false }, ator.id);
     await prisma.leadPasso.updateMany({ where: { leadId, acaoDoc: "proposta", documentoId: null }, data: { documentoId: doc.id } });
