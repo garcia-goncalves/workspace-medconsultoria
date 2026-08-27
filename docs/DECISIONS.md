@@ -3523,3 +3523,86 @@ público apagar por cima a correção que a equipe fez à mão na ficha.
 `pnpm -r typecheck` e `pnpm lint` verdes · **3 testes de integração** novos contra o MySQL de
 verdade · **na tela**: o painel passou a mostrar *"Enviados hoje 0 · 24 falha(s) hoje"*, com os
 quatro números concordando entre si.
+
+---
+
+## ADR-134 — O aviso de lead novo parava de ser lido: um e-mail para cada ADMIN/ROOT, todo dia
+
+**Data:** 27/08/2026 · **Situação:** aceita · **Contexto:** auditoria de tela antes do dado real
+
+### O relato do dono
+
+*"Um lead novo dispara 6 e-mails internos. Com lead real chegando todo dia, isso vira ruído e a
+equipe para de ler."*
+
+### Por que o sistema avisava todo mundo — e por que isso não era um esquecimento
+
+O lead capturado pelo formulário público **nasce sem responsável** (`responsavelId: null`). Não
+havendo a quem endereçar, `capturarLead` avisa **toda pessoa que poderia atender**: cada conta
+`ADMIN` ou `ROOT` ativa. Em produção são quatro — `root@`, `thiago.garcia@`, `andre.cintra@` e
+`thais.garcia@` — e cada uma recebe **notificação no sininho + e-mail**.
+
+Com lead de teste, quatro e-mails por lead é irrelevante. Com lead real diário, é a definição de
+ruído: **equipe que aprende a ignorar o aviso ignora também o que importa.** É o mesmo mecanismo
+de dano da ADR-133 — um número que ninguém mais olha porque mentiu antes.
+
+A preferência por pessoa **já existia** (`PreferenciaEmail` + a tela em Configurações). O que
+faltava era o **padrão certo**: tudo nascia ligado, e ninguém desliga o que nunca notou.
+
+### Decisão
+
+**1. A conta de sistema nunca recebe e-mail operacional.** O `root@medconsultoria.com.br` é o
+ROOT primordial da ADR-89 — conta imutável de sistema, que ninguém usa para entrar e cuja caixa
+ninguém lê. Cada aviso mandado para lá é um endereço a mais na conta de envio sem leitor do
+outro lado. Corta 1 dos 4. ⚠️ **Vale mesmo se alguém ligar a preferência à mão** — a régua é
+sobre a conta, não sobre a vontade de quem mexeu na tela.
+
+**2. "Lead novo" nasce ligado só para ADMIN.** O ROOT nominal (Thiago, André) continua vendo
+**pelo sininho**, que não mudou, e liga o e-mail na tela se quiser. Quem toca o comercial é
+ADMIN; ROOT é papel de administração do sistema. Corta mais 1 — sobram os dois que realmente
+atendem. ⚠️ **Nenhum outro aviso mudou de padrão**, e há teste que reprova a mudança silenciosa.
+
+**3. A tela de preferências passou a ser legível.** Vinte e cinco interruptores numa lista
+corrida ninguém lê: agora são **seis seções** (Vendas e funil · Clientes e Portal ·
+Credenciamento · Documentos · Financeiro · Agenda e tarefas · Sistema), e o texto no topo diz o
+que a pessoa mais precisa saber antes de desligar algo — **desligar o e-mail não esconde o
+aviso do sistema**, o sininho continua mostrando.
+
+### A régua mora num lugar só
+
+Nasceu `decidirEmailOperacional` (pura, em `@app/shared`), e o `notificar()` inteiro passou a
+consultá-la: categoria emailável, conta ativa, conta não excluída, e-mail presente, e-mail não
+anonimizado, conta de sistema, preferência da pessoa e padrão do papel — **as oito condições num
+lugar só**.
+
+⚠️ **A mesma função alimenta a tela de preferências.** Sem isso a tela mostraria "ligado" para um
+aviso que o servidor não manda — exatamente o modo de falha da ADR-133, onde um número na tela
+convenceu todo mundo de que o e-mail estava saindo enquanto nenhum saía.
+
+**`padraoDesligadoPara` é uma lista de EXCEÇÕES com padrão LIGADO** — o oposto de
+`MODELO_ACEITA_LEAD` (ADR-132) e de `ACOES_LIBERADAS_PARA_EQUIPE` (ADR-131), que são liberações
+com padrão fechado. A diferença é deliberada: lá o risco é **fazer demais** (assinar, propor);
+aqui o risco é **avisar de menos** — aviso que não chega é trabalho que não acontece. Categoria
+nova, portanto, nasce **ligada**.
+
+### Alternativas descartadas
+
+- **Avisar só quem tem o lead atribuído.** Não funciona: o lead nasce **sem** responsável — é a
+  causa do problema, não a solução. Ninguém seria avisado e o lead morreria no funil.
+- **Um resumo diário no lugar do aviso imediato.** Lead comercial tem prazo de resposta em
+  minutos; trocar o imediato pelo diário resolveria o ruído destruindo o valor.
+- **Rodízio entre ADMINs.** Inventa um dono onde não há, e o que não tem dono claro não é feito.
+
+### O que ficou de fora, e por quê
+
+O **sininho continua avisando todo mundo** — inclusive o ROOT. É de propósito: dentro do sistema
+o aviso não custa atenção como o e-mail custa, e é lá que se vê que um lead chegou sem que
+ninguém tenha pegado.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm lint` verdes · **472 testes de unidade** (12 novos na régua pura,
+inclusive os dois casos que enganam: endereço do sistema com maiúscula/espaço, e endereço que
+apenas *contém* o do sistema) · **6 testes de integração** novos contra o MySQL de verdade,
+provando que a listagem lê papel e e-mail do banco e aplica a mesma régua do envio · **na tela**,
+`/configuracoes` como ADMIN: seis seções, "Novo lead pelo site" ligado, zero erro de console.
