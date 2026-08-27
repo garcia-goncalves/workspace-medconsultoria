@@ -3077,3 +3077,98 @@ suporte não pode sumir com o rastro do acesso.
   é auditável, mas não há aviso ativo. Se um dia for desejado, o gancho já existe.
 - **Não há tela para ler o histórico de acessos ao painel.** Está no `activityLog`; falta a
   visualização.
+
+---
+
+## ADR-129 — O PDF do documento não usava a paginação que a tela mostrava
+
+**Data:** 27/08/2026 (madrugada) · **Situação:** implementada, auditada na tela, **não publicada**
+
+### O pedido, e o que ele revelou
+
+O dono pediu a revisão dos **16 modelos de documento**, um a um: *"garantir que as quebras de
+páginas dos modelos estão 100% no padrão e sem quebras erradas… rodapé fixo… header… nada
+quebrando… nada repetitivo"*.
+
+A auditoria achou um defeito maior que qualquer quebra torta: **a impressão ignorava a paginação
+por completo.** O preview (`DocumentoBranded`) media os blocos e distribuía o conteúdo em folhas
+A4; a função `imprimirDocumento` jogava o documento **inteiro numa única `.doc-sheet`** e deixava
+o Chrome cortar onde bem entendesse, **sem uma só regra `break-inside`**. Ou seja: o que a Thaís
+conferia na tela **não era** o que chegava ao médico em PDF — e a promessa de WYSIWYG escrita no
+próprio arquivo era falsa desde que a paginação do preview existiu.
+
+### As cinco decisões
+
+**1. A tela e a impressão passam a usar a MESMA função.** A medição saiu de dentro do componente
+React e virou `paginarDocumento(props)`, exportada. A impressão emite **uma `<div class="doc-sheet">`
+por folha**, com altura de A4 exata e quebra forçada depois. As regras `break-inside: avoid` e
+`orphans/widows` continuam no CSS de impressão, mas como **cinto de segurança**, não como
+estratégia — a decisão de onde quebrar é nossa, não do navegador.
+
+**2. A folha da tela virou uma A4 de verdade (793×1122 px a 96dpi), não uma A4 encolhida.**
+Antes a folha tinha 620px de largura com a fonte em tamanho normal: proporcionalmente, o texto
+ocupava **mais** espaço na tela do que no papel, então preview e PDF nunca poderiam concordar.
+Hoje mede-se no mesmo tamanho em que se imprime, e o `zoom` já existente encolhe o conjunto para
+caber no container — **sem espremer o conteúdo**. Os valores são arredondados **para baixo** da
+conta em mm: 1px sobrando vira folha em branco no fim do PDF.
+
+**3. Cabeçalho e rodapé em TODAS as folhas — sem repetir a capa.** A 1ª folha leva o cabeçalho
+completo (marca, tipo, número, data, cliente) e o título. As folhas 2, 3, 4… levam um **cabeçalho
+corrido**: uma linha fina com o logo pequeno e *"título — tipo nº"*, para a folha se identificar
+solta sobre a mesa. Repetir a capa inteira seria exatamente o *"repetitivo"* que o dono não quer.
+O rodapé institucional vai em todas; o **código de integridade** (`rodapeExtra`) sai **só na
+última**, porque identifica o documento inteiro, não a folha.
+
+**4. Nasceu o "Página N de M".** Não existia. Só é possível porque a contagem é nossa: no Chrome,
+`counter(page)` só funciona dentro de caixas de margem de `@page`, que ele não implementa. Sai
+apenas quando há mais de uma folha — *"Página 1 de 1"* é ruído.
+
+**5. A regra de quebra virou função pura testada** (`paginacao.ts` / `paginacao.test.ts`),
+separada da medição. Quem mede é o navegador; quem **decide** é código sem DOM, e por isso
+testável. As quatro regras que ela garante:
+
+| Regra | Por quê |
+|---|---|
+| Bloco que não cabe desce inteiro | é o básico |
+| **Tabela que cabe numa folha inteira NUNCA é fatiada** | é o que impede a **assinatura partida** — traço numa folha, nome na outra. O bloco de assinatura das propostas é uma tabela de 3 linhas sem cabeçalho, e o código antigo caía no ramo de fatiamento sempre que ela não coubesse no que restava |
+| Tabela maior que a folha é fatiada por **linhas inteiras**, repetindo o cabeçalho | nunca corta no meio de uma linha |
+| **Título carrega a fila inteira de títulos abaixo + o começo do conteúdo** | título órfão no pé da folha |
+
+### ⚠️ Dois defeitos que só a tela mostrou — e a lição é a mesma nos dois
+
+Os testes de unidade estavam **verdes** e a auditoria na tela reprovou assim mesmo:
+
+1. **Título órfão, primeira versão da regra.** A régua pedia *"duas linhas"* do bloco seguinte
+   embaixo do título. Mas **parágrafo não se parte**: ou cabe inteiro, ou o título fica sozinho.
+   *"Prazos e rotina de faturamento"* ficou no pé da folha 2 da proposta 0230.
+2. **Título órfão, segunda versão.** Corrigida a régua, *"Como funciona o nosso serviço"*
+   continuou órfão — porque é seguido de **outro título**. Olhar só o vizinho imediato não basta;
+   a fila inteira de títulos desce junto.
+
+E um terceiro, no caminho da impressão: **a última folha ainda quebrava depois**, o que põe uma
+**folha em branco no fim do PDF**. O seletor `.doc-sheet:last-child` não casava porque o último
+filho do corpo da janela de impressão é a tag `<script>`, não a folha. Hoje a última folha é
+marcada por **classe**, não por seletor posicional.
+
+### As provas
+
+- `pnpm -r typecheck` e `pnpm lint` verdes · **140 testes de unidade na web** (10 novos só da
+  paginação) · e2e isolado verde em `flows-documentos-criar`, `flows-documentos-ui` e no novo
+  `flows-documentos-paginacao`.
+- **Na tela**, varredura automatizada: **16/16 modelos** e **18 documentos reais (45 folhas)** com
+  **zero** título órfão, **zero** conteúdo estourando a folha, cabeçalho e rodapé em todas as
+  folhas, capa completa uma vez só e contador certo em todas. Zero erro de console.
+- **Na janela de impressão**, medido na largura real de uma A4 (672px): as 4 folhas da proposta
+  0230 cabem com folga de 154, 133, 55 e 645px, e só as três primeiras quebram depois.
+
+### O que ficou de fora, e por quê
+
+- **O Word (`.doc`) continua em fluxo único.** Ele tem paginação própria; enfiar as nossas folhas
+  lá dentro produziria um arquivo impossível de editar. Ganhou apenas as dicas de quebra
+  (`page-break-inside`, `page-break-after`, `orphans/widows`), que o Word respeita.
+- **Não há como forçar viúvas/órfãs DENTRO de um parágrafo** na nossa paginação: o parágrafo é
+  indivisível para nós. Na prática isso empurra o parágrafo inteiro para a folha seguinte, o que
+  é o comportamento conservador correto — mas pode deixar mais espaço em branco no pé.
+- **A conferência do PDF final foi feita medindo a janela de impressão, não abrindo o arquivo.**
+  Abrir a caixa de diálogo de impressão trava a automação; o que se mediu foi a caixa de cada
+  folha na largura exata de uma A4. É prova forte, não é o PDF aberto.

@@ -169,9 +169,31 @@ Tokens como CSS variables no `:root` (em `packages/ui`), mapeados no `tailwind.c
 
 ---
 
-## 10. Documentos — folha A4 + interação por tipo (ADR-47/48)
+## 10. Documentos — folha A4 + interação por tipo (ADR-47/48/129)
 
-- **Moldura branded (`DocumentoBranded`):** o corpo (Markdown) é renderizado numa folha na **proporção A4** (`aspect-[210/297]`) numa **escala de tela confortável** (`max-w-[640px]`, **não** o A4 real de 794px — que ocuparia a tela toda e ficava "gigante"). A folha aparece **inteira por padrão** (mesmo com pouco conteúdo, com espaço em branco embaixo como papel de verdade) e **cresce** quando há mais conteúdo; centralizada num *canvas* cinza (visualizador tipo Google Docs), com margens internas e **sombra de página**. **Impressão/PDF = A4 real:** a **mesma moldura** é reimpressa por `imprimirDocumento` com **`@page A4`** (independente da largura de tela) → o PDF sai em A4 verdadeiro, WYSIWYG, sem engine de PDF no servidor.
+- **Moldura branded (`DocumentoBranded`) — ATUALIZADA na ADR-129:** o corpo (Markdown) é
+  distribuído em **folhas A4 separadas**, e a folha tem o tamanho de uma **A4 de verdade**
+  (793×1122 px a 96dpi, margens 18mm × 16mm). Um `zoom` encolhe o conjunto para caber no
+  container **sem espremer o conteúdo**. ⚠️ **Medir no tamanho real é o que faz a tela e o PDF
+  concordarem** — a versão anterior media numa A4 encolhida de 620px com a fonte em tamanho
+  normal, e por isso preview e impressão nunca poderiam bater.
+- **Cabeçalho e rodapé em TODAS as folhas (ADR-129):** capa completa **só na 1ª**; nas seguintes,
+  um **cabeçalho corrido** de uma linha (logo pequeno + *título — tipo nº*). Rodapé institucional
+  em todas, com **"Página N de M"** quando há mais de uma; o **código de integridade sai só na
+  última**. Repetir a capa inteira é defeito, não recurso.
+- ⚠️ **A quebra de página é DECIDIDA por nós, não pelo navegador** (`paginacao.ts`, função pura
+  testada): tabela que cabe numa folha nunca é fatiada (é o que impede a **assinatura partida**),
+  tabela maior que a folha é fatiada por **linhas inteiras** repetindo o cabeçalho, e **título
+  carrega a fila de títulos abaixo dele + o começo do conteúdo** (título órfão). Ao mexer aqui,
+  rode `e2e/flows-documentos-paginacao.spec.ts`, que audita os 16 modelos na tela.
+- **Impressão/PDF = as MESMAS folhas do preview:** `imprimirDocumento` emite uma `.doc-sheet` por
+  folha com altura A4 exata e quebra forçada depois, usando `paginarDocumento` — a mesma função da
+  tela. As regras `break-inside`/`orphans` do CSS de impressão são **cinto de segurança**, não a
+  estratégia. ⚠️ A **última folha** é marcada por **classe** (`.ultima`), nunca por `:last-child`:
+  o último filho do corpo da janela de impressão é a tag `<script>`, e o seletor posicional
+  deixava uma **folha em branco no fim do PDF**.
+- **O Word (`.doc`) fica em fluxo único** de propósito — ele pagina sozinho; nossas folhas dentro
+  dele produziriam um arquivo impossível de editar.
 - **Sem scroll dentro do documento:** a leitura **não** usa `max-h/overflow` próprio — quem rola é a **página** (o `<main>` do shell).
 - **Editar (`DocumentoEditor`):** editor de duas colunas — **barra de formatação** (negrito/itálico/título/listas/citação/link/tabela/divisória, que agem sobre a seleção; atalhos Ctrl+B/Ctrl+I) + textarea Markdown à esquerda; **preview A4 ao vivo** à direita (sem scroll próprio — a página rola). A barra de ações (Cancelar/Salvar) e o editor são **`sticky`** — ficam visíveis enquanto se rola o preview. Não é preciso conhecer Markdown (a barra escreve por você); rodapé com contador de palavras.
 - **Interação por tipo (`DOC_INTERACAO` em `packages/shared/src/schemas/documento.ts`):** cada tipo tem UM modo — a ficha do documento renderiza o card certo (ou nenhum):
