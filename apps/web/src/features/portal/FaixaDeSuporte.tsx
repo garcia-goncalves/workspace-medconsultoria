@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Eye, LogOut, Loader2 } from "lucide-react";
 import { useAuth } from "../../lib/auth-context";
 import { trpc } from "../../lib/trpc";
@@ -24,10 +25,37 @@ export function FaixaDeSuporte() {
     },
   });
 
+  /*
+   * A faixa PUBLICA a própria altura em `--portal-faixa-h`, e o cabeçalho gruda nesse valor.
+   *
+   * Medir, em vez de chutar um número: a faixa quebra em duas linhas a 360px de largura, e com
+   * uma altura fixa o logotipo passaria por trás dela ao rolar a página — o defeito que se
+   * relata como "o Portal está bugado no celular". Quando não há sessão de suporte a faixa não
+   * existe e o valor volta a 0, que é o caso do cliente de verdade.
+   */
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const raiz = document.documentElement;
+    const zerar = () => raiz.style.setProperty("--portal-faixa-h", "0px");
+    const el = ref.current;
+    if (!el) {
+      zerar();
+      return;
+    }
+    const medir = () => raiz.style.setProperty("--portal-faixa-h", `${el.offsetHeight}px`);
+    medir();
+    const observador = new ResizeObserver(medir);
+    observador.observe(el);
+    return () => {
+      observador.disconnect();
+      zerar();
+    };
+  }, [user.operador]);
+
   if (!user.operador) return null;
 
   return (
-    <div className="sticky top-0 z-40 border-b border-warning/40 bg-warning/15 print:hidden">
+    <div ref={ref} className="sticky top-0 z-40 border-b border-warning/40 bg-warning/15 print:hidden">
       <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
         <Eye className="h-4 w-4 shrink-0 text-warning" />
         <span className="min-w-0">

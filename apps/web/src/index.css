@@ -53,6 +53,15 @@
 
     --radius: 0.625rem;
 
+    /* Portal do Cliente — medidas que DUAS camadas precisam saber ao mesmo tempo.
+       `--portal-tabbar-h`: altura da barra inferior de seções. O corpo da página reserva
+       este espaço embaixo, senão o último cartão fica debaixo da barra.
+       `--portal-faixa-h`: altura da faixa "você está vendo como <cliente>" (ADR-128). Vale
+       0 para o cliente de verdade, que nunca vê a faixa; a própria faixa se mede e publica
+       o valor real, e é ele que diz ao cabeçalho onde grudar. */
+    --portal-tabbar-h: 56px;
+    --portal-faixa-h: 0px;
+
     /* Sombras em camadas — tom azulado da marca, bem suaves. */
     --shadow-color: 218 55% 22%;
     --shadow-sm: 0 1px 2px 0 hsl(var(--shadow-color) / 0.06);

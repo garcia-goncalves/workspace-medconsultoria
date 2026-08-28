@@ -1,28 +1,43 @@
-import { useState } from "react";
-import { FolderKanban, FileText, Video, CalendarDays, Mail, Compass, PenLine, RotateCcw, HeartHandshake, Sparkles, Send, Hourglass, CalendarPlus, CheckCircle2, MapPin } from "lucide-react";
-import { situacaoDocumento } from "@app/shared";
-import { trpc } from "../../lib/trpc";
-import { dataHora, data } from "../../lib/format-date";
-import { Card, CardHeader, CardTitle } from "../../components/ui/card";
-import { Skeleton } from "../../components/ui/skeleton";
-import { Button } from "../../components/ui/button";
-import { Textarea } from "../../components/ui/textarea";
-import { useConfirm, usePrompt } from "../../components/ui/confirm-dialog";
-import { toast } from "../../components/ui/toast";
-import { PortalDocumentoModal } from "./PortalDocumentoModal";
-import { PortalSuporte } from "./PortalSuporte";
-import { EmailsEnviadosList } from "../../components/EmailsEnviadosList";
-import { ServicosPicker } from "../crm/leads/ServicosPicker";
-import { PortalServicos } from "./PortalServicos";
-import { PortalCredenciamento } from "./PortalCredenciamento";
-import { PortalMeusDocumentos } from "./PortalMeusDocumentos";
-import { PortalMinhaEquipe } from "./PortalMinhaEquipe";
+import {
+  FolderKanban,
+  FileText,
+  Video,
+  CalendarDays,
+  Compass,
+  PenLine,
+  RotateCcw,
+  HeartHandshake,
+  Hourglass,
+  CalendarPlus,
+  CheckCircle2,
+  MapPin,
+} from "lucide-react";
+import { trpc } from "../../../lib/trpc";
+import { dataHora, data } from "../../../lib/format-date";
+import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
+import { Skeleton } from "../../../components/ui/skeleton";
+import { Button } from "../../../components/ui/button";
+import { useConfirm, usePrompt } from "../../../components/ui/confirm-dialog";
+import { toast } from "../../../components/ui/toast";
+import { usePortalNavegar } from "../navegar";
 
 /**
- * Quando o servidor não manda o token (ADR-137), quem está vendo não pode assinar pela
- * clínica — é a secretária EQUIPE, ou alguém da Med em sessão de suporte. O item continua
- * aparecendo, porque a trava é sobre assinar e não sobre ver; o que some é o botão.
+ * INÍCIO — a fila do que precisa da atenção do cliente.
+ *
+ * Era o topo da página única do Portal (16 blocos empilhados). Com as seções, ficou com o que
+ * responde "o que eu tenho para fazer hoje?": andamento do atendimento, propostas, documentos
+ * para assinar, o que depende do cliente, projetos e reuniões.
+ *
+ * ⚠️ **O H1 contém a palavra "Portal", e não é preferência de texto.** Quatro asserções de
+ * ponta a ponta (`e2e/flows-portal.spec.ts` e `e2e/rbac.spec.ts`) procuram um cabeçalho que
+ * case `/Portal/i` — é assim que elas provam que o cliente caiu no Portal e não numa tela
+ * interna. Trocar por "Olá, Clínica X" quebraria as quatro; a saudação desce para o subtítulo,
+ * onde continua sendo a primeira coisa que o cliente lê.
  */
+
+/** Quando o servidor não manda o token (ADR-137), quem está vendo não pode assinar pela
+ *  clínica — é a secretária EQUIPE, ou alguém da Med em sessão de suporte. O item continua
+ *  aparecendo, porque a trava é sobre assinar e não sobre ver; o que some é o botão. */
 const SO_RESPONSAVEL_RESPONDE = "Só o responsável pela clínica responde";
 const SO_RESPONSAVEL_ASSINA = "Só o responsável pela clínica assina";
 
@@ -39,8 +54,17 @@ const faseLabel: Record<string, string> = {
   negociacao: "Alinhando os detalhes finais",
   fechado: "Tudo pronto!",
 };
+
 /** Gera e baixa um arquivo .ics (Google/Apple/Outlook) da reunião — 100% no navegador. */
-function baixarIcs(ev: { id: string; titulo: string; inicio: string | Date; fim?: string | Date | null; local?: string | null; descricao?: string | null; linkReuniao?: string | null }) {
+function baixarIcs(ev: {
+  id: string;
+  titulo: string;
+  inicio: string | Date;
+  fim?: string | Date | null;
+  local?: string | null;
+  descricao?: string | null;
+  linkReuniao?: string | null;
+}) {
   const fmt = (d: string | Date) => new Date(d).toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
   const fim = ev.fim ? ev.fim : new Date(new Date(ev.inicio).getTime() + 30 * 60000);
   const esc = (s: string) => s.replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
@@ -69,13 +93,13 @@ function baixarIcs(ev: { id: string; titulo: string; inicio: string | Date; fim?
   URL.revokeObjectURL(url);
 }
 
-export function PortalHome() {
+export function PortalInicio() {
   const resumo = trpc.portal.resumo.useQuery();
-  const [docId, setDocId] = useState<string | null>(null);
   const utils = trpc.useUtils();
   const confirm = useConfirm();
   const prompt = usePrompt();
-  const emails = trpc.portal.emails.useQuery();
+  const navegar = usePortalNavegar();
+
   const desistir = trpc.portal.desistir.useMutation({
     onSuccess: () => {
       utils.portal.resumo.invalidate();
@@ -92,17 +116,6 @@ export function PortalHome() {
     onSuccess: () => {
       utils.portal.resumo.invalidate();
       toast("Presença confirmada! Avisamos a equipe. 🎉", "success");
-    },
-  });
-  const catalogo = trpc.portal.servicosDisponiveis.useQuery();
-  const [pedidos, setPedidos] = useState<string[]>([]);
-  const [msgServico, setMsgServico] = useState("");
-  const solicitar = trpc.portal.solicitarServicos.useMutation({
-    onSuccess: () => {
-      utils.portal.resumo.invalidate();
-      setPedidos([]);
-      setMsgServico("");
-      toast("Recebemos seu pedido! Nossa equipe já vai preparar tudo para você. 🎯", "success");
     },
   });
 
@@ -132,7 +145,6 @@ export function PortalHome() {
       retomar.mutate();
   };
 
-
   if (resumo.isLoading || !resumo.data) {
     return (
       <div className="space-y-6">
@@ -155,10 +167,8 @@ export function PortalHome() {
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold text-primary">Bem-vindo(a) ao seu Portal 👋</h1>
-        <p className="text-muted-foreground">
-          {r.clienteNome} — acompanhe seus projetos e documentos, envie o que precisamos e fale com a nossa equipe.
-        </p>
+        <h1 className="text-2xl font-semibold text-primary">Seu Portal</h1>
+        <p className="text-muted-foreground">Olá, {r.clienteNome} — o que precisa da sua atenção hoje.</p>
       </div>
 
       {/* Andamento do atendimento (enquanto for um prospect no funil) */}
@@ -217,62 +227,6 @@ export function PortalHome() {
           </div>
         </Card>
       )}
-
-      {/* Suporte em destaque — canal direto com a equipe, logo no topo */}
-      <PortalSuporte />
-
-      {/* Seus serviços contratados + documentos que precisamos de você */}
-      <PortalServicos />
-
-      {/* A papelada do credenciamento tem tela própria porque REPETE por médico — ver
-          `PortalCredenciamento`. Some sozinha quando não há credenciamento em curso. */}
-      <PortalCredenciamento />
-
-      {/* Autosserviço: o cliente escolhe os serviços que precisa → vira oportunidade no funil */}
-      {catalogo.data &&
-        catalogo.data.length > 0 &&
-        (() => {
-          const jaPedidos = new Set(r.servicosAtuais.map((s) => s.id));
-          const disponiveis = catalogo.data.filter((s) => !jaPedidos.has(s.id));
-          return (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <Sparkles className="h-4 w-4 text-primary" /> O que você precisa?
-                </CardTitle>
-                <span className="text-xs text-muted-foreground">Escolha e nós preparamos</span>
-              </CardHeader>
-              <div className="space-y-3 p-5 pt-1">
-                {r.servicosAtuais.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Você já pediu: <span className="font-medium text-foreground">{r.servicosAtuais.map((s) => s.nome).join(", ")}</span>.
-                  </p>
-                )}
-                {disponiveis.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Você já solicitou todos os nossos serviços. 🎉</p>
-                ) : (
-                  <>
-                    <ServicosPicker servicos={disponiveis} value={pedidos} onChange={setPedidos} />
-                    <Textarea
-                      value={msgServico}
-                      onChange={(e) => setMsgServico(e.target.value)}
-                      placeholder="Quer contar algo sobre o que precisa? (opcional)"
-                    />
-                    <div className="flex justify-end">
-                      <Button
-                        size="sm"
-                        disabled={pedidos.length === 0 || solicitar.isPending}
-                        onClick={() => solicitar.mutate({ servicoIds: pedidos, mensagem: msgServico.trim() || undefined })}
-                      >
-                        <Send className="h-4 w-4" /> Solicitar
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </Card>
-          );
-        })()}
 
       {/* Propostas aguardando o aceite/recusa do cliente */}
       {r.propostas.length > 0 && (
@@ -364,8 +318,22 @@ export function PortalHome() {
               </div>
             ))}
           </div>
+          {/* O Suporte deixou de ficar "aqui embaixo" nesta página: agora é uma seção com
+              endereço próprio, e a frase vira o caminho até ela. */}
           <p className="px-5 pb-4 pt-1 text-xs text-muted-foreground">
-            Precisa de ajuda com algum item? Fale com a gente pelo Suporte, aqui embaixo.
+            Precisa de ajuda com algum item?{" "}
+            <a
+              href="/portal/suporte"
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                navegar("/portal/suporte");
+              }}
+              className="font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Fale com a gente pelo Suporte
+            </a>
+            .
           </p>
         </Card>
       )}
@@ -421,75 +389,6 @@ export function PortalHome() {
             ))}
           </div>
         )}
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="min-w-0">
-            <CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" /> Documentos da MedConsultoria
-            </CardTitle>
-            <span className="text-xs text-muted-foreground">Propostas, contratos e atas que preparamos para você</span>
-          </div>
-        </CardHeader>
-        {r.documentos.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-            <FileText className="h-8 w-8 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">Ainda não preparamos nenhum documento para você.</p>
-          </div>
-        ) : (
-          <div className="divide-y">
-            {r.documentos.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => setDocId(d.id)}
-                className="flex w-full items-center gap-3 px-5 py-3.5 text-left text-sm transition-colors hover:bg-accent/40"
-              >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/5 text-primary ring-1 ring-inset ring-primary/10">
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div className="flex-1">
-                  <div className="font-medium">{d.titulo}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Disponível desde {dataHora(d.updatedAt)}
-                  </div>
-                </div>
-                {(() => {
-                  const k = situacaoDocumento(d).key;
-                  const selo =
-                    k === "ACEITA" || k === "ASSINADO"
-                      ? { l: k === "ACEITA" ? "Aceita" : "Assinado", c: "bg-success/10 text-success" }
-                      : k === "RECUSADA"
-                        ? { l: "Recusada", c: "bg-muted text-muted-foreground" }
-                        : null;
-                  return selo ? (
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${selo.c}`}>{selo.l}</span>
-                  ) : null;
-                })()}
-                <span className="text-xs font-medium text-primary">Abrir</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* Seus documentos (o CLIENTE envia: RG, CPF, CRM…) — separado dos documentos da Med acima */}
-      <PortalMeusDocumentos />
-
-      {/* Quem da clínica entra aqui (ADR-131). Fica DEPOIS do trabalho do dia a dia porque é
-          configuração: quem entra aqui mexe nisso uma vez e volta ao que veio fazer. */}
-      <PortalMinhaEquipe />
-
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            <Mail className="h-4 w-4 text-muted-foreground" /> Seus e-mails
-          </CardTitle>
-          <span className="text-xs text-muted-foreground">Tudo que enviamos para você</span>
-        </CardHeader>
-        <div className="p-4 pt-1">
-          <EmailsEnviadosList emails={emails.data ?? []} mostrarStatus={false} vazio="Você ainda não recebeu e-mails." />
-        </div>
       </Card>
 
       <Card>
@@ -553,8 +452,6 @@ export function PortalHome() {
           </div>
         )}
       </Card>
-
-      {docId && <PortalDocumentoModal id={docId} onClose={() => setDocId(null)} />}
     </div>
   );
 }
