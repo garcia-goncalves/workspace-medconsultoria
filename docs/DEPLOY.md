@@ -95,6 +95,8 @@ git push origin v1.2.0
 | `v1.0.0` | `bd61f6a` | 22/08/2026 19:03 | `32591319305` |
 | `v1.1.0` | `d5dcc7c` | 26/08/2026 18:57 | `33015554302` |
 | `v1.2.0` | `cf243e6` | 27/08/2026 21:43 | `33129316255` |
+| `v1.2.1` | `9ef24e9` | 28/08/2026 02:41 | `33135568404` |
+| `v1.3.0` | `bed5f1a` | 28/08/2026 23:27 | `33218952176` |
 
 E **conferir na tela** — o smoke test prova que o site responde, não que a tela nova desenha
 certo. Foi assim que a ADR-118 quase foi ao ar mostrando `R$ NaN` sem um único erro de

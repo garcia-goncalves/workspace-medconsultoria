@@ -13,7 +13,46 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-28 · noite · ADR-141 — CONFORMIDADE COM A LEI: os 4 itens, construídos)
+## Estado atual (2026-08-28 · noite · v1.3.0 NO AR — o lote ADR-139 + ADR-140 + ADR-141 publicado)
+
+- **✅ NO AR DESDE 28/08/2026 às 23:27 (20:27 no servidor) — a v1.3.0.** Publicação `33218952176`
+  no commit `bed5f1a`, disparada por `workflow_dispatch` (o `gh workflow run` **foi barrado para mim
+  de novo**; quem colou o comando com `!` foi o dono). A **suíte completa rodou antes de tocar no
+  servidor** (`build-test` + `e2e` + `integration`, os três verdes), depois 7/7 no deploy:
+  `node_modules preservado`, `found 0 vulnerabilities`, **`All migrations have been successfully
+  applied.`** (a `20260828220208`), ensaio de boot com **16 portas ouvindo**,
+  `restart.txt marcado em 2026-08-28 20:27:25`, `/health` = `{"status":"ok"}`, `/` e
+  `/credenciamentos` = **200**. Etiqueta **`v1.3.0`** criada e enviada à mão (o `deploy.yml`
+  continua não criando).
+- **🖥️ CONFERIDO NA TELA DE PRODUÇÃO, COMO ROOT** — e desta vez deu, porque o Chrome do dono estava
+  com sessão de ROOT (nas publicações anteriores estava com sessão de cliente do Portal). Provado:
+  **`/privacidade` existe e desenha** (versão `2026-08-28`, os prazos 180 dias / 5 anos, a
+  declaração do envio à OpenAI com a lista do que é redigido) · o **bloco de consentimento em
+  `/comecar`** com o link · **`SISTEMA → Privacidade`** com o expurgo e a área de eliminação
+  (⚠️ **o botão "Rodar o expurgo agora" NÃO foi clicado** — apaga dado) · **`Ajustes → Dados da
+  empresa`** com a seção nova *Privacidade e prazos de guarda* · uptime de **1 minuto**, provando o
+  reinício · **zero erro de console** em todas elas.
+- **🚨 ACHADO NA CONFERÊNCIA, E É O QUE TRAVA O DADO REAL: os dados jurídicos e bancários de
+  PRODUÇÃO estão TODOS EM BRANCO.** Razão social, CNPJ, foro de eleição, endereço completo, banco,
+  agência, conta, titular e chave PIX — **os nove vazios**, conferidos campo a campo na tela em
+  28/08. ⚠️ **A linha que dizia o contrário nesta documentação estava ERRADA** (o "conferido na
+  tela em 27/08: Nubank / 0001 / 686169152-5…" era do banco **local**, não de produção; a linha foi
+  corrigida). Consequência real, hoje, em três lugares: **o contrato sai com `[A PREENCHER]`** na
+  qualificação da CONTRATADA; **a proposta sai SEM o bloco de dados para pagamento** (com os cinco
+  em branco a seção inteira some, por projeto); e o **aviso de privacidade não identifica o
+  controlador** — diz só "MedConsultoria", sem razão social nem CNPJ, que é justamente o que a LGPD
+  manda a página trazer. **Nada disso é defeito de código** — os três comportamentos são os
+  corretos para campo vazio. É cadastro que falta, e é do dono.
+- **🕵️ O encarregado de dados (DPO) também está em branco**, e aí o comportamento é benigno: a
+  página cai no e-mail institucional (`comercial@medconsultoria.com.br`) e **não inventa um nome**.
+  Indicar a pessoa é recomendável, não bloqueante.
+- **🩺 O banco de produção continua caindo, e segue intocado por ordem do dono.** `SISTEMA → Erros`
+  mostra **5 erros não resolvidos, e os 5 são de hospedagem** — quatro `Can't reach database server
+  at localhost:3306` e um esgotamento do pool (limite 13, timeout 10s). O mais recente é de **20
+  horas antes da publicação**: ⚠️ **nenhum erro novo nasceu com este lote**. No momento da
+  conferência o banco estava **Online, latência 2 ms**.
+
+## Estado anterior (2026-08-28 · noite · ADR-141 — CONFORMIDADE COM A LEI: os 4 itens · JÁ NO AR na v1.3.0)
 
 > **Leia a ADR-141 em `docs/DECISIONS.md`.** O diagnóstico que originou o trabalho está em
 > `docs/esteira/lgpd-2026-08-28/O-QUE-FALTA.md` (agora marcado como histórico).
@@ -76,7 +115,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   migração própria.
 - **M1, C10, M15, F8, F9** (dinheiro) e **C1, C2, M6, M8** (trabalho invisível) seguem abertos: são
   regra de negócio, não conformidade legal.
-- **Não está no ar:** a **v1.2.1** continua sendo o que roda. Publicar UMA vez, no fim de tudo.
+- ~~**Não está no ar:** a v1.2.1 continua sendo o que roda.~~ **PUBLICADO em 28/08 às 23:27 — é a v1.3.0.**
 
 ## Estado anterior (2026-08-28 · madrugada · ADR-140 — A AUDITORIA TOTAL: 14 correções, 6 delas de segurança ou perda de dado)
 
@@ -608,7 +647,10 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - **🧹 PADRONIZAÇÃO ACHADA CLICANDO (ADR-130):** título **duplicado** no corpo de Contrato, Escopo e Recibo (o cabeçalho da folha já o imprime) · *"Suporte comercial"* era `###` filho da seção errada, virou `##` · os grupos do **Onboarding** eram negrito, não título — ⚠️ **negrito não é título e a paginação não o protege de ficar órfão** · a **descrição do serviço saiu de dentro da linha** da tabela e ganhou linha própria · *"5% do faturamento (Faturamento) — por mês"* virou **"Faturamento: 5% do faturamento mensal"** · `Foto 3x4` → `Foto 3×4`.
 - **📏 MEDIDO E NÃO MUDADO (ADR-130):** o vazio de meia folha na proposta de credenciamento **não é defeito** — sobravam 316px de conteúdo, mas com as margens o espaço útil era ~124px e a lista tem 193px. Fatiar deixaria "3 passos aqui, 3 na outra folha". Vale a regra da ADR-129: **o bloco desce inteiro**.
 - **✅ O item que faltava aqui — vários usuários por clínica — FOI FEITO na ADR-131** (ver Estado atual).
-- **🏦 Os dados bancários de produção JÁ FORAM preenchidos pelo dono** (conferido na tela em 27/08: Nubank / 0001 / 686169152-5 / Thais Garcia Gestão Saúde / PIX 34.270.022/0001-93).
+- **🏦 ⚠️ ERRATA (28/08): os dados bancários de PRODUÇÃO NÃO estão preenchidos.** O que foi
+  conferido em 27/08 (Nubank / 0001 / 686169152-5 / Thais Garcia Gestão Saúde / PIX
+  34.270.022/0001-93) era o banco **local**. Em produção os cinco campos estão **vazios**, junto
+  com os quatro jurídicos — conferido campo a campo na tela em 28/08. Ver o Estado atual.
 
 ## Estado anterior (2026-08-27 · ADR-129)
 

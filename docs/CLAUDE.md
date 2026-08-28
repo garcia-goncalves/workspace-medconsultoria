@@ -573,6 +573,15 @@ acharia mais pelo funil (a falha de costura das ADR-105 e ADR-128).
 
 ## 12.13. Conformidade com a lei — o que não pode ser desfeito sem decisão (ADR-141)
 
+> **NO AR desde 28/08/2026 às 23:27, na v1.3.0** (execução `33218952176`, commit `bed5f1a`,
+> migração `20260828220208` aplicada). Conferido na tela de produção como ROOT.
+>
+> ⚠️ **PENDÊNCIA DE CADASTRO, NÃO DE CÓDIGO:** em produção a razão social, o CNPJ, o endereço e o
+> foro estão **em branco**, e por isso o aviso em `/privacidade` diz só "MedConsultoria" — sem
+> identificar o controlador, que é o que a LGPD manda a página trazer. O comportamento do código é
+> o correto (não inventar dado jurídico); o que falta é o dono preencher **Ajustes → Dados da
+> empresa**. Os cinco campos bancários e o encarregado de dados também estão vazios.
+
 **A OpenAI nunca vê dado pessoal identificável.** A peneira (`redigirDadoPessoal`, `@app/shared`)
 mora na **porta única** — `gerarRascunho`, em `apps/api/src/lib/ai.ts`. ⚠️ **Não mova a peneira para
 os pontos de chamada**: são 16 hoje, e o filtro no portão é o que faz a chamada de amanhã nascer
