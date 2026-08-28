@@ -17,6 +17,7 @@ const DefinirSenhaPage = lazy(() => import("./features/auth/DefinirSenhaPage").t
 const EsqueciSenhaPage = lazy(() => import("./features/auth/EsqueciSenhaPage").then((m) => ({ default: m.EsqueciSenhaPage })));
 const RedefinirSenhaPage = lazy(() => import("./features/auth/RedefinirSenhaPage").then((m) => ({ default: m.RedefinirSenhaPage })));
 const TrocarSenhaPrimeiroAcessoPage = lazy(() => import("./features/auth/TrocarSenhaPrimeiroAcessoPage").then((m) => ({ default: m.TrocarSenhaPrimeiroAcessoPage })));
+const PrivacidadePage = lazy(() => import("./features/publico/PrivacidadePage").then((m) => ({ default: m.PrivacidadePage })));
 const CapturaLeadPage = lazy(() => import("./features/captura/CapturaLeadPage").then((m) => ({ default: m.CapturaLeadPage })));
 const AssinarPage = lazy(() => import("./features/assinaturas/AssinarPage").then((m) => ({ default: m.AssinarPage })));
 const PropostaPublicaPage = lazy(() => import("./features/propostas/PropostaPublicaPage").then((m) => ({ default: m.PropostaPublicaPage })));
@@ -55,6 +56,9 @@ export function App() {
   if (publicPath === "/redefinir-senha") return <SobDemanda><RedefinirSenhaPage /></SobDemanda>;
   // Caminho amigável para o lead. Nome antigo (`/captura`) foi removido de propósito:
   // "captura" assustava o futuro cliente. Só existe `/comecar`.
+  // Aviso de privacidade (LGPD, ADR-141). Pública de propósito: ela é a prova de
+  // transparência, e exigir login para ler a política de dados seria o contrário disso.
+  if (publicPath === "/privacidade") return <SobDemanda><PrivacidadePage /></SobDemanda>;
   if (publicPath === "/comecar") return <SobDemanda><CapturaLeadPage /></SobDemanda>;
   if (publicPath.startsWith("/assinar/")) return <SobDemanda><AssinarPage token={decodeURIComponent(publicPath.slice("/assinar/".length))} /></SobDemanda>;
   if (publicPath.startsWith("/proposta/")) return <SobDemanda><PropostaPublicaPage token={decodeURIComponent(publicPath.slice("/proposta/".length))} /></SobDemanda>;

@@ -92,3 +92,33 @@ export function restaurarDadoPessoal(texto: string, achados: AchadoPessoal[]): s
 /** Instrução acrescentada ao system quando houve algo a esconder. */
 export const AVISO_MARCADORES_IA =
   "IMPORTANTE: o texto contém marcadores no formato [[TIPO-N]] (ex.: [[CPF-1]]) que substituem dados sigilosos. Mantenha cada marcador EXATAMENTE como está, no mesmo lugar. Nunca invente, complete, traduza ou remova um marcador.";
+
+/**
+ * ELIMINAÇÃO PELO TITULAR (LGPD art. 18, V) — ADR-141.
+ *
+ * Apagar de verdade é impossível aqui, e não por preguiça: contrato assinado, conta a
+ * receber e processo de credenciamento têm guarda obrigatória, e `excluirDefinitivoCliente`
+ * bloqueia diante de QUALQUER vínculo — na prática nenhum cliente real é eliminável.
+ * Anonimizar é a saída que a lei aceita quando existe dever de guarda: o dado deixa de
+ * identificar a pessoa, as linhas contábeis continuam de pé.
+ */
+export const MARCADOR_ANONIMIZADO = "[dado removido a pedido do titular]";
+
+/**
+ * E-mail de quem foi anonimizado. Precisa ser ÚNICO (a coluna é única) e precisa ser
+ * inválido de propósito — endereço plausível voltaria a receber e-mail nosso.
+ */
+export function emailAnonimizado(id: string): string {
+  return `removido-${id}@invalido.local`;
+}
+
+/**
+ * Versão do AVISO DE PRIVACIDADE em vigor (ADR-141) — a data em que o texto de
+ * `/privacidade` mudou pela última vez.
+ *
+ * ⚠️ Guardar só a data do aceite não prova nada: o texto muda com o tempo, e a prova do
+ * consentimento é a data MAIS o que estava escrito naquele dia. Quem editar a página
+ * PRECISA subir este número — é por isso que ele mora ao lado do resto da regra de dado
+ * pessoal, e não escondido dentro do componente da tela.
+ */
+export const AVISO_PRIVACIDADE_VERSAO = "2026-08-28";

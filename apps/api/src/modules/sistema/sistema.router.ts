@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { listarArquivadosParaPrivacidade } from "../clientes/anonimizar.service.js";
+import { expurgarDadosVencidos } from "./retencao.service.js";
 import { router, rootProcedure } from "../../trpc/trpc.js";
 import * as sistema from "./sistema.service.js";
 
@@ -41,6 +43,11 @@ export const sistemaRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(({ input }) => sistema.resolverIncidente(input.id)),
   limparSessoesExpiradas: rootProcedure.mutation(() => sistema.limparSessoesExpiradas()),
+
+  // PRIVACIDADE (LGPD, ADR-141). A lista de arquivados vive aqui porque toda tela de cliente
+  // filtra `deletedAt: null` — sem ela, o direito de eliminação não teria por onde ser exercido.
+  clientesArquivados: rootProcedure.query(() => listarArquivadosParaPrivacidade()),
+  expurgarAgora: rootProcedure.mutation(() => expurgarDadosVencidos()),
 
   // Ações em massa + varredura sob demanda.
   resolverTodosErros: rootProcedure.mutation(() => sistema.resolverTodosErros()),

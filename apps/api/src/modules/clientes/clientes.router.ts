@@ -14,6 +14,7 @@ import {
   pessoaPortalSchema,
 } from "@app/shared";
 import { router, funcionarioProcedure, adminProcedure, rootProcedure } from "../../trpc/trpc.js";
+import { anonimizarCliente } from "./anonimizar.service.js";
 import * as service from "./clientes.service.js";
 import * as servicosCliente from "../servicos/servicos-cliente.service.js";
 import * as arquivos from "../arquivos/arquivos.service.js";
@@ -128,6 +129,12 @@ export const clientesRouter = router({
   excluirDefinitivo: rootProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ input, ctx }) => service.excluirDefinitivoCliente(input.id, ctx.user.id)),
+
+  // ELIMINAÇÃO PELO TITULAR (LGPD, ADR-141) — a resposta que faltava a um pedido de
+  // exclusão. ROOT, como a exclusão definitiva, e só depois de o cliente estar arquivado.
+  anonimizar: rootProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ input, ctx }) => anonimizarCliente(input.id, ctx.user.id)),
 
   addContato: funcionarioProcedure
     .input(createContatoSchema)

@@ -17,6 +17,7 @@ import { initRealtime } from "./realtime/socket.js";
 import { registrarRotasArquivos } from "./http/uploads.js";
 import { registrarRotaCorpoEmail } from "./http/email-corpo.js";
 import { registrarRotaAnexoEmail, iniciarLimpezaAnexosTemp } from "./http/email-anexo.js";
+import { iniciarExpurgoDeRetencao } from "./modules/sistema/retencao.service.js";
 import { validarPastaUploads } from "./lib/storage.js";
 import { startReminderLoop } from "./realtime/reminders.js";
 import { startMonitor } from "./observability/monitor.js";
@@ -150,6 +151,8 @@ startReminderLoop();
 startMonitor();
 startAlertas();
 iniciarLimpezaAnexosTemp();
+// Prazo de guarda da LGPD (ADR-141): retenção sem rotina não é política de retenção.
+iniciarExpurgoDeRetencao();
 
 await app.listen({ port: config.API_PORT, host: "0.0.0.0" });
 app.log.info(`API ouvindo na porta ${config.API_PORT}`);

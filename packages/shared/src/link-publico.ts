@@ -59,3 +59,15 @@ export function mensagemDeLinkExpirado(s: SituacaoDoLinkPublico): string {
     ? `Este link expirou em ${dia}. Ele fica disponível por ${DIAS_APOS_RESPOSTA} dias depois da resposta, para consulta. Peça uma cópia à equipe da MedConsultoria.`
     : `Este link expirou em ${dia}. Ele vale por ${DIAS_PARA_ABRIR} dias a partir do envio. Peça um novo link à equipe da MedConsultoria.`;
 }
+
+/**
+ * PRAZO DE GUARDA (ADR-141) — a data a partir da qual o conteúdo pode ser expurgado.
+ * Fica aqui, e não solto no serviço, para a tela de Ajustes mostrar exatamente a mesma
+ * conta que o servidor executa (o modo de falha da ADR-133: duas leituras da mesma regra).
+ */
+export function dataLimiteDeGuarda(dias: number, agora: Date): Date {
+  return new Date(agora.getTime() - dias * UM_DIA);
+}
+
+/** O que fica no lugar do corpo expurgado. Vazio pareceria defeito; isto explica. */
+export const CORPO_EXPURGADO = "[conteúdo removido pelo prazo de guarda]";

@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { dataHora, dataUTC, haQuanto } from "../../lib/format-date";
+import { useConfirm } from "../../components/ui/confirm-dialog";
 import { PageHeader } from "../../components/ui/page-header";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -54,7 +55,8 @@ type Aba =
   | "sessoes"
   | "atividade"
   | "manutencao"
-  | "auditoria";
+  | "auditoria"
+  | "privacidade";
 type Nivel = "ok" | "degradado" | "critico";
 
 const ABAS: { id: Aba; label: string; icon: typeof Activity }[] = [
@@ -68,6 +70,7 @@ const ABAS: { id: Aba; label: string; icon: typeof Activity }[] = [
   { id: "atividade", label: "Atividade", icon: History },
   { id: "manutencao", label: "Manutenção", icon: Settings2 },
   { id: "auditoria", label: "Auditoria", icon: ClipboardCheck },
+  { id: "privacidade", label: "Privacidade", icon: ShieldCheck },
 ];
 
 export function SistemaPage() {
@@ -118,6 +121,7 @@ export function SistemaPage() {
       {aba === "atividade" && <AbaAtividade />}
       {aba === "manutencao" && <AbaManutencao />}
       {aba === "auditoria" && <AbaAuditoria />}
+      {aba === "privacidade" && <AbaPrivacidade />}
     </div>
   );
 }
@@ -1154,6 +1158,150 @@ function AbaAtividade() {
         </ul>
       </CardContent>
     </Card>
+  );
+}
+
+
+/* ----------------------------- Privacidade (LGPD — ADR-141) ----------------------------- */
+
+/**
+ * PRIVACIDADE — onde o direito de eliminação vira uma ação que alguém consegue executar.
+ *
+ * ⚠️ A LISTA É DE ARQUIVADOS, e não é uma escolha estética: toda tela de cliente filtra
+ * `deletedAt: null`, então depois de arquivado o cliente some da aplicação inteira. Sem
+ * esta tela, um pedido de eliminação não teria por onde ser atendido.
+ *
+ * ⚠️ ANONIMIZAR É IRREVERSÍVEL e não pede confirmação de brincadeira: a frase diz o que
+ * SAI e o que FICA, porque quem clica precisa saber que o contrato assinado continua com o
+ * nome dentro — é o dever de guarda, não uma falha.
+ */
+function AbaPrivacidade() {
+  const utils = trpc.useUtils();
+  const confirm = useConfirm();
+  const lista = trpc.sistema.clientesArquivados.useQuery();
+  const expurgo = trpc.sistema.expurgarAgora.useMutation();
+  const anonimizar = trpc.clientes.anonimizar.useMutation({
+    onSuccess: () => void utils.sistema.clientesArquivados.invalidate(),
+  });
+
+  return (
+    <div className="space-y-6">
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          <Trash2 className="h-4 w-4" /> Prazo de guarda
+        </h2>
+        <div className="rounded-xl border p-4 text-sm">
+          <p className="text-muted-foreground">
+            O texto dos e-mails enviados e a pilha dos erros são apagados sozinhos todo dia,
+            depois do prazo definido em <strong>Ajustes → Dados da empresa</strong>. Este botão
+            só antecipa a passada de hoje — não muda prazo nenhum.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Button size="sm" variant="outline" disabled={expurgo.isPending} onClick={() => expurgo.mutate()}>
+              Rodar o expurgo agora
+            </Button>
+            {expurgo.data && (
+              <span className="text-xs text-muted-foreground">
+                Prazo de {expurgo.data.dias} dias · {expurgo.data.emails} e-mails e {expurgo.data.erros} erros limpos nesta passada.
+              </span>
+            )}
+            {expurgo.error && <span className="text-xs text-destructive">{expurgo.error.message}</span>}
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          <ShieldCheck className="h-4 w-4" /> Pedido de eliminação (clientes arquivados)
+        </h2>
+        {lista.isLoading ? (
+          <Skeleton className="h-40 w-full rounded-xl" />
+        ) : lista.error ? (
+          <QueryError message={lista.error.message} onRetry={() => lista.refetch()} />
+        ) : !lista.data?.clientes.length ? (
+          <EmptyState
+            icon={ShieldCheck}
+            title="Nenhum cliente arquivado"
+            description="A eliminação só é possível depois de arquivar o cliente. Enquanto ele está ativo, anonimizar apagaria o registro dos médicos no meio de credenciamentos em andamento."
+          />
+        ) : (
+          <div className="overflow-x-auto rounded-xl border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2">Cliente</th>
+                  <th className="px-3 py-2">Arquivado em</th>
+                  <th className="px-3 py-2">Pessoas no cadastro</th>
+                  <th className="px-3 py-2">Acervo</th>
+                  <th className="px-3 py-2">Situação</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {lista.data.clientes.map((c) => (
+                  <tr key={c.id} className="border-t">
+                    <td className="px-3 py-2">
+                      <div className="font-medium">{c.nome}</div>
+                      {c.cnpj && <div className="text-xs text-muted-foreground">{c.cnpj}</div>}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">{c.arquivadoEm ? dataHora(c.arquivadoEm) : "—"}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{c.pessoas}</td>
+                    <td className="px-3 py-2">
+                      {c.acervoVencido ? (
+                        <span className="text-xs font-medium text-warning">
+                          {c.arquivos} arquivos · passou dos {lista.data.anos} anos
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">{c.arquivos} arquivos</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {c.anonimizadoEm ? (
+                        <span className="text-xs text-muted-foreground">
+                          Anonimizado em {dataHora(c.anonimizadoEm)}
+                          {c.anonimizadoPor ? ` por ${c.anonimizadoPor}` : ""}
+                        </span>
+                      ) : (
+                        <span className="text-xs">Dados pessoais presentes</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {!c.anonimizadoEm && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-destructive"
+                          disabled={anonimizar.isPending}
+                          onClick={async () => {
+                            if (
+                              await confirm({
+                                title: "Anonimizar a pedido do titular",
+                                description:
+                                  `SAI para sempre: nome, CNPJ, e-mail, telefone e observações de "${c.nome}", ` +
+                                  "os dados dos contatos e dos médicos, e o acesso ao Portal (as sessões abertas caem). " +
+                                  "FICA, por obrigação legal de guarda: os contratos e propostas já emitidos, que " +
+                                  "continuam com o nome dentro, as contas do financeiro e o registro de auditoria. " +
+                                  "Não há como desfazer.",
+                                confirmText: "Anonimizar",
+                                variant: "destructive",
+                              })
+                            )
+                              anonimizar.mutate({ id: c.id });
+                          }}
+                        >
+                          Anonimizar
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {anonimizar.error && <p className="text-sm text-destructive">{anonimizar.error.message}</p>}
+      </section>
+    </div>
   );
 }
 

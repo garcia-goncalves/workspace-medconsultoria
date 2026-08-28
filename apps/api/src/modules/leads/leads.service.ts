@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import type { CreateLeadInput, UpdateLeadInput, MoveLeadInput, CapturaLeadInput } from "@app/shared";
-import { situacaoDocumento, planejarEstimativaDoLead, tituloDoPassoDeEstimativa } from "@app/shared";
+import { situacaoDocumento, planejarEstimativaDoLead, tituloDoPassoDeEstimativa, AVISO_PRIVACIDADE_VERSAO } from "@app/shared";
 import { listStages } from "../pipeline/pipeline.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { convidarUsuario, reenviarConvite, garantirAcessoPortal } from "../usuarios/usuarios.service.js";
@@ -1531,6 +1531,9 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
         where: { id: existente.id },
         data: {
           ...(estavaPerdido ? { perdidoEm: null, motivoPerda: null, ordem: ordemNaColuna } : {}),
+          // Voltou pelo site: aceitou de novo, e possivelmente uma VERSÃO nova do aviso.
+          privacidadeAceitaEm: new Date(),
+          privacidadeVersao: AVISO_PRIVACIDADE_VERSAO,
           empresa: completar(existente.empresa, clean(input.empresa)),
           telefone: completar(existente.telefone, clean(input.telefone)),
           observacoes:
@@ -1573,6 +1576,11 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
       pipelineStageId: stageId,
       ordem: (max._max.ordem ?? -1) + 1,
       responsavelId: null,
+      // Consentimento do aviso de privacidade (LGPD, ADR-141). A data SOZINHA não prova
+      // nada — o texto muda; a prova é a data mais a VERSÃO que estava no ar naquele dia.
+      // Só o cadastro pelo site grava isto: quem a equipe cadastra à mão não viu o aviso.
+      privacidadeAceitaEm: new Date(),
+      privacidadeVersao: AVISO_PRIVACIDADE_VERSAO,
       servicos: input.servicoIds?.length ? { connect: input.servicoIds.map((id) => ({ id })) } : undefined,
     },
   });
