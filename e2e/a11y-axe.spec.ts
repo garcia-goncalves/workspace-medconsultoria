@@ -31,11 +31,16 @@ test.describe("axe — login e Portal do cliente", () => {
     const sev = await varrer(page, "/login");
     expect(sev, sev.map((v) => `${v.id}: ${v.help}`).join("\n")).toEqual([]);
   });
-  test("Portal (cliente)", async ({ browser }) => {
-    const ctx = await browser.newContext({ storageState: "e2e/.auth/cliente.json" });
-    const page = await ctx.newPage();
-    const sev = await varrer(page, "/");
-    await ctx.close();
-    expect(sev, sev.map((v) => `${v.id}: ${v.help}`).join("\n")).toEqual([]);
-  });
+  // O Portal deixou de ser uma página só: cada seção é uma tela, com a barra de navegação
+  // junto. Varrer apenas o Início deixaria de fora justamente o que é novo — os rótulos e os
+  // contadores da barra, que só um leitor de tela consegue reclamar.
+  for (const url of ["/portal", "/portal/documentos", "/portal/servicos", "/portal/suporte", "/portal/equipe"]) {
+    test(`Portal (cliente): ${url}`, async ({ browser }) => {
+      const ctx = await browser.newContext({ storageState: "e2e/.auth/cliente.json" });
+      const page = await ctx.newPage();
+      const sev = await varrer(page, url);
+      await ctx.close();
+      expect(sev, sev.map((v) => `${v.id}: ${v.help}`).join("\n")).toEqual([]);
+    });
+  }
 });
