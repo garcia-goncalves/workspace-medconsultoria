@@ -4373,3 +4373,138 @@ modelo que nunca saem, cliente que não sabe que o suporte respondeu.
 typecheck 6/6 · lint limpo · **688 testes** do `@app/api` (9 novos, **todos vistos reprovando antes
 da correção**) · 171 do `@app/web` · 99 de ponta a ponta · e na tela, como ROOT e como cliente do
 Portal, sem erro de console numa carga limpa. **Zero migração** — nada mudou no banco.
+
+---
+
+## ADR-141 — Conformidade com a lei antes do dado real: a peneira no portão, o link que expira e o direito que dá para exercer
+
+**Data:** 2026-08-28 · **Situação:** aceita · **Ordem do dono:** *"Não quero quebrar regras de lei.
+Resolva tudo e deixe tudo conforme a lei."*
+
+### Contexto
+
+A auditoria total (ADR-140) deixou quatro itens de conformidade em aberto, listados em
+`docs/esteira/lgpd-2026-08-28/O-QUE-FALTA.md`. Não eram defeitos de funcionamento — a aplicação
+fazia tudo o que se pedia dela. Eram obrigações da LGPD que ninguém tinha atendido, e o dado real
+ia começar a entrar em produção.
+
+### 1. Dado de cliente indo para a OpenAI
+
+**O achado.** `resumirCliente` e `sugerirProximoPassoLead` mandavam `cliente.observacoes` e
+`lead.observacoes` inteiros para a OpenAI. Esse campo **não é neutro**: a migração
+`20260819161500_cliente_sempre_pj` moveu para dentro dele o CPF de todo cliente que era pessoa
+física, e `leads.service` grava ali o texto livre que qualquer pessoa digita no formulário público.
+Havia transferência de dado pessoal identificável a um operador estrangeiro, sem base legal
+registrada — e o próprio `docs/IA_PRIVACIDADE.md` **prometia mandar menos do que o código mandava**.
+
+**A decisão: a peneira mora no PORTÃO.** A app inteira fala com a OpenAI por uma única função,
+`gerarRascunho` (`apps/api/src/lib/ai.ts`) — 16 chamadas, uma porta. `redigirDadoPessoal`
+(`@app/shared`, pura e testada) esconde CPF, CNPJ, CRM, RG, telefone, e-mail, CEP e todo número de
+11 ou 14 dígitos sem máscara antes do envio. ⚠️ **Corrigir só as duas montagens de contexto seria
+repetir o erro da ADR-140**: a chamada de amanhã nasceria descoberta.
+
+**⚠️ O par redigir/restaurar, e por que apagar estaria errado.** "Melhorar com IA" devolve o corpo
+do documento. Apagar o dado faria um contrato voltar com `[removido]` no lugar do CNPJ, a Thaís
+aprovaria, e o papel sairia mutilado — um problema trocado por outro. Então cada dado vira uma
+etiqueta `[[CPF-1]]` na ida e **volta ao original na resposta**. O terceiro nunca vê o dado; o
+rascunho continua inteiro.
+
+**⚠️ Segunda camada, porque expressão regular só pega o que tem FORMA.** Texto corrido — "o filho do
+Dr. João" — nenhum filtro pega. Por isso `observacoes` saiu do contexto **na origem**, nas duas
+montagens: é campo livre e não é necessário para o resumo funcionar.
+
+**O que continua saindo, de propósito:** o **nome** do cliente. Sem ele o resumo não serve para
+nada. Trocá-lo por identificador segue registrado como decisão jurídica em aberto.
+
+### 2. Retenção, eliminação e a página que não existia
+
+**A eliminação virou anonimização.** `excluirDefinitivoCliente` bloqueia diante de **qualquer**
+vínculo, e todo cliente real tem vários: na prática nenhum era eliminável, e a app não tinha
+resposta nenhuma para um pedido do titular. Anonimizar é a saída que a lei aceita quando existe
+dever de guarda. Sai nome, CNPJ, e-mail, telefone e observações da ficha, dos contatos e dos
+médicos; o acesso ao Portal cai e as sessões em voo morrem.
+
+⚠️ **O que FICA, de propósito:** o corpo dos contratos e propostas já emitidos, com o nome dentro.
+É o próprio dever de guarda que justifica manter, e reescrever contrato assinado destruiria a prova
+— pior para os dois lados. **A confirmação na tela diz isso**, senão pareceria defeito.
+
+⚠️ **Exige o cliente ARQUIVADO.** Anonimizar quem está em contrato apagaria o CRM do médico no meio
+de um credenciamento em andamento.
+
+⚠️ **A tela mora no painel do ROOT, não na ficha**, e isso não é escolha estética: toda tela de
+cliente filtra `deletedAt: null`, então depois de arquivado o cliente some da aplicação inteira. Sem
+a aba *Privacidade* em SISTEMA, o direito existiria só no servidor, sem ninguém conseguir exercê-lo.
+
+**O expurgo tem ROTINA.** `EmailEnviado` guardava o corpo completo para sempre e `ErrorLog` a pilha
+inteira, que carrega o que a pessoa digitou. Agora o corpo é apagado depois do prazo, todo dia, por
+`setInterval` no boot — mesmo molde da varredura de anexos temporários, já que a hospedagem não tem
+cron. ⚠️ **O metadado fica** (para quem, assunto, quando, entregue ou não): é dele que vive o monitor
+que provou, em 22/08, que o e-mail voltou a sair. ⚠️ **Um botão que alguém pode esquecer de apertar
+não é política de retenção** — daí a rotina automática, com o botão só como atalho.
+
+**Prazos, decididos e editáveis:** corpo de e-mail **180 dias**; acervo de credenciamento **5 anos**
+após o fim do contrato, e aí o sistema **avisa**, nunca apaga — apagar sozinho o diploma de um médico
+é pior que guardar demais. Os dois moram em *Ajustes → Dados da empresa*: prazo é decisão de negócio,
+e mudá-lo não pode exigir publicação.
+
+**A página `/privacidade` nasceu**, pública. Lê razão social, CNPJ, endereço, prazos e encarregado
+**do banco** — mesma regra do `[A PREENCHER]` do foro: o sistema não fabrica dado jurídico. O que ela
+promete é exatamente o que o expurgo cumpre. Declara também o envio à OpenAI e a peneira do item 1,
+fechando uma pendência que o `IA_PRIVACIDADE.md` listava havia meses.
+
+**Consentimento com data E VERSÃO.** A data sozinha não prova nada: o texto muda, e a prova é a data
+mais o que estava escrito naquele dia. ⚠️ **Quem editar a página precisa subir
+`AVISO_PRIVACIDADE_VERSAO`** — por isso a constante mora no `@app/shared`, ao lado da regra, e não
+escondida dentro do componente.
+
+### 3. O link de proposta e de assinatura passou a expirar
+
+`Assinatura.token` e `Documento.propostaToken` são texto claro no banco e não expiravam nunca. Um
+link de um ano atrás, na caixa de um ex-sócio, abria o documento **inteiro** sem login — e ainda
+assinava. Um backup do banco entregava poder de **assinar**, não só de ler.
+
+**ZERO MIGRAÇÃO:** a validade é derivada de datas que já existem (`Assinatura.criadoEm`,
+`Documento.propostaSolicitadaEm`). **30 dias** para abrir; depois de respondido, mais **90** contados
+da resposta, só para o signatário reler o que assinou. Pedir assinatura de novo apaga e recria as
+linhas, então reenviar o convite realmente renova o prazo.
+
+⚠️ **A trava está nas QUATRO portas.** Barrar `getPorToken` e deixar `assinar`/`responder` abertos
+seria literalmente a segunda porta da ADR-140. Há teste que conta as ocorrências nos dois serviços e
+reprova quem tirar uma.
+
+⚠️ **`PRECONDITION_FAILED`, não erro cru:** link vencido é estado esperado, e `new Error` vira
+INTERNAL no tRPC e enche o painel do ROOT de ruído (lição da ADR-135).
+
+⚠️ **Na tela são TRÊS frases, não duas:** falha de rede ("seu link continua valendo"), **expirado**
+(tela própria, com a data e o e-mail da equipe) e inválido ("confira se copiou o endereço inteiro").
+Dizer "link inválido" a quem tem o link certo, só velho, o faz achar que foi enganado — e a saída
+dele é outra. O título "Link inválido" ficou intacto porque há e2e que o exige
+(`flows-erros-ux.spec.ts:45`).
+
+**Cada abertura por token passa a ficar registrada** no `activityLog`. Antes ninguém sabia quem
+tinha aberto o documento.
+
+### 4. Credenciamento reaberto cobra de novo — decisão do dono: SIM
+
+O honorário nasce na aprovação (ADR-104) e a tentativa nova não herda `contaId`, então o ciclo
+aprovado → encerrado → reaberto → aprovado gera uma **segunda** conta pelo mesmo par médico ×
+operadora. **Está certo:** a proposta real cobra "somente no sucesso" e "após 1 (uma) tentativa", e
+tentativa nova é trabalho novo. **O que faltava era avisar** — faixa âmbar antes do clique, com o
+valor à vista, e **só quando a tentativa anterior realmente cobrou** (`contaId`): uma tentativa
+negada nunca gerou conta, e alarmar ali seria ruído. A decisão ficou escrita no serviço, no ponto
+exato onde alguém tentaria "consertar" herdando a conta — e daria de graça o segundo credenciamento.
+
+### Prova
+
+typecheck 6/6 · lint limpo · **553 testes de unidade** do `@app/api` (**32 novos, todos vistos
+reprovando antes**) · 171 do `@app/web` · migração `20260828220208` **aditiva** (quatro colunas
+nuláveis, duas com padrão, uma FK `SET NULL`; reverter é `DROP COLUMN`).
+
+### O que ficou fora, e por quê
+
+- **DPA com a OpenAI** continua pendência jurídica — mas o risco caiu, porque o dado identificável
+  já não sai daqui.
+- **`Servico.ehCredenciamento`, `@@unique(nome)` em `Servico` e o consentimento da assinatura** pedem
+  migração própria e não entraram neste lote.
+- **M1, C10, M15, F8, F9** (dinheiro) e **C1, C2, M6, M8** (trabalho invisível) seguem abertos: são
+  regra de negócio, não conformidade legal.

@@ -53,3 +53,20 @@ describe("as travas da anonimização", () => {
     expect(svc).toContain("anonimizadoPorId");
   });
 });
+
+describe("credenciamento reaberto cobra de novo — e a tela avisa (ADR-141)", () => {
+  const ler = (p: string) => readFileSync(resolve(__dirname, p), "utf8");
+
+  it("a decisão está escrita onde alguém iria 'consertar' — a tentativa nova NÃO herda a conta", () => {
+    const svc = ler("../modules/servicos/credenciamento-grade.service.ts");
+    expect(svc).toMatch(/NÃO HERDA `contaId`/);
+    // a criação da tentativa nova não copia contaId da anterior
+    expect(svc).not.toMatch(/contaId:\s*anterior\.contaId/);
+  });
+
+  it("o aviso só aparece quando a tentativa anterior REALMENTE cobrou", () => {
+    const ui = ler("../../../web/src/features/crm/clientes/CredenciamentoGradeCard.tsx");
+    expect(ui).toContain("{celula.contaId && (");
+    expect(ui).toMatch(/Isto vai cobrar de novo/);
+  });
+});
