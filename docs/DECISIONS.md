@@ -3806,3 +3806,102 @@ percentil + 5 na escolha do texto por público) · **na tela**, como ROOT: `SIST
 mostrando **"CSP: Ligada"**, e em *Mensagens automáticas* a prévia do novo "Boas-vindas ao Portal
 (cliente)" com botão **"Entrar no Portal"**, rodapé sem o link interno e **zero** ocorrência da
 palavra "workspace" — nele e no de redefinição de senha.
+
+---
+
+## ADR-136 — Os quatro refinos de tela da auditoria: o aviso que faltava na série recorrente, o papel invisível no Portal, o nome do cliente três vezes na mesma linha e "LEAD" contra "cliente"
+
+**Data:** 28/08/2026 · **Estado:** aceita · **Origem:** achados B5–B8 de `docs/auditoria/AUDITORIA-2026-08-27.md`
+
+A ADR-135 fechou os quatro defeitos que faziam a tela **dizer coisa falsa**. Sobraram quatro
+refinos que a auditoria classificou como "nenhum produz dado errado". Três realmente são de
+leitura. **Um não é** — e é por ele que esta ADR começa.
+
+### B6 — editar uma repetição mudava a série inteira, sem dizer
+
+Clicar na reunião desenhada em **24/08** abria o formulário com **03/08**, a 1ª ocorrência. Isso
+está **certo**: evento recorrente é UMA linha no banco (`Evento.recorrencia` + `recorrenciaAte`),
+e o servidor já devolve `baseInicio`/`baseFim` com o comentário dizendo que editar afeta a série
+toda. O defeito é que **a tela não contava isso a ninguém**. Quem corrigisse o horário de uma
+reunião mudava todas as reuniões — e a única pista era a data no campo, que se lê como bug, não
+como aviso.
+
+⚠️ **O conserto NÃO foi passar a editar só a ocorrência clicada.** Isso exigiria exceção por
+data no banco (migração, e a decisão de o que fazer com as ocorrências já passadas) para resolver
+um problema que ainda não foi relatado. O que faltava era a frase.
+
+A regra virou função pura testada (`avisoDeSerie`, em `features/agenda/aviso-serie.ts`), porque
+**quando** avisar tem dois casos que se confundem: clicar na 1ª ocorrência avisa da série mas não
+fala de data (não há divergência), e ⚠️ **hora diferente no mesmo dia não é divergência de dia** —
+comparar `Date` cru acenderia o aviso errado. A comparação usa o formatador central de data
+(`lib/format-date`), que fixa `America/Sao_Paulo`; comparar em UTC trocaria o dia perto da
+meia-noite.
+
+### B7 — a coluna *Papel* não distinguia quem assina
+
+Depois da ADR-131 existem dois papéis dentro da clínica — **Responsável** (aceita proposta,
+contrata, cancela, convida) e **Equipe** (só o operacional) —, e *Equipe e acessos* dizia
+"Cliente" para os dois. Quem olhava não sabia se a secretária pode assinar. A informação existia
+só no card *Pessoas com acesso ao Portal*, dentro da ficha de cada cliente.
+
+`papelPortal` entrou no `publicSelect` de `usuarios.service` e a tela mostra "· Responsável no
+Portal" / "· Equipe no Portal" ao lado do crachá, com o texto de ajuda de `PORTAL_PAPEL_AJUDA` no
+`title`. ⚠️ **Papel nulo é mostrado como Responsável**, a mesma leitura de `podeNoPortal`: são as
+contas anteriores à regra, que sempre puderam tudo. Duas leituras diferentes do mesmo nulo — uma
+na trava, outra na tela — é exatamente o modo de falha da ADR-133.
+
+### B5 — o nome do cliente aparecia até 3× na mesma linha
+
+Na Agenda e em Projetos, o nome vinha **colado dentro do título** e a tela ainda o mostrava à
+parte. Com nome real e comprido, o card ficava ilegível:
+
+```
+Credenciamento médico e odontológico — Consultório Dr. Almeida   ← título, em duas linhas
+Consultório Dr. Almeida                                          ← selo do cliente, logo abaixo
+```
+
+Vinha da geração automática: `garantirCardDoServicoContratado` criava `"<Serviço> — <Cliente>"`, a
+conversão do lead criava `"Reunião de kickoff — <Cliente>"` e `"Projeto — <Cliente>"`. Os títulos
+gerados perderam o sufixo. Foi conferido antes que **toda** tela que lista projeto mostra o
+cliente ao lado: a lista em cards, a tabela e o cabeçalho da ficha (`subtitle`).
+
+⚠️ **Havia um lugar onde o nome do projeto viajava sozinho** — a notificação
+`projeto_participante` ("você foi adicionado ao projeto X"). Sem o cliente no título, dois
+clientes com o mesmo serviço produziriam avisos idênticos. Lá o nome do cliente passou a ser
+**acrescentado explicitamente** (`Gestão Operacional (Clínica Teste CNPJ)`), em vez de depender de
+ele estar embutido no título por acaso.
+
+⚠️ **O que já está gravado NÃO muda.** Os projetos e eventos antigos continuam com o nome dentro
+— renomeá-los em massa mexeria em dado que alguém pode ter editado à mão, para ganhar só estética.
+A tela fica misturada por um tempo, e isso é aceitável.
+
+⚠️ **As contas do Financeiro ficaram como estão** (`Contrato — <Cliente>`, `Mensalidade —
+<Cliente>`), fora do escopo do achado: a página Financeiro não exibe o cliente com o mesmo
+destaque, e tirar o nome de lá é decisão de outra tela.
+
+### B8 — "LEAD" de um lado, "cliente" do outro
+
+Em Mensagens, a lista lateral marcava a conversa com o selo **LEAD** e a assinatura da mensagem,
+na mesma tela, dizia **"Clínica teste · cliente"**. A assinatura olhava só `autor.role === "CLIENTE"`
+(que é o papel no sistema, e o cliente do Portal e o lead são ambos `User` com esse papel);
+agora olha também a categoria da conversa, que é a mesma fonte do selo. Uma fonte só para as duas
+marcas — duas fontes é como elas divergiram.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm -r lint` verdes · **491 testes de unidade** do `@app/api` · **158 do
+`@app/web`** (5 novos em `aviso-serie.test.ts`) · **na tela**, como ROOT no localhost:
+
+- Agenda → clicar na repetição de **24/08** de "Reunião semanal de equipe" abre com a faixa âmbar
+  *"Este evento se repete — salvar altera a série inteira. A data abaixo é a da 1ª repetição
+  (03/08/2026), não a de 24/08/2026 em que você clicou."*, com o campo Início mostrando 03/08.
+- *Equipe e acessos* → as contas de Portal mostram **"Cliente · Responsável no Portal"**.
+  ⚠️ **O caso "Equipe" não foi visto na tela** — não há conta com esse papel no banco local; o
+  texto vem do mesmo `PORTAL_PAPEL_LABEL` que a ficha do cliente já usa e exibe.
+- Contratar "Gestão Operacional" para a *Clínica Teste CNPJ* criou o projeto chamado
+  **"Gestão Operacional"**, com "Clínica Teste CNPJ" no rodapé do card — ao lado dos antigos, que
+  seguem com o nome dentro, como esperado.
+- Mensagens → a conversa com selo **LEAD** agora assina **"Clínica teste · lead"**.
+- **Zero erro de console** em Agenda, Equipe e acessos, Projetos e Mensagens.
+
+**Zero migração** — nada mudou no banco.

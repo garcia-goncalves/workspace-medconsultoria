@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { UserPlus, Pencil, Trash2, Users, Send, ShieldCheck } from "lucide-react";
-import { ROLE_LABEL, ROLE_LEVEL, type Role } from "@app/shared";
+import { ROLE_LABEL, ROLE_LEVEL, PORTAL_PAPEL_LABEL, PORTAL_PAPEL_AJUDA, type Role } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { useAuth } from "../../lib/auth-context";
 import { PageHeader } from "../../components/ui/page-header";
@@ -96,6 +96,14 @@ export function UsuariosPage() {
                 <TD>
                   <span className="inline-flex items-center gap-1.5">
                     <Badge variant={roleVariant[u.role]}>{ROLE_LABEL[u.role]}</Badge>
+                    {u.role === "CLIENTE" && (
+                      <span
+                        className="text-xs text-muted-foreground"
+                        title={PORTAL_PAPEL_AJUDA[u.papelPortal ?? "RESPONSAVEL"]}
+                      >
+                        · {PORTAL_PAPEL_LABEL[u.papelPortal ?? "RESPONSAVEL"]} no Portal
+                      </span>
+                    )}
                     {u.protegido && (
                       <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground" title="Root principal — não pode ser rebaixado, desativado nem excluído">
                         <ShieldCheck className="h-3.5 w-3.5" /> principal

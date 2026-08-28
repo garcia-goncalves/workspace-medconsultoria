@@ -9,6 +9,7 @@ import {
   type EventoTipo,
   type Recorrencia,
 } from "@app/shared";
+import { avisoDeSerie } from "./aviso-serie";
 import { trpc } from "../../lib/trpc";
 import { useAuth } from "../../lib/auth-context";
 import { Modal } from "../../components/ui/modal";
@@ -38,6 +39,8 @@ export interface EventoEditavel {
   clienteId: string | null;
   projetoId: string | null;
   participanteIds: string[];
+  /** Início da ocorrência clicada na tela — só difere de `inicio` em série recorrente. */
+  ocorrenciaClicada?: Date | null;
 }
 
 const toLocalInput = (d?: Date | null): string => {
@@ -108,6 +111,15 @@ export function EventoFormDialog({
   const create = trpc.agenda.create.useMutation({ onSuccess: () => (invalidate(), onClose()) });
   const update = trpc.agenda.update.useMutation({ onSuccess: () => (invalidate(), onClose()) });
   const pending = create.isPending || update.isPending;
+
+  // Série recorrente: o formulário mostra a 1ª ocorrência e salvar muda todas.
+  const avisoSerie = isEdit
+    ? avisoDeSerie({
+        recorrencia: evento.recorrencia,
+        ocorrenciaClicada: evento.ocorrenciaClicada,
+        baseInicio: evento.inicio,
+      })
+    : null;
 
   const clienteId = watch("clienteId");
   const projetoId = watch("projetoId");
@@ -206,6 +218,12 @@ export function EventoFormDialog({
       }
     >
       <form id="evento-form" onSubmit={handleSubmit(onSubmit)} className="space-y-2" noValidate>
+        {avisoSerie && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <p className="font-semibold">{avisoSerie.titulo}</p>
+            {avisoSerie.detalhe && <p className="mt-0.5">{avisoSerie.detalhe}</p>}
+          </div>
+        )}
         <div className="space-y-1">
           <Label htmlFor="titulo">Título *</Label>
           <Input id="titulo" autoFocus autoComplete="off" {...register("titulo")} />

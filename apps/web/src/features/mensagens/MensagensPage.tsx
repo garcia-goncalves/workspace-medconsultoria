@@ -415,7 +415,7 @@ export function MensagensPage() {
                           !apagada && (minha ? (!agrupaNext ? "rounded-br-md" : "") : (!agrupaNext ? "rounded-bl-md" : "")),
                         )}
                       >
-                        {mostrarAutor && !apagada && <div className={cn("mb-0.5 text-xs font-semibold", doCliente ? "text-brand-blueText" : "text-primary")}>{m.autor.nome}{doCliente && " · cliente"}</div>}
+                        {mostrarAutor && !apagada && <div className={cn("mb-0.5 text-xs font-semibold", doCliente ? "text-brand-blueText" : "text-primary")}>{m.autor.nome}{doCliente && (selecionada.categoria === "lead" ? " · lead" : " · cliente")}</div>}
                         {apagada ? (
                           <p>🚫 mensagem removida</p>
                         ) : editando ? (
