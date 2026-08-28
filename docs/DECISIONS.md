@@ -4240,3 +4240,38 @@ acessibilidade (axe) nas **cinco** seções do Portal · e **na tela**, como cli
 `/financeiro` e de `/portal/xpto` para `/portal`, e **zero erro de console**.
 
 **Zero migração** — nada mudou no banco.
+
+### Adendo (mesma data) — o defeito que só o banco NOVO mostrou
+
+A CI reprovou `flows-credenciamento-portal` depois desta entrega, e a causa **era do redesenho**,
+não do ambiente — a rodada anterior do mesmo PR, só com documentação, passara.
+
+⚠️ **O catálogo de serviços da Med é criado SOB DEMANDA** (`seedIfEmpty`, em
+`servicos.service.ts`), e quem o criava, na prática, era quem listasse serviços primeiro. No
+Portal, isso era o `portal.servicosDisponiveis` da página única — que rodava em **toda** abertura.
+Tirá-lo da carga inicial (o ganho de desempenho desta ADR) tirou junto a semeadura: num banco
+recém-criado, o cliente que abrisse **Convênios** primeiro caía num catálogo vazio, e a tela dizia
+*"Tudo enviado 0/0"* com a papelada inteira faltando.
+
+⚠️ **Isso não aparece no banco de quem desenvolve** — ele tem o catálogo há meses. Aparece na CI e
+apareceria numa produção recém-nascida.
+
+O conserto tem duas metades, e a segunda é a que morde de verdade:
+
+1. `credenciamentoDoCliente` passou a **garantir o catálogo** antes de sincronizar
+   (`garantirCatalogoDeServicos` — uma leitura de nomes, não a lista de 11,9 s). Depender de
+   "alguém abriu outra tela antes" é acoplamento que só falha em banco novo.
+2. `sincronizarRequisitosCredenciamento` **memorizava "serviço inexistente" para sempre**: a
+   função guarda a promessa numa variável de módulo, e um resultado `{ ok: false, motivo:
+   "servico-inexistente" }` ficava gravado no processo. A sincronização nunca mais rodaria —
+   **nem depois de o serviço aparecer** — até alguém reiniciar o servidor. Agora esse resultado
+   não é memorizado, e a próxima chamada tenta de novo (o mesmo tratamento que a falha já tinha).
+
+**Como isto foi descoberto, e como descobrir de novo:** reproduzindo a semeadura EXATA da CI num
+banco novo local (`prisma migrate deploy` + `pnpm db:seed` + `pnpm db:demo`) e olhando o catálogo —
+ele volta **vazio**. Nenhuma leitura de código mostra isso, e nenhum revisor pegaria: o defeito é
+a soma de uma consulta que saiu de uma tela com uma semeadura que ninguém sabia estar pendurada
+nela.
+
+**Prova:** `flows-credenciamento-portal` **7/7 verde no banco isolado**, que reprovava 2 antes do
+conserto; suíte completa do `@app/api` verde (72 arquivos, 679 testes).

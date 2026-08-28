@@ -36,12 +36,25 @@
   até 11 caracteres e "Documentos" tem 10 — o limite estava certo para 11px de fonte e errado para
   cinco itens. **Medir na tela é o que fecha esse tipo de conta.**
 
-## O que ficou aberto
+## O erro de leitura que quase virou dívida
 
-- **O banco de e2e isolado (`medconsultoria_e2e`) não tem as exigências de credenciamento
-  semeadas.** `flows-credenciamento-portal` falha lá com "Tudo enviado 0/0" e passa no banco de
-  desenvolvimento. É lacuna daquele ambiente, não do código — mas quem rodar
-  `pnpm test:e2e:isolado` vai tropeçar nela até alguém semear.
+Vi `flows-credenciamento-portal` falhar no banco isolado com "Tudo enviado 0/0", conferi que
+passava no banco de desenvolvimento, e **concluí que era lacuna daquele ambiente**. Escrevi isso
+na documentação. **Estava errado**, e a CI provou: a mesma falha apareceu lá, e a rodada anterior
+do mesmo PR — só documentação, com o código velho — tinha passado.
+
+A causa era minha: **o catálogo de serviços da Med é criado sob demanda**, e quem o criava era
+quem listasse serviços primeiro — o `portal.servicosDisponiveis` da página única, que rodava em
+toda abertura do Portal. Tirá-lo da carga inicial (o ganho de desempenho) tirou junto a
+semeadura do catálogo.
+
+**A lição, e ela é geral:** "passa no meu banco e falha no banco novo" quase nunca é lacuna do
+ambiente — é dependência escondida de estado que o banco de desenvolvimento já acumulou. O jeito
+de decidir isso em dois minutos, sem gastar CI: reproduzir a semeadura exata da CI num banco novo
+local (`prisma migrate deploy` + `pnpm db:seed` + `pnpm db:demo`) e olhar o dado. Aqui o catálogo
+voltou **vazio** — e nenhuma leitura de código teria mostrado isso.
+
+## O que ficou aberto
 - **Espelhar no Início o aviso de que ninguém fala pela clínica** (ADR-131) — anotado como
   sugestão ao dono, fora do escopo desta rodada.
 - **O e-mail de ação levando à seção certa** (proposta em `/portal`, exigência em

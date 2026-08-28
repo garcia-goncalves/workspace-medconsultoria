@@ -59,9 +59,20 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 ### O que falta nesta esteira
 
 - **Nada de código.** As fases 5 (execução), 6 (revisão) e 7 (crônica) estão FEITAS.
-- **⚠️ O banco de e2e isolado (`medconsultoria_e2e`) não tem as exigências de credenciamento
-  semeadas** — `flows-credenciamento-portal` falha lá com "0/0" e passa no banco de
-  desenvolvimento e na CI. É lacuna daquele ambiente, não do código.
+- **🚨 A CI PEGOU UM DEFEITO REAL QUE SÓ APARECE EM BANCO NOVO, e a culpa era do redesenho.**
+  O **catálogo de serviços da Med é criado SOB DEMANDA**, e quem o criava era quem listasse
+  serviços primeiro — no Portal, o `portal.servicosDisponiveis` da página única, que rodava em
+  toda abertura. Tirando-o da carga inicial (é a consulta de 11,9 s), o cliente que abrisse
+  **Convênios** primeiro num banco recém-criado caía num catálogo vazio: a tela dizia
+  "Tudo enviado 0/0" com a papelada inteira faltando. ⚠️ **Isso NÃO aparece no banco de quem
+  desenvolve** — ele tem o catálogo há meses. Corrigido em duas metades:
+  `credenciamentoDoCliente` passou a **garantir o catálogo** antes de sincronizar, e
+  `sincronizarRequisitosCredenciamento` **parou de memorizar "serviço inexistente" para
+  sempre** (guardado, ele nunca mais rodaria naquele processo, nem depois de o serviço
+  aparecer). Provado: 7/7 verde no banco isolado, que reprovava 2.
+- **🔬 Como descobrir isto de novo, se acontecer:** reproduza a semeadura EXATA da CI num banco
+  novo local (`prisma migrate deploy` + `pnpm db:seed` + `pnpm db:demo`) e olhe o catálogo — ele
+  volta **vazio**. Nenhuma leitura de código mostra isso.
 - **Falta o dono dar o sinal** para mesclar o PR #147 e, depois, para publicar.
 
 ## Estado anterior (2026-08-28 · noite · ADR-137/138 MESCLADAS + a esteira do Portal em 5 seções)
