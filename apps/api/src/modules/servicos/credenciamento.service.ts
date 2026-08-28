@@ -35,7 +35,7 @@ import {
  * mesmo dinheiro é o começo de duas respostas diferentes. Reexportado aqui para os importadores
  * antigos continuarem funcionando.
  */
-import { NOME_SERVICO_CREDENCIAMENTO, ehServicoDeCredenciamento } from "@app/shared";
+import { NOME_SERVICO_CREDENCIAMENTO, ehServicoDeCredenciamento, planejarEstimativaDoLead } from "@app/shared";
 export { NOME_SERVICO_CREDENCIAMENTO, ehServicoDeCredenciamento };
 
 /** Um serviço do lead, só com o que decide cobrança. */
@@ -67,6 +67,14 @@ export type ProvisaoDaConversao = {
  * receber no ato da conversão — exatamente o que a ADR-104 proíbe, e cobrado de novo
  * quando a operadora aprovasse. Por isso a estimativa também tem de olhar os serviços:
  * se TODOS são credenciamento, não há nada a provisionar hoje.
+ *
+ * ⚠️ **O fallback tem uma SEGUNDA armadilha, e ela custava dinheiro errado (ADR-137).** Desde a
+ * ADR-125 o `Lead.valorEstimado` do serviço percentual é DERIVADO — faturamento × percentual,
+ * calculado pelo sistema. O fallback não sabia disso e transformava esse número numa conta a
+ * receber **avulsa, de valor fixo**: um valor que só vale para o faturamento daquele mês,
+ * cobrado uma vez só. A régua de "esta estimativa é derivada?" é a MESMA do funil
+ * (`planejarEstimativaDoLead`), chamada aqui de propósito — duas cópias divergiriam, e a
+ * divergência apareceria como uma conta a receber que ninguém sabe explicar.
  */
 export function planejarProvisaoDaConversao(
   servicos: ServicoParaProvisao[],
@@ -92,9 +100,17 @@ export function planejarProvisaoDaConversao(
   }
 
   // A estimativa é o último recurso: só quando não há preço de serviço nenhum E sobrou
-  // algo além do credenciamento para cobrar (ou o lead nem escolheu serviço).
+  // algo além do credenciamento para cobrar (ou o lead nem escolheu serviço) E ela não é o
+  // número derivado do percentual (que não é valor fixo nenhum — ver o aviso acima).
   const soCredenciamento = temCredenciamento && !temOutroServico;
-  const usarEstimativa = avulso === 0 && mensal === 0 && !soCredenciamento && !!valorEstimado && valorEstimado > 0;
+  const estimativaEhDerivada = planejarEstimativaDoLead(servicos, null).modo === "PERCENTUAL";
+  const usarEstimativa =
+    avulso === 0 &&
+    mensal === 0 &&
+    !soCredenciamento &&
+    !estimativaEhDerivada &&
+    !!valorEstimado &&
+    valorEstimado > 0;
 
   return { avulso, mensal, percentuais, temCredenciamento, usarEstimativa };
 }

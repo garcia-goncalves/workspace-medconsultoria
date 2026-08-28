@@ -80,6 +80,59 @@ describe("provisão financeira da conversão do lead", () => {
     expect(p.avulso).toBe(0);
   });
 
+  /**
+   * F1 da descoberta de 28/08 — o achado que custava dinheiro errado.
+   *
+   * A ADR-125 tornou o `Lead.valorEstimado` DERIVADO no serviço percentual: ele passou a ser
+   * faturamento × percentual, calculado pelo sistema. O comentário aqui em cima jurava que a
+   * cobrança por % "é registrada em texto, nunca como valor fixo" — e o teste que provava isso
+   * passava a estimativa como ZERO, que é o único número com que ele passaria.
+   *
+   * Com a estimativa preenchida (que é o normal desde a ADR-125), o lead de Faturamento caía no
+   * fallback e virava uma conta a receber AVULSA, de valor fixo, no ato da conversão: um número
+   * que só valia para o faturamento daquele mês, cobrado uma vez só, sem nada dizendo de onde
+   * veio. A régua agora é a MESMA do funil (`planejarEstimativaDoLead`) — estimativa derivada de
+   * percentual não vira conta.
+   */
+  it("lead SÓ de Faturamento não vira conta fixa, mesmo com a estimativa derivada preenchida", () => {
+    // 5% de R$ 120.000 = R$ 6.000 — é este número que virava "Contrato — Clínica X", avulso.
+    const p = planejarProvisaoDaConversao([servico("Faturamento", { percentual: 5 })], 6000);
+    expect(p.usarEstimativa).toBe(false);
+    expect(p.avulso).toBe(0);
+    expect(p.mensal).toBe(0);
+    expect(p.percentuais).toEqual(["5% do faturamento (Faturamento)"]);
+  });
+
+  it("percentual + serviço sem preço também não vira conta fixa — a estimativa segue derivada", () => {
+    const p = planejarProvisaoDaConversao(
+      [servico("Faturamento", { percentual: 5 }), servico("Gestão de redes sociais")],
+      6000,
+    );
+    expect(p.usarEstimativa).toBe(false);
+  });
+
+  it("MISTURADO (percentual + valor fixo) continua provisionando o fixo, como sempre", () => {
+    // Aqui há dinheiro fixo em jogo: some o valor fixo e o % vai para a observação. É a mesma
+    // escolha da ADR-125 no funil — deixar o modo percentual vencer esconderia o fixo.
+    const p = planejarProvisaoDaConversao(
+      [servico("Faturamento", { percentual: 5 }), servico("Gestão Operacional", { valor: 3500, valorRecorrencia: "MENSAL" })],
+      9500,
+    );
+    expect(p.mensal).toBe(3500);
+    expect(p.percentuais).toEqual(["5% do faturamento (Faturamento)"]);
+    expect(p.usarEstimativa).toBe(false);
+  });
+
+  it("credenciamento + Faturamento: nada a provisionar hoje, e os dois motivos ficam registrados", () => {
+    const p = planejarProvisaoDaConversao(
+      [servico(CREDENCIAMENTO), servico("Faturamento", { percentual: 5 })],
+      6000,
+    );
+    expect(p.usarEstimativa).toBe(false);
+    expect(p.temCredenciamento).toBe(true);
+    expect(p.percentuais.length).toBe(1);
+  });
+
   it("compara o nome do serviço sem se importar com caixa e espaço", () => {
     const p = planejarProvisaoDaConversao([servico("  credenciamento MÉDICO e odontológico ")], 5000);
     expect(p.usarEstimativa).toBe(false);

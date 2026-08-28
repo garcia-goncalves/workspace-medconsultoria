@@ -1286,32 +1286,59 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
   });
 
   // Os serviços do lead viram serviços CONTRATADOS do cliente (origem FUNIL) — passam a
-  // ser a fonte da verdade dos "serviços contratados" na ficha. Herdam a precificação de
-  // referência do serviço (valor + recorrência + %), editável depois na ficha. Idempotente.
-  for (const s of lead.servicos) {
-    await prisma.clienteServico.upsert({
-      where: { clienteId_servicoId: { clienteId, servicoId: s.id } },
-      update: { status: "ATIVO", canceladoEm: null, canceladoPorTipo: null },
-      create: {
-        clienteId,
-        servicoId: s.id,
-        status: "ATIVO",
-        origem: "FUNIL",
-        valor: s.valor ?? null,
-        valorRecorrencia: s.valorRecorrencia,
-        percentual: s.percentual ?? null,
-        percentualRecorrencia: s.percentualRecorrencia,
-      },
-    });
+  // ser a fonte da verdade dos "serviços contratados" na ficha. Idempotente.
+  //
+  // ⚠️ **QUANDO HOUVE PROPOSTA ACEITA, QUEM MANDA É ELA, não o catálogo (ADR-137).** O aceite
+  // já gravou em `ClienteServico` os serviços e os valores que o cliente aceitou
+  // (`sincronizarServicosContratados`) — que são o preço NEGOCIADO, e podem ser um subconjunto
+  // do que o lead pediu lá atrás. Repassar `lead.servicos` por cima aqui contrataria serviço
+  // que ninguém vendeu e, logo abaixo, provisionaria dinheiro pelo preço de TABELA em vez do
+  // aceito: a ficha dizendo R$ 2.500 e o Financeiro cobrando R$ 3.500, sem nada explicando.
+  const propostaAceita = await prisma.documento.findFirst({
+    where: { clienteId, propostaStatus: "ACEITA", deletedAt: null },
+    select: { id: true },
+  });
+  if (!propostaAceita) {
+    for (const s of lead.servicos) {
+      await prisma.clienteServico.upsert({
+        where: { clienteId_servicoId: { clienteId, servicoId: s.id } },
+        update: { status: "ATIVO", canceladoEm: null, canceladoPorTipo: null },
+        create: {
+          clienteId,
+          servicoId: s.id,
+          status: "ATIVO",
+          origem: "FUNIL",
+          valor: s.valor ?? null,
+          valorRecorrencia: s.valorRecorrencia,
+          percentual: s.percentual ?? null,
+          percentualRecorrencia: s.percentualRecorrencia,
+        },
+      });
+    }
   }
+
+  // O que o cliente REALMENTE tem contratado agora — a fonte única do que a ficha mostra e do
+  // que o Financeiro provisiona logo abaixo. Ler de volta (em vez de reusar `lead.servicos`) é
+  // o que faz os dois números baterem, venha o preço da proposta aceita ou do catálogo.
+  const contratados = await prisma.clienteServico.findMany({
+    where: { clienteId, status: "ATIVO" },
+    select: {
+      servicoId: true,
+      valor: true,
+      valorRecorrencia: true,
+      percentual: true,
+      percentualRecorrencia: true,
+      servico: { select: { nome: true } },
+    },
+  });
 
   // Integração: cria UM PROJETO POR SERVIÇO contratado (ADR-38), nome "<Serviço> — <Cliente>",
   // já com o roteiro (tarefas + checklists) e o card de entregas do cliente. Sem serviços →
   // um projeto geral vazio, para trabalho manual.
   const resp = lead.responsavelId ?? userId;
   let projetoId: string | null = null;
-  for (const s of lead.servicos) {
-    const pid = await garantirCardDoServicoContratado(clienteId, s.id, s.nome, resp).catch(() => null);
+  for (const s of contratados) {
+    const pid = await garantirCardDoServicoContratado(clienteId, s.servicoId, s.servico.nome, resp).catch(() => null);
     if (pid && !projetoId) projetoId = pid;
   }
   if (!projetoId) {
@@ -1333,7 +1360,13 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
     vencimento.setHours(12, 0, 0, 0);
 
     const { avulso, mensal, percentuais, temCredenciamento, usarEstimativa } = planejarProvisaoDaConversao(
-      lead.servicos.map((s) => ({ ...s, valor: emReais(s.valor), percentual: emReais(s.percentual) })),
+      contratados.map((s) => ({
+        nome: s.servico.nome,
+        valor: emReais(s.valor),
+        valorRecorrencia: s.valorRecorrencia,
+        percentual: emReais(s.percentual),
+        percentualRecorrencia: s.percentualRecorrencia,
+      })),
       emReais(lead.valorEstimado),
     );
     const obsPct = percentuais.length ? ` Cobranças por % (variam com o faturamento do mês): ${percentuais.join("; ")}.` : "";

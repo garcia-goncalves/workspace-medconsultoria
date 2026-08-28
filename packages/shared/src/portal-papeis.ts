@@ -138,13 +138,27 @@ export function sobraResponsavel(
  * | conta EQUIPE da clínica            | não   | não fala pela clínica (ADR-131)                 |
  * | responsável, ou conta interna      | sim   | é quem a regra já autorizava                    |
  *
+ * ⚠️ **Conta interna da Med logada NÃO é barrada, e é deliberado.** Ela já alcança o token pelo
+ * painel do documento e assina com o próprio nome. O que a ADR-128 barra é agir **como o
+ * cliente**, e isso continua barrado — e agora fica atribuído, pelo `assinadoPorId`.
+ *
  * Devolve a CHAVE do motivo, não a frase: a frase da sessão de suporte mora no servidor, e
  * duas cópias do mesmo texto divergem no primeiro ajuste.
  */
 export type MotivoSemAssinar = "SUPORTE_SO_LEITURA" | "SO_RESPONSAVEL";
 
+/**
+ * O pedaço da sessão que esta régua lê. `operador` é tipado como OBJETO, não `unknown`: com
+ * `unknown` o compilador aceitaria `operador: ""` ou `0`, que a guarda deixaria passar por serem
+ * falsy — e a trava sumiria em silêncio.
+ */
+export interface SessaoQueAssina {
+  papelPortal?: PortalPapel | null;
+  operador?: { id: string; nome?: string } | null;
+}
+
 export function podeAssinarPelaClinica(
-  sessao: { role?: string; papelPortal?: PortalPapel | null; operador?: unknown | null } | null | undefined,
+  sessao: SessaoQueAssina | null | undefined,
 ): { pode: true } | { pode: false; motivo: MotivoSemAssinar } {
   if (!sessao) return { pode: true };
   if (sessao.operador) return { pode: false, motivo: "SUPORTE_SO_LEITURA" };

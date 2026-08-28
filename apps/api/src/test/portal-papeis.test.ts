@@ -131,7 +131,6 @@ describe("podeAssinarPelaClinica — quem pode aceitar proposta e assinar contra
 
   it("a sessão de suporte da Med NÃO assina — vê tudo, não assina nada (ADR-128)", () => {
     const r = podeAssinarPelaClinica({
-      role: "CLIENTE",
       papelPortal: "RESPONSAVEL",
       operador: { id: "u1", nome: "Thaís" },
     });
@@ -140,20 +139,19 @@ describe("podeAssinarPelaClinica — quem pode aceitar proposta e assinar contra
   });
 
   it("a EQUIPE da clínica NÃO assina pela clínica (ADR-131)", () => {
-    const r = podeAssinarPelaClinica({ role: "CLIENTE", papelPortal: "EQUIPE", operador: null });
+    const r = podeAssinarPelaClinica({ papelPortal: "EQUIPE", operador: null });
     expect(r.pode).toBe(false);
     expect(r.pode === false && r.motivo).toBe("SO_RESPONSAVEL");
   });
 
   it("o responsável da clínica assina, logado ou não", () => {
-    expect(podeAssinarPelaClinica({ role: "CLIENTE", papelPortal: "RESPONSAVEL" }).pode).toBe(true);
+    expect(podeAssinarPelaClinica({ papelPortal: "RESPONSAVEL" }).pode).toBe(true);
     // Conta anterior à ADR-131: papel nulo vale como responsável, a mesma leitura do `podeNoPortal`.
-    expect(podeAssinarPelaClinica({ role: "CLIENTE", papelPortal: null }).pode).toBe(true);
+    expect(podeAssinarPelaClinica({ papelPortal: null }).pode).toBe(true);
   });
 
   it("a sessão de suporte é recusada ANTES do papel — a Med não assina nem pelo responsável", () => {
     const r = podeAssinarPelaClinica({
-      role: "CLIENTE",
       papelPortal: "EQUIPE",
       operador: { id: "u1", nome: "Thaís" },
     });
@@ -161,6 +159,6 @@ describe("podeAssinarPelaClinica — quem pode aceitar proposta e assinar contra
   });
 
   it("conta interna da Med (sem papel de portal) não é barrada por esta regra", () => {
-    expect(podeAssinarPelaClinica({ role: "ADMIN", papelPortal: null, operador: null }).pode).toBe(true);
+    expect(podeAssinarPelaClinica({ papelPortal: null, operador: null }).pode).toBe(true);
   });
 });

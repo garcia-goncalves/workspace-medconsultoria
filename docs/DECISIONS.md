@@ -2817,6 +2817,40 @@ Então:
   - Portal do cliente: *"Convênios atendidos: Unimed, Bradesco Saúde, Amil One, Care Plus,
     Omint"*.
 
+### O degrau seguinte, achado na revisão de segurança: para QUEM ia o link
+
+Barrar a sessão não adianta se o link chega numa caixa que a pessoa barrada abre. O e-mail de
+aceite e o de assinatura iam para **`Cliente.email`** — a caixa cadastral da clínica, que na
+prática é a da recepção. A secretária EQUIPE abria essa caixa, clicava no link **deslogada**, e
+assinava: deslogado é justamente o caminho do signatário legítimo. Pior, esse é o único caminho
+que **não** deixa nome na trilha (`assinadoPorId` nulo) — a trava, sozinha, teria só tirado o
+botão da tela.
+
+`destinatarioDeAssinatura` (`apps/api/src/modules/documentos/`) passou a escolher **quem fala
+pela clínica**: a conta de Portal daquele cliente que não é EQUIPE, sem acesso revogado,
+preferindo quem já entrou. ⚠️ **A caixa da clínica continua sendo a reserva** — o cliente que
+ainda não tem ninguém no Portal (a maioria hoje) não muda em nada. ⚠️ **Conta convidada e ainda
+sem senha VALE**: `ativo = false` é ambíguo (ADR-131) e quem manda é o `acessoRevogadoEm` —
+senão a clínica cujo dono acabou de ser convidado não receberia a proposta.
+
+### O token que já vazou NÃO foi rotacionado — e por quê
+
+A revisão levantou a dívida certa (é a lição da ADR-114: fechar o vazamento não paga a dívida
+enquanto a chave vazada abre a porta). Aqui ela **não foi cobrada**, por uma leitura de exposição
+real, e não por conveniência:
+
+- para o caminho EQUIPE existir, **precisa existir uma conta EQUIPE** — e a migração da ADR-131
+  (27/08, 21:43) marcou **todas** as contas de Portal existentes como RESPONSAVEL. Conta EQUIPE
+  só nasce quando alguém convida uma pessoa nova, o que ainda não aconteceu;
+- o caminho da sessão de suporte é a equipe da Med, que **já alcança o token** pelo painel do
+  documento, legitimamente.
+
+Rotacionar todo token PENDENTE derrubaria links que já estão na caixa de clientes reais, para
+fechar uma porta que provavelmente ninguém atravessou. ⚠️ **A conferência que decide isso é uma
+só:** existe alguma conta de Portal com papel EQUIPE em produção? **Se existir, rotacionar passa
+a ser obrigatório** — e a rotação é regerar `Assinatura.token` e `Documento.propostaToken` de
+toda linha PENDENTE e reemitir os links.
+
 ### O que ficou de fora, e por quê
 
 - ~~A exigência "Quais operadoras você atende?" continua no checklist do Faturamento~~ —
@@ -3983,7 +4017,11 @@ responde "havia alguém logado, e quem era?", não "quem é o signatário".
 
 - **Conta interna da Med logada (ADMIN/ROOT) não é barrada.** Ela já alcança o token pelas telas
   internas, e barrá-la aqui mudaria um comportamento que ninguém relatou como problema. O achado
-  nomeava a EQUIPE e a sessão de suporte.
+  nomeava a EQUIPE e a sessão de suporte. ⚠️ Consequência aceita: quem está numa sessão de suporte
+  barrada pode clicar em "voltar ao meu acesso" e assinar. O que a ADR-128 barra é agir **como o
+  cliente**, e isso continua barrado — e agora fica atribuído pelo `assinadoPorId`.
+- **Prazo de validade no token.** Nem o de proposta (`randomUUID`, 122 bits) nem o de assinatura
+  (`gerarTokenPublico`, 256 bits) expiram. Inadivinháveis os dois; validade é outra decisão.
 - **Não há trava por clínica no token.** Quem tem o token pode assinar — é o desenho do link
   público. O `portal.resumo` já isola por `clienteId`, então ninguém obtém por ali o token de
   outra clínica.

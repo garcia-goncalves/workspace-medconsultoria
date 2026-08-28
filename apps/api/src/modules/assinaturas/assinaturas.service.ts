@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
+import { destinatarioDeAssinatura } from "../documentos/destinatario-de-assinatura.js";
 import type { AssinarInput } from "@app/shared";
 import { hashConteudo } from "../../lib/hash.js";
 import { gerarTokenPublico } from "../../lib/tokens.js";
@@ -32,7 +33,7 @@ export async function solicitar(
 ) {
   const doc = await prisma.documento.findFirst({
     where: { id: documentoId, deletedAt: null },
-    include: { cliente: { select: { nome: true, email: true } } },
+    include: { cliente: { select: { id: true, nome: true, email: true } } },
   });
   if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Documento não encontrado." });
   if (!doc.cliente) {
@@ -44,14 +45,21 @@ export async function solicitar(
 
   const hash = hashConteudo(doc.conteudo);
 
+  // O link vai para QUEM FALA PELA CLÍNICA, não para a caixa da recepção (ADR-137) — sem isso a
+  // trava das rotas de token seria só estética: quem está proibido de assinar abriria a caixa
+  // compartilhada e clicaria no link deslogado, que é o caminho do signatário legítimo.
+  const assinante = await destinatarioDeAssinatura(doc.cliente.id, { nome: doc.cliente.nome, email: doc.cliente.email });
+
   // Recomeça o fluxo: remove assinaturas anteriores deste documento.
   await prisma.assinatura.deleteMany({ where: { documentoId } });
+  const tkCliente = gerarTokenPublico();
+  const tkMed = gerarTokenPublico();
   await prisma.$transaction([
     prisma.assinatura.create({
-      data: { documentoId, papel: "CLIENTE", nome: doc.cliente.nome, email: doc.cliente.email, ordem: 0, hashDocumento: hash, token: gerarTokenPublico() },
+      data: { documentoId, papel: "CLIENTE", nome: assinante.nome, email: assinante.email, ordem: 0, hashDocumento: hash, token: tkCliente },
     }),
     prisma.assinatura.create({
-      data: { documentoId, papel: "MEDCONSULTORIA", nome: ator.nome, email: ator.email, ordem: 1, hashDocumento: hash, token: gerarTokenPublico() },
+      data: { documentoId, papel: "MEDCONSULTORIA", nome: ator.nome, email: ator.email, ordem: 1, hashDocumento: hash, token: tkMed },
     }),
     prisma.documento.update({ where: { id: documentoId }, data: { assinaturaSolicitadaEm: new Date(), assinadoEm: null } }),
   ]);

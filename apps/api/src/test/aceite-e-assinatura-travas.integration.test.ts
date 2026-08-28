@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
 import { PORTAL_SO_RESPONSAVEL } from "@app/shared";
 import { appRouter } from "../trpc/router";
+import { destinatarioDeAssinatura } from "../modules/documentos/destinatario-de-assinatura";
 import { hashConteudo } from "../lib/hash";
 import { hashPassword } from "../lib/password";
 
@@ -187,5 +188,73 @@ describe("portal.resumo — o token só sai para quem pode usá-lo", () => {
     const r = await caller(suporte).portal.resumo();
     expect(r.podeAssinar).toBe(false);
     expect(r.paraAssinar.every((a) => a.token === null)).toBe(true);
+  });
+});
+
+/**
+ * PARA QUEM VAI O LINK — o degrau seguinte da mesma trava (achado da revisão de segurança).
+ *
+ * Barrar a sessão não adianta se o link chega numa caixa que a pessoa barrada abre. O e-mail ia
+ * para `Cliente.email`, a caixa cadastral da clínica (tipicamente a da recepção): a secretária
+ * clicava **deslogada** e assinava, porque deslogado é justamente o caminho do signatário
+ * legítimo. E, pior, esse caminho é o único que NÃO deixa nome na trilha.
+ */
+describe("destinatarioDeAssinatura — o link vai para quem fala pela clínica", () => {
+  const CAIXA_DA_CLINICA = { nome: "Clínica", email: "recepcao@clinica.test" };
+
+  it("com responsável no Portal, o link vai para ele — não para a caixa da clínica", async () => {
+    const d = await destinatarioDeAssinatura(clienteId, CAIXA_DA_CLINICA);
+    expect(d.email).toBe(responsavel.email);
+  });
+
+  it("a conta EQUIPE nunca é escolhida, mesmo sendo a única com acesso", async () => {
+    const outra = await prisma.cliente.create({ data: { nome: `${PFX}-so-equipe` } });
+    await prisma.user.create({
+      data: {
+        nome: `${PFX}-so-secretaria`,
+        email: `${PFX}-so-secretaria@example.test`,
+        role: "CLIENTE",
+        clienteId: outra.id,
+        papelPortal: "EQUIPE",
+      },
+    });
+    const d = await destinatarioDeAssinatura(outra.id, CAIXA_DA_CLINICA);
+    expect(d.email).toBe(CAIXA_DA_CLINICA.email);
+  });
+
+  it("cliente sem ninguém no Portal continua recebendo na caixa da clínica — nada muda para ele", async () => {
+    const semPortal = await prisma.cliente.create({ data: { nome: `${PFX}-sem-portal` } });
+    const d = await destinatarioDeAssinatura(semPortal.id, CAIXA_DA_CLINICA);
+    expect(d).toEqual(CAIXA_DA_CLINICA);
+  });
+
+  it("acesso REVOGADO não recebe link — mas conta convidada e ainda sem senha recebe", async () => {
+    const c = await prisma.cliente.create({ data: { nome: `${PFX}-revogado` } });
+    await prisma.user.create({
+      data: {
+        nome: `${PFX}-ex-dono`,
+        email: `${PFX}-ex-dono@example.test`,
+        role: "CLIENTE",
+        clienteId: c.id,
+        papelPortal: "RESPONSAVEL",
+        ativo: false,
+        acessoRevogadoEm: new Date(),
+      },
+    });
+    expect((await destinatarioDeAssinatura(c.id, CAIXA_DA_CLINICA)).email).toBe(CAIXA_DA_CLINICA.email);
+
+    // `ativo = false` é ambíguo (ADR-131): convidado e ainda sem senha também é inativo, e esse
+    // recebe — senão a clínica cujo dono acabou de ser convidado ficaria sem receber a proposta.
+    await prisma.user.create({
+      data: {
+        nome: `${PFX}-dono-convidado`,
+        email: `${PFX}-dono-convidado@example.test`,
+        role: "CLIENTE",
+        clienteId: c.id,
+        papelPortal: "RESPONSAVEL",
+        ativo: false,
+      },
+    });
+    expect((await destinatarioDeAssinatura(c.id, CAIXA_DA_CLINICA)).email).toBe(`${PFX}-dono-convidado@example.test`);
   });
 });

@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
-import { podeAssinarPelaClinica, type PortalPapel } from "@app/shared";
+import { podeAssinarPelaClinica, type SessaoQueAssina } from "@app/shared";
 import { notificationService } from "../../realtime/socket.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 
@@ -60,7 +60,7 @@ export async function resumo(
    * servidor recusaria a assinatura e a tela ainda mostraria o botão, que é o modo de falha
    * da ADR-133 (a tela dizendo uma coisa e o servidor fazendo outra).
    */
-  sessao?: { papelPortal?: PortalPapel | null; operador?: unknown | null } | null,
+  sessao?: SessaoQueAssina | null,
 ) {
   const podeAssinar = podeAssinarPelaClinica(sessao).pode;
   const agora = new Date();
