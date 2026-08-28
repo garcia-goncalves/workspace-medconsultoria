@@ -18,9 +18,9 @@
 |---|---|---|---|
 | `resumoDoDia` (`ia.service`) | equipe | Nomes/qtde de tarefas, compromissos e pendências do dia do usuário | sim (é um resumo do próprio dia) |
 | `resumoAgenda` (`ia.service`) | equipe | Títulos/horários dos eventos do período | sim |
-| `resumirCliente` (`ia.service`) | equipe | Nome do cliente + serviços ativos + etapa no funil | sim (resumo daquele cliente) |
+| `resumirCliente` (`ia.service`) | equipe | Nome + situação comercial + serviços ativos + projetos + próxima reunião + oportunidades abertas. **`observacoes` NÃO é mais enviado** (ADR-141) | sim (resumo daquele cliente) |
 | `escreverMensagem` (`ia.service`) | equipe | Contexto do lead/cliente para redigir a mensagem | sim |
-| `sugerirProximoPassoLead` (`ia.service`) | equipe | Etapa e dados do lead | sim |
+| `sugerirProximoPassoLead` (`ia.service`) | equipe | Nome, empresa, etapa, serviços de interesse, valor estimado e passos pendentes. **`observacoes` NÃO é mais enviado** (ADR-141) | sim |
 | `sugerirRequisitos` / `sugerirCampos` (`ia.service`) | equipe | Nome/descrição do serviço ou do formulário | sim (baixo risco — dado de catálogo) |
 | `gerarComIA` (`documentos.service`) | equipe | Instruções do usuário + nome do cliente | sim |
 | `melhorarComIA` (`documentos.service`) | equipe | **Conteúdo do documento** a ser melhorado | sim (a feature É melhorar aquele texto) |
@@ -32,6 +32,24 @@
 
 > A **busca global** (`busca.service`) é **só Prisma** — não usa OpenAI. Não há envio de PII de pacientes;
 > os dados são de negócio (clientes/leads/serviços da MedConsultoria).
+
+## A peneira do portão (ADR-141) — o que a OpenAI NUNCA vê
+
+> Antes de qualquer envio, `gerarRascunho` (`apps/api/src/lib/ai.ts`) passa o texto por
+> `redigirDadoPessoal` (`packages/shared/src/dado-pessoal.ts`, função pura testada).
+
+- **Escondido sempre, venha de onde vier:** CPF, CNPJ, CRM, RG, telefone, e-mail, CEP e todo
+  número de 11 ou 14 dígitos sem máscara. Cada um vira uma etiqueta (`[[CPF-1]]`) na ida e
+  **volta ao original na resposta** — a OpenAI não vê o dado e o rascunho não perde nada.
+- **Por que no portão e não em cada chamada:** é a lição da ADR-140 — a trava furou 14 vezes pela
+  *segunda porta*. `gerarRascunho` é a **única** porta de texto para a OpenAI, então chamada nova
+  nasce coberta sem ninguém precisar lembrar.
+- **O nome do cliente CONTINUA sendo enviado**, de propósito: sem ele o resumo não serve. Trocá-lo
+  por identificador segue como decisão jurídica em aberto, na lista abaixo.
+- **Limite honesto:** a peneira pega dado com FORMA. Texto corrido ("o filho do Dr. João") nenhuma
+  expressão regular pega — por isso o campo `observacoes`, que é texto livre e guarda os CPFs
+  movidos pela migração de 19/08 (ADR-119), foi **retirado do contexto na origem**, em
+  `resumirCliente` e `sugerirProximoPassoLead`. São duas camadas, não uma.
 
 ## Medidas de minimização já aplicadas (código)
 
@@ -51,4 +69,5 @@
 - [ ] **Base legal / DPA com a OpenAI** (a OpenAI passa a ser sub-processadora de dados de negócio de terceiros).
 - [ ] **Menção na Política de Privacidade** de que dados de negócio podem ser processados por IA (OpenAI) para os recursos de assistência.
 - [ ] Definir política de **retenção** e se haverá **opção por cliente** de não usar IA sobre os seus dados.
+- [x] ~~Avaliar **redação de identificadores** (CPF/CNPJ/CRM/RG/telefone/e-mail/CEP)~~ — **FEITO na ADR-141**, no portão único, com restauração na volta.
 - [ ] Avaliar **anonimização adicional** (ex.: substituir nome do cliente por um identificador nas chamadas de resumo) — hoje o nome é enviado por ser útil ao resultado; é uma decisão de trade-off utilidade × privacidade a ratificar com o jurídico.
