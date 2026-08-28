@@ -113,7 +113,12 @@ export function PortalTabBar() {
   // Enquanto a consulta do credenciamento não respondeu, `temCredenciamento` é falso e a barra
   // mostra quatro itens. Aparecer um quinto item depois é menos ruim que mostrar um item que
   // some — e o caso comum é justamente não ter credenciamento.
-  const secoes = montarSecoes({ temCredenciamento: !!credenciamento.data });
+  //
+  // ⚠️ MAS **ERRO** É DIFERENTE DE "AINDA NÃO RESPONDEU": em erro a consulta não tenta de novo
+  // (`retry: false`), então o item de navegação sumia DE VEZ, e o cliente com credenciamento em
+  // curso perdia o caminho para a seção. Em erro a barra mostra o item — a própria página se
+  // defende e mostra a tela de "não conseguimos carregar", com saída.
+  const secoes = montarSecoes({ temCredenciamento: !!credenciamento.data || credenciamento.isError });
 
   const ehAtiva = (rota: string) =>
     rota === "/portal" ? caminho === "/portal" || caminho === "/" : caminho.startsWith(rota);

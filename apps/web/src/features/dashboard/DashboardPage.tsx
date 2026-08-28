@@ -599,8 +599,12 @@ export function DashboardPage() {
           {g && g.financeiro.aVencer7.count > 0 && (
             <AttentionChip to="/financeiro" icon={Clock} count={g.financeiro.aVencer7.count} label={`conta(s) a vencer (7 dias) · ${formatBRL(g.financeiro.aVencer7.total)}`} tone="warning" />
           )}
+          {/* O número conta RASCUNHO + EM_REVISAO (`dashboard.service.ts`), e o rótulo dizia só
+              "aguardando revisão": o Início mostrava 28, a pessoa clicava e a página Documentos
+              dizia 10. Três telas sobre o mesmo assunto precisam contar a mesma coisa — ou dizer,
+              cada uma, exatamente o que estão contando. */}
           {g && g.docsPendentesCount > 0 && (
-            <AttentionChip to="/documentos" icon={FileText} count={g.docsPendentesCount} label="documento(s) aguardando revisão" tone="info" />
+            <AttentionChip to="/documentos" icon={FileText} count={g.docsPendentesCount} label="documento(s) em rascunho ou revisão" tone="info" />
           )}
           {g && g.docsAguardandoClienteCount > 0 && (
             <AttentionChip to="/documentos" icon={FileText} count={g.docsAguardandoClienteCount} label="documento(s) parado(s) aguardando o cliente" tone="warning" />
@@ -906,7 +910,7 @@ export function DashboardPage() {
         <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
           <MiniStat to="/clientes" label="Total de clientes" value={g.clientes.total} />
           <MiniStat to="/clientes" label="Novos (30 dias)" value={g.clientes.novos30} />
-          <MiniStat to="/clientes" label="Prospects" value={g.clientes.prospects} />
+          <MiniStat to="/clientes" label="Em prospecção" value={g.clientes.prospects} />
           <MiniStat to="/clientes" label="Querendo mais (upsell)" value={g.clientes.querendoMais} tone={g.clientes.querendoMais > 0 ? "warning" : "neutro"} />
         </div>
       ),
@@ -914,14 +918,14 @@ export function DashboardPage() {
 
     defs.push({
       id: "docs",
-      titulo: "Documentos aguardando revisão",
+      titulo: "Documentos em rascunho ou revisão",
       icon: FileText,
       grupo: "gestao",
       span: 1,
       link: { to: "/documentos", label: "Ver tudo" },
       render: () =>
         g.docsPendentes.length === 0 ? (
-          <p className="px-4 py-10 text-center text-sm text-muted-foreground">Nada aguardando revisão.</p>
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">Nenhum documento em rascunho ou revisão.</p>
         ) : (
           <div className="divide-y divide-border/60">
             {g.docsPendentes.map((doc) => (

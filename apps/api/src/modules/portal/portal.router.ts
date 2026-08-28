@@ -77,7 +77,10 @@ export const portalRouter = router({
   arquivos: portalProcedure.query(({ ctx }) => listarArquivos(ctx.clienteId)),
   removerArquivo: portalProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(({ input, ctx }) => removerArquivo(input.id, ctx.clienteId)),
+    // ⚠️ O 3º argumento é QUEM apagou, e ele estava faltando — o `activityLog` já estava escrito
+    // dentro de `removerArquivo` e nunca era gravado. O arquivo some do disco (irreversível), e
+    // até aqui ninguém sabia quem tinha apagado o RG ou o diploma do médico.
+    .mutation(({ input, ctx }) => removerArquivo(input.id, ctx.clienteId, ctx.user.id)),
 
   // MINHA EQUIPE (ADR-131): o responsável da clínica convida os colegas dele sem passar pela
   // Med. Médicos e secretárias com acesso próprio é o ponto todo desta entrega — se cada pedido

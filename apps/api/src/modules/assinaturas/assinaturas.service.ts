@@ -50,7 +50,30 @@ export async function solicitar(
   // compartilhada e clicaria no link deslogado, que é o caminho do signatário legítimo.
   const assinante = await destinatarioDeAssinatura(doc.cliente.id, { nome: doc.cliente.nome, email: doc.cliente.email });
 
-  // Recomeça o fluxo: remove assinaturas anteriores deste documento.
+  // ⚠️ RECOMEÇAR O FLUXO NÃO PODE APAGAR UMA ASSINATURA QUE JÁ FOI DADA.
+  //
+  // O `deleteMany` abaixo é o que permite reenviar o pedido quando ninguém assinou ainda — e
+  // isso continua valendo. O que ele NÃO pode fazer é destruir a prova: `Assinatura` guarda IP,
+  // user-agent, data, hash do conteúdo assinado, a imagem do traço e quem assinou. Nada disso é
+  // versionado em outro lugar (o `DocumentoVersao` guarda o TEXTO, nunca a assinatura), então
+  // apagar era perda definitiva — e o pedido novo devolvia o contrato ao estado "não assinado",
+  // sem uma linha no histórico dizendo que existiu uma assinatura ali.
+  //
+  // Recusar é o certo: quem precisa mesmo de um documento novo emite um documento novo.
+  const jaAssinada = await prisma.assinatura.findFirst({
+    where: { documentoId, status: "ASSINADO" },
+    select: { nome: true, assinadoEm: true },
+  });
+  if (jaAssinada) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `Este documento já foi assinado por ${jaAssinada.nome}. Pedir assinatura de novo apagaria essa ` +
+        "assinatura e a prova dela. Gere um documento novo se as condições mudaram.",
+    });
+  }
+
+  // Recomeça o fluxo: remove assinaturas anteriores deste documento (nenhuma foi dada).
   await prisma.assinatura.deleteMany({ where: { documentoId } });
   const tkCliente = gerarTokenPublico();
   const tkMed = gerarTokenPublico();

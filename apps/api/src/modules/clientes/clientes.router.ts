@@ -19,6 +19,8 @@ import * as servicosCliente from "../servicos/servicos-cliente.service.js";
 import * as arquivos from "../arquivos/arquivos.service.js";
 import { listChamadosDoCliente } from "../mensagens/mensagens.service.js";
 import * as pessoas from "../portal/pessoas.service.js";
+// A MESMA régua do Painel do Cliente (ADR-128): ADMIN+ sempre, funcionário só nos clientes dele.
+import { assertPodeVerOPainel } from "../auth/painel-cliente.service.js";
 
 export const clientesRouter = router({
   // Chamados de suporte do cliente (lista na ficha; a conversa fica em Mensagens).
@@ -69,28 +71,51 @@ export const clientesRouter = router({
   // dele. Aqui é o lado da EQUIPE DA MED: a Thaís convida e revoga pela ficha do cliente. O
   // responsável da própria clínica faz o mesmo por `portal.pessoas`, chamando as MESMAS funções.
   //
-  // ⚠️ Convidar e revogar acesso é `funcionarioProcedure` como o resto da ficha, mas note que
-  // `pessoas.service` confere o vínculo com o cliente em toda função: a rota diz quem é da casa,
-  // o serviço diz de qual clínica é a pessoa. As duas perguntas são diferentes.
+  // ⚠️ DUAS PERGUNTAS DIFERENTES, E POR MUITO TEMPO SÓ UMA ERA FEITA.
+  //
+  // `pessoas.service` confere o vínculo PESSOA↔CLÍNICA em toda função — mas ninguém conferia
+  // ATOR↔CLÍNICA. Com o `clienteId` vindo do input, qualquer FUNCIONARIO convidava a si mesmo
+  // como RESPONSAVEL de QUALQUER clínica, aceitava o convite que chegava na própria caixa e
+  // entrava no Portal alheio com sessão normal de cliente — sem a marca de sessão de suporte
+  // que a ADR-128 criou justamente para isto ficar rastreável. E, no sentido inverso, trancava
+  // o responsável de verdade para fora.
+  //
+  // As MUTAÇÕES passam agora pela mesma régua do Painel do Cliente: ADMIN+ sempre, funcionário
+  // só nos clientes dele. A leitura (`list`) segue como o resto da ficha, que já é assim.
   pessoas: router({
     list: funcionarioProcedure
       .input(z.object({ clienteId: z.string() }))
       .query(({ input }) => pessoas.listarPessoasDoPortal(input.clienteId)),
     convidar: funcionarioProcedure
       .input(convidarPessoaPortalSchema.extend({ clienteId: z.string() }))
-      .mutation(({ input, ctx }) => pessoas.convidarPessoaDoPortal({ ...input, autorId: ctx.user.id })),
+      .mutation(async ({ input, ctx }) => {
+        await assertPodeVerOPainel(ctx.user, input.clienteId);
+        return pessoas.convidarPessoaDoPortal({ ...input, autorId: ctx.user.id });
+      }),
     alterarPapel: funcionarioProcedure
       .input(papelDaPessoaPortalSchema.extend({ clienteId: z.string() }))
-      .mutation(({ input, ctx }) => pessoas.alterarPapelDaPessoa({ ...input, autorId: ctx.user.id })),
+      .mutation(async ({ input, ctx }) => {
+        await assertPodeVerOPainel(ctx.user, input.clienteId);
+        return pessoas.alterarPapelDaPessoa({ ...input, autorId: ctx.user.id });
+      }),
     revogar: funcionarioProcedure
       .input(pessoaPortalSchema.extend({ clienteId: z.string() }))
-      .mutation(({ input, ctx }) => pessoas.revogarAcessoDaPessoa({ ...input, autorId: ctx.user.id })),
+      .mutation(async ({ input, ctx }) => {
+        await assertPodeVerOPainel(ctx.user, input.clienteId);
+        return pessoas.revogarAcessoDaPessoa({ ...input, autorId: ctx.user.id });
+      }),
     devolver: funcionarioProcedure
       .input(pessoaPortalSchema.extend({ clienteId: z.string() }))
-      .mutation(({ input, ctx }) => pessoas.devolverAcessoDaPessoa({ ...input, autorId: ctx.user.id })),
+      .mutation(async ({ input, ctx }) => {
+        await assertPodeVerOPainel(ctx.user, input.clienteId);
+        return pessoas.devolverAcessoDaPessoa({ ...input, autorId: ctx.user.id });
+      }),
     reenviarConvite: funcionarioProcedure
       .input(pessoaPortalSchema.extend({ clienteId: z.string() }))
-      .mutation(({ input, ctx }) => pessoas.reenviarConviteDaPessoa({ ...input, autorId: ctx.user.id })),
+      .mutation(async ({ input, ctx }) => {
+        await assertPodeVerOPainel(ctx.user, input.clienteId);
+        return pessoas.reenviarConviteDaPessoa({ ...input, autorId: ctx.user.id });
+      }),
   }),
 
   // Arquivar cliente (exclusão LÓGICA: some das listas, preserva histórico) — só ADMIN+.

@@ -268,6 +268,96 @@ export async function sincronizarServicosContratados(
   await prisma.activityLog
     .create({ data: { userId: ator.id, acao: "servico.sincronizado_aceite", entidadeTipo: "cliente", entidadeId: clienteId, dados: { qtd: itens.length } } })
     .catch(() => {});
+
+  await provisionarUpsellAceito(clienteId, itens, ator);
+}
+
+/**
+ * O UPSELL ACEITO PRECISA VIRAR CONTA A RECEBER — E ATÉ AQUI NÃO VIRAVA.
+ *
+ * Há três portas para um serviço passar a valer, e duas delas já cobravam:
+ *
+ * 1. **Conversão do lead** — provisiona a cobrança agregada (`leads.service`).
+ * 2. **Contratar pela ficha** — provisiona ali mesmo (`contratarServicoCliente`, acima).
+ * 3. **Proposta aceita pelo cliente** — sincronizava o serviço, gerava o contrato… e parava.
+ *
+ * Para quem AINDA é lead, a porta 3 desemboca na 1: a conversão vem logo atrás e cobra. Mas o
+ * cliente **já convertido** que aceita uma proposta nova (o upsell — que é justamente o que a
+ * Med mais quer vender) não passa por conversão nenhuma. Resultado: serviço ativo na ficha,
+ * contrato gerado, projeto aberto, trabalho começando — e **nada no Financeiro**. O buraco só
+ * apareceria meses depois, se alguém cruzasse a ficha com as contas.
+ *
+ * ⚠️ **A guarda contra cobrar duas vezes é o LEAD ATIVO.** Havendo lead não convertido para este
+ * cliente, quem cobra é a conversão, e aqui não se toca em dinheiro. Sem lead ativo, esta é a
+ * única porta que sobrou.
+ *
+ * As demais regras são as MESMAS da contratação pela ficha, de propósito — credenciamento fora
+ * (o honorário nasce na aprovação da operadora, ADR-104), serviço só-percentual fora (não há
+ * valor a lançar antes de apurar o faturamento do mês), e o valor é o **aceito**, nunca o de
+ * catálogo (ADR-137).
+ */
+async function provisionarUpsellAceito(
+  clienteId: string,
+  itens: { servicoId: string; valor?: number | null; recorrencia?: "AVULSO" | "MENSAL" }[],
+  ator: { id: string },
+) {
+  try {
+    const leadAtivo = await prisma.lead.findFirst({
+      where: { clienteId, deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
+      select: { id: true },
+    });
+    if (leadAtivo) return; // a conversão cobra — cobrar aqui também seria cobrar duas vezes.
+
+    const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } });
+
+    for (const it of itens) {
+      if (!it.servicoId) continue;
+      const valor = it.valor ?? 0;
+      if (valor <= 0) continue; // só-percentual ou "a combinar": não há número a lançar hoje.
+
+      const servico = await prisma.servico.findUnique({
+        where: { id: it.servicoId },
+        select: { nome: true },
+      });
+      if (ehServicoDeCredenciamento(servico?.nome)) continue;
+
+      // Já existe conta deste serviço para este cliente? Reaceitar a mesma proposta (ou aceitar
+      // duas que repetem um serviço) não pode lançar a cobrança de novo.
+      const descricaoBase = `${servico?.nome ?? "Serviço"} — ${cliente?.nome ?? "cliente"}`;
+      const jaTem = await prisma.conta.count({
+        where: { clienteId, tipo: "RECEBER", deletedAt: null, descricao: { endsWith: descricaoBase } },
+      });
+      if (jaTem > 0) continue;
+
+      const vencimento = new Date();
+      vencimento.setDate(vencimento.getDate() + 30);
+      vencimento.setHours(12, 0, 0, 0);
+      const mensal = it.recorrencia === "MENSAL";
+      await prisma.conta.create({
+        data: {
+          tipo: "RECEBER",
+          descricao: `${mensal ? "Mensalidade" : "Serviço"}: ${descricaoBase}`,
+          valor,
+          vencimento,
+          clienteId,
+          recorrencia: mensal ? "MENSAL" : "NENHUMA",
+          observacoes: "Provisionado quando o cliente aceitou a proposta. Revise o valor e o vencimento.",
+        },
+      });
+      await prisma.activityLog.create({
+        data: {
+          userId: ator.id,
+          acao: "conta.criada",
+          entidadeTipo: "cliente",
+          entidadeId: clienteId,
+          dados: { origem: "proposta_aceita_upsell", servicoId: it.servicoId },
+        },
+      });
+    }
+  } catch {
+    /* Provisão é best-effort: o aceite do cliente não cai porque o Financeiro tropeçou. A falha
+       chega ao painel de erros pelo `catch` de quem chamou (`propostas.service`). */
+  }
 }
 
 /**

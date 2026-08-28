@@ -223,7 +223,29 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
         });
         const { gerarContratoAutoParaCliente } = await import("../documentos/documentos.service.js");
         await gerarContratoAutoParaCliente(clienteId, atorId, { leadId: lead?.id });
-      })().catch(() => {});
+      })().catch(async (e) => {
+        // ⚠️ AQUI ESTAVA UM `catch(() => {})` — o silêncio mais caro da aplicação.
+        //
+        // A proposta já está gravada como ACEITA (o `update` acima) e a equipe já recebeu o aviso
+        // de "proposta aceita" (o laço abaixo, fora deste bloco). Se a automação falhasse — banco
+        // fora do ar, serviço apagado do catálogo, qualquer coisa —, o cliente ficava com a ficha
+        // SEM o serviço contratado, SEM contrato e SEM conta a receber, e ninguém ficava sabendo:
+        // nem a tela, nem o painel de erros do ROOT, nem um log.
+        //
+        // Continua sendo best-effort de propósito (o aceite do cliente não pode cair porque a
+        // nossa automação tropeçou), mas agora a falha APARECE em SISTEMA → Erros, que é onde a
+        // Thaís e o ROOT olham. Sem isto, "vendi e não cobrei" só aparecia no Financeiro, meses
+        // depois, se alguém conferisse.
+        const { registrarErro } = await import("../sistema/sistema.service.js");
+        await registrarErro({
+          rota: "propostas.responder/automacao-pos-aceite",
+          mensagem:
+            `A proposta do documento ${doc.id} foi ACEITA, mas a automação seguinte falhou: ` +
+            `os serviços contratados, o contrato e a conta a receber podem NÃO ter sido criados. ` +
+            `Confira a ficha do cliente ${clienteId}. Causa: ${(e as Error)?.message ?? String(e)}`,
+          stack: (e as Error)?.stack ?? null,
+        }).catch(() => {});
+      });
     }
     for (const userId of await alvosDaEquipe(doc.clienteId)) {
       void notificar(

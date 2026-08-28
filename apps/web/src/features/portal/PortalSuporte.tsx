@@ -3,6 +3,7 @@ import { LifeBuoy, Plus, ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "@app/ui";
 import { CHAMADO_STATUS_LABEL, type ChamadoStatus } from "@app/shared";
 import { trpc } from "../../lib/trpc";
+import { QueryError } from "../../components/ui/query-error";
 import { POLL, useEventoRealtime } from "../../lib/socket";
 import { data } from "../../lib/format-date";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
@@ -96,6 +97,15 @@ export function PortalSuporte() {
       ) : chamados.isLoading ? (
         <div className="flex justify-center py-10">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : chamados.isError ? (
+        /* ⚠️ Erro ANTES de vazio: em falha, a tela dizia "nenhum chamado aberto" com o botão de
+           abrir chamado ao lado — e o cliente abria um segundo chamado do mesmo assunto. */
+        <div className="p-2">
+          <QueryError
+            onRetry={() => void chamados.refetch()}
+            message="Não conseguimos carregar os seus chamados. Tente de novo — nenhum deles foi perdido."
+          />
         </div>
       ) : chamados.data && chamados.data.length > 0 ? (
         <div className="divide-y">

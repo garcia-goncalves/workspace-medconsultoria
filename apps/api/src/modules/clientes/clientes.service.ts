@@ -333,7 +333,15 @@ export async function excluirDefinitivoCliente(id: string, userId: string) {
   const cliente = await prisma.cliente.findUnique({ where: { id }, select: { id: true, nome: true } });
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado" });
 
-  const [projetos, documentos, contas, servicos, eventos, acessos, arquivosCli, conversas, respostas, leads] = await Promise.all([
+  // ⚠️ A LISTA TEM DE COBRIR TODA RELAÇÃO `onDelete: Cascade` QUE PARTE DE `Cliente`.
+  // O que não estiver aqui não bloqueia a exclusão — é apagado pelo banco, em silêncio, depois
+  // de a tela ter dito "sem vínculos, seguro remover". Faltavam três, e as três guardam
+  // trabalho que não se refaz: o histórico do chat de suporte, os médicos cadastrados e o
+  // andamento do credenciamento na operadora.
+  const [
+    projetos, documentos, contas, servicos, eventos, acessos, arquivosCli, conversas, respostas, leads,
+    suporte, profissionais, credenciamentos,
+  ] = await Promise.all([
     prisma.projeto.count({ where: { clienteId: id } }),
     prisma.documento.count({ where: { clienteId: id } }),
     prisma.conta.count({ where: { clienteId: id } }),
@@ -344,11 +352,15 @@ export async function excluirDefinitivoCliente(id: string, userId: string) {
     prisma.conversa.count({ where: { clienteId: id } }),
     prisma.formularioResposta.count({ where: { clienteId: id } }),
     prisma.lead.count({ where: { OR: [{ clienteId: id }, { convertidoEmClienteId: id }] } }),
+    prisma.suporteMensagem.count({ where: { clienteId: id } }),
+    prisma.profissional.count({ where: { clienteId: id } }),
+    prisma.credenciamento.count({ where: { clienteId: id } }),
   ]);
 
   const vinculos: Record<string, number> = {
     projetos, documentos, financeiro: contas, serviços: servicos, agenda: eventos,
     "acessos ao Portal": acessos, arquivos: arquivosCli, conversas, "respostas de formulário": respostas, leads,
+    "mensagens de suporte": suporte, "médicos cadastrados": profissionais, credenciamentos,
   };
   const bloqueios = Object.entries(vinculos).filter(([, n]) => n > 0);
   if (bloqueios.length) {

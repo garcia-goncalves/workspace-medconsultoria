@@ -6,6 +6,9 @@ import { hashPassword } from "../../lib/password.js";
 import { criarToken } from "../../lib/tokens.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { config } from "../../config.js";
+// A tela interna *Equipe e acessos* também cria e desativa conta de Portal. Sem passar por
+// estas duas regras, ela furava as travas das ADR-131/137 pela porta dos fundos.
+import { papelPortalPadraoDaClinica, assertSobraResponsavel } from "../portal/papel-da-clinica.js";
 
 /** Convite válido por 72h. */
 const CONVITE_TTL_MS = 72 * 60 * 60 * 1000;
@@ -186,6 +189,11 @@ export async function createUsuario(atorRole: Role, input: CreateUsuarioInput) {
       passwordHash: await hashPassword(input.senha),
       role: input.role,
       clienteId: input.role === "CLIENTE" ? clienteId : null,
+      // ⚠️ SEM ESTA LINHA A CONTA NASCIA COM O PAPEL NULO — e nulo vale como RESPONSAVEL
+      // (contas anteriores à ADR-131). Ou seja: toda secretária cadastrada pela tela da Med
+      // podia aceitar proposta e assinar contrato, desfazendo na origem a trava da ADR-137.
+      papelPortal:
+        input.role === "CLIENTE" && clienteId ? await papelPortalPadraoDaClinica(clienteId) : null,
     },
     select: publicSelect,
   });
@@ -220,6 +228,9 @@ export async function convidarUsuario(atorRole: Role, input: InviteUsuarioInput)
       ativo: false,
       role: input.role,
       clienteId: input.role === "CLIENTE" ? clienteId : null,
+      // Mesmo motivo de `createUsuario`: papel nulo = quem assina.
+      papelPortal:
+        input.role === "CLIENTE" && clienteId ? await papelPortalPadraoDaClinica(clienteId) : null,
     },
     select: publicSelect,
   });
@@ -302,6 +313,12 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
     if (protegido && input.ativo === false) {
       throw new TRPCError({ code: "FORBIDDEN", message: "O root principal não pode ser desativado." });
     }
+    // A MESMA TRAVA DA ADR-131, AGORA TAMBÉM AQUI. A tela do Portal e a ficha do cliente já
+    // recusavam deixar a clínica sem ninguém que assine; *Equipe e acessos* não perguntava, e
+    // por ela dava para desativar o único responsável — em silêncio.
+    if (input.ativo === false && alvo.role === "CLIENTE" && alvo.clienteId) {
+      await assertSobraResponsavel(alvo.clienteId, { id: alvo.id, ativo: false });
+    }
     data.ativo = input.ativo;
   }
 
@@ -330,6 +347,13 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
   // Desativação, troca de senha ou de e-mail invalida as sessões abertas do alvo.
   if (data.ativo === false || data.passwordHash || data.email) {
     await prisma.session.deleteMany({ where: { userId: input.id } });
+  }
+
+  // ⚠️ DERRUBAR A SESSÃO NÃO BASTA: o convite vale 72 h e o reset, 1 h. Sem apagar os tokens,
+  // quem foi desativado com um link ainda na caixa clicava nele, e `aceitarConvite`/
+  // `redefinirSenha` gravam `ativo: true` — a conta desativada voltava a entrar sozinha.
+  if (data.ativo === false || data.passwordHash) {
+    await prisma.token.deleteMany({ where: { userId: input.id, usedAt: null } });
   }
 
   return user;

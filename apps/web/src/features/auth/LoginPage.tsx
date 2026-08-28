@@ -65,7 +65,7 @@ export function LoginPage() {
       <div className="mb-8">
         <h2 className="text-2xl font-semibold tracking-tight text-foreground">Acesse sua conta</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          Informe seu e-mail e senha para entrar no workspace.
+          Informe seu e-mail e senha para entrar.
         </p>
       </div>
 
@@ -163,7 +163,7 @@ export function LoginPage() {
       </form>
 
       <p className="mt-8 text-center text-xs text-muted-foreground">
-        Problemas para acessar? Fale com o administrador do workspace.
+        Problemas para acessar? Fale com a MedConsultoria.
       </p>
     </AuthShell>
   );

@@ -37,6 +37,40 @@ export function AssinarPage({ token }: { token: string }) {
       </Casca>
     );
   }
+  // ⚠️ FALHA DE REDE NÃO É LINK INVÁLIDO — e a diferença aqui custa caro.
+  //
+  // Esta é a página que o médico abre DESLOGADO, no celular, numa rede qualquer. Juntar
+  // `isError` com `!data` fazia um blip de conexão dizer a ele que o link morreu (e o TanStack
+  // Query está com `retry: false`, então basta UMA tentativa falhar). Ele então pede outro link,
+  // e a Med emite um segundo documento para o mesmo negócio.
+  //
+  // ⚠️ **Mas token inválido TAMBÉM chega como erro** — o servidor responde `NOT_FOUND`. Quem
+  // separa as duas coisas é o CÓDIGO da resposta, não o fato de ter dado erro: só o que o
+  // servidor recusou explicitamente é "link inválido"; o resto (rede, 500, timeout) é
+  // "tente de novo". Um teste de ponta a ponta pegou exatamente esta confusão.
+  const codigo = q.error?.data?.code;
+  const linkRecusadoPeloServidor = codigo === "NOT_FOUND" || codigo === "BAD_REQUEST" || codigo === "FORBIDDEN";
+  if (q.isError && !linkRecusadoPeloServidor) {
+    return (
+      <Casca>
+        <div className="rounded-xl border bg-background p-8 text-center">
+          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-warning" />
+          <h1 className="text-lg font-semibold">Não conseguimos carregar</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Seu link continua valendo — foi a conexão com o nosso servidor que falhou. Tente de novo
+            em alguns instantes.
+          </p>
+          <button
+            type="button"
+            onClick={() => void q.refetch()}
+            className="mt-4 rounded-lg border px-4 py-2 text-sm font-medium hover:bg-muted"
+          >
+            Tentar de novo
+          </button>
+        </div>
+      </Casca>
+    );
+  }
   if (q.isError || !q.data) {
     return (
       <Casca>

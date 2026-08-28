@@ -1,11 +1,10 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
-import {
-  sobraResponsavel,
-  PORTAL_PRECISA_DE_UM_RESPONSAVEL,
-  type PortalPapel,
-} from "@app/shared";
+import { type PortalPapel } from "@app/shared";
 import { gerarConvite } from "../usuarios/usuarios.service.js";
+// A regra de "sobra alguém que assina?" mora fora deste arquivo porque a tela interna da Med
+// (*Equipe e acessos*) também precisa dela, e importar daqui fecharia ciclo de módulos.
+import { assertSobraResponsavel } from "./papel-da-clinica.js";
 
 /**
  * AS PESSOAS DE UMA CLÍNICA, NO PORTAL DO CLIENTE (ADR-131).
@@ -95,23 +94,6 @@ export async function listarPessoasDoPortal(clienteId: string): Promise<PessoaDo
 }
 
 /**
- * As contas daquela clínica, no formato que `sobraResponsavel` espera.
- * Só conta VIVA (não excluída) — pessoa apagada não sustenta clínica nenhuma.
- *
- * ⚠️ O `ativo` que a regra pura recebe é **"não revogado"**, não a coluna `ativo`. A coluna é
- * `false` também em quem foi convidado e ainda não criou a senha — e essa pessoa É a dona da
- * clínica no dia seguinte ao cadastro. Passando a coluna crua, a clínica recém-criada ficaria
- * travada: sem "nenhum responsável ativo", ela não poderia nem convidar a primeira secretária.
- */
-async function contasDaClinica(clienteId: string) {
-  const users = await prisma.user.findMany({
-    where: { clienteId, role: "CLIENTE", deletedAt: null },
-    select: { id: true, papelPortal: true, acessoRevogadoEm: true },
-  });
-  return users.map((u) => ({ id: u.id, papel: u.papelPortal, ativo: !u.acessoRevogadoEm }));
-}
-
-/**
  * Acha a pessoa E confirma que ela é daquela clínica.
  *
  * ⚠️ O `clienteId` no `where` é a linha que separa "gerenciar a minha equipe" de "mexer na
@@ -126,16 +108,6 @@ async function pessoaDaClinica(pessoaId: string, clienteId: string) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Pessoa não encontrada nesta clínica." });
   }
   return pessoa;
-}
-
-/** Recusa a mudança que deixaria a clínica sem ninguém para assinar. */
-async function assertSobraResponsavel(
-  clienteId: string,
-  mudanca: { id: string; papel?: PortalPapel | null; ativo?: boolean },
-) {
-  if (!sobraResponsavel(await contasDaClinica(clienteId), mudanca)) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: PORTAL_PRECISA_DE_UM_RESPONSAVEL });
-  }
 }
 
 /** O histórico de tudo que se faz com o acesso de alguém — quem mexeu, em quem, e o quê. */
@@ -280,6 +252,10 @@ export async function revogarAcessoDaPessoa(input: {
     data: { ativo: false, acessoRevogadoEm: new Date() },
   });
   await prisma.session.deleteMany({ where: { userId: pessoa.id } });
+  // ⚠️ E O CONVITE QUE JÁ ESTÁ NA CAIXA DELA? Ele vale 72h, e `aceitarConvite` grava
+  // `ativo: true`. Sem apagar o token, revogar o acesso de quem ainda não entrou não revoga
+  // nada: bastava ela clicar no link antigo para entrar, ainda marcada como "revogada" na tela.
+  await prisma.token.deleteMany({ where: { userId: pessoa.id, usedAt: null } });
   await registrar(input.autorId, input.clienteId, "portal.acesso_revogado", {
     pessoaId: pessoa.id,
     nome: pessoa.nome,
