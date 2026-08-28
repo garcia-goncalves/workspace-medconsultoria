@@ -13,12 +13,74 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-28 · fim de tarde · ADR-137 e ADR-138 — os 3 primeiros itens do refino, no PR #146)
+## Estado atual (2026-08-28 · noite · ADR-137/138 MESCLADAS + a esteira do Portal em 5 seções)
+
+> **Leia `docs/esteira/portal-app-5-secoes-2026-08-28/`** (briefing, spec, design, adendo) e
+> `docs/superpowers/plans/portal-app-5-secoes.md`. O que segue é só o que mudou nesta janela.
+
+- **✅ PR #146 MESCLADO na `main`** (commit `506ef88`, squash, CI **3/3 verde**). A branch
+  `fix/travas-de-assinatura-adr-137` foi apagada. **Não está no ar** — a v1.2.1 continua sendo o
+  que roda em produção. Todo o conteúdo das ADR-137 e 138 (seção seguinte) vale, e agora está
+  na `main`.
+- **🗂️ A ESTEIRA DO PORTAL ESTÁ NAS FASES 1–4, TUDO EM DISCO — zero código de aplicação
+  escrito.** Branch `feat/portal-app-5-secoes`, já no GitHub. Briefing, spec (671 linhas), design
+  (726) e plano (705, **6 etapas em 3 ondas**) escritos e aprovados no validador.
+- **📱 O DONO APROVOU as 5 seções** (Início · Documentos · Credenciamento · Meus serviços ·
+  Suporte, com *Equipe* e *Perfil* no menu do avatar) **e a direção visual** (barra inferior com
+  ícone + rótulo sempre visíveis). Item 4 da ordem dele, finalmente destravado.
+- **🃏 A BARRA TEM 4 CORINGAS E 1 VAGA (ordem do dono).** Ele recusou a premissa de 5 seções
+  fixas com a razão certa: *"nem todos nossos clientes tem convênios. Nem todos tem
+  credenciamento tbm."* Início, Documentos, Serviços e Suporte valem para todo cliente; a 3ª
+  posição é uma **vaga**. ⚠️ **A vaga é uma LISTA DE CANDIDATAS, nunca um `if`** — frente de
+  trabalho nova entra numa linha, sem abrir a barra. Hoje há **uma** candidata, e é fato do
+  repositório: `PortalCredenciamento.tsx` é a única tela de frente que existe. Rótulo
+  **"Convênios"** ("Credenciamento" tem 14 caracteres e não cabe nos 68px de um item a 360px).
+  Sem candidata, a barra é `grid-cols-4` — nunca 5 com um buraco.
+- **📁 A SEÇÃO DOCUMENTOS TEM DOIS ACERVOS (ordem do dono).** Documentos **do cliente** (RG,
+  alvará, CRM, mini currículo — `portal.arquivos`) e **da MedConsultoria** (briefing, proposta,
+  contrato — `portal.resumo.documentos`). A distinção **já existe no código** e é de FONTE, com
+  ações **opostas**: enviar/remover de um lado, ler/aceitar/assinar do outro. Hoje são dois
+  cartões distantes na mesma página (linhas 435 e 477) e nada diz qual é qual. ⚠️ **Nunca junte
+  os dois numa lista só ordenada por data** — assinar contrato e apagar RG com o mesmo peso
+  visual é como o cliente apaga o que não devia.
+- **🚧 TRÊS DESCOBERTAS QUE MUDAM QUEM FOR IMPLEMENTAR:**
+  (1) **Dois testes-guarda leem o TEXTO de `apps/web/src/app/router.tsx`** por regex
+  (`paginas.test.ts:15-20`, `GuiaTour.test.ts:14-18`) e cobrariam catálogo de menu e guia
+  próprio para um `path: "/portal"` ali — e casariam **só** `/portal`, não `/portal/documentos`.
+  Daí o roteador do Portal nascer em **arquivo separado**; `lib/paginas.ts` não muda uma linha.
+  (2) **"Qualquer caminho cai no Portal" é contrato TESTADO** (`e2e/flows-portal.spec.ts:22-23`
+  vai a `/financeiro` e exige o cabeçalho do Portal), não acidente — o `notFoundComponent`
+  precisa **redirecionar**, e o `h1` precisa manter a palavra "Portal" (daí `H1 = "Seu Portal"`,
+  com a saudação no subtítulo). O redirecionamento `/` → `/portal` **não pode vazar** para fora
+  do roteador do Portal: "Voltar ao meu acesso" faz `window.location.href = "/"`
+  (`FaixaDeSuporte.tsx:23`) e o operador da Med entraria em laço.
+  (3) **O M12 são QUATRO botões sem trava de papel na tela** (`desistir`, `retomar`,
+  `solicitarServicos`, `cancelarServico`), não um, e a linha citada no `achados.md` está errada.
+  A correção mínima é uma função pura em `portal-papeis.ts` **que o servidor também passa a
+  chamar** — senão o conserto cria a divergência que veio evitar (modo de falha da ADR-133).
+- **🎁 Brinde do redesenho:** com rotas, `portal.servicosDisponiveis` (**11,9 s** em produção)
+  deixa de ser obrigatória para abrir o Portal e passa a carregar só em *Meus serviços*.
+- **Escopo cortado pelo dono:** os 4 achados de REGRA do Portal (M9, C7, C8, F20) **não** entram
+  nesta rodada — misturar correção de regra com redesenho faz o PR crescer e esconde qual das
+  duas coisas quebrou. Viram rodada própria.
+
+### O que falta nesta esteira
+
+- **Fases 5, 6 e 7 (execução, revisão, crônica) NÃO COMEÇARAM.** O plano tem 6 etapas: **E1**
+  (esqueleto + mudança de casa dos 16 blocos) bloqueia tudo; depois **onda 2 em paralelo**
+  (E4 Suporte+Equipe · E5 guia por seção · E6 M12) e **onda 3 em paralelo** (E2 Início+Documentos
+  · E3 Serviços+Convênios). ⚠️ **E6 vem ANTES de E2/E3, de propósito** — na ordem inversa
+  bastaria esquecer a trava de papel; nesta, seria preciso apagá-la.
+- **⚠️ Não existe perfil e2e com papel EQUIPE** (`auth.setup.ts:10-14` cria root/admin/
+  funcionario/cliente) e **não há Testing Library** no repositório — a prova do M12 é teste de
+  unidade da função pura **mais** a conferência na tela, não e2e.
+
+## Estado anterior (2026-08-28 · fim de tarde · ADR-137 e ADR-138 — os 3 primeiros itens do refino, PR #146 MESCLADO)
 
 > **Leia `docs/esteira/refino-final-2026-08-28/achados.md`** (48 achados, arquivo:linha) e as
 > **ADR-137 e ADR-138** em `docs/DECISIONS.md`. O que segue é só o que mudou nesta janela.
 
-- **📄 PR #146 ABERTO** (branch `fix/travas-de-assinatura-adr-137`) com os itens 1, 2 e 3 da ordem
+- **✅ PR #146 MESCLADO** (era a branch `fix/travas-de-assinatura-adr-137`) com os itens 1, 2 e 3 da ordem
   do dono. **PR #145 (a descoberta, só documentação) MESCLADO**, CI 3/3 verde.
 - **🔒 A SECRETÁRIA E A SESSÃO DE SUPORTE NÃO ASSINAM MAIS CONTRATO (C6 · ADR-137).** As duas
   travas existiam, cada uma com a sua ADR, e **nenhuma ficava no caminho que assina**:
