@@ -204,6 +204,28 @@ export async function validarConvite(
 }
 
 /**
+ * ACESSO REVOGADO NÃO VOLTA POR UM LINK ANTIGO.
+ *
+ * `aceitarConvite` e `redefinirSenha` gravam `ativo: true` — é o certo para o caminho normal.
+ * Mas quem teve o acesso revogado depois de receber o link (convite vale 72h, reset 1h) ficava
+ * a um clique de reabrir a própria conta, e a tela continuava mostrando "REVOGADO" enquanto a
+ * pessoa navegava. O token agora é apagado na revogação; esta é a segunda tranca, para o caso
+ * de a revogação ter vindo por um caminho que esqueça de apagar.
+ */
+async function recusarSeAcessoRevogado(userId: string) {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { acessoRevogadoEm: true },
+  });
+  if (u?.acessoRevogadoEm) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Este acesso foi encerrado. Fale com quem administra a conta para receber um novo convite.",
+    });
+  }
+}
+
+/**
  * Aceita o convite: valida o token, define a senha, ativa a conta e já cria a
  * sessão (a pessoa entra direto). Token é de uso único.
  */
@@ -217,6 +239,7 @@ export async function aceitarConvite(
   if (!userId) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Convite inválido ou expirado." });
   }
+  await recusarSeAcessoRevogado(userId);
   const user = await prisma.user.update({
     where: { id: userId },
     data: { passwordHash: await hashPassword(novaSenha), ativo: true, senhaTrocadaEm: new Date() },
@@ -324,6 +347,7 @@ export async function redefinirSenha(
   if (!userId) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Link inválido ou expirado." });
   }
+  await recusarSeAcessoRevogado(userId);
   const user = await prisma.user.update({
     where: { id: userId },
     data: { passwordHash: await hashPassword(novaSenha), ativo: true, senhaTrocadaEm: new Date() },

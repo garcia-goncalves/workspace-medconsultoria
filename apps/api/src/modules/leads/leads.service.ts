@@ -1501,9 +1501,36 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
       // equipe fez à mão na ficha. Por isso a regra é "preenche buraco", e só.
       const completar = (atual: string | null, novo: string | null) =>
         atual == null || atual === "" ? novo ?? undefined : undefined;
+
+      // ⚠️ QUEM FOI DADO POR PERDIDO E VOLTA PELO SITE PRECISA VOLTAR AO FUNIL.
+      //
+      // A busca acima nunca filtrou `perdidoEm`, e isso é certo: é o MESMO lead, e criar outro
+      // duplicaria a ficha. Só que a atualização também não o limpava — então ele continuava
+      // fora do quadro (o board filtra `perdidoEm: null`) enquanto a equipe recebia o aviso de
+      // "novo lead, ver no funil" e não achava nada lá. Negócio voltando pela porta da frente e
+      // ninguém atendendo.
+      //
+      // Reabrir aqui faz o mesmo que `reabrirLead`: zera a perda e põe o card no fim da coluna
+      // em que ele estava.
+      const estavaPerdido = existente.perdidoEm !== null;
+      const ordemNaColuna = estavaPerdido
+        ? ((
+            await prisma.lead.aggregate({
+              where: {
+                pipelineStageId: existente.pipelineStageId,
+                deletedAt: null,
+                convertidoEmClienteId: null,
+                perdidoEm: null,
+              },
+              _max: { ordem: true },
+            })
+          )._max.ordem ?? -1) + 1
+        : undefined;
+
       await prisma.lead.update({
         where: { id: existente.id },
         data: {
+          ...(estavaPerdido ? { perdidoEm: null, motivoPerda: null, ordem: ordemNaColuna } : {}),
           empresa: completar(existente.empresa, clean(input.empresa)),
           telefone: completar(existente.telefone, clean(input.telefone)),
           observacoes:
@@ -1514,7 +1541,13 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
       });
       await sincronizarPassosServicos(existente.id, existente.pipelineStage.id, existente.pipelineStage.chaveAuto);
       await reconciliarPassosAuto(existente.id);
-      await prisma.activityLog.create({ data: { acao: "lead.recapturado", entidadeTipo: "lead", entidadeId: existente.id } });
+      await prisma.activityLog.create({
+        data: {
+          acao: estavaPerdido ? "lead.reaberto_pelo_site" : "lead.recapturado",
+          entidadeTipo: "lead",
+          entidadeId: existente.id,
+        },
+      });
       const contato = existente.empresa ? `${existente.nome} · ${existente.empresa}` : existente.nome;
       const equipe = await prisma.user.findMany({
         where: { ativo: true, deletedAt: null, role: { in: ["ADMIN", "ROOT"] } },

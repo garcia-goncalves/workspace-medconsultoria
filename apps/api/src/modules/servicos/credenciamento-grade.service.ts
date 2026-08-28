@@ -129,9 +129,25 @@ export async function gradeDoCliente(clienteId: string) {
  * no mundo, correndo na operadora, e sumir com ele por um clique de edição perderia o
  * histórico (e o vínculo com uma cobrança já emitida). O serviço devolve o que ignorou para
  * a tela poder avisar.
+ *
+ * ⚠️ `somenteOperadorasDaGrade` existe porque há DUAS portas para cá, com significados opostos:
+ *
+ * - A **grade da ficha** manda o cliente inteiro. Ali, par ausente = desmarcado de propósito,
+ *   e apagar é o comportamento certo.
+ * - O **construtor da proposta** manda uma operadora só (ADR-126: cada proposta de
+ *   credenciamento é de UMA operadora). Ali, par ausente quase sempre quer dizer "é de outra
+ *   proposta", não "foi desmarcado" — e apagar levava embora, em silêncio, todo cruzamento
+ *   `A_PROTOCOLAR` das operadoras anteriores no dia em que a Thaís emitisse a 2ª proposta.
+ *
+ * Com a marca ligada, a remoção fica confinada às operadoras que vieram na carga.
  */
 export async function salvarGrade(
-  input: { clienteId: string; celulas: CelulaGrade[]; documentoId?: string | null },
+  input: {
+    clienteId: string;
+    celulas: CelulaGrade[];
+    documentoId?: string | null;
+    somenteOperadorasDaGrade?: boolean;
+  },
   ator: { id: string },
 ) {
   const profissionaisDoCliente = new Set(
@@ -189,9 +205,17 @@ export async function salvarGrade(
     atualizados++;
   }
 
+  // Fora do alcance desta carga: quando ela cobre uma operadora só, o que é de outra operadora
+  // não foi "desmarcado" — nem estava em jogo.
+  const operadorasEmJogo = new Set(input.celulas.map((c) => c.operadoraId));
+
   // Desmarcado na tela: só some quem nunca foi protocolado.
   for (const [par, vigente] of vigentePorPar) {
     if (marcados.has(par)) continue;
+    if (input.somenteOperadorasDaGrade && !operadorasEmJogo.has(vigente.operadoraId)) {
+      preservados++;
+      continue;
+    }
     if (vigente.status !== "A_PROTOCOLAR") {
       preservados++;
       continue;

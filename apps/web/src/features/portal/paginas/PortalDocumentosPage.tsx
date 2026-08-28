@@ -5,6 +5,7 @@ import { trpc } from "../../../lib/trpc";
 import { dataHora } from "../../../lib/format-date";
 import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Skeleton } from "../../../components/ui/skeleton";
+import { QueryError } from "../../../components/ui/query-error";
 import { PortalDocumentoModal } from "../PortalDocumentoModal";
 import { PortalMeusDocumentos } from "../PortalMeusDocumentos";
 import { ExigenciasPendentes } from "../ExigenciasPendentes";
@@ -44,6 +45,16 @@ export function PortalDocumentosPage() {
           <div className="space-y-2 p-5 pt-1">
             <Skeleton className="h-11 w-full" />
             <Skeleton className="h-11 w-full" />
+          </div>
+        ) : resumo.isError ? (
+          /* ⚠️ Erro ANTES de vazio. Com `portal.resumo` em falha, este card dizia "ainda não
+             preparamos nenhum documento" — e um contrato esperando assinatura simplesmente não
+             existia para o cliente naquela carga. */
+          <div className="p-2">
+            <QueryError
+              onRetry={() => void resumo.refetch()}
+              message="Não conseguimos carregar os documentos que preparamos para você. Tente de novo."
+            />
           </div>
         ) : (resumo.data?.documentos.length ?? 0) === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">

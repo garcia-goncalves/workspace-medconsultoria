@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/ca
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
 import { data } from "../../lib/format-date";
+import { QueryError } from "../../components/ui/query-error";
 
 /**
  * "Seus documentos" no Portal: os arquivos que o CLIENTE envia (RG, CPF, CRM, comprovantes…)
@@ -46,7 +47,14 @@ export function PortalMeusDocumentos() {
       <CardContent className="space-y-3">
         <UploadArquivo label="Enviar um documento" campos={{}} onDone={invalidate} />
 
-        {arquivos.length === 0 ? (
+        {/* ⚠️ Erro ANTES de vazio: em falha, a lista dizia "você ainda não enviou nenhum
+            documento" e o cliente reenviava tudo o que já tinha mandado. */}
+        {q.isError ? (
+          <QueryError
+            onRetry={() => void q.refetch()}
+            message="Não conseguimos carregar os seus documentos. Tente de novo — nada do que você enviou se perdeu."
+          />
+        ) : arquivos.length === 0 ? (
           <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
             Você ainda não enviou nenhum documento. Envie aqui os arquivos que precisamos de você.
           </p>

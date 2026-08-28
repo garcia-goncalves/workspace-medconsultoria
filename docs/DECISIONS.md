@@ -4275,3 +4275,101 @@ nela.
 
 **Prova:** `flows-credenciamento-portal` **7/7 verde no banco isolado**, que reprovava 2 antes do
 conserto; suíte completa do `@app/api` verde (72 arquivos, 679 testes).
+
+---
+
+## ADR-140 — A auditoria total antes do dado real: a segunda porta é sempre a que fura a trava
+
+**Data:** 28/08/2026 · **Status:** aceita · **Escopo:** segurança, dinheiro, perda de dado, telas
+
+### Contexto
+
+O dono pediu, com todas as letras, uma varredura de tudo — "todas as páginas e funcionalidades,
+como se fosse um usuário mesmo fazendo os trabalhos de todos os dias" — porque vai começar a
+cadastrar **dado real** em produção e estava com receio. Oito frentes rodaram em paralelo sobre o
+código de hoje, mais a aplicação percorrida no navegador. O retrato completo, com arquivo:linha em
+tudo, está em `docs/auditoria/AUDITORIA-TOTAL-2026-08-28.md`.
+
+A base começou verde: typecheck 6/6, lint limpo, 679 testes de `@app/api`, 171 de `@app/web`, 99 de
+ponta a ponta. **Nenhum dos defeitos abaixo foi pego por teste** — todos vieram de leitura dirigida
+e de uso na tela.
+
+### O padrão que explica quase todos os achados
+
+Não foram catorze defeitos independentes. Foi **um padrão, catorze vezes**: uma regra construída
+com cuidado numa tela, e uma **segunda porta** para o mesmo dado que não passava por ela.
+
+- A ADR-131 fez a trava de "quem fala pela clínica" e a ADR-137 fechou o caminho da assinatura —
+  mas *Equipe e acessos* criava conta de Portal sem gravar `papelPortal`, e **nulo vale como
+  RESPONSAVEL**. Toda secretária cadastrada pela Med assinava contrato. A trava mais nova da casa,
+  furada na origem pela tela mais velha.
+- A ADR-128 criou a sessão de suporte justamente para a equipe ver o Portal **sem agir** e ficar
+  rastreável — mas `clientes.pessoas.*` era `funcionarioProcedure` com o `clienteId` vindo do
+  pedido. Qualquer funcionário se convidava como RESPONSAVEL de qualquer clínica e entrava com
+  sessão **normal** de cliente, sem marca nenhuma.
+- A ADR-126 fez cada proposta de credenciamento ser de uma operadora só — mas `salvarGrade` foi
+  escrita para a grade da ficha, onde a carga é o cliente inteiro. Emitir a 2ª proposta apagava os
+  cruzamentos da 1ª.
+- Revogar acesso derrubava a sessão e não tocava nos tokens; o convite vale 72 h, e aceitá-lo grava
+  `ativo: true`.
+- A conversão do lead cobra e a contratação pela ficha cobra; **aceitar proposta não cobrava** — e
+  para o cliente já convertido não vem conversão nenhuma atrás. Upsell vendido e não faturado.
+
+**A regra que fica:** ao construir uma trava, a pergunta não é "esta tela está protegida?", é
+**"quantas portas existem para este dado, e todas passam por aqui?"**. Uma trava com duas portas é
+uma trava com zero portas.
+
+### Decisões
+
+1. **Régua compartilhada, nunca cópia.** `papelPortalPadraoDaClinica` e `assertSobraResponsavel`
+   saíram de `pessoas.service.ts` para `portal/papel-da-clinica.ts`, e a tela interna passou a
+   chamar as mesmas funções. ⚠️ **O arquivo é separado por causa de ciclo de módulos** —
+   `pessoas.service.ts` já importa `gerarConvite` de `usuarios.service.ts`. As mutações de
+   `clientes.pessoas.*` passaram a chamar `assertPodeVerOPainel`, que é a régua que o Painel do
+   Cliente já usava.
+2. **Errar para o lado de menos poder.** Conta nova de Portal nasce EQUIPE quando a clínica já tem
+   quem assine. Tirar um poder se desfaz num clique; dar poder de assinar contrato a quem ia anexar
+   documento, não.
+3. **Prova de assinatura não se apaga.** `solicitar()` recusa quando já existe assinatura dada.
+   Reenviar continua liberado enquanto ninguém assinou; quem precisa de outro documento emite outro
+   documento.
+4. **A lista de vínculos da exclusão definitiva tem de cobrir toda relação em cascata.** Faltavam
+   três de treze — suporte, médicos e credenciamentos. O que não está na lista o banco apaga em
+   silêncio, depois de a tela ter dito "seguro remover".
+5. **`trustProxy: 1`, nunca `true`.** `true` deixa o visitante escrever o próprio `X-Forwarded-For`,
+   e o `req.ip` é a chave de todos os freios — **e é a prova gravada em `Assinatura.ip`**.
+6. **Best-effort não é silêncio.** O `catch(() => {})` da automação pós-aceite virou registro em
+   SISTEMA → Erros, dizendo qual cliente conferir. O aceite do cliente continua não caindo por
+   causa da nossa automação — mas a falha aparece.
+7. **Erro ANTES de vazio, em toda tela.** A aplicação tem rede de segurança para mutação e nenhuma
+   para consulta, e `retry: false` faz um tropeço virar estado final. Dez telas liam falha como
+   "não há nada" — no Portal, isso dizia ao cliente ✅ *"Você já enviou tudo o que pedimos"*, e ele
+   parava de mandar documento. ⚠️ No `SistemaPage` o ramo de erro era **código morto**: vinha
+   depois do `!data`, que já o capturava.
+8. **O nome do serviço de credenciamento ficou travado — e isto é remendo assumido.**
+   `ehServicoDeCredenciamento` casa por nome, e três decisões de dinheiro dependem dela: bastava
+   corrigir um typo em Ajustes para religar a cobrança antecipada que a ADR-104 proíbe, e cobrar o
+   cliente duas vezes. A cura é `Servico.ehCredenciamento`, que pede migração e fica para a rodada
+   seguinte.
+
+### Alternativas descartadas
+
+- **Corrigir os ~120 achados de uma vez.** Um PR assim esconde qual das mudanças quebrou o quê.
+  Entrou o que causa perda de dado, cobrança errada ou acesso indevido; o resto está catalogado.
+- **`Servico.ehCredenciamento` agora.** Migração no meio de um lote de correção de segurança
+  mistura dois riscos diferentes.
+- **Barrar o download de arquivo para funcionário sem vínculo.** É achado real (a régua diverge da
+  do Painel do Cliente), mas mudar quem vê o quê no meio da operação da Thaís é decisão de produto.
+
+### O que NÃO entrou, e por quê
+
+Está tudo na Parte 2 do relatório: o que depende de decisão do dono (dado indo para a OpenAI,
+retenção sob a LGPD, expiração de token, se credenciamento reaberto cobra de novo), o que exige
+migração, e o que é trabalho invisível — funil que não fecha depois do aceite, seis avisos com
+modelo que nunca saem, cliente que não sabe que o suporte respondeu.
+
+### Prova
+
+typecheck 6/6 · lint limpo · **688 testes** do `@app/api` (9 novos, **todos vistos reprovando antes
+da correção**) · 171 do `@app/web` · 99 de ponta a ponta · e na tela, como ROOT e como cliente do
+Portal, sem erro de console numa carga limpa. **Zero migração** — nada mudou no banco.

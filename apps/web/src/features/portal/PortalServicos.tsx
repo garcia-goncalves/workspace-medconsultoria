@@ -4,6 +4,7 @@ import { trpc } from "../../lib/trpc";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
 import { EmptyState } from "../../components/ui/empty-state";
+import { QueryError } from "../../components/ui/query-error";
 import { Button } from "../../components/ui/button";
 import { useConfirm, usePrompt } from "../../components/ui/confirm-dialog";
 import { toast } from "../../components/ui/toast";
@@ -46,6 +47,17 @@ export function PortalServicos() {
           <Skeleton className="h-20 w-full" />
         </div>
       </Card>
+    );
+  }
+
+  // ⚠️ Erro ANTES de vazio: em falha, `servicos` fica vazio e o cliente lia que não tem nada
+  // contratado — bem ao lado do catálogo que o convida a contratar de novo.
+  if (q.isError) {
+    return (
+      <QueryError
+        onRetry={() => void q.refetch()}
+        message="Não conseguimos carregar os seus serviços. Tente de novo — eles continuam ativos."
+      />
     );
   }
 
@@ -103,7 +115,8 @@ export function PortalServicos() {
               <span className="font-medium text-foreground">{s.servico.nome}</span>
               {s.pendentes > 0 ? (
                 <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[11px] font-semibold text-warning">
-                  Faltam {s.pendentes} documento{s.pendentes > 1 ? "s" : ""}
+                  {/* "Faltam 1 documento" saía errado no singular, e é o cliente quem lê. */}
+                  {s.pendentes > 1 ? `Faltam ${s.pendentes} documentos` : "Falta 1 documento"}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-semibold text-success">

@@ -67,6 +67,30 @@ export function App() {
     );
   }
 
+  // ⚠️ "NÃO ESTÁ LOGADO" E "NÃO CONSEGUI PERGUNTAR" SÃO COISAS DIFERENTES.
+  //
+  // `auth.me` falhando — banco fora do ar, timeout, 500 — deixava `me.data` indefinido e caía na
+  // mesma linha do deslogado: a pessoa era jogada na tela de login no meio do trabalho, perdia o
+  // formulário aberto e concluía que a sessão tinha caído. Com `retry: false` no Query, UMA falha
+  // basta. E a queda de banco não é hipótese aqui: acontece em produção.
+  if (me.isError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="text-base font-semibold">Não conseguimos falar com o servidor</p>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Você continua conectado — foi a conexão que falhou. Tente de novo em alguns instantes.
+        </p>
+        <button
+          type="button"
+          onClick={() => void me.refetch()}
+          className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-muted"
+        >
+          Tentar de novo
+        </button>
+      </div>
+    );
+  }
+
   if (!me.data) return <LoginPage />;
 
   // Conta interna que nunca definiu a própria senha: define agora, antes de usar a app

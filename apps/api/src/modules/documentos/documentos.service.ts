@@ -510,7 +510,13 @@ ${tabelaPagamento}` : "";
   // Import dinâmico para não fechar ciclo de módulos com o serviço de credenciamento.
   if (ehGrade && clienteId) {
     const { salvarGrade } = await import("../servicos/credenciamento-grade.service.js");
-    await salvarGrade({ clienteId, celulas: grade, documentoId: doc.id }, { id: userId });
+    // ⚠️ `somenteOperadorasDaGrade`: a proposta é de UMA operadora (ADR-126). Sem esta marca,
+    // emitir a 2ª proposta apagaria os cruzamentos `A_PROTOCOLAR` da 1ª — eles simplesmente não
+    // vêm nesta carga, e a grade os leria como "desmarcados".
+    await salvarGrade(
+      { clienteId, celulas: grade, documentoId: doc.id, somenteOperadorasDaGrade: true },
+      { id: userId },
+    );
   }
 
   // O NÚMERO ANDA PARA FRENTE (ADR-126): corrigir o faturamento mensal aqui corrige o LEAD.

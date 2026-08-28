@@ -25,10 +25,22 @@ import { registrarErro } from "./modules/sistema/sistema.service.js";
 import { marcarCspLigada } from "./lib/seguranca-http.js";
 import type { Context } from "./trpc/context.js";
 
+// trustProxy: 1, NUNCA `true`.
+//
+// ⚠️ `true` quer dizer "confie na cadeia inteira do X-Forwarded-For" — e quem escreve a entrada
+// MAIS À ESQUERDA desse cabeçalho é o próprio visitante. O LiteSpeed acrescenta o IP real à
+// direita; não substitui a esquerda. Com `true`, qualquer um trocava de IP a cada requisição só
+// mandando um cabeçalho, e o `req.ip` é a chave de TODOS os freios desta casa: o limite geral de
+// 300/min, as 8 tentativas de login por conta e o freio do formulário público de leads. Pior:
+// é o mesmo `req.ip` gravado como prova em `Assinatura.ip` e em `Documento.propostaRespIp` — o
+// "de onde veio a assinatura" passava a ser o que o assinante quisesse escrever.
+//
+// `1` confia só no salto mais próximo (o nosso proxy), que é a topologia real da TineHost.
+//
 // maxParamLength: o tRPC httpBatchLink junta as procedures no path (`/trpc/a,b,c,…`);
 // com o batch cheio (ex.: a ficha do cliente) o path passa de 100 chars e o find-my-way
 // do Fastify devolveria 414. 5000 cobre qualquer batch com folga.
-const app = Fastify({ logger: true, trustProxy: true, maxParamLength: 5000 });
+const app = Fastify({ logger: true, trustProxy: 1, maxParamLength: 5000 });
 
 await app.register(cookie, { secret: config.SESSION_SECRET });
 await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true });

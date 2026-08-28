@@ -1,7 +1,8 @@
-import { Hourglass, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Hourglass, ArrowRight, CheckCircle2, AlertTriangle } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
+import { Button } from "../../components/ui/button";
 import { usePortalNavegar } from "./navegar";
 
 /**
@@ -30,6 +31,29 @@ export function ExigenciasPendentes() {
         <div className="space-y-2 p-4">
           <Skeleton className="h-4 w-40" />
           <Skeleton className="h-11 w-full" />
+        </div>
+      </Card>
+    );
+  }
+
+  // ⚠️ ERRO ANTES DE VAZIO, E AQUI A ORDEM É O CONSERTO.
+  //
+  // O comentário abaixo já dizia que o silêncio seria ambíguo — mas tratava só o caso "não falta
+  // nada". Com a consulta em ERRO, `q.data` é indefinido, `pendentes` ficava vazio e o cliente
+  // lia ✅ "Você já enviou tudo o que pedimos". Ou seja: uma falha de rede virava a melhor
+  // notícia possível, e ele parava de mandar documento.
+  if (q.isError) {
+    return (
+      <Card>
+        <div className="flex flex-wrap items-center gap-3 p-4 text-sm">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
+          <span className="text-muted-foreground">
+            Não conseguimos verificar o que ainda falta enviar.{" "}
+            <span className="font-medium text-foreground">Isto não quer dizer que está tudo certo.</span>
+          </span>
+          <Button size="sm" variant="outline" onClick={() => void q.refetch()} disabled={q.isFetching}>
+            Tentar de novo
+          </Button>
         </div>
       </Card>
     );

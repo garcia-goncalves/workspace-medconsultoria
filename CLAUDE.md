@@ -13,7 +13,91 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-28 · noite · ADR-139 — O PORTAL VIROU APLICATIVO, construído e provado)
+## Estado atual (2026-08-28 · madrugada · ADR-140 — A AUDITORIA TOTAL: 14 correções, 6 delas de segurança ou perda de dado)
+
+> **Leia `docs/auditoria/AUDITORIA-TOTAL-2026-08-28.md`** (o retrato completo, com arquivo:linha em
+> tudo, o que ficou aberto e por quê) e a **ADR-140** em `docs/DECISIONS.md`.
+
+- **O dono pediu a varredura de tudo antes do dado real.** Oito frentes em paralelo sobre o código
+  de hoje, mais a aplicação percorrida no navegador como ROOT e como cliente do Portal, mais o
+  formulário público `/comecar` preenchido de verdade. **Zero migração** neste lote.
+- **⚠️ A BASE COMEÇOU VERDE E MESMO ASSIM TINHA 6 DEFEITOS GRAVES.** typecheck 6/6, lint limpo, 679
+  testes de API, 171 de web, 99 e2e — e **nenhum** dos achados foi pego por teste. Suíte verde
+  prova que o que alguém já pensou em testar continua funcionando, não que o sistema esteja certo.
+- **🔑 O PADRÃO, E ELE VALE PARA A PRÓXIMA TRAVA: quase todo achado é "uma segunda porta para o
+  mesmo dado que não passa pela regra".** Não foram 14 defeitos independentes; foi um padrão 14
+  vezes. Ao construir trava, a pergunta não é "esta tela está protegida?", é **"quantas portas
+  existem para este dado?"**.
+- **🔴 QUALQUER FUNCIONÁRIO SE DAVA ACESSO DE DONO A QUALQUER CLÍNICA.** `clientes.pessoas.*` era
+  `funcionarioProcedure` com o `clienteId` vindo do PEDIDO: ele se convidava como RESPONSAVEL de
+  uma clínica alheia, o convite saía para a caixa dele, e ele entrava com **sessão normal de
+  cliente** — sem a marca de sessão de suporte que a ADR-128 criou para isto ser rastreável. Hoje
+  as cinco mutações passam por `assertPodeVerOPainel`, a mesma régua do Painel do Cliente.
+- **🔴 TODA SECRETÁRIA CADASTRADA PELA TELA DA MED ASSINAVA CONTRATO.** *Equipe e acessos* não
+  gravava `papelPortal`, e **nulo vale como RESPONSAVEL**. Nasceu
+  `portal/papel-da-clinica.ts` (`papelPortalPadraoDaClinica` + `assertSobraResponsavel`), usado
+  pelas duas telas. ⚠️ **Arquivo separado por causa de CICLO DE MÓDULOS** — `pessoas.service.ts` já
+  importa `gerarConvite` de `usuarios.service.ts`.
+- **🔴 PEDIR ASSINATURA DE NOVO APAGAVA A ASSINATURA JÁ DADA** — IP, data, hash, traço, tudo, e
+  nada disso é versionado. Hoje recusa, dizendo quem assinou. Reenviar segue liberado enquanto
+  ninguém assinou.
+- **🔴 A 2ª PROPOSTA DE CREDENCIAMENTO APAGAVA AS LINHAS DA 1ª.** `salvarGrade` foi escrita para a
+  grade da ficha (carga = cliente inteiro) e a proposta manda **uma operadora só** (ADR-126). Hoje
+  há `somenteOperadorasDaGrade`; ⚠️ **há teste para o caso SEM a marca também**, senão alguém
+  "conserta" ligando-a para todo mundo e a grade da ficha para de apagar o desmarcado.
+- **🔴 EXCLUIR CLIENTE APAGAVA EM CASCATA O QUE A TELA DIZIA NÃO EXISTIR.** A lista conferia 10
+  vínculos; o schema tem **13** relações em cascata. Faltavam suporte, médicos e credenciamentos.
+- **🔴 UPSELL VENDIDO E NÃO COBRADO.** Três portas ativam um serviço e só duas cobravam: aceitar
+  proposta sincronizava, gerava contrato e **parava**. Para quem ainda é lead a conversão cobra
+  atrás; para o cliente **já convertido** não vinha nada. ⚠️ **A guarda contra cobrar duas vezes é
+  o LEAD ATIVO** (`provisionarUpsellAceito`).
+- **🟠 Mais oito:** `catch(() => {})` da automação pós-aceite agora registra em SISTEMA → Erros ·
+  `trustProxy: true` → **`1`** (com `true` o visitante escreve o próprio IP, que é a chave de todos
+  os freios **e a prova gravada em `Assinatura.ip`**) · revogar acesso passou a apagar os tokens em
+  voo, com segunda tranca em `aceitarConvite`/`redefinirSenha` · desativar o único responsável pela
+  tela interna passou a ser recusado · o **nome** do serviço de credenciamento ficou travado
+  (remendo assumido: a cura é `Servico.ehCredenciamento`, que pede migração) · lead **perdido** que
+  volta pelo site é reaberto no funil · o cliente apagando arquivo agora fica registrado.
+- **🟠 DEZ TELAS LIAM "FALHA DE REDE" COMO "NÃO HÁ NADA".** A app tem rede de segurança para
+  MUTAÇÃO (`main.tsx:20-27`) e nenhuma para CONSULTA, e `retry: false` faz um tropeço virar estado
+  final. No Portal isso dizia ao cliente ✅ *"Você já enviou tudo o que pedimos"* — e ele parava de
+  mandar documento. Nas páginas públicas de **assinar** e de **proposta**, dizia *"Link inválido"*.
+  No `App.tsx`, jogava a pessoa na tela de login no meio do trabalho. ⚠️ No `SistemaPage` o ramo de
+  erro era **código morto** (vinha depois do `!data`), e o painel que existe para avisar ficava
+  pulsando para sempre.
+- **🟡 Incoerências de texto:** o Início dizia "28 documentos aguardando revisão" e a página
+  Documentos dizia 10 (o número conta rascunho **+** revisão — o rótulo passou a dizer isso) · a
+  tela de login, que serve equipe **e** cliente, dizia "entrar no workspace" · "Prospects" em
+  inglês · "Faltam 1 documento".
+- **📭 O E-MAIL DE TESTE PEDIDO PELO DONO NÃO PODE SER PROVADO DAQUI** — a máquina dele não tem
+  servidor de e-mail (`ECONNREFUSED 127.0.0.1:587`, **181 falhas em 7 dias, taxa 0%**). O
+  **disparo** foi provado (o lead novo saiu com exatamente **2** e-mails internos, confirmando a
+  ADR-134); a **entrega** só em produção, onde já foi provada em 22/08. Para repetir: botão
+  **"Enviar acesso"** no card do lead — ⚠️ **não** reenviar o formulário público com endereço já no
+  funil, que a recaptura não manda convite.
+- **Provas:** typecheck 6/6 · lint limpo · **688 testes** do `@app/api` (9 novos, **todos vistos
+  reprovando antes da correção**) · 171 do `@app/web` · 99 de ponta a ponta · zero erro de console
+  numa carga limpa.
+
+### O que ficou aberto (está tudo na Parte 2 do relatório)
+
+- **Depende do dono:** dado de cliente indo para a **OpenAI** (o campo `observacoes` **contém CPF**,
+  e o `IA_PRIVACIDADE.md` promete menos do que o código manda) · retenção e direito de eliminação
+  sob a LGPD · página de política de privacidade · expiração dos tokens de proposta/assinatura ·
+  se credenciamento reaberto cobra de novo · "Foro de eleição" ainda em branco.
+- **Pede migração:** `Servico.ehCredenciamento` · `@@unique(nome)` em `Servico` · gravar o
+  consentimento da assinatura.
+- **Dinheiro ainda aberto:** M1 (contratar na ficha do prospect + converter = cobra 2×) · C10
+  (excluir parcela recorrente e o varredor a ressuscita) · M15 (credenciamento "a combinar"
+  aprovado cria conta de R$ 0,00) · F8 · F9.
+- **Trabalho invisível:** C1 (funil não fecha depois do aceite) · C2 (2ª proposta queima número da
+  contagem real dela) · M6 (**seis** avisos com modelo que nunca saem por e-mail) · M8 (equipe
+  responde o chamado e o cliente não é avisado) · recaptura de lead não manda confirmação.
+- **Desempenho nosso, não da hospedagem:** `seedIfEmpty()` roda em TODA leitura do catálogo (é o
+  `portal.servicosDisponiveis` de 11,9 s) e `login()` faz três escritas sequenciais.
+- **Não está no ar:** a **v1.2.1** continua sendo o que roda. Falta o sinal do dono para publicar.
+
+## Estado anterior (2026-08-28 · noite · ADR-139 — O PORTAL VIROU APLICATIVO, construído e provado)
 
 > **Leia a ADR-139 em `docs/DECISIONS.md`** e a esteira em
 > `docs/esteira/portal-app-5-secoes-2026-08-28/`. O que segue é só o que mudou nesta janela.

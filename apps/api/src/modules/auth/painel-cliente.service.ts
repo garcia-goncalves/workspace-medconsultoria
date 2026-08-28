@@ -45,7 +45,7 @@ export const SUPORTE_SO_LEITURA =
  * ADMIN e acima, sempre. FUNCIONÁRIO só nos clientes sob a responsabilidade dele — negar por
  * padrão, porque isto dá acesso ao dado pessoal de terceiro e o mínimo necessário é a regra.
  */
-async function assertPodeVerOPainel(ator: SessionUser, clienteId: string) {
+export async function assertPodeVerOPainel(ator: SessionUser, clienteId: string) {
   if (!hasRoleLevel(ator.role, "FUNCIONARIO")) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito à equipe." });
   }

@@ -1,7 +1,12 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { emReais } from "../../lib/dinheiro.js";
-import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "@app/shared";
+import {
+  temValorEPercentual,
+  PRECO_VALOR_E_PERCENTUAL,
+  ehServicoDeCredenciamento,
+  NOME_SERVICO_CREDENCIAMENTO,
+} from "@app/shared";
 import { Prisma } from "@prisma/client";
 
 /**
@@ -552,6 +557,34 @@ export async function atualizarServico(
   };
   if (temValorEPercentual(depois)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_VALOR_E_PERCENTUAL });
+  }
+
+  // ⚠️ O NOME DO SERVIÇO DE CREDENCIAMENTO É REGRA DE COBRANÇA, NÃO ROTULAGEM.
+  //
+  // `ehServicoDeCredenciamento` casa por NOME, e três decisões de dinheiro dependem dela: manter
+  // o credenciamento fora da estimativa do funil, mantê-lo fora do provisionamento da conversão
+  // do lead, e deixar o honorário nascer só quando a operadora aprova (ADR-104/108).
+  //
+  // Ou seja: bastava corrigir um typo neste nome em Ajustes → Serviços para que, a partir dali,
+  // converter um lead passasse a gerar uma conta a receber pelo credenciamento — e, na aprovação
+  // da operadora, uma SEGUNDA conta pelo mesmo honorário. Cliente cobrado duas vezes, sem aviso.
+  //
+  // Enquanto a identificação não for um campo estrutural, o nome fica travado. Renomear de
+  // propósito é decisão de negócio, e ela passa por mudar a constante junto — não por um clique.
+  if (dados.nome !== undefined) {
+    const nomeNovo = dados.nome.trim();
+    const atual = await prisma.servico.findUnique({ where: { id }, select: { nome: true } });
+    const eraCredenciamento = ehServicoDeCredenciamento(atual?.nome);
+    if (eraCredenciamento && !ehServicoDeCredenciamento(nomeNovo)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          `Este serviço não pode ser renomeado: o nome “${NOME_SERVICO_CREDENCIAMENTO}” é o que faz ` +
+          "o sistema cobrar o credenciamento só quando a operadora aprova. Renomeando, o cliente " +
+          "passaria a ser cobrado na conversão do lead e de novo na aprovação. Fale com quem cuida " +
+          "do sistema antes de mudar.",
+      });
+    }
   }
 
   const data: Record<string, unknown> = {};

@@ -213,8 +213,16 @@ function GraficoCard({
 
 function HealthBanner() {
   const saude = trpc.sistema.saude.useQuery(undefined, { refetchInterval: 15_000 });
+  // ⚠️ A ORDEM ERA O DEFEITO, e o ramo de erro era código morto.
+  //
+  // Com `saude.isError`, `saude.data` também é indefinido — então a linha do esqueleto disparava
+  // primeiro e a de erro nunca era alcançada. Resultado: o painel que existe para avisar que
+  // algo está errado ficava pulsando para sempre exatamente quando algo estava errado. E devolver
+  // `null` também não servia: sumir é outra forma de mentir.
+  if (saude.isError) {
+    return <QueryError onRetry={() => void saude.refetch()} message="Não foi possível ler a saúde do servidor." />;
+  }
   if (saude.isLoading || !saude.data) return <Skeleton className="h-20 w-full rounded-xl" />;
-  if (saude.isError) return null;
   const info = NIVEL_INFO[saude.data.statusGeral];
 
   return (
