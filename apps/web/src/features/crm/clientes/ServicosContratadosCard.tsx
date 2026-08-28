@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Check, Circle, Loader2, Package, Pencil, PenLine, Plus, Trash2, X } from "lucide-react";
-import { hasRoleLevel } from "@app/shared";
+import { hasRoleLevel, ehServicoSomentePercentual } from "@app/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -18,22 +18,28 @@ import { RespostaBriefingDialog } from "./RespostaBriefingDialog";
 
 type ServicoContratado = RouterOutputs["clientes"]["servicos"][number];
 
-/** Edita o que o cliente paga por um serviço contratado: valor + cobrança (+ % no Faturamento). */
+/** Edita o que o cliente paga por um serviço contratado: valor fixo OU percentual do faturamento. */
 function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; item: ServicoContratado; onClose: () => void }) {
   const utils = trpc.useUtils();
   const c = item.contratacao;
-  // Quem mostra o campo de % é o PREÇO, não a categoria. Casar só por "Faturamento" fazia
-  // abrir-e-salvar qualquer outro serviço APAGAR o percentual dele em silêncio (a linha abaixo
-  // grava `null` quando o campo não aparece). Hoje só o Faturamento tem %, então na prática
-  // nada muda — muda no dia em que a Thaís puser % em outro serviço, que é justamente o dia
-  // em que ninguém lembraria desta linha. Ver ADR-125.
-  const ehFaturamento =
-    item.servico.categoria === "Faturamento" ||
-    (c?.percentual != null && c.percentual > 0) ||
-    (item.servico.percentual != null && item.servico.percentual > 0);
+  // ⚠️ **QUEM DECIDE É O PREÇO, NUNCA A CATEGORIA (ADR-125/137).** A comparação com
+  // "Faturamento" sobrevivia aqui como um dos três ramos do OU — e bastava ela para o editor
+  // oferecer Valor e Avulso/Mensal a um serviço que só cobra percentual. Gravar um valor fixo
+  // ali faz `ehServicoSomentePercentual` virar false e reconfigura a cobrança em cadeia, em
+  // silêncio. Agora as duas formas são EXCLUDENTES, como o servidor exige.
   const [valor, setValor] = useState<number | undefined>(c?.valor ?? undefined);
   const [valorRecorrencia, setValorRecorrencia] = useState<"AVULSO" | "MENSAL">(c?.valorRecorrencia ?? "AVULSO");
   const [percentual, setPercentual] = useState<number | undefined>(c?.percentual ?? undefined);
+  // O que vale HOJE decide como o modal abre; o botão decide daí em diante.
+  const [porPercentual, setPorPercentual] = useState(
+    ehServicoSomentePercentual({ valor: c?.valor, percentual: c?.percentual ?? item.servico.percentual }),
+  );
+  const trocarPara = (pct: boolean) => {
+    setPorPercentual(pct);
+    // Limpa a outra forma: deixar as duas gravadas é exatamente o que o servidor recusa.
+    if (pct) setValor(undefined);
+    else setPercentual(undefined);
+  };
   // Os convênios que o cliente atende NESTE serviço (ADR-126). Chegam pela proposta aceita e
   // continuam editáveis aqui — a lista muda com o tempo e é dado do cliente, não do documento.
   const [conveniosIds, setConveniosIds] = useState<string[]>((c?.convenios ?? []).map((o) => o.id));
@@ -44,7 +50,7 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
     <Modal
       open
       onClose={onClose}
-      title={`${ehFaturamento ? "Preço e convênios" : "Preço"} · ${item.servico.nome}`}
+      title={`${porPercentual ? "Preço e convênios" : "Preço"} · ${item.servico.nome}`}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -56,12 +62,12 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
               salvar.mutate({
                 clienteId,
                 servicoId: item.servico.id,
-                valor: valor ?? null,
+                valor: porPercentual ? null : valor ?? null,
                 valorRecorrencia,
-                percentual: ehFaturamento ? percentual ?? null : null,
+                percentual: porPercentual ? percentual ?? null : null,
                 // Só manda a lista quando o campo aparece — proposta/serviço sem convênio não
                 // pode zerar de passagem o que já estava gravado.
-                ...(ehFaturamento ? { conveniosIds } : {}),
+                ...(porPercentual ? { conveniosIds } : {}),
               })
             }
           >
@@ -72,6 +78,20 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
     >
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">O que este cliente paga por este serviço. Começa com o valor de referência; ajuste como quiser.</p>
+        <div className="space-y-1.5">
+          <Label hint="Valor fixo: um preço em reais, avulso ou mensal. Percentual: uma fatia do que o cliente fatura, cobrada todo mês. Um serviço é de um jeito ou do outro, nunca dos dois.">
+            Como este cliente paga
+          </Label>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" variant={porPercentual ? "outline" : "default"} onClick={() => trocarPara(false)}>
+              Valor fixo
+            </Button>
+            <Button type="button" size="sm" variant={porPercentual ? "default" : "outline"} onClick={() => trocarPara(true)}>
+              % do faturamento
+            </Button>
+          </div>
+        </div>
+        {!porPercentual && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label hint="O que este cliente paga por este serviço.">Valor</Label>
@@ -85,9 +105,10 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
             </Select>
           </div>
         </div>
-        {ehFaturamento && (
+        )}
+        {porPercentual && (
           <div className="space-y-1.5">
-            <Label hint="Cobrado como % sobre o valor faturado do cliente todo mês — sozinho ou somado ao valor.">
+            <Label hint="A fatia que a Med recebe sobre o que este cliente faturar no mês. É o preço inteiro deste serviço — não existe valor fixo junto.">
               % do faturamento do cliente (mensal)
             </Label>
             <div className="relative">
@@ -105,7 +126,7 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
             </div>
           </div>
         )}
-        {ehFaturamento && <ConveniosPicker selecionados={conveniosIds} setSelecionados={setConveniosIds} />}
+        {porPercentual && <ConveniosPicker selecionados={conveniosIds} setSelecionados={setConveniosIds} />}
       </div>
     </Modal>
   );

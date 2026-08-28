@@ -4034,3 +4034,68 @@ régua pura) · **8 testes de integração novos** contra o MySQL de verdade e *
 nada**, a sessão de suporte recusada nas duas, o anônimo assinando (com `assinadoPorId` nulo), o
 responsável assinando **com o próprio id gravado**, e o `portal.resumo` devolvendo `token: null`
 — mas a lista cheia — para os dois papéis barrados.
+
+---
+
+## ADR-138 — O Faturamento é só percentual: a comparação por categoria morre na raiz e nasce a trava
+
+**Data:** 2026-08-28 · **Situação:** implementado, não publicado ·
+**Origem:** achados **F1, F3, F4, F10, F12, F19** e "a trava que falta" da descoberta de 28/08
+
+### A comparação por categoria, pela QUINTA vez
+
+`categoria === "Faturamento"` já tinha sido removida em quatro rodadas (ADR-125, 126, 127 e o
+teste de regressão que nasceu delas). A descoberta a encontrou de novo, e no lugar mais **a
+montante de todos**: `ServicosPage.tsx`, a tela onde a Thaís cria e edita o serviço. Ali ela
+fazia três estragos ao mesmo tempo:
+
+1. **impedia um segundo serviço percentual de existir** — % em Gestão? o campo nem aparece;
+2. **sumia com o % no dia em que alguém renomeasse a categoria** na tela ao lado, sem aviso;
+3. **deixava o campo Valor visível** justamente no serviço que não tem valor.
+
+O teste de regressão que existia guardava só o `PropostaServicosPicker.tsx` e o
+`documentos.service.ts` — e a tela mais a montante, que alimenta as duas, ficava de fora. Agora
+ele varre também `ServicosPage.tsx` e `ServicosContratadosCard.tsx` (o editor de preço da ficha,
+onde a comparação sobrevivia como um dos ramos de um OU).
+
+### Quem decide passou a ser um interruptor, não o nome da categoria
+
+Nas duas telas: **"Como este serviço é cobrado" → Valor fixo | % do faturamento**. A categoria
+voltou a ser só o que ela diz que é — um agrupamento no catálogo —, e os textos de ajuda que
+ensinavam a regra errada ("escolher 'Faturamento' libera o campo de %") foram reescritos.
+
+⚠️ **Trocar de forma LIMPA a outra.** Sem isso o campo escondido continuaria gravado e o serviço
+ficaria com as duas cobranças — que é exatamente o estado que a trava abaixo recusa.
+
+### A trava que nunca existiu
+
+Não havia **nada** — banco (sem CHECK), Zod, servidor nem tela — impedindo valor fixo +
+percentual no mesmo serviço. E esse estado quebra em silêncio tudo o que lê
+`ehServicoSomentePercentual`: a linha da proposta volta a mostrar valor e quantidade, a
+estimativa do funil troca de pergunta sozinha, a conversão passa a provisionar dinheiro fixo.
+Nenhum desses caminhos avisa; eles só mudam de comportamento.
+
+`temValorEPercentual` (`@app/shared`, junto das outras três réguas de preço) é aplicada em
+**dois níveis**:
+
+- **`refine` nos três schemas** (`createServicoSchema`, `updateServicoSchema`,
+  `atualizarContratacaoClienteSchema`), com a recusa escrita em português;
+- ⚠️ **e uma conferência no SERVIDOR sobre o ANTES + o DEPOIS**, porque a edição é parcial: o
+  `refine` só vê o que veio no pedido, e mandar só `percentual` num serviço que já tem `valor`
+  gravado passaria batido. É a mesma armadilha da ADR-136 — a régua tem de olhar o estado que
+  vai ficar, não o pedaço que chegou.
+
+⚠️ **Zero não é cobrança:** `valor: 0` com `percentual: 5` passa. Tratar zero como "tem valor"
+travaria o serviço percentual criado com o campo preenchido a zero, que é o padrão de vários
+formulários.
+
+⚠️ **Conferido antes de ligar a trava:** no banco local, **0 de 15 serviços e 0 de 12
+contratações** têm as duas cobranças. Ninguém fica trancado fora da própria edição.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm -r lint` verdes · **510 testes de unidade** (9 novos) · **na tela**,
+como ROOT no localhost: em *Serviços → Faturamento → Configurar*, o botão **"% do faturamento"**
+marcado, **sem** campo Valor, com os 5%; clicar em **"Valor fixo"** troca ao vivo para Valor +
+Cobrança padrão. Na *ficha da Clínica Vida Plena → Faturamento → Editar preço*, o mesmo botão,
+já em percentual, com os convênios. **Zero erro de console** nas duas.

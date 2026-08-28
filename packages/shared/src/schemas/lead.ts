@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { cnpjOpcional } from "./cliente.js";
+import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "../estimativa.js";
 
 const emailOpcional = z.union([z.string().trim().toLowerCase().email("E-mail inválido"), z.literal("")]);
 const textoOpcional = z.string().trim().max(2000).optional().or(z.literal(""));
@@ -111,6 +112,9 @@ export const createServicoSchema = z.object({
   // Frase de condição de pagamento que a PROPOSTA pré-preenche (ADR-125). Curta de propósito:
   // é uma linha do documento, não um bloco de cláusulas.
   condicaoPagamento: z.string().trim().max(500).optional().or(z.literal("")),
+}).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
+  message: PRECO_VALOR_E_PERCENTUAL,
+  path: ["percentual"],
 });
 export type CreateServicoInput = z.infer<typeof createServicoSchema>;
 
@@ -128,6 +132,9 @@ export const updateServicoSchema = z.object({
   // é uma linha do documento, não um bloco de cláusulas.
   condicaoPagamento: z.string().trim().max(500).optional().or(z.literal("")),
   ativo: z.boolean().optional(),
+}).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
+  message: PRECO_VALOR_E_PERCENTUAL,
+  path: ["percentual"],
 });
 export type UpdateServicoInput = z.infer<typeof updateServicoSchema>;
 
@@ -242,5 +249,8 @@ export const atualizarContratacaoClienteSchema = z.object({
    * atender convênio algum, que é um estado legítimo.
    */
   conveniosIds: z.array(z.string().min(1)).max(80).optional(),
+}).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
+  message: PRECO_VALOR_E_PERCENTUAL,
+  path: ["percentual"],
 });
 export type AtualizarContratacaoClienteInput = z.infer<typeof atualizarContratacaoClienteSchema>;

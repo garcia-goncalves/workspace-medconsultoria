@@ -9,6 +9,7 @@ import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js
 import { garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { config } from "../../config.js";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
+import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "@app/shared";
 
 /**
  * Visão agregada dos serviços de um cliente (ficha): o catálogo ativo, com o status
@@ -340,6 +341,15 @@ export async function atualizarContratacaoCliente(
 ) {
   const existente = await prisma.clienteServico.findUnique({ where: { clienteId_servicoId: { clienteId, servicoId } } });
   if (!existente) throw new TRPCError({ code: "NOT_FOUND", message: "Este serviço não está contratado para o cliente." });
+  // A mesma trava do catálogo, aplicada ao preço DESTE cliente (ADR-137): sobre o antes + o
+  // depois, porque a edição é parcial e o `refine` do schema só vê o que veio no pedido.
+  const depois = {
+    valor: dados.valor !== undefined ? dados.valor : emReais(existente.valor),
+    percentual: dados.percentual !== undefined ? dados.percentual : emReais(existente.percentual),
+  };
+  if (temValorEPercentual(depois)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_VALOR_E_PERCENTUAL });
+  }
   const data: Record<string, unknown> = {};
   if (dados.valor !== undefined) data.valor = dados.valor ?? null;
   if (dados.valorRecorrencia !== undefined) data.valorRecorrencia = dados.valorRecorrencia;

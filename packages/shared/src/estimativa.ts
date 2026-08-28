@@ -129,3 +129,25 @@ export function temPercentual(p: PrecoDoServico): boolean {
 export function ehServicoSomentePercentual(p: PrecoDoServico): boolean {
   return !temValorFixo(p) && temPercentual(p);
 }
+
+/**
+ * VALOR FIXO E PERCENTUAL NO MESMO SERVIÇO — a trava que nunca existiu.
+ *
+ * A ordem do dono é que o Faturamento seja **sempre e somente percentual mensal**, e nada na
+ * aplicação garantia isso: nem o banco (sem CHECK), nem o Zod, nem o servidor, nem a tela. Um
+ * serviço com os dois preenchidos quebra tudo o que lê `ehServicoSomentePercentual` — a linha da
+ * proposta volta a mostrar valor e quantidade, a estimativa do funil troca de pergunta sozinha, e
+ * a conversão passa a provisionar dinheiro fixo. Nenhum desses caminhos avisa; eles só mudam de
+ * comportamento.
+ *
+ * A régua fica aqui, junto das outras três, porque quem a aplica são quatro lugares diferentes
+ * (dois schemas de serviço, o de contratação do cliente e as duas telas) e quatro cópias
+ * divergiriam.
+ */
+export function temValorEPercentual(p: PrecoDoServico): boolean {
+  return temValorFixo(p) && temPercentual(p);
+}
+
+/** A recusa, escrita para a Thaís ler — nunca "validation error". */
+export const PRECO_VALOR_E_PERCENTUAL =
+  "Escolha uma forma de cobrança: valor fixo OU percentual do faturamento. Os dois juntos fazem o serviço aparecer com preço em um lugar e com percentual em outro.";

@@ -25,9 +25,10 @@ import {
   ETAPA_CHAVES,
   ETAPA_CHAVE_LABEL,
   CATEGORIAS_SERVICO,
+  ehServicoSomentePercentual,
   type AddServicoPassoInput,
 } from "@app/shared";
-import { useForm, Controller, useWatch, type Control } from "react-hook-form";
+import { useForm, Controller, useWatch, type Control, type UseFormSetValue } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { PageHeader } from "../../../components/ui/page-header";
@@ -91,17 +92,59 @@ function RecorrenciaSelect({ control, name }: { control: Control<CreateServicoIn
 }
 
 /**
- * Preço de REFERÊNCIA de um serviço (ponto de partida editável na proposta e no contrato):
- * valor + uma "cobrança padrão" (avulso/mensal) que só sugere/pré-preenche a proposta. Para o
- * serviço de Faturamento aparece também um % do faturamento do cliente (cobrado por mês).
+ * Preço de REFERÊNCIA de um serviço (ponto de partida editável na proposta e no contrato).
+ *
+ * ⚠️ **QUEM DECIDE A FORMA DE COBRANÇA É ESTE INTERRUPTOR, NUNCA O NOME DA CATEGORIA (ADR-137).**
+ * Aqui morava `categoria === "Faturamento"` — a QUINTA aparição dessa comparação, e a mais a
+ * montante de todas: ela impedia um segundo serviço percentual de existir, sumia com o % no dia
+ * em que alguém renomeasse a categoria na tela ao lado, e deixava o campo Valor visível
+ * justamente no serviço que não tem valor.
+ *
+ * As duas formas são EXCLUDENTES por construção, porque é isso que a régua do resto da
+ * aplicação (`ehServicoSomentePercentual`) assume — e o servidor recusa o contrário.
  */
-function PrecoFields({ control }: { control: Control<CreateServicoInput> }) {
-  const categoria = useWatch({ control, name: "categoria" });
-  const mostrarPercentual = categoria === "Faturamento";
+function PrecoFields({
+  control,
+  setValue,
+}: {
+  control: Control<CreateServicoInput>;
+  setValue: UseFormSetValue<CreateServicoInput>;
+}) {
+  const valor = useWatch({ control, name: "valor" });
+  const percentual = useWatch({ control, name: "percentual" });
+  const mostrarPercentual = ehServicoSomentePercentual({ valor, percentual });
+  // Trocar de forma LIMPA a outra: sem isso o campo escondido continuaria gravado, e o serviço
+  // ficaria com as duas cobranças — exatamente o estado que a trava do servidor recusa.
+  const trocarPara = (pct: boolean) => {
+    if (pct) {
+      setValue("valor", null, { shouldDirty: true });
+      setValue("percentual", percentual ?? 0, { shouldDirty: true });
+    } else {
+      setValue("percentual", null, { shouldDirty: true });
+    }
+  };
   return (
     <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Preço de referência</p>
 
+      <div className="space-y-1.5">
+        <Label
+          className="text-xs font-normal text-muted-foreground"
+          hint="Valor fixo: um preço em reais, avulso ou mensal. Percentual: uma fatia do que o cliente fatura, cobrada todo mês. Um serviço é de um jeito ou do outro, nunca dos dois."
+        >
+          Como este serviço é cobrado
+        </Label>
+        <div className="flex gap-2">
+          <Button type="button" size="sm" variant={mostrarPercentual ? "outline" : "default"} onClick={() => trocarPara(false)}>
+            Valor fixo
+          </Button>
+          <Button type="button" size="sm" variant={mostrarPercentual ? "default" : "outline"} onClick={() => trocarPara(true)}>
+            % do faturamento
+          </Button>
+        </div>
+      </div>
+
+      {!mostrarPercentual && (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label
@@ -126,15 +169,18 @@ function PrecoFields({ control }: { control: Control<CreateServicoInput> }) {
           <RecorrenciaSelect control={control} name="valorRecorrencia" />
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Uma sugestão — o valor e se é avulso (1x) ou mensal você define ao gerar a proposta e no contrato de cada cliente.
-      </p>
+      )}
+      {!mostrarPercentual && (
+        <p className="text-xs text-muted-foreground">
+          Uma sugestão — o valor e se é avulso (1x) ou mensal você define ao gerar a proposta e no contrato de cada cliente.
+        </p>
+      )}
 
       {mostrarPercentual && (
         <div className="space-y-1.5 border-t pt-3">
           <Label
             className="text-xs font-normal text-muted-foreground"
-            hint="Cobrado como % sobre o valor faturado do cliente todo mês — sozinho ou somado ao valor. Deixe em branco se não usar."
+            hint="A fatia que a Med recebe sobre o que o cliente faturar no mês. É o preço inteiro deste serviço — não existe valor fixo junto."
           >
             % do faturamento do cliente (mensal)
           </Label>
@@ -169,6 +215,7 @@ function NovoServicoDialog({ open, onClose }: { open: boolean; onClose: () => vo
   const {
     register,
     control,
+    setValue,
     handleSubmit,
     reset,
     formState: { errors },
@@ -204,7 +251,7 @@ function NovoServicoDialog({ open, onClose }: { open: boolean; onClose: () => vo
           {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="s-cat" hint="Agrupa o serviço no catálogo. Escolher 'Faturamento' libera o campo de % sobre o faturamento do cliente.">
+          <Label htmlFor="s-cat" hint="Agrupa o serviço no catálogo, e só isso — quem decide a forma de cobrança é o botão 'Como este serviço é cobrado', logo abaixo.">
             Categoria
           </Label>
           <Select id="s-cat" {...register("categoria")}>
@@ -216,7 +263,7 @@ function NovoServicoDialog({ open, onClose }: { open: boolean; onClose: () => vo
             ))}
           </Select>
         </div>
-        <PrecoFields control={control} />
+        <PrecoFields control={control} setValue={setValue} />
         <div className="space-y-1.5">
           <Label htmlFor="s-desc">Descrição</Label>
           <Textarea id="s-desc" rows={3} placeholder="O que este serviço inclui…" {...register("descricao")} />
@@ -242,6 +289,7 @@ function DetalhesPanel({
   const {
     register,
     control,
+    setValue,
     handleSubmit,
     reset,
     formState: { errors, isDirty },
@@ -285,7 +333,7 @@ function DetalhesPanel({
         {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="d-cat" hint="Agrupa o serviço no catálogo. Escolher 'Faturamento' libera o campo de % sobre o faturamento do cliente.">
+        <Label htmlFor="d-cat" hint="Agrupa o serviço no catálogo, e só isso — quem decide a forma de cobrança é o botão 'Como este serviço é cobrado', logo abaixo.">
           Categoria
         </Label>
         <Select id="d-cat" {...register("categoria")}>
@@ -297,7 +345,7 @@ function DetalhesPanel({
           ))}
         </Select>
       </div>
-      <PrecoFields control={control} />
+      <PrecoFields control={control} setValue={setValue} />
       <div className="space-y-1.5">
         <Label htmlFor="d-desc">Descrição</Label>
         <Textarea id="d-desc" rows={3} placeholder="O que este serviço inclui…" {...register("descricao")} />
