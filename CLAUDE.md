@@ -13,7 +13,70 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-28 · v1.2.1 NO AR + ADR-136 · os 4 refinos da auditoria, FECHADOS)
+## Estado atual (2026-08-28 · tarde · A DESCOBERTA DO REFINO FINAL — 4 auditorias, nada construído ainda)
+
+> **Leia primeiro `docs/esteira/refino-final-2026-08-28/achados.md`.** É o retrato mais
+> recente e completo do que está errado na aplicação. Tem arquivo:linha em tudo.
+
+- **✅ A ADR-136 ESTÁ NA `main`** (PR #144, squash, CI 3/3 verde, commit `3dabc32`). Branch
+  `fix/refinos-de-tela-adr-136` apagada. **Não está no ar** — a v1.2.1 continua sendo o que roda.
+- **✅ AS TRÊS PROVAS PENDENTES DE PRODUÇÃO ESTÃO FEITAS**, conferidas na tela como ROOT em
+  28/08: *Manutenção* diz **"CSP: Ligada"**; *Desempenho* não tem mais nenhum **P95 maior que o
+  MÁX**; e o template **"Boas-vindas ao Portal (cliente)"** existe em produção com assunto
+  *"Bem-vindo ao Portal do Cliente — MedConsultoria"*, botão **Entrar no Portal** e **zero**
+  ocorrência de "Workspace". Zero erro de console.
+- **🚨 ACHADO NOVO EM PRODUÇÃO, GRAVE, NÃO É CÓDIGO: o banco cai e a aplicação está lenta.**
+  Os 5 "erros não resolvidos" do painel do ROOT são todos reais desta vez —
+  `Can't reach database server at localhost:3306` (o mais recente **há 10 horas**) e um
+  esgotamento do pool (limite 13, timeout 10s). Em *Desempenho*:
+  `portal.servicosDisponiveis` **11,9 s** de máximo, `auth.login` **9,9 s**, consultas de
+  **4 a 12 s**. ⚠️ **O código não é o gargalo** — `leads.list` responde em 15 ms. É a
+  hospedagem. **Exige ordem do dono; nada foi tocado.**
+- **📋 QUATRO AUDITORIAS EM PARALELO, TODAS GRAVADAS** em `docs/esteira/refino-final-2026-08-28/`
+  (`briefing.md` aprovado no validador + `achados.md`). Resumo do que elas acharam:
+  - **Faturamento (21 achados, 4 ALTA).** ⚠️ **Converter um lead de Faturamento cria conta a
+    receber AVULSA de valor fixo** — o `usarEstimativa` passou a valer porque a ADR-125 tornou o
+    `Lead.valorEstimado` derivado, e o comentário que jura o contrário envelheceu. ⚠️ **NÃO
+    EXISTE TRAVA NENHUMA** — banco, Zod, servidor e tela — impedindo valor fixo + percentual no
+    mesmo serviço; e o editor de preço da ficha **oferece** Valor e Avulso/Mensal ao Faturamento.
+    ⚠️ **A comparação por categoria voltou pela QUINTA vez**, agora no lugar mais a montante
+    (`ServicosPage.tsx:100`), e **o texto de ajuda da tela ensina a regra errada**.
+  - **Fluxo e automação (27 achados, 13 ALTA).** ⚠️ **SEGURANÇA: aceitar proposta e assinar
+    contrato são `publicProcedure`** e `portal.resumo` entrega os tokens — a secretária EQUIPE
+    (ADR-131) e a sessão de suporte da Med (ADR-128) **assinam contrato**, furando as duas
+    travas. ⚠️ A conversão provisiona pelo preço **de catálogo**, não pelo aceito. ⚠️ Toda a
+    automação pós-aceite é `void ... .catch(() => {})` — proposta ACEITA e ficha sem serviço,
+    sem contrato, sem conta, **sem nada na tela**. ⚠️ A 2ª proposta de credenciamento **APAGA**
+    as linhas da 1ª. ⚠️ **`ehServicoDeCredenciamento` compara por NOME** e a Thaís pode renomear
+    o serviço na tela, religando a cobrança antecipada da ADR-108 em três lugares.
+  - **Portal (mapa).** Página única, **16 blocos empilhados**, **sem roteador** (escolhido por
+    papel em `App.tsx:89`), sem menu, sem abas, sem seção recolhível. **6 usos de breakpoint em
+    2.300 linhas.** 37 funcionalidades. `packages/ui` exporta só `cn` — não há Tabs, Sheet nem
+    Drawer no repositório. A peça reaproveitável é o drawer do app interno (`AppLayout.tsx:414-432`).
+  - **Texto em excesso.** ~120 blocos, ~230 linhas removíveis, concentrados em ~20 arquivos.
+    ⚠️ **A régua: até ~25 palavras vira tooltip; acima disso, encurta ou vai para o Guia** —
+    existe hoje um `hint` de 40 palavras espremido num balão de 280px. ⚠️ **Nem todo texto longo
+    é excesso**: consequência-antes-de-agir, aviso que evita perda de dado e obrigação legal
+    ficam. Faltam 3 props de uma linha (`PageHeader.hint`, `Modal.hint`, `CardTitle.hint`).
+- **⚠️ PROCEDÊNCIA, e isto importa:** a auditoria de fluxo foi escrita por um agente que redigiu
+  parte do relatório como se duas sub-auditorias tivessem respondido — **elas não responderam**.
+  Ele detectou sozinho e conferiu item a item. O `achados.md` separa **VERIFICADO**, **HIPÓTESE**
+  (M10, M12, M13, M16, B1 — conferir antes de mexer) e **RETIRADO** (B4 estava errado). Os 13
+  ALTA estão todos verificados.
+- **Zero código de aplicação escrito nesta janela.** Só descoberta, e ela está em disco.
+
+### O que o dono decidiu e o que ele ainda deve
+
+- **Ordem dele:** o Faturamento é **sempre e somente percentual mensal**, em toda a aplicação.
+- **Ordem dele:** menos texto na tela, tooltip no máximo de lugares.
+- **Ordem dele:** o Portal precisa parecer um aplicativo no celular, com **menu inferior**
+  (referência: app da Binance).
+- **PENDENTE DE RESPOSTA:** a divisão do Portal em **5 seções** (Início · Documentos ·
+  Credenciamento · Meus serviços · Suporte), com *Equipe* e *Perfil* indo para o menu do avatar.
+  Foi recomendada e **ainda não aprovada** — é a única coisa que trava o começo da construção.
+- **Fora de escopo por ordem dele:** o "Foro de eleição" (ele vai preencher com a Thaís).
+
+## Estado anterior (2026-08-28 · v1.2.1 NO AR + ADR-136 · os 4 refinos da auditoria, FECHADOS)
 
 - **✅ NO AR DESDE 28/08/2026 às 02:41 — a v1.2.1, com todo o lote da ADR-135.** Publicação
   `33135568404` no commit `9ef24e9`, disparada por `workflow_dispatch` (o `gh workflow run` **foi
