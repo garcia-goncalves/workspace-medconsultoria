@@ -13,7 +13,58 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-28 · noite · ADR-137/138 MESCLADAS + a esteira do Portal em 5 seções)
+## Estado atual (2026-08-28 · noite · ADR-139 — O PORTAL VIROU APLICATIVO, construído e provado)
+
+> **Leia a ADR-139 em `docs/DECISIONS.md`** e a esteira em
+> `docs/esteira/portal-app-5-secoes-2026-08-28/`. O que segue é só o que mudou nesta janela.
+
+- **✅ AS 6 ETAPAS DO PLANO DO PORTAL ESTÃO FEITAS.** Branch `feat/portal-app-5-secoes`, PR #147.
+  Saiu de **descoberta e plano** para **código construído, revisado e conferido na tela**. **Zero
+  migração** — nada mudou no banco. **Não está no ar**: a v1.2.1 continua sendo o que roda.
+- **📱 O Portal deixou de ser UMA página com 16 blocos.** Agora tem **seis seções com endereço**
+  (`/portal`, `/portal/documentos`, `/portal/credenciamento`, `/portal/servicos`,
+  `/portal/suporte`, `/portal/equipe`): recarregar volta na mesma tela, o "voltar" do navegador
+  funciona, e no celular há barra inferior com ícone + rótulo; no computador, abas sob o cabeçalho.
+- **🃏 A BARRA TEM 4 CORINGAS E 1 VAGA (ordem do dono), e a vaga é uma LISTA DE CANDIDATAS**
+  (`apps/web/src/features/portal/secoes.ts`), **nunca um `if`**. Frente de trabalho nova entra
+  numa linha. Hoje há **uma** candidata (Convênios). Sem candidata, a barra tem 4 itens —
+  travado por `secoes.test.ts`.
+- **📁 DOCUMENTOS SÃO DOIS ACERVOS**, com o bloco **"o que ainda falta enviar"** no MEIO — o único
+  acionável dos três. No fim da página ele seria lido depois da lista do que já foi enviado, que é
+  onde o cliente conclui que entregou tudo.
+- **🔒 A TRAVA DE PAPEL APARECE ANTES DO CLIQUE, e servidor e tela leem a MESMA função**
+  (`podeAgirNoPortal`, `@app/shared`). Os quatro botões (desistir, retomar, solicitar, cancelar)
+  somem para EQUIPE e para a sessão de suporte, com a frase no lugar. ⚠️ **O item continua
+  visível** — a trava é sobre agir, não sobre ver.
+- **🚀 BRINDE DE DESEMPENHO:** `portal.servicosDisponiveis` (**11,9 s em produção**) e
+  `portal.emails` deixaram de ser obrigatórias para abrir o Portal.
+- **🧭 O roteador do Portal nasceu em ARQUIVO PRÓPRIO** (`app/portal-router.tsx`) porque dois
+  testes-guarda leem o TEXTO de `app/router.tsx`. `lib/paginas.ts` **não mudou uma linha**.
+  ⚠️ O redirecionamento de `/` para `/portal` vive **dentro** do roteador do Portal: fora dele, o
+  operador da Med entraria em laço ao clicar em "Voltar ao meu acesso".
+- **🐛 DOIS DEFEITOS QUE SÓ A TELA MOSTROU:** o selo "AMBIENTE LOCAL" caía **em cima da barra**,
+  escondendo dois rótulos; e a 360px com cinco itens, **"Documentos" era cortado em "Docume…"**.
+  Os dois corrigidos e conferidos por captura.
+- **🔍 TRÊS REVISORES ESPECIALISTAS RODARAM** (react, design, conteúdo). O achado mais sério:
+  `PortalCredenciamentoPage` tratava "consulta sem dado" e "consulta FALHOU" como a mesma coisa —
+  numa falha de rede o cliente era devolvido ao Início **em silêncio**, achando que perdeu o
+  credenciamento. Corrigido, com tela de erro e saída.
+- **Provas:** typecheck e lint de todos os pacotes verdes · **suíte COMPLETA do `@app/api`
+  (72 arquivos, 679 testes)** · **171 do `@app/web`** (13 novos) · **39 de ponta a ponta**,
+  incluindo acessibilidade nas 5 seções · e **na tela**, a 360x800 e a 1920x1080, com **zero erro
+  de console** numa carga limpa.
+- **✔️ DÍVIDA PAGA DA JANELA ANTERIOR:** o cliente do Prisma foi regerado (modo pausa), fechando
+  os 3 erros de tipo que o VS Code acusava nos testes novos.
+
+### O que falta nesta esteira
+
+- **Nada de código.** As fases 5 (execução), 6 (revisão) e 7 (crônica) estão FEITAS.
+- **⚠️ O banco de e2e isolado (`medconsultoria_e2e`) não tem as exigências de credenciamento
+  semeadas** — `flows-credenciamento-portal` falha lá com "0/0" e passa no banco de
+  desenvolvimento e na CI. É lacuna daquele ambiente, não do código.
+- **Falta o dono dar o sinal** para mesclar o PR #147 e, depois, para publicar.
+
+## Estado anterior (2026-08-28 · noite · ADR-137/138 MESCLADAS + a esteira do Portal em 5 seções)
 
 > **Leia `docs/esteira/portal-app-5-secoes-2026-08-28/`** (briefing, spec, design, adendo) e
 > `docs/superpowers/plans/portal-app-5-secoes.md`. O que segue é só o que mudou nesta janela.
@@ -523,7 +574,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-138). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-139). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas
