@@ -36,6 +36,7 @@ import {
  * antigos continuarem funcionando.
  */
 import { NOME_SERVICO_CREDENCIAMENTO, ehServicoDeCredenciamento, planejarEstimativaDoLead } from "@app/shared";
+import { garantirCatalogoDeServicos } from "./servicos.service.js";
 export { NOME_SERVICO_CREDENCIAMENTO, ehServicoDeCredenciamento };
 
 /** Um serviço do lead, só com o que decide cobrança. */
@@ -283,10 +284,22 @@ type SincronizacaoResultado =
  */
 export function sincronizarRequisitosCredenciamento(forcar = false): Promise<SincronizacaoResultado> {
   if (execucao && !forcar) return execucao;
-  execucao = executarSincronizacao().catch((e) => {
-    execucao = null; // falhou: a próxima chamada tenta de novo
-    throw e;
-  });
+  execucao = executarSincronizacao()
+    .then((r) => {
+      // ⚠️ "SERVIÇO INEXISTENTE" NÃO PODE SER MEMORIZADO como resposta boa.
+      //
+      // O catálogo nasce sob demanda: num banco recém-criado, a primeira chamada pode chegar
+      // antes de ele existir. Guardando esse resultado, a sincronização **nunca mais** rodaria
+      // naquele processo — nem depois de o serviço aparecer —, e a papelada do credenciamento
+      // ficaria vazia até alguém reiniciar o servidor. Zerar aqui faz a próxima chamada tentar
+      // de novo, que é o mesmo tratamento que a falha já recebia.
+      if (!r.ok && r.motivo === "servico-inexistente") execucao = null;
+      return r;
+    })
+    .catch((e) => {
+      execucao = null; // falhou: a próxima chamada tenta de novo
+      throw e;
+    });
   return execucao;
 }
 
@@ -430,6 +443,18 @@ export async function removerProfissional(id: string) {
  * veio. Uma consulta, uma verdade — as três telas não podem divergir.
  */
 export async function credenciamentoDoCliente(clienteId: string) {
+  // ⚠️ GARANTIR O CATÁLOGO ANTES DE SINCRONIZAR, e a ordem é o conserto.
+  //
+  // O catálogo de serviços é criado sob demanda, e quem o criava era quem listasse serviços
+  // primeiro — no Portal, o `servicosDisponiveis` da página única. Com o Portal em seções
+  // (ADR-139) essa consulta deixou de rodar na abertura (leva 11,9 s em produção), e num banco
+  // recém-criado o cliente que abrisse **Convênios** primeiro caía num catálogo vazio: sem
+  // serviço de credenciamento, a sincronização não tinha o que sincronizar e a tela dizia
+  // "Tudo enviado 0/0" com a papelada inteira faltando.
+  //
+  // Depender de "alguém abriu outra tela antes" é o tipo de acoplamento que só aparece em
+  // banco novo — isto é, em produção recém-nascida e na CI, nunca no banco de quem desenvolve.
+  await garantirCatalogoDeServicos().catch(() => {});
   await sincronizarRequisitosCredenciamento().catch(() => {});
 
   const [cliente, profissionais, servico] = await Promise.all([
