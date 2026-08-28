@@ -13,7 +13,72 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-28 · madrugada · ADR-140 — A AUDITORIA TOTAL: 14 correções, 6 delas de segurança ou perda de dado)
+## Estado atual (2026-08-28 · noite · ADR-141 — CONFORMIDADE COM A LEI: os 4 itens, construídos)
+
+> **Leia a ADR-141 em `docs/DECISIONS.md`.** O diagnóstico que originou o trabalho está em
+> `docs/esteira/lgpd-2026-08-28/O-QUE-FALTA.md` (agora marcado como histórico).
+
+- **Ordem do dono:** *"Não quero quebrar regras de lei. Resolva tudo e deixe tudo conforme a lei."*
+  E: *"podemos primeiro resolver tudo e desenvolver tudo pra depois publicar"* — por isso os quatro
+  itens vieram em **UMA branch e UM PR** (`feat/conformidade-lgpd-adr-141`), não quatro: cada PR
+  dispara a suíte inteira, e quatro custariam quatro vezes em Actions.
+- **🔴 CPF DE CLIENTE IA PARA A OPENAI A CADA CLIQUE EM "RESUMIR".** O campo `observacoes` ia
+  inteiro, e ele **não é neutro**: a migração de 19/08 (ADR-119) enfiou ali o CPF de todo cliente
+  que era pessoa física, e o formulário público grava ali o texto livre de quem quiser.
+- **🚪 A CORREÇÃO MORA NO PORTÃO, e é a lição da ADR-140 aplicada de véspera.** A app inteira fala
+  com a OpenAI por **uma** função (`gerarRascunho`, `apps/api/src/lib/ai.ts`) — 16 chamadas, uma
+  porta. `redigirDadoPessoal` (`@app/shared`, pura, testada) fica lá: **chamada nova nasce coberta**.
+  Corrigir só as duas montagens de contexto seria plantar a segunda porta de novo.
+- **🔁 REDIGIR + RESTAURAR, nunca apagar.** "Melhorar com IA" devolve o corpo do documento: apagar
+  faria um contrato voltar com `[removido]` no lugar do CNPJ, a Thaís aprovaria, e o papel sairia
+  mutilado. Cada dado vira `[[CPF-1]]` na ida e **volta ao original na resposta**. ⚠️ Segunda camada
+  porque regex só pega o que tem FORMA: `observacoes` saiu do contexto **na origem** também.
+- **⏳ LINK DE PROPOSTA E DE ASSINATURA PASSOU A EXPIRAR — ZERO MIGRAÇÃO.** Um link de um ano atrás
+  abria o documento inteiro sem login e ainda assinava. 30 dias para abrir, mais 90 depois de
+  respondido só para reler, derivados de `criadoEm`/`propostaSolicitadaEm`. ⚠️ **A trava está nas
+  QUATRO portas** — barrar só a leitura e deixar `assinar`/`responder` abertos seria literalmente a
+  segunda porta; há teste que conta as ocorrências e reprova quem tirar uma. ⚠️ Na tela são **três**
+  frases: falha de rede, **expirado** (tela própria) e inválido.
+- **🗑️ ELIMINAÇÃO VIROU ANONIMIZAÇÃO, e ganhou tela.** `excluirDefinitivoCliente` bloqueia diante de
+  qualquer vínculo, então **nenhum cliente real era eliminável**. Agora ROOT anonimiza: saem nome,
+  CNPJ, e-mail, telefone e observações da ficha, dos contatos e dos médicos, e o acesso ao Portal cai.
+  ⚠️ **FICA o corpo dos contratos já emitidos** — é o dever de guarda que justifica manter, e a
+  confirmação na tela **diz isso**. ⚠️ **Exige o cliente ARQUIVADO.** ⚠️ **A tela é a aba
+  *Privacidade* do painel do ROOT, não a ficha**: toda tela de cliente filtra `deletedAt: null`, e
+  arquivado o cliente some da aplicação inteira.
+- **🧹 EXPURGO COM ROTINA.** O corpo dos e-mails era guardado **para sempre**. Agora é apagado depois
+  do prazo, todo dia, por `setInterval` no boot (a hospedagem não tem cron — mesmo molde da varredura
+  de anexos). ⚠️ **O metadado fica**: é dele que vive o monitor que provou, em 22/08, que o e-mail
+  voltou a sair. ⚠️ Botão que alguém pode esquecer de apertar **não é política de retenção**.
+- **📄 A PÁGINA `/privacidade` NASCEU** — não existia nenhuma. Lê razão social, CNPJ, endereço, prazos
+  e encarregado **do banco**: o sistema não fabrica dado jurídico. O que ela promete é exatamente o
+  que o expurgo cumpre. Declara o envio à OpenAI, fechando pendência antiga do `IA_PRIVACIDADE.md`.
+  Linkada em `/comecar` e no Portal. ⚠️ **Quem editar o texto precisa subir `AVISO_PRIVACIDADE_VERSAO`**
+  — o consentimento grava data **e** versão, e a data sozinha não prova nada.
+- **⚖️ PRAZOS DECIDIDOS (recomendação minha, caneta que o dono me passou):** corpo de e-mail **180
+  dias**, acervo de credenciamento **5 anos** — os dois **editáveis em Ajustes → Dados da empresa**,
+  porque prazo é decisão de negócio e mudá-lo não pode exigir publicação. O acervo vencido é
+  **AVISADO, nunca apagado**.
+- **💰 CREDENCIAMENTO REABERTO COBRA DE NOVO — decisão tomada: SIM.** A proposta real diz "somente no
+  sucesso" e "após 1 (uma) tentativa"; tentativa nova é trabalho novo. **O que faltava era avisar**:
+  faixa âmbar antes do clique, com o valor, e **só quando a anterior realmente cobrou**. A decisão
+  ficou escrita no serviço, onde alguém tentaria "consertar" herdando a conta.
+- **Migração `20260828220208`, ADITIVA:** quatro colunas nuláveis, duas com padrão, uma FK `SET NULL`.
+  Reverter é `DROP COLUMN`.
+- **Provas:** typecheck 6/6 · lint limpo · **32 testes novos, todos vistos reprovando antes** · 553 de
+  unidade e 171 de web verdes.
+
+### O que ficou de fora deste lote, e por quê
+
+- **DPA com a OpenAI** continua pendência jurídica — mas o risco caiu muito, porque o dado
+  identificável já não sai daqui.
+- **`Servico.ehCredenciamento`, `@@unique(nome)` em `Servico` e o consentimento da assinatura** pedem
+  migração própria.
+- **M1, C10, M15, F8, F9** (dinheiro) e **C1, C2, M6, M8** (trabalho invisível) seguem abertos: são
+  regra de negócio, não conformidade legal.
+- **Não está no ar:** a **v1.2.1** continua sendo o que roda. Publicar UMA vez, no fim de tudo.
+
+## Estado anterior (2026-08-28 · madrugada · ADR-140 — A AUDITORIA TOTAL: 14 correções, 6 delas de segurança ou perda de dado)
 
 > **Leia `docs/auditoria/AUDITORIA-TOTAL-2026-08-28.md`** (o retrato completo, com arquivo:linha em
 > tudo, o que ficou aberto e por quê) e a **ADR-140** em `docs/DECISIONS.md`.

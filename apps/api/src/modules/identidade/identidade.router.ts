@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { router, funcionarioProcedure, adminProcedure } from "../../trpc/trpc.js";
-import { getIdentidade, atualizarIdentidade } from "./identidade.service.js";
+import { router, funcionarioProcedure, adminProcedure, publicProcedure } from "../../trpc/trpc.js";
+import { getIdentidade, atualizarIdentidade, getPrivacidadePublica } from "./identidade.service.js";
 
 const texto = z.string().trim().max(300);
 const juridico = z.string().trim().max(500).nullish();
@@ -8,6 +8,8 @@ const juridico = z.string().trim().max(500).nullish();
 /** Identidade institucional (Ajustes → Dados da empresa). Equipe consulta; administrar é ADMIN+. */
 export const identidadeRouter = router({
   get: funcionarioProcedure.query(() => getIdentidade()),
+  // Página pública /privacidade (ADR-141). NÃO devolve dado bancário — ver o serviço.
+  privacidade: publicProcedure.query(() => getPrivacidadePublica()),
   atualizar: adminProcedure
     .input(
       z.object({
@@ -34,6 +36,13 @@ export const identidadeRouter = router({
         // Prazo do painel de credenciamentos. O teto de 365 evita desligar o alerta sem
         // querer digitando um número grande — para desligar de verdade, existe o filtro.
         credenciamentoPrazoDias: z.number().int().min(1).max(365),
+        // LGPD (ADR-141). Mínimo de 30 dias no e-mail: abaixo disso o monitor de entrega
+        // perde a janela de 7 dias que a equipe usa para diagnosticar. Teto de 10 anos no
+        // acervo, que é o limite de guarda fiscal com folga.
+        retencaoCorpoEmailDias: z.number().int().min(30).max(3650),
+        retencaoAcervoAnos: z.number().int().min(1).max(10),
+        encarregadoNome: juridico,
+        encarregadoEmail: juridico,
       }),
     )
     .mutation(({ input }) =>
@@ -48,6 +57,8 @@ export const identidadeRouter = router({
         bancoConta: input.bancoConta ?? null,
         bancoTitular: input.bancoTitular ?? null,
         pixChave: input.pixChave ?? null,
+        encarregadoNome: input.encarregadoNome ?? null,
+        encarregadoEmail: input.encarregadoEmail ?? null,
       }),
     ),
 });

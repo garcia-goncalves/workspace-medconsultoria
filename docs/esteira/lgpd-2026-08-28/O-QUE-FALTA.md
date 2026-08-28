@@ -7,7 +7,26 @@
 > Este arquivo é o **estado da tarefa**, escrito para a próxima janela executar. Cada item traz o
 > diagnóstico já verificado no código, a recomendação e o que precisa ser decidido.
 
-**Ponto de partida:** `main` @ `04e0c5b` (PR #150 mesclado, ADR-140). **Nada disto começou.**
+**Ponto de partida:** `main` @ `04e0c5b` (PR #150 mesclado, ADR-140).
+
+> ## ✅ FEITO — os quatro itens estão construídos (ADR-141, branch `feat/conformidade-lgpd-adr-141`)
+>
+> Este arquivo vira **histórico**: é o diagnóstico que originou o trabalho. O que foi decidido e
+> construído está na **ADR-141** (`docs/DECISIONS.md`). Diferenças entre o plano abaixo e o que
+> foi feito, todas deliberadas:
+>
+> - **Item 1** — a peneira ficou na **porta única** (`lib/ai.ts`), não nas duas montagens de
+>   contexto; e é **redigir + restaurar**, não apagar, senão "melhorar com IA" devolveria o
+>   contrato com o CNPJ mutilado. Tirar `observacoes` da origem continua sendo feito, como
+>   segunda camada.
+> - **Item 2** — precisou de **uma migração** (`20260828220208`, aditiva): os prazos e o
+>   encarregado viraram campos editáveis, e a anonimização precisa registrar quem fez e quando.
+>   A tela mora no **painel do ROOT**, não na ficha, porque a ficha some ao arquivar.
+> - **Item 3** — como planejado, **zero migração**.
+> - **Item 4** — decisão tomada: **sim, cobra de novo**, com aviso antes do clique.
+>
+> **Prazos decididos:** corpo de e-mail **180 dias**, acervo de credenciamento **5 anos** — os
+> dois editáveis em *Ajustes → Dados da empresa*.
 
 ---
 

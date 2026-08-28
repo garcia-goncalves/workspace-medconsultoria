@@ -411,6 +411,14 @@ async function criarContaDoHonorario(credenciamentoId: string, clienteId: string
  *
  * A linha anterior fica intacta, com a negativa e a data. A nova nasce `A_PROTOCOLAR`, com o
  * valor da anterior como ponto de partida (editável na grade).
+ *
+ * ⚠️ A NOVA TENTATIVA NÃO HERDA `contaId`, E ISSO É DELIBERADO (ADR-141, decisão do dono).
+ * O honorário nasce na APROVAÇÃO (ADR-104), então o ciclo aprovado → encerrado → reaberto →
+ * aprovado gera uma SEGUNDA conta a receber pelo mesmo par médico × operadora. Está certo: a
+ * proposta real da Thaís cobra "somente no sucesso" e "após 1 (uma) tentativa", e tentativa
+ * nova é trabalho novo. O que faltava era AVISAR — a faixa âmbar de `CredenciamentoGradeCard`
+ * aparece antes do clique quando a anterior já cobrou. Quem for "consertar" isto herdando a
+ * conta estará dando de graça o segundo credenciamento.
  */
 export async function abrirNovaTentativa(input: { id: string; motivo: string }, ator: { id: string }) {
   const anterior = await prisma.credenciamento.findUnique({ where: { id: input.id } });

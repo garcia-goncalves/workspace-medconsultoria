@@ -115,6 +115,7 @@ model User {
   // Trilha de quem aceitou/assinou estando logado (ADR-137).
   propostasRespondidas Documento[]            @relation("PropostasRespondidas")
   assinaturasFeitas    Assinatura[]           @relation("AssinaturasFeitas")
+  clientesAnonimizados Cliente[]              @relation("ClientesAnonimizados")
   documentoVersoes     DocumentoVersao[]
   suporteMensagens     SuporteMensagem[]
   tokens               Token[]
@@ -274,12 +275,19 @@ model Cliente {
   observacoes       String?           @db.Text
   // Estágio na relação comercial: PROSPECT | NEGOCIACAO | ATIVO | PERDIDO (usado a partir da Fase 3).
   situacaoComercial SituacaoComercial @default(ATIVO)
+  /// LGPD (ADR-141) — quando o titular pediu a eliminação e os dados foram substituídos por
+  /// marcador. Eliminar de verdade é impossível aqui: contrato, nota e credenciamento têm
+  /// guarda obrigatória, e o `excluirDefinitivoCliente` bloqueia diante de QUALQUER vínculo.
+  /// Anonimizar é a saída que a lei aceita quando há dever de guarda. Nulo = caso normal.
+  anonimizadoEm     DateTime?
+  anonimizadoPorId  String?
   responsavelId     String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   deletedAt         DateTime?
 
   responsavel         User?                @relation("ClienteResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  anonimizadoPor      User?                @relation("ClientesAnonimizados", fields: [anonimizadoPorId], references: [id], onDelete: SetNull)
   contatos            Contato[]
   usuariosPortal      User[]               @relation("UserCliente")
   leadsConvertidos    Lead[]               @relation("LeadConvertido")
@@ -447,6 +455,18 @@ model IdentidadeInstitucional {
   /// 60 é o prazo real das operadoras, dito pela Thaís em 11/08/2026. Editável porque
   /// operadora muda de ritmo e ela não deve precisar de alteração de código para ajustar.
   credenciamentoPrazoDias Int      @default(60)
+  /// LGPD (ADR-141) — PRAZOS DE GUARDA, editáveis em Ajustes porque prazo é decisão de
+  /// negócio, não de código. Depois deste prazo o CORPO do e-mail é apagado; o metadado
+  /// (para quem, assunto, quando, entregue ou não) FICA, que é do que o monitor precisa.
+  retencaoCorpoEmailDias  Int      @default(180)
+  /// Anos de guarda do acervo de credenciamento depois de encerrado o contrato. O sistema
+  /// AVISA que passou do prazo; NUNCA apaga sozinho — apagar o diploma de um médico por
+  /// conta própria é pior que guardar demais.
+  retencaoAcervoAnos      Int      @default(5)
+  /// Encarregado de dados (DPO) da LGPD. Nulos enquanto o dono não indicar alguém: a
+  /// página de privacidade cai no e-mail institucional e diz que o canal é esse.
+  encarregadoNome         String?
+  encarregadoEmail        String?
   atualizadoEm            DateTime @updatedAt
 }
 
@@ -786,6 +806,12 @@ model Lead {
   // Conta/cliente ligada (Portal do prospect). Independe de ganho/perdido — o lead
   // continua no funil enquanto convertidoEmClienteId for nulo.
   clienteId                 String?
+  /// LGPD (ADR-141) — o aviso de privacidade que a pessoa aceitou ao se cadastrar em
+  /// /comecar, e QUAL versão dele. Guardar só a data não prova nada: o texto muda, e a
+  /// prova do consentimento é a data MAIS a versão vigente naquele dia. Nulo nos leads
+  /// anteriores à regra e nos cadastrados à mão pela equipe (que não passam pelo site).
+  privacidadeAceitaEm       DateTime?
+  privacidadeVersao         String?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
   deletedAt                 DateTime?

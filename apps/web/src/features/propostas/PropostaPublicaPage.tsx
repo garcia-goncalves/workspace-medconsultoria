@@ -50,7 +50,10 @@ export function PropostaPublicaPage({ token }: { token: string }) {
   // servidor recusou explicitamente é "link inválido"; o resto (rede, 500, timeout) é
   // "tente de novo". Um teste de ponta a ponta pegou exatamente esta confusão.
   const codigo = q.error?.data?.code;
-  const linkRecusadoPeloServidor = codigo === "NOT_FOUND" || codigo === "BAD_REQUEST" || codigo === "FORBIDDEN";
+  // PRECONDITION_FAILED = link EXPIRADO (ADR-141). Entra aqui para não ser lido como
+  // falha de rede — e ganha tela própria abaixo, porque expirado não é inválido.
+  const linkRecusadoPeloServidor =
+    codigo === "NOT_FOUND" || codigo === "BAD_REQUEST" || codigo === "FORBIDDEN" || codigo === "PRECONDITION_FAILED";
   if (q.isError && !linkRecusadoPeloServidor) {
     return (
       <Casca>
@@ -72,6 +75,27 @@ export function PropostaPublicaPage({ token }: { token: string }) {
       </Casca>
     );
   }
+  // ⚠️ TRÊS frases, não duas: falha de rede (acima), EXPIRADO (aqui) e inválido (abaixo).
+  // Dizer "link inválido" a quem tem o link certo, só velho, o faz achar que foi enganado —
+  // e a saída dele é outra: pedir um novo, não conferir o endereço.
+  if (codigo === "PRECONDITION_FAILED") {
+    return (
+      <Casca>
+        <div className="rounded-xl border bg-background p-8 text-center">
+          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-warning" />
+          <h1 className="text-lg font-semibold">Link expirado</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{q.error?.message}</p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Fale com a equipe da MedConsultoria pelo e-mail{" "}
+            <a className="font-medium underline" href="mailto:contato@medconsultoria.com.br">
+              contato@medconsultoria.com.br
+            </a>
+            .
+          </p>
+        </div>
+      </Casca>
+    );
+  }
   if (q.isError || !q.data) {
     return (
       <Casca>
@@ -79,7 +103,7 @@ export function PropostaPublicaPage({ token }: { token: string }) {
           <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-warning" />
           <h1 className="text-lg font-semibold">Link inválido</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Este link de proposta não é válido ou expirou. Peça um novo à MedConsultoria.
+            Este link de proposta não é válido. Confira se copiou o endereço inteiro, ou peça um novo à MedConsultoria.
           </p>
         </div>
       </Casca>

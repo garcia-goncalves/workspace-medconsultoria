@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import { destinatarioDeAssinatura } from "../documentos/destinatario-de-assinatura.js";
-import type { ResponderPropostaInput } from "@app/shared";
+import { mensagemDeLinkExpirado, situacaoDoLinkPublico, type ResponderPropostaInput } from "@app/shared";
 import { hashConteudo } from "../../lib/hash.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
@@ -108,15 +108,30 @@ export async function statusDoDocumento(documentoId: string) {
   };
 }
 
+/**
+ * Recusa link vencido (ADR-141). `PRECONDITION_FAILED`, e não `INTERNAL`, porque isto é
+ * estado ESPERADO: erro cru vira "erro do sistema" no painel do ROOT (a lição da ADR-135).
+ */
+function exigirLinkValido(doc: { propostaSolicitadaEm: Date | null; propostaRespondidaEm: Date | null }): void {
+  const s = situacaoDoLinkPublico({
+    emitidoEm: doc.propostaSolicitadaEm,
+    respondidoEm: doc.propostaRespondidaEm,
+    agora: new Date(),
+  });
+  if (!s.valido) throw new TRPCError({ code: "PRECONDITION_FAILED", message: mensagemDeLinkExpirado(s) });
+}
+
 /** Dados públicos da proposta (acesso por token, sem login). */
 export async function getPorToken(token: string) {
   const doc = await prisma.documento.findFirst({
     where: { propostaToken: token, deletedAt: null },
     select: {
+      id: true,
       titulo: true,
       conteudo: true,
       propostaStatus: true,
       propostaHash: true,
+      propostaSolicitadaEm: true,
       propostaRespondidaEm: true,
       propostaMotivoRecusa: true,
       cliente: { select: { nome: true } },
@@ -124,6 +139,13 @@ export async function getPorToken(token: string) {
     },
   });
   if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Link de proposta inválido." });
+  exigirLinkValido(doc);
+
+  // Quem abriu, e quando. Antes disto ninguém sabia (LGPD, ADR-141). Sem usuário: é gente de fora.
+  await prisma.activityLog.create({
+    data: { acao: "proposta.link_aberto", entidadeTipo: "documento", entidadeId: doc.id },
+  });
+
   return {
     documento: { titulo: doc.titulo, conteudo: doc.conteudo },
     clienteNome: doc.cliente?.nome ?? null,
@@ -143,12 +165,14 @@ export async function getPorToken(token: string) {
 export async function responder(input: ResponderPropostaInput, ip?: string, respondidoPorId?: string | null) {
   const doc = await prisma.documento.findFirst({
     where: { propostaToken: input.token, deletedAt: null },
-    select: { id: true, titulo: true, conteudo: true, propostaStatus: true, propostaHash: true, clienteId: true, criadoPorId: true, itens: true, cliente: { select: { nome: true } } },
+    select: { id: true, titulo: true, conteudo: true, propostaStatus: true, propostaHash: true, propostaSolicitadaEm: true, propostaRespondidaEm: true, clienteId: true, criadoPorId: true, itens: true, cliente: { select: { nome: true } } },
   });
   if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Link de proposta inválido." });
   if (doc.propostaStatus !== "PENDENTE") {
     return { ok: true, jaRespondida: true, decisao: doc.propostaStatus };
   }
+  // ⚠️ Barrar só a LEITURA seria a segunda porta da ADR-140: o link expirado ainda aceitaria.
+  exigirLinkValido(doc);
   if (doc.propostaHash !== hashConteudo(doc.conteudo)) {
     throw new TRPCError({
       code: "BAD_REQUEST",

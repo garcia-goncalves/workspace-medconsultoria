@@ -571,6 +571,44 @@ faz o papel abrir com *"Prezado(a) Clínica X (Fulano)"*.
 O painel do lead ganhou o bloco **Documentos** — sem ele a Thaís emitiria a proposta e não a
 acharia mais pelo funil (a falha de costura das ADR-105 e ADR-128).
 
+## 12.13. Conformidade com a lei — o que não pode ser desfeito sem decisão (ADR-141)
+
+**A OpenAI nunca vê dado pessoal identificável.** A peneira (`redigirDadoPessoal`, `@app/shared`)
+mora na **porta única** — `gerarRascunho`, em `apps/api/src/lib/ai.ts`. ⚠️ **Não mova a peneira para
+os pontos de chamada**: são 16 hoje, e o filtro no portão é o que faz a chamada de amanhã nascer
+coberta. ⚠️ **Não troque redigir+restaurar por "apagar"**: "melhorar com IA" devolve o corpo do
+documento, e um contrato voltando com `[removido]` no lugar do CNPJ é perda de dado. ⚠️ Regex só
+pega o que tem FORMA — por isso `observacoes` foi retirado do contexto **na origem**, e campo de
+texto livre novo deve ser tratado do mesmo jeito.
+
+**O nome do cliente CONTINUA sendo enviado**, de propósito: sem ele o resumo não serve. Trocá-lo por
+identificador é decisão jurídica em aberto, registrada em `docs/IA_PRIVACIDADE.md`.
+
+**Link público expira, e a trava está nas QUATRO portas.** `getPorToken` **e** `assinar`/`responder`,
+nos dois serviços. ⚠️ Barrar só a leitura deixaria o link vencido assinando — a segunda porta da
+ADR-140. 30 dias para abrir, +90 depois de respondido, derivados de datas que já existem (zero
+migração). Link vencido responde `PRECONDITION_FAILED`, nunca erro cru (ADR-135).
+
+**A eliminação do titular é anonimização**, e a tela mora na aba *Privacidade* do painel do ROOT —
+não na ficha, porque toda tela de cliente filtra `deletedAt: null`. ⚠️ **Exige o cliente arquivado.**
+⚠️ **O corpo dos contratos já emitidos NÃO é reescrito** — é o dever de guarda que justifica manter,
+e reescrever destruiria a prova.
+
+**Os prazos de guarda vêm do banco** (`IdentidadeInstitucional.retencaoCorpoEmailDias` = 180,
+`retencaoAcervoAnos` = 5), editáveis em Ajustes. ⚠️ **Nunca transforme em constante no código:** a
+página `/privacidade` promete exatamente o que o expurgo cumpre, e os dois leem o mesmo campo.
+⚠️ **O acervo vencido é AVISADO, nunca apagado.**
+
+**`AVISO_PRIVACIDADE_VERSAO` (`@app/shared`) sobe sempre que o texto da página muda.** O
+consentimento do lead grava data **e** versão; sem subir, a prova aponta para um texto que já não é
+o que ele leu.
+
+**Credenciamento reaberto cobra de novo** (decisão do dono). ⚠️ A tentativa nova **não herda**
+`contaId` — quem "consertar" isso estará dando de graça o segundo credenciamento. O aviso na tela é
+que faltava.
+
+---
+
 ## 13. O que NÃO fazer agora
 
 Não transformar em SaaS · não multi-tenant · não cobrança · não marketplace · não rede social · não EAD · não ERP gigante · não integrações complexas · não integrar WhatsApp agora · não videoconferência própria. **Primeiro resolver o problema da MedConsultoria.**

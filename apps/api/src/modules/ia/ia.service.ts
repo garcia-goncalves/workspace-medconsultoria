@@ -199,7 +199,7 @@ export async function resumirCliente(clienteId: string): Promise<string> {
   exigirIA();
   const cliente = await prisma.cliente.findUnique({
     where: { id: clienteId },
-    select: { nome: true, situacaoComercial: true, observacoes: true, createdAt: true },
+    select: { nome: true, situacaoComercial: true, createdAt: true },
   });
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
   const [servicos, projetos, proxReuniao, oportunidades] = await Promise.all([
@@ -217,7 +217,8 @@ export async function resumirCliente(clienteId: string): Promise<string> {
     oportunidades.length
       ? `Oportunidades abertas no funil (quer mais): ${oportunidades.flatMap((o) => o.servicos.map((s) => s.nome)).join(", ") || "sem serviços definidos"}.`
       : "Sem oportunidade aberta no funil.",
-    cliente.observacoes ? `Observações: ${cliente.observacoes}` : "",
+    // `observacoes` NÃO vai para a IA (ADR-141): é texto livre onde a migração de 19/08
+    // guardou o CPF de quem era pessoa física, e onde cai o que o público digita no site.
   ].filter(Boolean).join("\n");
 
   const user = `Data de hoje: ${dataBR()}.
@@ -244,7 +245,6 @@ export async function sugerirProximoPassoLead(leadId: string): Promise<string> {
     `Serviços de interesse: ${lead.servicos.map((s) => s.nome).join(", ") || "não definidos"}.`,
     lead.valorEstimado ? `Valor estimado: R$ ${emReaisOu(lead.valorEstimado).toLocaleString("pt-BR")}.` : "Sem valor estimado.",
     lead.passos.length ? `Passos pendentes: ${lead.passos.map((p) => p.titulo).join("; ")}.` : "Sem passos pendentes registrados.",
-    lead.observacoes ? `Observações: ${lead.observacoes}` : "",
   ].filter(Boolean).join("\n");
   const user = `Data de hoje: ${dataBR()}.
 Sugira o PRÓXIMO PASSO mais eficaz para avançar este lead no funil (1-3 ações concretas e objetivas, em tópicos). Não invente dados.

@@ -246,7 +246,11 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
             <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Seus dados são tratados conforme a <strong>LGPD</strong> (Lei nº 13.709/2018) e usados apenas para o seu atendimento. Você pode consultar e corrigir seus
-              dados aqui a qualquer momento.
+              dados aqui a qualquer momento — e ler o{" "}
+              <a href="/privacidade" target="_blank" rel="noreferrer" className="underline">
+                aviso de privacidade
+              </a>{" "}
+              para saber por quanto tempo cada coisa é guardada.
             </span>
           </p>
         </div>

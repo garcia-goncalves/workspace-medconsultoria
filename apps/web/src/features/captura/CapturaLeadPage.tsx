@@ -180,7 +180,11 @@ export function CapturaLeadPage() {
       </form>
 
       <p className="mt-6 text-center text-xs text-muted-foreground">
-        Seus dados são usados apenas para retorno comercial, conforme a LGPD.
+        Ao enviar, você concorda com o nosso{" "}
+        <a href="/privacidade" target="_blank" rel="noreferrer" className="underline">
+          aviso de privacidade
+        </a>
+        : seus dados são usados para retorno comercial e guardados pelos prazos descritos lá.
       </p>
     </AuthShell>
   );
