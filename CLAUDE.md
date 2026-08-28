@@ -13,7 +13,70 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-28 · tarde · A DESCOBERTA DO REFINO FINAL — 4 auditorias, nada construído ainda)
+## Estado atual (2026-08-28 · fim de tarde · ADR-137 e ADR-138 — os 3 primeiros itens do refino, no PR #146)
+
+> **Leia `docs/esteira/refino-final-2026-08-28/achados.md`** (48 achados, arquivo:linha) e as
+> **ADR-137 e ADR-138** em `docs/DECISIONS.md`. O que segue é só o que mudou nesta janela.
+
+- **📄 PR #146 ABERTO** (branch `fix/travas-de-assinatura-adr-137`) com os itens 1, 2 e 3 da ordem
+  do dono. **PR #145 (a descoberta, só documentação) MESCLADO**, CI 3/3 verde.
+- **🔒 A SECRETÁRIA E A SESSÃO DE SUPORTE NÃO ASSINAM MAIS CONTRATO (C6 · ADR-137).** As duas
+  travas existiam, cada uma com a sua ADR, e **nenhuma ficava no caminho que assina**:
+  `propostas.responder` e `assinaturas.assinar` eram `publicProcedure` puro, e o `portal.resumo`
+  entregava o token a toda conta daquele Portal. ⚠️ **A rota continua pública de propósito** —
+  quem assina clica num link de e-mail sem login. A trava é sobre a **SESSÃO**
+  (`podeAssinarPelaClinica` + `aceiteProcedure`), e mora no **procedure**, não no serviço: por
+  isso o teste chama pelo `createCaller`, senão passaria verde com o buraco aberto.
+- **📮 O DEGRAU SEGUINTE, achado pelo `security-reviewer` e corrigido (ADR-137).** ⚠️ **Barrar a
+  sessão não adianta se o link chega numa caixa que a pessoa barrada abre.** O e-mail ia para
+  `Cliente.email`, a caixa cadastral da clínica (a da recepção): a secretária clicava
+  **deslogada** e assinava — e deslogado é justamente o caminho do signatário legítimo. Hoje
+  `destinatarioDeAssinatura` endereça a quem fala pela clínica; a caixa da clínica é a reserva.
+- **✍️ QUEM ASSINOU PASSOU A FICAR REGISTRADO (ADR-137).** `Assinatura.assinadoPorId` e
+  `Documento.propostaRespPorId` (migração `20260828140843`, **duas colunas nuláveis** com FK
+  `SET NULL`; reverter é `DROP COLUMN`). ⚠️ **Nulo é o caso NORMAL** — o link de e-mail é anônimo.
+- **💸 O DINHEIRO PAROU DE DIVERGIR (F1, C3, C4 · ADR-137).** Converter lead de Faturamento criava
+  conta a receber **avulsa e fixa** (a ADR-125 tornou o `valorEstimado` derivado e o fallback não
+  sabia); a conversão provisionava pelo preço **de catálogo** e contratava **todos** os serviços
+  que o lead pediu, não só os vendidos; e contratar pela ficha com preço combinado gerava conta
+  pelo preço de tabela — serviço sem preço de tabela não gerava conta nenhuma.
+- **🎚️ O FATURAMENTO É SÓ PERCENTUAL (F4 + a trava · ADR-138).** `categoria === "Faturamento"`
+  voltou pela **QUINTA** vez, agora em `ServicosPage.tsx`, o lugar mais a montante. Virou o botão
+  **"Como este serviço é cobrado: Valor fixo | % do faturamento"** nas duas telas. ⚠️ A trava nova
+  (`temValorEPercentual`) é aplicada em **dois níveis**: `refine` nos três schemas **e**
+  conferência no servidor sobre o **ANTES + o DEPOIS** — a edição é parcial, e o `refine` só vê o
+  que veio no pedido. Conferido antes de ligar: **0 de 15 serviços** e **0 de 12 contratações**
+  estão no estado proibido.
+- **⚠️ ARMADILHA QUE CUSTOU UMA CI VERMELHA:** `pnpm --filter @app/api test:unit` **NÃO roda os
+  testes de integração**. O fixture do `dinheiro-decimal.integration.test.ts` criava um serviço
+  com valor **e** percentual, que a trava nova passou a proibir. **Antes de abrir PR que mexe em
+  regra de dados, rodar `pnpm --filter @app/api test`** (a suíte inteira, como a CI).
+- **Provas:** typecheck e lint verdes · **suíte completa do `@app/api` verde (72 arquivos, 671
+  testes)** e do `@app/web` (16 arquivos, 158) · **18 testes de integração novos** contra o MySQL
+  de verdade · **na tela**, como ROOT no localhost, as duas telas de preço trocando de forma ao
+  vivo, com **zero erro de console**.
+
+### O que ficou aberto e depende do dono
+
+- **🟡 A DIVISÃO DO PORTAL EM 5 SEÇÕES continua SEM RESPOSTA** — é o item 4 e não começou. A
+  mensagem do dono veio com o campo em branco (`[aprovo as 5 seções / mudo assim: ...]`).
+  Recomendação: aprovar como está (Início · Documentos · Credenciamento · Meus serviços ·
+  Suporte, com *Equipe* e *Perfil* no menu do avatar).
+- **🟡 O E-MAIL DE "NOVO LEAD" (pedido novo do dono, 28/08).** Ele quer que **só ADMIN e ROOT**
+  recebam. ⚠️ **CONFERIDO NO CÓDIGO: os dois disparos já filtram exatamente isso** —
+  `leads.service.ts:1519-1522` (recaptura) e `:1566-1569` (lead novo), ambos
+  `role: { in: ["ADMIN", "ROOT"] }`, e a ADR-134 já deixa `lead_novo` ligado por padrão **só para
+  ADMIN**. Então o pedido, como escrito, já está feito — **falta perguntar a ele o que está
+  chegando na caixa dele** antes de mexer em qualquer linha.
+- **🔑 A DÍVIDA DO TOKEN QUE JÁ VAZOU (ADR-137).** Não foi rotacionado, e o porquê está na ADR. A
+  decisão depende de **uma conferência só: existe alguma conta de Portal com papel EQUIPE em
+  produção?** Se existir, rotacionar toda linha PENDENTE vira obrigatório.
+- **🚨 O BANCO DE PRODUÇÃO CAINDO E A LENTIDÃO: NÃO FOI TOCADO**, por ordem do dono. É hospedagem,
+  não código (`leads.list` responde em 15 ms enquanto `portal.servicosDisponiveis` leva 11,9 s).
+- **⚠️ PENDÊNCIA DO DONO: "Foro de eleição"** em *Ajustes → Dados da empresa* — ele disse que
+  preenche com a Thaís mais para a frente.
+
+## Estado anterior (2026-08-28 · tarde · A DESCOBERTA DO REFINO FINAL — 4 auditorias, nada construído ainda)
 
 > **Leia primeiro `docs/esteira/refino-final-2026-08-28/achados.md`.** É o retrato mais
 > recente e completo do que está errado na aplicação. Tem arquivo:linha em tudo.
