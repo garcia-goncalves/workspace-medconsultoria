@@ -169,8 +169,9 @@ não há link nenhum. Refino pequeno.
 com cadastro real não acontece. Só observar.
 
 ### Telas ainda NÃO percorridas
-Tarefas · Agenda · Projetos · E-mail · Mensagens · Ajustes · Serviços · Modelos ·
-Equipe e acessos · Sistema (exige ROOT — a Thaís é ADMIN, entrar como `root@`).
+~~Tarefas · Agenda · Projetos · E-mail · Mensagens · Ajustes · Serviços · Modelos ·
+Equipe e acessos · Sistema~~ — **TODAS percorridas na 2ª janela (28/08/2026), ver abaixo.
+A varredura de tela antes do dado real está CONCLUÍDA.**
 
 ### Já percorridas, sadias
 `/comecar` (captura) · Funil (card, painel, edição, passos automáticos, avanço de etapa) ·
@@ -187,3 +188,103 @@ O computador do dono **não tem servidor de e-mail**: toda tentativa falha com
 destinatário e assunto certos). A entrega só se prova em produção — onde já foi provada em
 22/08 (ADR-122). ⚠️ Para testar lá, use o botão **"Enviar acesso"** no card do lead: reenviar
 o formulário do site com e-mail já conhecido cai na recaptura e **não manda convite novo**.
+
+---
+
+# 2ª janela — 28/08/2026 · as 10 telas que faltavam
+
+Percorridas **clicando**, como o dono pediu (a varredura automática de 20 rotas já tinha dado
+"limpo" e não achou nenhum dos defeitos abaixo). Entrada como **Thaís Garcia (ADMIN)** — que é
+quem vai usar o sistema — e depois como **ROOT**, para o painel Sistema.
+
+## Telas percorridas nesta janela
+
+Tarefas · Agenda · Projetos · E-mail · Mensagens · Ajustes (índice + os 6 modais: Categorias
+financeiras, Origens de leads, Operadoras e convênios, Dados da empresa, Mensagens automáticas,
+Equipe e acessos) · Serviços · Modelos · Equipe e acessos · Sistema (as 9 abas).
+
+**A varredura de tela antes do dado real está CONCLUÍDA.**
+
+## Sadias, sem nenhum achado
+
+- **Serviços** — os 10 serviços reais nas 5 categorias, com preço certo (`5% do faturamento/mês`
+  no Faturamento). As 4 abas de configuração conferem com os contadores do card (7 passos, 6
+  pedidos, 3 tarefas). A exigência duplicada de operadoras (ADR-126) está mesmo removida.
+- **Modelos** — 16 modelos + 4 briefings, categorizados. A prévia da Proposta de faturamento sai
+  em 3 folhas com cabeçalho corrido e "Página N de M" (ADR-129 funcionando), e os marcadores
+  aparecem em português (`[dados para pagamento]`, `[nome do cliente]` — ADR-130).
+- **Tarefas** — abas Comigo/Deleguei/Da equipe, data em dd/mm/aaaa, cliente vinculado. ⚠️ O
+  seletor de cliente **não lista prospect**, coerente com a ADR-24.
+- **Projetos** — 12 projetos, KPIs batendo (11 ativos + 1 pausado = 12), quadro com 5 colunas,
+  cartão com o checklist dos 14 documentos de credenciamento.
+- **Mensagens** — 5 conversas, contador de não lidas, campo de resposta funcionando.
+- **Equipe e acessos** — "Convite pendente" × "Ativo" bem distintos, com **Reenviar** só nos
+  pendentes. É a ADR-131 fazendo efeito: antes `ativo=false` era ambíguo.
+- **Ajustes** e os 6 modais — dados da empresa completos (inclusive os bancários), 18 operadoras
+  com a marcação por serviço conferindo com as abas (6 credenciamento / 18 faturamento).
+- **Agenda** — a reunião semanal recorrente aparece nas 5 segundas do mês (3, 10, 17, 24, 31) e
+  os conflitos marcados com ⚠️ são reais. As 5 visões abrem.
+- **RBAC** — a Thaís (ADMIN) é barrada em `/sistema` com "Acesso restrito". Correto (ADR-43).
+
+## Achados CORRIGIDOS nesta janela (ADR-135)
+
+| # | Onde | O quê |
+|---|---|---|
+| **B1** | Sistema → Erros | O painel dizia "5 erros não resolvidos" e **nenhum era bug**: 66 ocorrências eram a caixa de e-mail com a senha vencida, estado esperado que a tela já trata com o botão *Reconectar*. Cada primeiro registro manda e-mail ao ROOT, e "resolver" só faz o próximo reabrir como regressão. |
+| **B2** | Sistema → Manutenção | "Proteção de cabeçalhos (CSP): **Desligada**" com a CSP **ligada** — provado com `curl -D -`. Era um `false` fixo no código. Agora quem acende é o boot. |
+| **B3** | Sistema → Desempenho | **P95 maior que o máximo** (256 ms de p95 com máximo de 184 ms), porque o percentil devolvia o teto do balde do histograma. |
+| **B4** | E-mail ao cliente | O médico que ativava o acesso ao **Portal** recebia "Bem-vindo ao **Workspace** MedConsultoria", prometendo clientes e finanças, com botão para o **sistema interno**. Mais o rodapé dos 42 templates e o e-mail de redefinir senha, com o mesmo vazamento. |
+
+## Achados em ABERTO — refino de tela, nenhum produz dado errado
+
+### B5 — o nome do cliente aparece até 3× na mesma linha
+
+Na **Agenda** (visão Lista) e em **Projetos**, o nome vem colado dentro do título e a tela ainda
+o mostra à parte:
+
+```
+10:00–11:00
+Reunião de kickoff — Clínica Vida Plena              ← título do evento
+Reunião
+Clínica Vida Plena                                   ← selo do cliente
+· Credenciamento médico e odontológico — Clínica Vida Plena   ← nome do projeto
+```
+
+Vem da conversão do lead, que gera o evento como `Reunião de kickoff — {cliente}` e o projeto
+como `{serviço} — {cliente}`. Com nome real e comprido, o card fica ilegível. **Conserto
+sugerido:** parar de colar o nome do cliente no título gerado, já que as duas telas o exibem.
+⚠️ Mexe em dado já gravado (os títulos existentes continuariam com o nome dentro).
+
+### B6 — editar um evento recorrente abre a data errada, sem avisar
+
+Cliquei na reunião desenhada em **24/08** e o formulário abriu com **03/08** — a primeira
+ocorrência da série. Não há nenhum texto dizendo que se está editando **a série inteira**: quem
+mudar o horário ali muda todas as reuniões, achando que mudou uma.
+
+### B7 — Equipe e acessos não mostra o papel no Portal
+
+A coluna *Papel* diz só "Cliente" para quem tem acesso ao Portal. Depois da ADR-131 existem dois
+papéis — **Responsável** (assina, contrata, convida) e **Equipe** (só operacional) —, e essa tela
+não os distingue. Quem olha não sabe se "Marina Souza (secretária)" pode assinar. A informação
+existe no card *Pessoas com acesso ao Portal* da ficha do cliente; falta aqui.
+
+### B8 — vocabulário: "LEAD" de um lado, "cliente" do outro
+
+Em **Mensagens**, a lista lateral marca a conversa com o selo **LEAD** e a assinatura da mensagem,
+na mesma tela, diz **"Clínica teste · cliente"**.
+
+## Pendência do DONO (só ele faz)
+
+⚠️ **Preencher o "Foro de eleição"** em *Ajustes → Dados da empresa*. Está em branco, e enquanto
+ficar assim o contrato sai com **`[A PREENCHER]`** no lugar — que é o comportamento correto (o
+sistema nunca inventa dado jurídico), mas precisa estar preenchido antes do primeiro contrato
+real. Os demais campos jurídicos e os bancários já estão completos.
+
+## Observações de ambiente — não são defeito
+
+- O **lixo de teste** no catálogo (`Serviço E2E`, `Serviço Guard`) e os briefings/eventos `E2E`
+  são do banco **local**, recriados pelos e2e. Em produção já foi conferido: só os 10 reais.
+- A caixa de e-mail da Thaís está com **"a senha guardada não funciona mais"** no localhost — a
+  máquina não tem servidor de e-mail. É esse estado que produziu o achado B1.
+- O incidente **"E-mail transacional não está saindo — 50 falhas seguidas"** é consequência do
+  mesmo. Em produção o e-mail está provado funcionando desde 22/08 (ADR-122).

@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { TRPCError } from "@trpc/server";
 import { prisma, getSlowQueries } from "@app/db";
 import { config, isAiEnabled, isEmailReal } from "../../config.js";
+import { estaCspLigada } from "../../lib/seguranca-http.js";
 import { contarConexoesSocket } from "../../realtime/socket.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { statusJobs, scanProativo } from "../../realtime/reminders.js";
@@ -568,7 +569,9 @@ export function configInfo() {
     apiPort: config.API_PORT,
     webOrigin: config.WEB_ORIGIN,
     iaAtiva: isAiEnabled,
-    cspLigada: false, // Helmet com CSP desativada por ora (ver docs/DEPLOY.md)
+    // Lê o estado REAL do boot, nunca uma constante: por anos esta linha foi `false` enquanto o
+    // helmet já publicava a política inteira, e o painel de segurança do ROOT dizia "Desligada".
+    cspLigada: estaCspLigada(),
   };
 }
 

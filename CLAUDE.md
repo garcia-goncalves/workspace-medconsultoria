@@ -13,7 +13,70 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-27 · noite · lote v1.2.0 PUBLICADO)
+## Estado atual (2026-08-28 · madrugada · ADR-135 · a varredura de tela TERMINOU)
+
+- **✅ A VARREDURA DE TELA ANTES DO DADO REAL ESTÁ CONCLUÍDA.** As **10 páginas** que faltavam
+  foram percorridas clicando (Tarefas · Agenda · Projetos · E-mail · Mensagens · Ajustes e os 6
+  modais · Serviços · Modelos · Equipe e acessos · Sistema, as 9 abas, entrando como ROOT).
+  **Sete telas sadias**, quatro defeitos corrigidos, quatro refinos anotados. Relatório completo
+  em `docs/auditoria/AUDITORIA-2026-08-27.md`. ⚠️ **Nada disto está no ar** — a v1.2.0 continua
+  sendo o que roda em produção.
+- **🚨 O PAINEL DE ERROS DO ROOT ERA 100% RUÍDO (ADR-135).** `SISTEMA → Erros` anunciava
+  **"5 erros não resolvidos"** e **nenhum era bug**: **66 ocorrências** eram "esta caixa precisa
+  ser reconectada" (a caixa de e-mail com a senha vencida — estado que a própria tela já trata
+  com o botão *Reconectar*), duas eram do mesmo assunto em 04/08, e as duas últimas eram de
+  **28/07**, de antes de `Tarefa.responsavelId` virar N-N. A última ocorrência foi registrada
+  **durante a auditoria**, só por abrir a página. ⚠️ **A causa é o crachá, não a régua:** o
+  `onError` filtra por `INTERNAL_SERVER_ERROR` e diz no comentário que erro esperado não entra —
+  mas os caminhos de reconexão lançavam `new Error(...)` cru, e `Error` sem código É internal
+  para o tRPC. Agora é `PRECONDITION_FAILED`, nos 3 caminhos do IMAP e nos 2 do SMTP.
+  ⚠️ **Servidor de e-mail fora do ar continua sendo erro interno, de propósito** — para ele já
+  existe o alerta de Incidentes.
+- **🔒 O PAINEL DE SEGURANÇA MENTIA SOBRE A CSP (ADR-135).** `SISTEMA → Manutenção` dizia
+  "Proteção de cabeçalhos (CSP): **Desligada**" com a CSP **ligada** — provado com `curl -D -`
+  (`default-src 'self'; script-src 'self'; …`). Era um `cspLigada: false` fixo no código, com um
+  comentário que envelheceu. ⚠️ **A correção não foi trocar `false` por `true`:** quem acende a
+  marcação é o **boot**, na linha ao lado do `register(helmet)`. Tirar o registro apaga a marcação
+  junto — sem isso o painel também não mudaria no dia em que a CSP fosse desligada de verdade.
+  Conferido na tela: **"CSP: Ligada"**.
+- **📉 UM PERCENTIL MAIOR QUE O MÁXIMO (ADR-135).** `SISTEMA → Desempenho` mostrava
+  `agenda.list · P95 256ms · MÁX 184ms`. O percentil devolvia o **teto do balde** do histograma
+  (daí só aparecerem potências de 2). ⚠️ **O histograma fica** — guardar toda chamada em memória
+  num processo que serve API + SPA + tempo real é pior; o que entra é o teto pelo máximo real, e
+  aí a aproximação erra só para menos.
+- **📧 O CLIENTE RECEBIA AS BOAS-VINDAS DO SISTEMA ERRADO (ADR-135) — o achado que mais chega a
+  quem está de fora.** `aceitarConvite` mandava `boas_vindas` **sem olhar o papel**, e o cliente
+  do Portal também é `User`: o médico que ativava o acesso ao **Portal** recebia *"Bem-vindo ao
+  **Workspace** MedConsultoria"*, prometendo que ele acompanharia "clientes, projetos, agenda,
+  finanças", com botão **"Acessar o workspace"** → o sistema **interno** da Med. Nasceu o template
+  **`boas_vindas_portal`** (editável na tela) e a régua `templateDeBoasVindas`. ⚠️ **O padrão dela
+  é o do CLIENTE** — papel novo ou nulo cai no texto neutro: errar para esse lado tira do colega
+  um link que ele já tem; errar para o outro manda o endereço interno para fora da empresa.
+- **🧹 O MESMO VAZAMENTO VINHA DE MAIS DOIS LUGARES (ADR-135).** O **rodapé é igual nos 42
+  templates** e trazia *"Acessar o workspace"* + *"sua conta no Workspace MedConsultoria"* — e
+  mais da metade dos e-mails vai para fora. O link saiu (ficaram e-mail comercial e site); a
+  versão em **texto puro** assinava com o mesmo endereço interno e passou a assinar com o site. E
+  **`reset_senha`** dizia "Workspace" no assunto e no corpo, sendo que `solicitarReset` **não
+  filtra papel**: quem esquece a senha pode ser o cliente, e nome de sistema desconhecido em
+  e-mail de segurança se lê como golpe.
+- **Zero migração** neste lote — nada mudou no banco.
+- **Provas (ADR-135):** typecheck e lint verdes · **491 testes de unidade** (19 novos) · **na
+  tela**, como ROOT: "CSP: Ligada", e a prévia do novo "Boas-vindas ao Portal (cliente)" com
+  botão *Entrar no Portal*, rodapé sem link interno e **zero** ocorrência de "workspace" — nele e
+  no de redefinir senha.
+
+### Ainda aberto depois desta janela
+
+- **Refino de tela (4), nenhum produz dado errado** — o nome do cliente aparecendo **até 3× na
+  mesma linha** na Agenda e em Projetos; o evento **recorrente** que abre a data da 1ª ocorrência
+  sem avisar que edita a série; a coluna *Papel* de Equipe sem distinguir **Responsável × Equipe**
+  do Portal (ADR-131); e "LEAD" × "cliente" para a mesma pessoa em Mensagens. Detalhe no relatório.
+- **⚠️ PENDÊNCIA DO DONO: preencher o "Foro de eleição"** em *Ajustes → Dados da empresa*. Está em
+  branco e o contrato sai com **`[A PREENCHER]`** — comportamento correto (o sistema não inventa
+  dado jurídico), mas precisa ser preenchido antes do primeiro contrato real. O resto dos dados
+  jurídicos e os bancários já estão completos.
+
+## Estado anterior (2026-08-27 · noite · lote v1.2.0 PUBLICADO — o que está NO AR)
 
 - **✅ NO AR DESDE 27/08/2026 às 21:43 — o lote inteiro do dia (ADR-128 a ADR-134).**
   Publicação `33129316255` no commit `cf243e6`, disparada por `workflow_dispatch`. A
@@ -37,8 +100,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   `/comecar` e o **"Solicitar" do Portal** listam **só os 10 serviços reais**; nenhum
   `Serviço E2E` nem `Serviço Guard`. O lixo é do banco local e **fica lá** — os e2e o
   recriam, e limpar o banco de desenvolvimento não provaria nada sobre produção.
-- **Ainda aberto:** a **varredura de tela não terminou** — faltam Tarefas, Agenda,
-  Projetos, E-mail, Mensagens, Ajustes, Serviços, Modelos, Equipe e Sistema.
+- **~~Ainda aberto: a varredura de tela não terminou~~ — CONCLUÍDA em 28/08 (ADR-135).**
 
 ## O que foi publicado neste lote (2026-08-27 · ADR-134)
 
@@ -217,7 +279,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-134). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-135). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

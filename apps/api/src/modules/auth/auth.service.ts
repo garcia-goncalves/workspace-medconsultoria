@@ -6,6 +6,7 @@ import { createSession } from "../../lib/session.js";
 import { consumirToken, inspecionarToken, criarToken } from "../../lib/tokens.js";
 import { removerArquivo } from "../../lib/storage.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
+import { templateDeBoasVindas } from "../emails/boas-vindas-por-publico.js";
 import { avancarLeadPorClienteAuto } from "../leads/leads.service.js";
 import { config } from "../../config.js";
 
@@ -224,7 +225,7 @@ export async function aceitarConvite(
   // Definir a senha pelo convite JÁ é entrar: o cliente atravessou a porta neste instante.
   await prisma.user.update({ where: { id: user.id }, data: { ultimoAcessoEm: new Date() } }).catch(() => {});
   await prisma.activityLog.create({ data: { userId: user.id, acao: "convite_aceito" } });
-  void enviarBoasVindas(user.nome, user.email).catch(() => {});
+  void enviarBoasVindas(user.nome, user.email, user.role).catch(() => {});
   // Automação do funil: o prospect ativou o acesso e entrou no Portal (sinal de
   // engajamento) → avança o lead para "qualificação" (nunca pula direto p/ proposta).
   if (user.role === "CLIENTE" && user.clienteId) {
@@ -233,9 +234,16 @@ export async function aceitarConvite(
   return { sid, user: toSessionUser(user) };
 }
 
-/** E-mail de boas-vindas (transacional, sempre enviado) após ativar o acesso. */
-async function enviarBoasVindas(nome: string, email: string): Promise<void> {
-  await enviarEmailTemplate("boas_vindas", email, { nome, link: config.WEB_ORIGIN });
+/**
+ * E-mail de boas-vindas (transacional, sempre enviado) após ativar o acesso.
+ *
+ * O texto MUDA conforme o papel: o cliente do Portal também é `User` e chega aqui pelo mesmo
+ * caminho — antes desta escolha ele recebia o e-mail escrito para a equipe, com o nome do sistema
+ * interno e um botão para ele. O link continua sendo o mesmo endereço: quem é CLIENTE cai no
+ * Portal ao entrar, e quem é da casa cai no Workspace.
+ */
+async function enviarBoasVindas(nome: string, email: string, papel: string | null): Promise<void> {
+  await enviarEmailTemplate(templateDeBoasVindas(papel), email, { nome, link: config.WEB_ORIGIN });
 }
 
 /**

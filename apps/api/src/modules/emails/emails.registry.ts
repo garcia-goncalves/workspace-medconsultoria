@@ -69,6 +69,27 @@ export const EMAIL_TEMPLATES = {
       ctaTexto: "Acessar o workspace",
     },
   },
+  /**
+   * A mesma ativação de acesso, escrita para quem é CLIENTE. Nasceu porque `aceitarConvite`
+   * mandava o texto acima para todo mundo — e o médico do Portal lia "Bem-vindo ao Workspace",
+   * com a promessa de gerenciar clientes e finanças e um botão para o sistema interno da Med.
+   * Quem escolhe entre os dois é `templateDeBoasVindas`, e o padrão dela é ESTE.
+   */
+  boas_vindas_portal: {
+    label: "Boas-vindas ao Portal (cliente)",
+    descricao: "Enviado ao cliente logo após ele ativar o acesso ao Portal do Cliente.",
+    grupo: "Transacionais",
+    notificacao: false,
+    variaveis: [{ chave: "nome", rotulo: "Nome da pessoa", descricao: "Nome de quem recebe", exemplo: "Maria Silva" }],
+    temCta: true,
+    default: {
+      assunto: "Bem-vindo ao Portal do Cliente — MedConsultoria",
+      titulo: "Acesso ativado — boas-vindas! 🎉",
+      corpo:
+        "Seu acesso ao Portal do Cliente da MedConsultoria foi ativado com sucesso.\n\nNo Portal você acompanha o andamento dos seus serviços, envia os documentos que pedimos, vê propostas e contratos e fala direto com a nossa equipe.",
+      ctaTexto: "Entrar no Portal",
+    },
+  },
   reset_senha: {
     label: "Redefinição de senha",
     descricao: "Enviado quando alguém pede para redefinir a senha (Esqueci minha senha).",
@@ -80,10 +101,14 @@ export const EMAIL_TEMPLATES = {
     ],
     temCta: true,
     default: {
-      assunto: "Redefinição de senha — Workspace MedConsultoria",
+      // Texto NEUTRO de propósito: `solicitarReset` procura o e-mail sem filtrar papel, e o
+      // cliente do Portal também é `User`. Dizer "Workspace" aqui é dar a um médico o nome de um
+      // sistema que ele nunca viu, num e-mail de segurança — o jeito mais rápido de a mensagem
+      // ser lida como golpe e ignorada.
+      assunto: "Redefinição de senha — MedConsultoria",
       titulo: "Redefinição de senha",
       corpo:
-        "Recebemos um pedido para redefinir a senha da sua conta no Workspace MedConsultoria.\n\nPara criar uma nova senha, clique no botão abaixo:",
+        "Recebemos um pedido para redefinir a senha da sua conta na MedConsultoria.\n\nPara criar uma nova senha, clique no botão abaixo:",
       ctaTexto: "Redefinir minha senha",
       nota: "Este link expira em 1 hora e só pode ser usado uma vez. Se não foi você quem pediu, ignore este e-mail — sua senha atual continua válida.",
     },
