@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import {
   FolderKanban,
   FileText,
@@ -11,12 +12,14 @@ import {
   CalendarPlus,
   CheckCircle2,
   MapPin,
+  AlertTriangle,
 } from "lucide-react";
 import { trpc } from "../../../lib/trpc";
 import { dataHora, data } from "../../../lib/format-date";
 import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { Button } from "../../../components/ui/button";
+import { EmptyState } from "../../../components/ui/empty-state";
 import { useConfirm, usePrompt } from "../../../components/ui/confirm-dialog";
 import { toast } from "../../../components/ui/toast";
 import { usePortalNavegar } from "../navegar";
@@ -26,8 +29,13 @@ import { usePodeNoPortal } from "../permissoes";
  * INÍCIO — a fila do que precisa da atenção do cliente.
  *
  * Era o topo da página única do Portal (16 blocos empilhados). Com as seções, ficou com o que
- * responde "o que eu tenho para fazer hoje?": andamento do atendimento, propostas, documentos
- * para assinar, o que depende do cliente, projetos e reuniões.
+ * responde "o que eu tenho para fazer hoje?".
+ *
+ * ⚠️ **A ORDEM é a entrega desta tela, não decoração.** Ação primeiro: propostas para
+ * responder, documentos para assinar, o que a equipe está esperando. Só depois vem o que é
+ * acompanhamento — o andamento do atendimento, as reuniões e os projetos. Na ordem antiga, a
+ * barra de progresso do funil (que não pede nada de ninguém) abria a tela, e a proposta
+ * aguardando resposta ficava embaixo dela.
  *
  * ⚠️ **O H1 contém a palavra "Portal", e não é preferência de texto.** Quatro asserções de
  * ponta a ponta (`e2e/flows-portal.spec.ts` e `e2e/rbac.spec.ts`) procuram um cabeçalho que
@@ -151,12 +159,14 @@ export function PortalInicio() {
       retomar.mutate();
   };
 
-  if (resumo.isLoading || !resumo.data) {
+  // Silhueta do conteúdo, não uma roda girando: quem espera vendo a forma da tela sabe o que
+  // vem, e a página não pula quando o dado chega.
+  if (resumo.isLoading) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
-          <Skeleton className="h-7 w-64" />
-          <Skeleton className="h-4 w-80" />
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-4 w-72" />
         </div>
         {[0, 1, 2].map((i) => (
           <div key={i} className="space-y-3 rounded-xl border bg-card p-4 shadow-sm">
@@ -168,7 +178,38 @@ export function PortalInicio() {
       </div>
     );
   }
+
+  // Erro com saída, não uma tela em branco. O cliente não tem como saber o que fazer com
+  // "algo deu errado" — o que ele pode fazer é tentar de novo, ou falar com a gente.
+  if (!resumo.data) {
+    return (
+      <EmptyState
+        icon={AlertTriangle}
+        title="Não conseguimos carregar seus dados"
+        description="Pode ter sido a conexão. Tente de novo — se continuar assim, fale com a nossa equipe pelo Suporte."
+      >
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button onClick={() => resumo.refetch()} disabled={resumo.isFetching}>
+            Tentar de novo
+          </Button>
+          <Button variant="outline" onClick={() => navegar("/portal/suporte")}>
+            Falar com o Suporte
+          </Button>
+        </div>
+      </EmptyState>
+    );
+  }
+
   const r = resumo.data;
+  // Os três blocos de AÇÃO. Vazio aqui é boa notícia — e por isso eles somem em vez de
+  // mostrarem "nenhum item": três caixas vazias fariam a tela parecer quebrada.
+  const nadaPendente = r.propostas.length === 0 && r.paraAssinar.length === 0 && r.aguardandoVoce.length === 0;
+
+  const irParaOSuporte = (e: MouseEvent) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    navegar("/portal/suporte");
+  };
 
   return (
     <div className="space-y-6">
@@ -176,6 +217,122 @@ export function PortalInicio() {
         <h1 className="text-2xl font-semibold text-primary">Seu Portal</h1>
         <p className="text-muted-foreground">Olá, {r.clienteNome} — o que precisa da sua atenção hoje.</p>
       </div>
+
+      {/* ── AÇÃO PRIMEIRO ─────────────────────────────────────────────────────────────── */}
+
+      {/* Propostas aguardando o aceite/recusa do cliente */}
+      {r.propostas.length > 0 && (
+        <Card className="border-primary/30">
+          <CardHeader>
+            <CardTitle>
+              <HeartHandshake className="h-4 w-4 text-primary" /> Propostas para você
+            </CardTitle>
+            <span className="text-xs text-muted-foreground">Revise e responda com um clique</span>
+          </CardHeader>
+          <div className="divide-y">
+            {r.propostas.map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center gap-3 px-4 py-3.5 text-sm sm:px-5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <FileText className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1 font-medium">{p.titulo}</div>
+                {p.token ? (
+                  <a
+                    href={`/proposta/${p.token}`}
+                    className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 sm:w-auto"
+                  >
+                    <HeartHandshake className="h-3.5 w-3.5" />
+                    Ver proposta
+                  </a>
+                ) : (
+                  <span className="shrink-0 text-xs text-muted-foreground">{SO_RESPONSAVEL_RESPONDE}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Documentos aguardando a assinatura do cliente */}
+      {r.paraAssinar.length > 0 && (
+        <Card className="border-warning/40">
+          <CardHeader>
+            <CardTitle>
+              <PenLine className="h-4 w-4 text-warning" /> Documentos para assinar
+            </CardTitle>
+            <span className="text-xs text-muted-foreground">A sua assinatura é necessária</span>
+          </CardHeader>
+          <div className="divide-y">
+            {r.paraAssinar.map((d) => (
+              <div key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-3.5 text-sm sm:px-5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
+                  <FileText className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1 font-medium">{d.titulo}</div>
+                {d.token ? (
+                  <a
+                    href={`/assinar/${d.token}`}
+                    className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 sm:w-auto"
+                  >
+                    <PenLine className="h-3.5 w-3.5" />
+                    Assinar
+                  </a>
+                ) : (
+                  <span className="shrink-0 text-xs text-muted-foreground">{SO_RESPONSAVEL_ASSINA}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* O que depende de você — cartões aguardando o cliente (ação clara) */}
+      {r.aguardandoVoce.length > 0 && (
+        <Card className="border-warning/40">
+          <CardHeader>
+            <CardTitle>
+              <Hourglass className="h-4 w-4 text-warning" /> O que depende de você
+            </CardTitle>
+          </CardHeader>
+          <div className="divide-y">
+            {r.aguardandoVoce.map((c) => (
+              <div key={c.id} className="flex items-start gap-3 px-4 py-3.5 text-sm sm:px-5">
+                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
+                  <Hourglass className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{c.titulo}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {c.projeto}
+                    {c.prazo ? ` · até ${data(c.prazo)}` : ""}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* O Suporte deixou de ficar "aqui embaixo" nesta página: agora é uma seção com
+              endereço próprio, e a frase vira o caminho até ela. */}
+          <p className="px-4 pb-4 pt-1 text-xs text-muted-foreground sm:px-5">
+            Precisa de ajuda com algum item?{" "}
+            <a href="/portal/suporte" onClick={irParaOSuporte} className="font-medium text-primary underline-offset-2 hover:underline">
+              Fale com a gente pelo Suporte
+            </a>
+            .
+          </p>
+        </Card>
+      )}
+
+      {/* Nada pendente é BOA NOTÍCIA, e a tela precisa dizer isso. Sem este bloco, o cliente
+          em dia abriria o Portal e veria o andamento do funil sem entender que está tudo certo. */}
+      {nadaPendente && (
+        <EmptyState
+          icon={CheckCircle2}
+          title="Está tudo em dia"
+          description="Nada esperando por você agora. Quando precisarmos de algo, aparece aqui."
+        />
+      )}
+
+      {/* ── ACOMPANHAMENTO ────────────────────────────────────────────────────────────── */}
 
       {/* Andamento do atendimento (enquanto for um prospect no funil) */}
       {r.atendimento && (
@@ -185,7 +342,7 @@ export function PortalInicio() {
               <Compass className="h-4 w-4 text-muted-foreground" /> Seu atendimento
             </CardTitle>
           </CardHeader>
-          <div className="px-5 pb-5 pt-1">
+          <div className="px-4 pb-5 pt-1 sm:px-5">
             <p className="text-sm font-medium text-foreground">
               {faseLabel[r.atendimento.chave ?? ""] ?? r.atendimento.etapa}
             </p>
@@ -221,7 +378,7 @@ export function PortalInicio() {
       {/* Atendimento encerrado (o prospect desistiu ou foi marcado como perdido) — livre para retomar */}
       {r.atendimentoEncerrado && (
         <Card>
-          <div className="flex flex-col items-start gap-3 p-5 sm:flex-row sm:items-center">
+          <div className="flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:p-5">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
               <HeartHandshake className="h-5 w-5" />
             </div>
@@ -232,7 +389,13 @@ export function PortalInicio() {
               </p>
             </div>
             {voltarAtras.pode ? (
-              <Button variant="outline" size="sm" className="shrink-0" onClick={pedirRetomada} disabled={retomar.isPending}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full shrink-0 sm:w-auto"
+                onClick={pedirRetomada}
+                disabled={retomar.isPending}
+              >
                 <RotateCcw className="h-4 w-4" /> Quero retomar
               </Button>
             ) : (
@@ -241,169 +404,6 @@ export function PortalInicio() {
           </div>
         </Card>
       )}
-
-      {/* Propostas aguardando o aceite/recusa do cliente */}
-      {r.propostas.length > 0 && (
-        <Card className="border-primary/30">
-          <CardHeader>
-            <CardTitle>
-              <HeartHandshake className="h-4 w-4 text-primary" /> Propostas para você
-            </CardTitle>
-            <span className="text-xs text-muted-foreground">Revise e responda com um clique</span>
-          </CardHeader>
-          <div className="divide-y">
-            {r.propostas.map((p) => (
-              <div key={p.id} className="flex items-center gap-3 px-5 py-3.5 text-sm">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div className="flex-1 font-medium">{p.titulo}</div>
-                {p.token ? (
-                  <a
-                    href={`/proposta/${p.token}`}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-                  >
-                    <HeartHandshake className="h-3.5 w-3.5" />
-                    Ver proposta
-                  </a>
-                ) : (
-                  <span className="shrink-0 text-xs text-muted-foreground">{SO_RESPONSAVEL_RESPONDE}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Documentos aguardando a assinatura do cliente */}
-      {r.paraAssinar.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              <PenLine className="h-4 w-4 text-warning" /> Documentos para assinar
-            </CardTitle>
-            <span className="text-xs text-muted-foreground">A sua assinatura é necessária</span>
-          </CardHeader>
-          <div className="divide-y">
-            {r.paraAssinar.map((d) => (
-              <div key={d.id} className="flex items-center gap-3 px-5 py-3.5 text-sm">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div className="flex-1 font-medium">{d.titulo}</div>
-                {d.token ? (
-                  <a
-                    href={`/assinar/${d.token}`}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-                  >
-                    <PenLine className="h-3.5 w-3.5" />
-                    Assinar
-                  </a>
-                ) : (
-                  <span className="shrink-0 text-xs text-muted-foreground">{SO_RESPONSAVEL_ASSINA}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* O que depende de você — cartões aguardando o cliente (ação clara) */}
-      {r.aguardandoVoce.length > 0 && (
-        <Card className="border-warning/40">
-          <CardHeader>
-            <CardTitle>
-              <Hourglass className="h-4 w-4 text-warning" /> O que depende de você
-            </CardTitle>
-          </CardHeader>
-          <div className="divide-y">
-            {r.aguardandoVoce.map((c) => (
-              <div key={c.id} className="flex items-start gap-3 px-5 py-3.5 text-sm">
-                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
-                  <Hourglass className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium">{c.titulo}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {c.projeto}
-                    {c.prazo ? ` · até ${data(c.prazo)}` : ""}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          {/* O Suporte deixou de ficar "aqui embaixo" nesta página: agora é uma seção com
-              endereço próprio, e a frase vira o caminho até ela. */}
-          <p className="px-5 pb-4 pt-1 text-xs text-muted-foreground">
-            Precisa de ajuda com algum item?{" "}
-            <a
-              href="/portal/suporte"
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                e.preventDefault();
-                navegar("/portal/suporte");
-              }}
-              className="font-medium text-primary underline-offset-2 hover:underline"
-            >
-              Fale com a gente pelo Suporte
-            </a>
-            .
-          </p>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            <FolderKanban className="h-4 w-4 text-muted-foreground" /> Seus projetos
-          </CardTitle>
-        </CardHeader>
-        {r.projetos.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-            <FolderKanban className="h-8 w-8 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">Nenhum projeto no momento.</p>
-          </div>
-        ) : (
-          <div className="divide-y">
-            {r.projetos.map((p) => (
-              <div key={p.id} className="px-5 py-3.5 text-sm">
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 font-medium">{p.nome}</div>
-                  <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                    {statusLabel[p.status] ?? p.status}
-                  </span>
-                </div>
-                <div className="mt-2 space-y-1">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{p.total === 0 ? "Organizando as tarefas" : `${p.concluidos} de ${p.total} etapas concluídas`}</span>
-                    {p.total > 0 && <span className="font-medium text-foreground">{p.progresso}%</span>}
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={"h-full rounded-full " + (p.progresso === 100 ? "bg-success" : "bg-primary")}
-                      style={{ width: `${p.progresso}%` }}
-                    />
-                  </div>
-                </div>
-                {(p.previsaoFim || p.proximaReuniao) && (
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    {p.previsaoFim && (
-                      <span className="inline-flex items-center gap-1">
-                        <CalendarDays className="h-3.5 w-3.5" /> Previsão de entrega: {data(p.previsaoFim)}
-                      </span>
-                    )}
-                    {p.proximaReuniao && (
-                      <span className="inline-flex items-center gap-1">
-                        <Video className="h-3.5 w-3.5" /> Próxima reunião: {data(p.proximaReuniao.inicio)}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
 
       <Card>
         <CardHeader>
@@ -419,7 +419,7 @@ export function PortalInicio() {
         ) : (
           <div className="divide-y">
             {r.reunioes.map((ev) => (
-              <div key={ev.id} className="flex flex-col gap-2 px-5 py-3.5 text-sm sm:flex-row sm:items-center">
+              <div key={ev.id} className="flex flex-col gap-2 px-4 py-3.5 text-sm sm:flex-row sm:items-center sm:px-5">
                 <span className="w-28 shrink-0 text-xs font-medium tabular-nums">{dataHora(ev.inicio)}</span>
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">{ev.titulo}</div>
@@ -461,6 +461,59 @@ export function PortalInicio() {
                     </a>
                   )}
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <FolderKanban className="h-4 w-4 text-muted-foreground" /> Seus projetos
+          </CardTitle>
+        </CardHeader>
+        {r.projetos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+            <FolderKanban className="h-8 w-8 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">Nenhum projeto no momento.</p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {r.projetos.map((p) => (
+              <div key={p.id} className="px-4 py-3.5 text-sm sm:px-5">
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1 truncate font-medium">{p.nome}</div>
+                  <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                    {statusLabel[p.status] ?? p.status}
+                  </span>
+                </div>
+                <div className="mt-2 space-y-1">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{p.total === 0 ? "Organizando as tarefas" : `${p.concluidos} de ${p.total} etapas concluídas`}</span>
+                    {p.total > 0 && <span className="font-medium text-foreground">{p.progresso}%</span>}
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={"h-full rounded-full " + (p.progresso === 100 ? "bg-success" : "bg-primary")}
+                      style={{ width: `${p.progresso}%` }}
+                    />
+                  </div>
+                </div>
+                {(p.previsaoFim || p.proximaReuniao) && (
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    {p.previsaoFim && (
+                      <span className="inline-flex items-center gap-1">
+                        <CalendarDays className="h-3.5 w-3.5" /> Previsão de entrega: {data(p.previsaoFim)}
+                      </span>
+                    )}
+                    {p.proximaReuniao && (
+                      <span className="inline-flex items-center gap-1">
+                        <Video className="h-3.5 w-3.5" /> Próxima reunião: {data(p.proximaReuniao.inicio)}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { PortalDocumentoModal } from "../PortalDocumentoModal";
 import { PortalMeusDocumentos } from "../PortalMeusDocumentos";
+import { ExigenciasPendentes } from "../ExigenciasPendentes";
 
 /**
  * DOCUMENTOS — e são DOIS ACERVOS, não um (ordem do dono).
@@ -82,6 +83,11 @@ export function PortalDocumentosPage() {
           </div>
         )}
       </Card>
+
+      {/* O ÚNICO bloco acionável dos três, e por isso ele fica no MEIO — entre o que a Med
+          preparou e o que o cliente já mandou. No fim da página, ele seria lido depois da
+          lista do que já foi enviado, e é aí que o cliente conclui que entregou tudo. */}
+      <ExigenciasPendentes />
 
       {/* Os documentos que o CLIENTE envia. Card próprio, com ações próprias. */}
       <PortalMeusDocumentos />

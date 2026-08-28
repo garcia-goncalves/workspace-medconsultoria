@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Check, Circle, Package, PenLine, Trash2 } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
+import { Skeleton } from "../../components/ui/skeleton";
+import { EmptyState } from "../../components/ui/empty-state";
 import { Button } from "../../components/ui/button";
 import { useConfirm, usePrompt } from "../../components/ui/confirm-dialog";
 import { toast } from "../../components/ui/toast";
@@ -35,7 +37,35 @@ export function PortalServicos() {
   const [briefing, setBriefing] = useState<string | null>(null);
 
   const servicos = q.data ?? [];
-  if (servicos.length === 0) return null; // prospect ainda sem serviços contratados
+
+  if (q.isLoading) {
+    return (
+      <Card>
+        <div className="space-y-2 p-4">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-20 w-full" />
+        </div>
+      </Card>
+    );
+  }
+
+  /*
+   * Vazio com voz, no lugar de um `return null`.
+   *
+   * Enquanto o Portal era uma página só, sumir era razoável: o cliente rolava e via as outras
+   * coisas. Agora isto é uma SEÇÃO com endereço próprio — quem toca em "Serviços" e recebe uma
+   * tela em branco não conclui "ainda não contratei nada", conclui que o sistema quebrou.
+   * O catálogo do autosserviço vem logo abaixo, na página, e é para lá que o texto aponta.
+   */
+  if (servicos.length === 0) {
+    return (
+      <EmptyState
+        icon={Package}
+        title="Você ainda não tem serviços ativos"
+        description="Veja abaixo o que podemos fazer por você — escolha e a nossa equipe prepara."
+      />
+    );
+  }
 
   const onCancelar = async (servicoId: string, nome: string) => {
     const motivo = await prompt({
