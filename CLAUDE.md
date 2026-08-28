@@ -18,7 +18,8 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 > **Leia a ADR-139 em `docs/DECISIONS.md`** e a esteira em
 > `docs/esteira/portal-app-5-secoes-2026-08-28/`. O que segue é só o que mudou nesta janela.
 
-- **✅ AS 6 ETAPAS DO PLANO DO PORTAL ESTÃO FEITAS.** Branch `feat/portal-app-5-secoes`, PR #147.
+- **✅ AS 6 ETAPAS DO PLANO DO PORTAL ESTÃO FEITAS, E O PR #147 ESTÁ MESCLADO na `main`**
+  (commit `3fca40b`, squash, CI 3/3 verde; a branch `feat/portal-app-5-secoes` foi apagada).
   Saiu de **descoberta e plano** para **código construído, revisado e conferido na tela**. **Zero
   migração** — nada mudou no banco. **Não está no ar**: a v1.2.1 continua sendo o que roda.
 - **📱 O Portal deixou de ser UMA página com 16 blocos.** Agora tem **seis seções com endereço**
@@ -73,7 +74,8 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - **🔬 Como descobrir isto de novo, se acontecer:** reproduza a semeadura EXATA da CI num banco
   novo local (`prisma migrate deploy` + `pnpm db:seed` + `pnpm db:demo`) e olhe o catálogo — ele
   volta **vazio**. Nenhuma leitura de código mostra isso.
-- **Falta o dono dar o sinal** para mesclar o PR #147 e, depois, para publicar.
+- **Falta só o sinal do dono para PUBLICAR.** O merge já aconteceu (CI verde é o critério, e ele
+  foi atendido); publicar continua sendo decisão dele, e a v1.2.1 segue no ar.
 
 ## Estado anterior (2026-08-28 · noite · ADR-137/138 MESCLADAS + a esteira do Portal em 5 seções)
 
