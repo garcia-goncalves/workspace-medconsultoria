@@ -14,11 +14,26 @@ import { TRPCError } from "@trpc/server";
  * `PRECONDITION_FAILED` é o código certo: a operação não é inválida nem proibida — falta uma
  * condição prévia (a caixa estar conectada) que a pessoa resolve sozinha.
  */
+/**
+ * Classe própria, e não só o código: `PRECONDITION_FAILED` é usado por pelo menos oito outros
+ * erros da aplicação (IA sem chave, backup só no servidor, quatro em `acoes.service`, dois em
+ * `envio.service`). Reconhecer por código faria quem tratasse "preciso reconectar" engolir erro
+ * alheio — achado da revisão de segurança da ADR-135. O `cause` não serve para isso: o construtor
+ * do `TRPCError` reembrulha o que recebe, e a marca não sobrevive à volta.
+ *
+ * ⚠️ Continua sendo um `TRPCError` para todos os efeitos, inclusive o `instanceof` que o tRPC faz.
+ */
+export class ErroPrecisaReconectar extends TRPCError {
+  constructor(message: string) {
+    super({ code: "PRECONDITION_FAILED", message });
+  }
+}
+
 export function erroPrecisaReconectar(mensagem: string): TRPCError {
-  return new TRPCError({ code: "PRECONDITION_FAILED", message: mensagem });
+  return new ErroPrecisaReconectar(mensagem);
 }
 
 /** `true` só para o erro acima — serve a quem precisa tratar reconexão sem engolir falha real. */
 export function ehErroPrecisaReconectar(e: unknown): boolean {
-  return e instanceof TRPCError && e.code === "PRECONDITION_FAILED";
+  return e instanceof ErroPrecisaReconectar;
 }

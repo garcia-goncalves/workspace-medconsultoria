@@ -41,7 +41,7 @@ await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true });
 //  - connect-src inclui o WebSocket (Socket.IO) da mesma origem (ws/wss).
 //  - upgrade-insecure-requests só em produção (HTTPS).
 const wsOrigin = config.WEB_ORIGIN.replace(/^http/i, "ws"); // http→ws, https→wss
-await app.register(helmet, {
+const opcoesHelmet = {
   contentSecurityPolicy: {
     useDefaults: false,
     directives: {
@@ -60,12 +60,16 @@ await app.register(helmet, {
     },
   },
   // Permite abrir recursos próprios (ex.: download de arquivo/PDF) sem bloquear cross-origin legítimo.
-  crossOriginResourcePolicy: { policy: "same-origin" },
+  crossOriginResourcePolicy: { policy: "same-origin" as const },
   crossOriginEmbedderPolicy: false,
-});
-// A política acima está no ar a partir daqui. Esta linha é o que o painel SISTEMA lê: sem ela,
-// ou sem o `register` acima, a aba Manutenção passa a dizer "Desligada" — que é o certo.
-marcarCspLigada();
+};
+await app.register(helmet, opcoesHelmet);
+// O painel SISTEMA → Manutenção LÊ daqui. E lê do objeto acima, não de uma segunda declaração:
+// o jeito mais provável de desligar a CSP não é apagar o `register`, é trocar
+// `contentSecurityPolicy` por `false` — e nesse caso o painel precisa dizer "Desligada" sozinho.
+// Marcar "ligada" à mão reintroduziria, a uma edição de distância, exatamente o defeito que a
+// ADR-135 corrigiu, e desta vez para o lado perigoso.
+marcarCspLigada(Boolean(opcoesHelmet.contentSecurityPolicy));
 
 // Limite de requisições por IP — baseline contra abuso/brute-force/scraping.
 // Folgado para o uso normal (o front agrupa queries); barra rajadas.

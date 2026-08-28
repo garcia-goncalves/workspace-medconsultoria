@@ -3751,6 +3751,53 @@ são refino de tela, e entram numa próxima janela para não misturar refino com
 Enquanto ficar assim, o contrato sai com **`[A PREENCHER]`** no lugar — que é o comportamento
 correto (nunca um dado inventado), mas precisa ser preenchido antes do primeiro contrato real.
 
+
+### O que a revisão derrubou, e o que ela consertou
+
+Revisores `security` e `typescript` rodaram sobre o commit. Os dois liberaram o merge, e o
+`typescript` confirmou o que mais importava: **nenhum dos 8 consumidores** de `comCaixa`/`comSmtp`
+inspeciona tipo, código ou mensagem do erro — todos os `catch` são genéricos —, então a troca de
+`Error` por `TRPCError` não muda comportamento em lugar nenhum.
+
+Três suspeitas minhas foram **derrubadas com evidência**, e vale registrar para ninguém as
+levantar de novo: a mudança de código **não** esconde falha genuína (o caminho novo casa por
+`err.authenticationFailed === true`, flag do `imapflow`, não por substring — rede fora do ar e
+timeout continuam INTERNAL); a mensagem propagada do `decifrar` **não** vaza nada (são quatro
+textos curados de `cripto-caixa.ts` mais metadado de formato do `node:crypto`, e como não há
+`errorFormatter` no tRPC, o `throw e` anterior já entregava a mesma mensagem — mudou o status, não
+a exposição); e o rodapé **não** perdeu proteção anti-phishing (a frase "se não reconhece, ignore"
+e a nota de expiração ficaram; tirar um link de login de 42 e-mails **reduz** a superfície).
+
+**Dois achados foram aceitos e corrigidos no mesmo lote:**
+
+1. ⚠️ **`marcarCspLigada()` era uma segunda declaração, não uma leitura** — eu tinha reintroduzido
+   o defeito a uma edição de distância. O comentário prometia que tirar o `register` apagaria a
+   marcação, mas o jeito mais provável de desligar a CSP é trocar `contentSecurityPolicy` por
+   `false`, e aí o painel voltaria a mentir **no sentido perigoso**: anunciando proteção que não
+   existe. As opções viraram uma constante e a marcação passou a receber
+   `Boolean(opcoesHelmet.contentSecurityPolicy)`. O teste cobra o formato da chamada.
+2. ⚠️ **`ehErroPrecisaReconectar` reconhecia qualquer `PRECONDITION_FAILED`** — e há pelo menos
+   **oito outros** na aplicação (IA sem chave, backup só no servidor, quatro em `acoes.service`,
+   dois em `envio.service`). Quem usasse a função para decidir "ofereço o botão Reconectar"
+   engoliria erro alheio. Virou a classe `ErroPrecisaReconectar`. ⚠️ **O `cause` não serve para
+   marcar**: o construtor do `TRPCError` reembrulha o que recebe, e a marca não sobrevive à volta
+   — o teste pegou isso na hora.
+
+**Um achado foi recusado, com o motivo:** o `catch` em volta do `decifrar` é largo e engole
+também a falha de autenticação do GCM, que significa "chave rotacionada **ou** conteúdo
+adulterado". Separar os dois daria de volta o sinal de adulteração — mas o **mesmo** `catch` pega
+a rotação legítima da `EMAIL_CRYPTO_KEY`, que é operação normal e documentada, e passaria a gerar
+um alerta por caixa no painel do ROOT: o ruído exato que esta ADR existe para combater. O sinal
+que se ganha vale pouco (quem escreve em `CaixaEmail.segredo` já tem escrita no banco e não
+precisa disto), o falso positivo é garantido. Fica como está, de propósito.
+
+⚠️ **Duas ressalvas de exatidão, para o texto acima não prometer mais que o código:** o **botão**
+dos dois templates de boas-vindas continua apontando para `config.WEB_ORIGIN` — o mesmo host serve
+Portal e Workspace, então o cliente cai no Portal ao entrar, mas o endereço é o mesmo. E a rota
+HTTP de download de anexo (`http/email-anexo.ts`) segue respondendo **500** para caixa quebrada,
+porque o Fastify não traduz código de `TRPCError`; não é regressão (antes também era 500), só não
+foi beneficiada.
+
 ### Provas
 
 `pnpm -r typecheck` e `pnpm -r lint` verdes · **491 testes de unidade** (19 novos: 4 na régua do

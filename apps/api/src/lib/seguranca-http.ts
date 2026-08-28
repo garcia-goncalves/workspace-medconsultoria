@@ -9,9 +9,14 @@
  */
 let cspLigada = false;
 
-/** Chamado pelo boot logo depois de registrar o helmet COM `contentSecurityPolicy`. */
-export function marcarCspLigada(): void {
-  cspLigada = true;
+/**
+ * Chamado pelo boot com o valor REAL das opções passadas ao helmet — nunca com um `true` escrito
+ * à mão. A diferença importa: o jeito mais provável de desligar a CSP não é apagar o `register`,
+ * é trocar `contentSecurityPolicy` por `false`. Marcar "ligada" à mão faria o painel mentir de
+ * novo nesse caso, e desta vez para o lado perigoso — anunciando proteção que não existe.
+ */
+export function marcarCspLigada(ligada: boolean): void {
+  cspLigada = ligada;
 }
 
 export function estaCspLigada(): boolean {

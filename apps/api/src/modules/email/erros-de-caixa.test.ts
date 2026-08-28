@@ -35,6 +35,9 @@ describe("erro de caixa que precisa reconectar", () => {
     expect(ehErroPrecisaReconectar(erroPrecisaReconectar("x"))).toBe(true);
     expect(ehErroPrecisaReconectar(new Error("servidor fora do ar"))).toBe(false);
     expect(ehErroPrecisaReconectar(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "x" }))).toBe(false);
+    // ⚠️ O caso que a revisão de segurança apontou: PRECONDITION_FAILED é usado por pelo menos
+    // oito outros erros da aplicação. Reconhecer por CÓDIGO engoliria todos eles.
+    expect(ehErroPrecisaReconectar(new TRPCError({ code: "PRECONDITION_FAILED", message: "IA não configurada" }))).toBe(false);
     expect(ehErroPrecisaReconectar(null)).toBe(false);
   });
 

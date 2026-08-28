@@ -23,9 +23,11 @@ describe("estado real da CSP", () => {
     expect(estaCspLigada()).toBe(false);
   });
 
-  it("acende quando o boot registra a política", () => {
-    marcarCspLigada();
+  it("acende com o que o boot realmente registrou — e apaga se a política for desligada", () => {
+    marcarCspLigada(true);
     expect(estaCspLigada()).toBe(true);
+    marcarCspLigada(false);
+    expect(estaCspLigada()).toBe(false);
   });
 
   /**
@@ -36,9 +38,12 @@ describe("estado real da CSP", () => {
   it("o boot registra a CSP E acende a marcação, sempre os dois juntos", () => {
     const server = readFileSync(new URL("../server.ts", import.meta.url), "utf8");
     const temPolitica = /contentSecurityPolicy:\s*\{/.test(server);
-    const acende = /marcarCspLigada\(\)/.test(server);
+    // Precisa ser o VALOR das opções, não um literal: `marcarCspLigada(true)` seria uma segunda
+    // declaração, e trocar `contentSecurityPolicy` por `false` faria o painel anunciar uma
+    // proteção inexistente. Achado da revisão de segurança da ADR-135.
+    const acende = /marcarCspLigada\(\s*Boolean\([A-Za-z]+\.contentSecurityPolicy\s*\)\s*\)/.test(server);
     expect(temPolitica, "server.ts não configura mais a CSP — revise o painel de Sistema").toBe(true);
-    expect(acende, "server.ts configura a CSP mas não acende a marcação: o painel vai mentir").toBe(true);
+    expect(acende, "a marcação virou literal em vez de ler as opções do helmet: o painel vai mentir").toBe(true);
   });
 
   it("o painel de Sistema não guarda mais um valor fixo", () => {
