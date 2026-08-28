@@ -51,35 +51,35 @@ enum SituacaoComercial {
 
 /// Usuário interno ou cliente do Portal.
 model User {
-  id             String    @id @default(cuid())
-  nome           String
-  email          String    @unique
+  id               String       @id @default(cuid())
+  nome             String
+  email            String       @unique
   // Nulo enquanto o convite não foi aceito (usuário "pendente", sem senha definida).
-  passwordHash   String?
-  role           Role      @default(FUNCIONARIO)
-  ativo          Boolean   @default(true)
-  avatarUrl      String?
+  passwordHash     String?
+  role             Role         @default(FUNCIONARIO)
+  ativo            Boolean      @default(true)
+  avatarUrl        String?
   // Quando a pessoa definiu a PRÓPRIA senha (trocar/convite/reset). Nulo = nunca definiu —
   // a conta ainda usa a senha compartilhada do seed e é convidada a trocar no 1º acesso.
-  senhaTrocadaEm DateTime?
+  senhaTrocadaEm   DateTime?
   /// Última vez que a pessoa ENTROU de verdade (login com senha). Nulo = nunca entrou.
   /// Serve ao card do lead/cliente: sem ele, a Thaís sabe que mandou o convite mas não sabe se
   /// alguém apareceu — e é justamente "convidei e ninguém entrou" que ela precisa cobrar.
   /// ⚠️ NÃO é atualizado por sessão de suporte da equipe: o número tem de responder "o CLIENTE
   /// veio?", e nós entrarmos no painel dele não é o cliente vindo.
-  ultimoAcessoEm DateTime?
+  ultimoAcessoEm   DateTime?
   // Se role = CLIENTE, define o escopo do Portal (FK adicionada quando o módulo Cliente existir).
-  clienteId      String?
+  clienteId        String?
   /// PAPEL DENTRO DA CLÍNICA (ADR-131). Nulo em conta interna — e nulo também nas contas de
   /// Portal criadas antes desta regra, que `podeNoPortal` trata como RESPONSAVEL de propósito:
   /// eram a conta única da clínica e sempre puderam tudo. Rebaixá-las em silêncio tiraria o
   /// poder de assinar de quem já assinava, e a clínica só descobriria na hora de aceitar uma
   /// proposta. A migração marca as existentes explicitamente, para a tela não ficar muda.
-  papelPortal    PortalPapel?
+  papelPortal      PortalPapel?
   /// Quem convidou esta pessoa para o Portal. Serve à pergunta "quem deu acesso a essa
   /// secretária?" — que é uma pergunta de auditoria, não de curiosidade. Pode ser alguém da
   /// equipe da Med OU o responsável da própria clínica.
-  convidadoPorId String?
+  convidadoPorId   String?
   /// QUANDO O ACESSO FOI TIRADO (ADR-131). Nulo = nunca foi revogado.
   ///
   /// ⚠️ Existe porque `ativo = false` sozinho é AMBÍGUO, e a tela mostrou isso na primeira
@@ -88,9 +88,9 @@ model User {
   /// clínica que tiramos um acesso que acabáramos de dar. Um marcador explícito separa "ainda
   /// não entrou" de "não entra mais", e de quebra responde *quando* o acesso caiu.
   acessoRevogadoEm DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  deletedAt        DateTime?
 
   sessions             Session[]
   sessoesDeSuporte     Session[]              @relation("SessaoDeSuporte")
@@ -112,6 +112,9 @@ model User {
   conversasCriadas     Conversa[]             @relation("ConversaCriador")
   documentosCriados    Documento[]            @relation("DocCriador")
   documentosAprovados  Documento[]            @relation("DocAprovador")
+  // Trilha de quem aceitou/assinou estando logado (ADR-137).
+  propostasRespondidas Documento[]            @relation("PropostasRespondidas")
+  assinaturasFeitas    Assinatura[]           @relation("AssinaturasFeitas")
   documentoVersoes     DocumentoVersao[]
   suporteMensagens     SuporteMensagem[]
   tokens               Token[]
@@ -171,12 +174,12 @@ model Token {
 
 /// Sessão persistida (permite revogação). Referenciada pelo cookie httpOnly.
 model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  expiresAt DateTime
-  userAgent String?  @db.Text
-  ip        String?
-  createdAt DateTime @default(now())
+  id                  String   @id @default(cuid())
+  userId              String
+  expiresAt           DateTime
+  userAgent           String?  @db.Text
+  ip                  String?
+  createdAt           DateTime @default(now())
   /// SESSÃO DE SUPORTE (ADR-128) — quem da EQUIPE abriu esta sessão para ver o Portal de um
   /// cliente. Nulo na esmagadora maioria: sessão normal é a pessoa entrando como ela mesma.
   ///
@@ -1396,6 +1399,11 @@ model Documento {
   propostaSolicitadaEm   DateTime?
   propostaRespondidaEm   DateTime?
   propostaRespIp         String?
+  // QUEM respondeu, quando a pessoa estava logada (ADR-137). Nulo no caminho normal — o link
+  // de e-mail é anônimo, e IP não identifica ninguém. Desde que cada pessoa da clínica tem
+  // conta própria (ADR-131), "quem aceitou" deixou de ser a clínica e passou a ser gente.
+  propostaRespPorId      String?
+  propostaRespPor        User?           @relation("PropostasRespondidas", fields: [propostaRespPorId], references: [id], onDelete: SetNull)
   propostaMotivoRecusa   String?         @db.Text
   // Itens estruturados do documento (proposta/contrato): serviços + valores + recorrência.
   // Fonte da verdade estruturada por trás do Markdown — permite o aceite sincronizar
@@ -1439,10 +1447,14 @@ model Assinatura {
   hashDocumento String? // sha256 do conteúdo no envio
   ip            String?
   userAgent     String?   @db.Text
+  // QUEM clicou, quando a pessoa estava logada (ADR-137). Nulo no caminho normal (link de
+  // e-mail, sem login). IP e user-agent dizem de onde veio, nunca quem foi.
+  assinadoPorId String?
   assinadoEm    DateTime?
   criadoEm      DateTime  @default(now())
 
-  documento Documento @relation(fields: [documentoId], references: [id], onDelete: Cascade)
+  documento   Documento @relation(fields: [documentoId], references: [id], onDelete: Cascade)
+  assinadoPor User?     @relation("AssinaturasFeitas", fields: [assinadoPorId], references: [id], onDelete: SetNull)
 
   @@index([documentoId])
 }

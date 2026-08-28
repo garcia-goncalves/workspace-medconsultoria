@@ -129,7 +129,12 @@ export async function getPorToken(token: string) {
 }
 
 /** Registra a assinatura (página pública). Grava a trilha de auditoria. */
-export async function assinar(input: AssinarInput, ip?: string, userAgent?: string) {
+export async function assinar(
+  input: AssinarInput,
+  ip?: string,
+  userAgent?: string,
+  assinadoPorId?: string | null,
+) {
   const a = await prisma.assinatura.findUnique({
     where: { token: input.token },
     include: { documento: { select: { id: true, titulo: true, conteudo: true, criadoPorId: true } } },
@@ -153,6 +158,8 @@ export async function assinar(input: AssinarInput, ip?: string, userAgent?: stri
       nomeDigitado: input.metodo === "DIGITADO" ? input.nomeDigitado?.trim() ?? null : null,
       ip: ip ?? null,
       userAgent: userAgent ?? null,
+      // Quem clicou, se estava logado (ADR-137). Nulo no link de e-mail, que é anônimo.
+      assinadoPorId: assinadoPorId ?? null,
       assinadoEm: new Date(),
     },
   });
@@ -163,7 +170,12 @@ export async function assinar(input: AssinarInput, ip?: string, userAgent?: stri
   if (concluido) {
     await prisma.documento.update({ where: { id: a.documentoId }, data: { assinadoEm: new Date() } });
     await prisma.activityLog.create({
-      data: { acao: "documento.assinado", entidadeTipo: "documento", entidadeId: a.documentoId },
+      data: {
+        userId: assinadoPorId ?? null,
+        acao: "documento.assinado",
+        entidadeTipo: "documento",
+        entidadeId: a.documentoId,
+      },
     });
     // Integração com o funil: reconcilia os passos automáticos do lead — conclui tanto
     // o passo do documento quanto o "Confirmar o aceite/assinatura" (marco "assinado").

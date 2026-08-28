@@ -115,3 +115,39 @@ export function sobraResponsavel(
     return depois.ativo && depois.papel !== "EQUIPE";
   });
 }
+
+/**
+ * QUEM PODE ASSINAR / ACEITAR PELA CLÍNICA — a trava que faltava nas páginas de token.
+ *
+ * A página de proposta (`/proposta/:token`) e a de assinatura (`/assinar/:token`) são
+ * PÚBLICAS de propósito: quem assina costuma clicar num link de e-mail sem nunca ter entrado
+ * no sistema, e o token — 256 bits, sorteado — é a credencial. Isso continua valendo.
+ *
+ * O buraco não estava no anônimo: estava em quem chega ali **já logado**. O Portal entregava
+ * o token no resumo da página inicial, então a secretária EQUIPE (ADR-131) e a sessão de
+ * suporte da Med (ADR-128) — as duas barradas de assinar pelo `portalProcedure` — davam a
+ * volta pela rota pública e assinavam o contrato mesmo assim. As duas travas existiam e
+ * nenhuma das duas cobria o caminho que realmente assina.
+ *
+ * A regra, então, é sobre a SESSÃO, não sobre o token:
+ *
+ * | Quem está logado                   | Pode? | Por quê                                        |
+ * | ---------------------------------- | ----- | ---------------------------------------------- |
+ * | ninguém (link de e-mail)           | sim   | é o caminho normal de quem assina               |
+ * | sessão de suporte da Med           | não   | "vê tudo, não assina nada" (ADR-128)            |
+ * | conta EQUIPE da clínica            | não   | não fala pela clínica (ADR-131)                 |
+ * | responsável, ou conta interna      | sim   | é quem a regra já autorizava                    |
+ *
+ * Devolve a CHAVE do motivo, não a frase: a frase da sessão de suporte mora no servidor, e
+ * duas cópias do mesmo texto divergem no primeiro ajuste.
+ */
+export type MotivoSemAssinar = "SUPORTE_SO_LEITURA" | "SO_RESPONSAVEL";
+
+export function podeAssinarPelaClinica(
+  sessao: { role?: string; papelPortal?: PortalPapel | null; operador?: unknown | null } | null | undefined,
+): { pode: true } | { pode: false; motivo: MotivoSemAssinar } {
+  if (!sessao) return { pode: true };
+  if (sessao.operador) return { pode: false, motivo: "SUPORTE_SO_LEITURA" };
+  if (sessao.papelPortal === "EQUIPE") return { pode: false, motivo: "SO_RESPONSAVEL" };
+  return { pode: true };
+}

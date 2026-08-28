@@ -18,6 +18,14 @@ import { PortalCredenciamento } from "./PortalCredenciamento";
 import { PortalMeusDocumentos } from "./PortalMeusDocumentos";
 import { PortalMinhaEquipe } from "./PortalMinhaEquipe";
 
+/**
+ * Quando o servidor não manda o token (ADR-137), quem está vendo não pode assinar pela
+ * clínica — é a secretária EQUIPE, ou alguém da Med em sessão de suporte. O item continua
+ * aparecendo, porque a trava é sobre assinar e não sobre ver; o que some é o botão.
+ */
+const SO_RESPONSAVEL_RESPONDE = "Só o responsável pela clínica responde";
+const SO_RESPONSAVEL_ASSINA = "Só o responsável pela clínica assina";
+
 const statusLabel: Record<string, string> = {
   ATIVO: "Em andamento",
   PAUSADO: "Pausado",
@@ -277,18 +285,22 @@ export function PortalHome() {
           </CardHeader>
           <div className="divide-y">
             {r.propostas.map((p) => (
-              <div key={p.token} className="flex items-center gap-3 px-5 py-3.5 text-sm">
+              <div key={p.id} className="flex items-center gap-3 px-5 py-3.5 text-sm">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                   <FileText className="h-4 w-4" />
                 </div>
                 <div className="flex-1 font-medium">{p.titulo}</div>
-                <a
-                  href={`/proposta/${p.token}`}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-                >
-                  <HeartHandshake className="h-3.5 w-3.5" />
-                  Ver proposta
-                </a>
+                {p.token ? (
+                  <a
+                    href={`/proposta/${p.token}`}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+                  >
+                    <HeartHandshake className="h-3.5 w-3.5" />
+                    Ver proposta
+                  </a>
+                ) : (
+                  <span className="shrink-0 text-xs text-muted-foreground">{SO_RESPONSAVEL_RESPONDE}</span>
+                )}
               </div>
             ))}
           </div>
@@ -306,18 +318,22 @@ export function PortalHome() {
           </CardHeader>
           <div className="divide-y">
             {r.paraAssinar.map((d) => (
-              <div key={d.token} className="flex items-center gap-3 px-5 py-3.5 text-sm">
+              <div key={d.id} className="flex items-center gap-3 px-5 py-3.5 text-sm">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
                   <FileText className="h-4 w-4" />
                 </div>
                 <div className="flex-1 font-medium">{d.titulo}</div>
-                <a
-                  href={`/assinar/${d.token}`}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-                >
-                  <PenLine className="h-3.5 w-3.5" />
-                  Assinar
-                </a>
+                {d.token ? (
+                  <a
+                    href={`/assinar/${d.token}`}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+                  >
+                    <PenLine className="h-3.5 w-3.5" />
+                    Assinar
+                  </a>
+                ) : (
+                  <span className="shrink-0 text-xs text-muted-foreground">{SO_RESPONSAVEL_ASSINA}</span>
+                )}
               </div>
             ))}
           </div>

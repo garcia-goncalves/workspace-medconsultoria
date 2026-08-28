@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
+import { podeAssinarPelaClinica, type PortalPapel } from "@app/shared";
 import { notificationService } from "../../realtime/socket.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 
@@ -50,7 +51,18 @@ export async function atualizarMeusDados(
  * Resumo do Portal — SEMPRE filtrado por clienteId (isolamento). O cliente vê
  * apenas seus projetos, seus documentos ENVIADOS e suas reuniões futuras.
  */
-export async function resumo(clienteId: string) {
+export async function resumo(
+  clienteId: string,
+  /**
+   * Quem está vendo. O token de aceite/assinatura só sai daqui para quem pode agir com ele
+   * (ADR-137): a secretária EQUIPE e a sessão de suporte da Med veem que existe uma proposta
+   * — a trava é sobre assinar, não sobre ver —, mas o link não é entregue. Sem isto o
+   * servidor recusaria a assinatura e a tela ainda mostraria o botão, que é o modo de falha
+   * da ADR-133 (a tela dizendo uma coisa e o servidor fazendo outra).
+   */
+  sessao?: { papelPortal?: PortalPapel | null; operador?: unknown | null } | null,
+) {
+  const podeAssinar = podeAssinarPelaClinica(sessao).pode;
   const agora = new Date();
   const [cliente, projetos, documentos, reunioes, leadAtivo, totalEtapas, paraAssinar, leadPerdido, cardsAguardando, propostasPendentes] = await Promise.all([
     prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
@@ -125,7 +137,7 @@ export async function resumo(clienteId: string) {
     // Documentos aguardando a assinatura DESTE cliente — CTA "Assinar" direto no Portal.
     prisma.assinatura.findMany({
       where: { status: "PENDENTE", papel: "CLIENTE", documento: { clienteId, deletedAt: null } },
-      select: { token: true, documento: { select: { titulo: true } } },
+      select: { id: true, token: true, documento: { select: { titulo: true } } },
       orderBy: { criadoEm: "desc" },
     }),
     // Lead perdido ligado a este cliente (desistência/perda) → oferece retomar no Portal.
@@ -142,7 +154,7 @@ export async function resumo(clienteId: string) {
     // Propostas aguardando o aceite/recusa DESTE cliente — CTA direto no Portal.
     prisma.documento.findMany({
       where: { clienteId, deletedAt: null, propostaStatus: "PENDENTE", propostaToken: { not: null } },
-      select: { titulo: true, propostaToken: true },
+      select: { id: true, titulo: true, propostaToken: true },
       orderBy: { propostaSolicitadaEm: "desc" },
     }),
   ]);
@@ -186,8 +198,9 @@ export async function resumo(clienteId: string) {
     atendimentoEncerrado: !leadAtivo && !!leadPerdido,
     // Serviços que o cliente já pediu (pré-marca no autosserviço e mostra no atendimento).
     servicosAtuais: leadAtivo?.servicos ?? [],
-    paraAssinar: paraAssinar.map((a) => ({ token: a.token, titulo: a.documento.titulo })),
-    propostas: propostasPendentes.map((p) => ({ token: p.propostaToken!, titulo: p.titulo })),
+    podeAssinar,
+    paraAssinar: paraAssinar.map((a) => ({ id: a.id, token: podeAssinar ? a.token : null, titulo: a.documento.titulo })),
+    propostas: propostasPendentes.map((p) => ({ id: p.id, token: podeAssinar ? p.propostaToken! : null, titulo: p.titulo })),
   };
 }
 

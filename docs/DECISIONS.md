@@ -3905,3 +3905,94 @@ marcas — duas fontes é como elas divergiram.
 - **Zero erro de console** em Agenda, Equipe e acessos, Projetos e Mensagens.
 
 **Zero migração** — nada mudou no banco.
+
+---
+
+## ADR-137 — Aceitar proposta e assinar contrato passam pelas travas do Portal (o buraco C6)
+
+**Data:** 2026-08-28 · **Situação:** implementado, não publicado ·
+**Origem:** achado **C6** da descoberta de 28/08 (`docs/esteira/refino-final-2026-08-28/achados.md`)
+
+### O problema
+
+Duas travas de permissão foram escritas com cuidado, cada uma com a sua ADR, e **nenhuma das
+duas ficava no caminho que realmente assina um contrato**:
+
+- A **sessão de suporte** (ADR-128) — alguém da Med vendo o Portal como o cliente — é barrada em
+  toda **mutação** do `portalProcedure`. "Vê tudo, não assina nada."
+- A conta **EQUIPE** da clínica (ADR-131) — médico, secretária — é barrada em toda mutação que
+  não esteja na lista `ACOES_LIBERADAS_PARA_EQUIPE`. "A trava é sobre assinar, não sobre ver."
+
+Só que `propostas.responder` e `assinaturas.assinar` **não são do `portalProcedure`**: são
+`publicProcedure`, porque a página de aceite (`/proposta/:token`) e a de assinatura
+(`/assinar/:token`) são links de e-mail que quem assina abre sem nunca ter entrado no sistema.
+
+O caminho de volta era o `portal.resumo`: a página inicial do Portal listava as propostas
+pendentes e os documentos para assinar **com o token de cada um dentro**. Qualquer pessoa logada
+naquele Portal — inclusive as duas que a regra proíbe — recebia o link e clicava. A secretária
+assinava o contrato pela clínica; a Med assinava em nome do cliente. O comentário do campo
+`SessionUser.operador` já *dizia* que o "guarda das ações de compromisso (aceitar/recusar
+proposta, assinar)" lia aquele campo. Não lia.
+
+Agravante: a assinatura gravava **IP e user-agent**, que dizem de onde veio, nunca quem foi.
+Desde a ADR-131 cada pessoa da clínica tem conta própria, e "quem aceitou" deixou de ser a
+clínica e passou a ser gente.
+
+### A decisão
+
+**A rota continua pública. A trava é sobre a SESSÃO, não sobre o token.**
+
+Fechar as rotas exigiria login de quem assina, e quem assina é justamente quem chega pelo
+e-mail. O token — 256 bits, sorteado, com hash do conteúdo conferido — é a credencial desse
+caminho e continua sendo. O que passou a existir é a leitura da sessão **quando ela existe**:
+
+| Quem está logado ao clicar | Pode? | Por quê |
+| -------------------------- | ----- | ------- |
+| ninguém (link de e-mail)   | sim   | é o caminho normal de quem assina |
+| sessão de suporte da Med   | não   | "vê tudo, não assina nada" (ADR-128) |
+| conta EQUIPE da clínica    | não   | não fala pela clínica (ADR-131) |
+| responsável, ou conta interna | sim | é quem a regra já autorizava |
+
+Três peças:
+
+1. **`podeAssinarPelaClinica`** (`packages/shared/src/portal-papeis.ts`) — função pura, a régua
+   única. Devolve a **chave** do motivo (`SUPORTE_SO_LEITURA` / `SO_RESPONSAVEL`), não a frase:
+   a frase da sessão de suporte mora no servidor, e duas cópias do mesmo texto divergem no
+   primeiro ajuste.
+2. **`aceiteProcedure`** (`apps/api/src/trpc/trpc.ts`) — um `publicProcedure` com essa régua no
+   meio. `propostas.responder` e `assinaturas.assinar` passaram a usá-lo. ⚠️ **A trava mora no
+   procedure, não no serviço**, pelo mesmo motivo do `portalProcedure`: ação nova nasce coberta.
+   E é por isso que o teste chama pelo `createCaller` — chamar o serviço direto passaria verde
+   com o buraco aberto, que é exatamente o engano que deixou isto escapar.
+3. **O `portal.resumo` não entrega o token a quem não pode usá-lo.** ⚠️ **O item continua
+   aparecendo na lista** — a trava é sobre assinar, não sobre ver, e esconder a proposta da
+   secretária resolveria um problema que ninguém tem. O que some é o botão. Sem isso a tela
+   mostraria um botão que o servidor recusa, que é o modo de falha da ADR-133.
+
+### Quem assinou passou a ficar registrado
+
+Migração `20260828140843_assinatura_e_aceite_com_autor`: `Assinatura.assinadoPorId` e
+`Documento.propostaRespPorId`, **duas colunas novas e nuláveis** com FK `SET NULL`. Nada é
+apagado, nada é convertido, nenhuma linha existente muda de valor; reverter é `DROP COLUMN` nas
+duas. O `activityLog` do aceite e da assinatura passou a gravar o mesmo `userId`.
+
+⚠️ **Nulo é o caso NORMAL, não uma falha:** o link de e-mail é anônimo por natureza. A coluna
+responde "havia alguém logado, e quem era?", não "quem é o signatário".
+
+### O que ficou de fora, e por quê
+
+- **Conta interna da Med logada (ADMIN/ROOT) não é barrada.** Ela já alcança o token pelas telas
+  internas, e barrá-la aqui mudaria um comportamento que ninguém relatou como problema. O achado
+  nomeava a EQUIPE e a sessão de suporte.
+- **Não há trava por clínica no token.** Quem tem o token pode assinar — é o desenho do link
+  público. O `portal.resumo` já isola por `clienteId`, então ninguém obtém por ali o token de
+  outra clínica.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm -r lint` verdes · **497 testes de unidade** do `@app/api` (6 novos na
+régua pura) · **8 testes de integração novos** contra o MySQL de verdade e **pelo `createCaller`**
+(`aceite-e-assinatura-travas.integration.test.ts`): a EQUIPE recusada nas duas ações **sem gravar
+nada**, a sessão de suporte recusada nas duas, o anônimo assinando (com `assinadoPorId` nulo), o
+responsável assinando **com o próprio id gravado**, e o `portal.resumo` devolvendo `token: null`
+— mas a lista cheia — para os dois papéis barrados.

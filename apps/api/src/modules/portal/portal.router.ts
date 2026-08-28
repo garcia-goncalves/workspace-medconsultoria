@@ -21,7 +21,7 @@ import {
 } from "./pessoas.service.js";
 
 export const portalRouter = router({
-  resumo: portalProcedure.query(({ ctx }) => service.resumo(ctx.clienteId)),
+  resumo: portalProcedure.query(({ ctx }) => service.resumo(ctx.clienteId, ctx.user)),
 
   // Dados cadastrais do próprio cliente (LGPD: acesso + retificação dos próprios dados).
   meusDados: portalProcedure.query(({ ctx }) => service.meusDados(ctx.clienteId)),
