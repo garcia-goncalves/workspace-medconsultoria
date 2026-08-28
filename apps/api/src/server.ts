@@ -22,6 +22,7 @@ import { startReminderLoop } from "./realtime/reminders.js";
 import { startMonitor } from "./observability/monitor.js";
 import { startAlertas } from "./observability/alertas.js";
 import { registrarErro } from "./modules/sistema/sistema.service.js";
+import { marcarCspLigada } from "./lib/seguranca-http.js";
 import type { Context } from "./trpc/context.js";
 
 // maxParamLength: o tRPC httpBatchLink junta as procedures no path (`/trpc/a,b,c,…`);
@@ -62,6 +63,9 @@ await app.register(helmet, {
   crossOriginResourcePolicy: { policy: "same-origin" },
   crossOriginEmbedderPolicy: false,
 });
+// A política acima está no ar a partir daqui. Esta linha é o que o painel SISTEMA lê: sem ela,
+// ou sem o `register` acima, a aba Manutenção passa a dizer "Desligada" — que é o certo.
+marcarCspLigada();
 
 // Limite de requisições por IP — baseline contra abuso/brute-force/scraping.
 // Folgado para o uso normal (o front agrupa queries); barra rajadas.

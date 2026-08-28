@@ -3606,3 +3606,156 @@ inclusive os dois casos que enganam: endereço do sistema com maiúscula/espaço
 apenas *contém* o do sistema) · **6 testes de integração** novos contra o MySQL de verdade,
 provando que a listagem lê papel e e-mail do banco e aplica a mesma régua do envio · **na tela**,
 `/configuracoes` como ADMIN: seis seções, "Novo lead pelo site" ligado, zero erro de console.
+
+---
+
+## ADR-135 — A varredura das 10 telas que faltavam: um painel de erros 100% ruído, um painel de segurança que mentia, um percentil impossível e o e-mail que dava as boas-vindas ao sistema errado
+
+**Data:** 28/08/2026 · **Contexto:** segunda janela da auditoria de tela pedida antes do cadastro
+de dado real (a primeira está nas ADR-132/133/134). Percorridas, clicando, as **10 páginas que
+faltavam**: Tarefas · Agenda · Projetos · E-mail · Mensagens · Ajustes (e os 6 modais dentro
+dele) · Serviços · Modelos · Equipe e acessos · Sistema (as 9 abas, entrando como ROOT).
+
+Sete telas estavam sadias. Os quatro defeitos abaixo têm uma coisa em comum com os das ADR-128 a
+134: **nenhum deles quebra nada**. Tudo responde, nada dá erro de console, a suíte estava verde.
+O que eles fazem é pior — dizem coisas que não são verdade, em painéis e e-mails que existem
+justamente para alguém acreditar neles.
+
+### 1. O painel de erros do ROOT era 100% ruído — e o ruído era um estado esperado
+
+`SISTEMA → Erros` anunciava **"5 erros não resolvidos"**. Lidos no banco, os cinco eram:
+
+| Ocorrências | Rota | O que era |
+|---|---|---|
+| **66×** | `email.sincronizar` | "esta caixa precisa ser reconectada" — a caixa da Thaís com a senha vencida |
+| 16× | `email.sincronizar` | erro cru do Node, de 04/08, já corrigido no `decifrar` |
+| 1× | `email.sincronizar` | idem, mesma data |
+| 1× | `tarefas.contar` | Prisma reclamando de `responsavelId`, de **28/07**, antes de o campo virar N-N |
+| 1× | `tarefas.list` | idem |
+
+**Nenhum era um bug atual.** As 66 ocorrências são um estado que a própria tela já trata, com o
+botão *Reconectar* ao lado da caixa — e a última delas foi registrada **durante esta auditoria**,
+às 01:33, só por abrir a página.
+
+A causa é de uma linha. O `onError` do tRPC diz, no comentário, exatamente o que quer fazer:
+*"Só bugs de servidor (não erros esperados de validação/autz) vão para o painel de Sistema"*, e
+filtra por `error.code === "INTERNAL_SERVER_ERROR"`. Só que os três caminhos de "precisa
+reconectar" lançavam **`new Error(...)` cru**, e um `Error` sem código é classificado pelo tRPC
+como INTERNAL. O filtro estava certo; o erro é que tinha o crachá errado.
+
+⚠️ **O estrago não para no painel.** O primeiro registro dispara e-mail *"Novo erro no sistema"*
+ao ROOT; e se o ROOT marcar como resolvido, a abertura seguinte da página reabre o registro como
+**REGRESSÃO** e avisa de novo. É o mesmo mecanismo de ruído que a ADR-134 acabou de combater no
+aviso de lead novo, só que num canal onde o ruído é mais caro: quem para de ler o painel de erros
+para de ver o erro de verdade.
+
+Nasceu `erroPrecisaReconectar` (`modules/email/erros-de-caixa.ts`), que devolve `TRPCError` com
+**`PRECONDITION_FAILED`** — o código honesto: a operação não é inválida nem proibida, falta uma
+condição prévia que a pessoa resolve sozinha. Ligada nos **três** caminhos do IMAP (caixa já
+marcada, segredo que não abre, senha recusada na conexão) e nos **dois** do SMTP.
+
+⚠️ **A tela não muda uma linha:** `EmailPage` decide o que mostrar pelo `estado` gravado no banco
+(`AUTENTICACAO_FALHOU`), nunca pela mensagem nem pelo código do erro.
+
+⚠️ **Servidor de e-mail fora do ar continua sendo INTERNAL, de propósito.** Só o que tem remédio
+conhecido pelo usuário saiu do painel. Queda de servidor o ROOT deve mesmo ver — e para ela já
+existe o alerta de Incidentes ("50 falhas seguidas"), que é o instrumento certo.
+
+### 2. O painel de segurança dizia "Desligada" com a CSP ligada
+
+`SISTEMA → Manutenção` mostrava **"Proteção de cabeçalhos (CSP): Desligada"**. Conferido no
+mesmo minuto com `curl -D - /health`:
+
+```
+Content-Security-Policy: default-src 'self';base-uri 'self';object-src 'none';
+  frame-ancestors 'self';form-action 'self';script-src 'self'; …
+```
+
+A CSP estava **ligada**. A linha do painel era um `cspLigada: false` **fixo no código**, com o
+comentário "desativada por ora" que envelheceu no dia em que o `helmet` ganhou as diretivas.
+
+⚠️ **Um painel de segurança que mente é pior do que não existir, mesmo mentindo para o lado
+pessimista** — e o motivo não é o susto: é que ele **não mudaria de valor** no dia em que a CSP
+fosse realmente desligada, porque não lia nada.
+
+Por isso a correção não é trocar `false` por `true`. Nasceu `lib/seguranca-http.ts`, e quem
+acende a marcação é o **boot**, na linha seguinte ao `register(helmet, …)`. Tirar o registro
+apaga a marcação junto, e o painel volta a dizer "Desligada" — que aí seria a verdade. Travado
+por teste que lê o `server.ts` e cobra as duas coisas juntas.
+
+### 3. Um percentil maior que o máximo
+
+`SISTEMA → Desempenho`, colunas vizinhas na mesma linha:
+
+```
+ENDPOINT     CHAMADAS  MÉDIA  P95     MÁX
+agenda.list  9         33ms   256ms   184ms
+cards.move   6         51ms   256ms   195ms
+```
+
+**O percentil 95 não pode passar do máximo observado** — é um valor da própria amostra. A coluna
+P95 também só mostrava potências de 2, que é a assinatura do histograma: `percentilBuckets`
+devolvia o **limite superior do balde**, então qualquer chamada de 129 a 256 ms virava "256 ms".
+
+⚠️ **O histograma fica.** Trocá-lo por lista de amostras faria o monitor guardar toda chamada em
+memória, num processo que já serve API + SPA + tempo real. O que entra é o **teto pelo máximo
+real**: a aproximação passa a errar só para menos, que é o lado seguro de um número usado para
+decidir o que otimizar. A conta saiu para `observability/percentil.ts` — testável sem carregar o
+`monitor.ts`, que instala o observador de GC do processo já no import.
+
+### 4. O cliente recebia as boas-vindas do sistema errado
+
+O achado que mais chega a quem está de fora. `aceitarConvite` chamava `enviarBoasVindas` **sem
+olhar o papel** — e o cliente do Portal também é `User`, a mesma armadilha da ADR-100 e do
+vazamento de token de 05/08. O médico que acabava de ativar o acesso ao **Portal** recebia:
+
+> **Assunto:** Bem-vindo ao **Workspace MedConsultoria**
+> **Corpo:** "Sua conta no Workspace MedConsultoria foi ativada… Aqui você acompanha **clientes,
+> projetos, agenda, finanças, documentos e se comunica com a equipe**"
+> **Botão:** **Acessar o workspace** → o sistema **interno** da Med
+
+Três coisas erradas de uma vez: o nome de um sistema que ele nunca viu, a promessa de gerenciar
+clientes e finanças da MedConsultoria, e um botão para o lugar errado.
+
+Nasceu o template **`boas_vindas_portal`** ("Boas-vindas ao Portal (cliente)"), editável na tela
+como todos os outros, e a régua `templateDeBoasVindas`. ⚠️ **O padrão dela é o do CLIENTE**, não
+o da equipe: papel novo — ou nulo, de conta antiga — cai no texto neutro. Errar para esse lado
+tira de um colega um link que ele já tem no navegador; errar para o outro manda o endereço do
+sistema interno para fora da empresa.
+
+**E o problema não era só desse template.** Duas fontes espalhavam o mesmo vazamento:
+
+- **O rodapé, igual nos 42 templates**, trazia *"Acessar o workspace"* apontando para o sistema
+  interno e a frase *"sua conta no Workspace MedConsultoria"*. Mais da metade dos e-mails vai
+  para fora (cliente do Portal, lead do site). O link saiu; ficaram o e-mail comercial e o site
+  institucional. ⚠️ **Quem é da casa não perde nada:** o e-mail que pede uma ação já traz o
+  próprio botão, e o endereço do sistema está no navegador dessa pessoa o dia inteiro. A versão
+  em texto puro — a que o cliente lê em leitor sem HTML — assinava com o mesmo endereço interno e
+  passou a assinar com o site.
+- **`reset_senha`** dizia *"sua conta no Workspace MedConsultoria"* no assunto e no corpo. E
+  `solicitarReset` procura o e-mail **sem filtrar papel**: quem esquece a senha pode ser o
+  cliente. Num e-mail de segurança, o nome de um sistema desconhecido é o jeito mais rápido de a
+  mensagem ser lida como golpe. O texto ficou neutro — serve aos dois públicos, sem template novo.
+
+### O que foi achado e NÃO foi corrigido
+
+Está tudo em `docs/auditoria/AUDITORIA-2026-08-27.md`. Em resumo: o nome do cliente aparece **até
+três vezes na mesma linha** na Agenda e em Projetos (vem colado dentro do título do evento e do
+nome do projeto, e a tela já mostra o cliente à parte); clicar numa ocorrência de evento
+recorrente abre a **data da primeira** ocorrência sem avisar que se está editando a série toda; e
+a coluna *Papel* de **Equipe e acessos** mostra só "Cliente", sem dizer se a pessoa é
+**Responsável** ou **Equipe** da clínica (ADR-131). Nenhum dos três produz dado errado — os três
+são refino de tela, e entram numa próxima janela para não misturar refino com correção.
+
+⚠️ **Pendência do dono:** o **Foro de eleição** está em branco em *Ajustes → Dados da empresa*.
+Enquanto ficar assim, o contrato sai com **`[A PREENCHER]`** no lugar — que é o comportamento
+correto (nunca um dado inventado), mas precisa ser preenchido antes do primeiro contrato real.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm -r lint` verdes · **491 testes de unidade** (19 novos: 4 na régua do
+erro esperado + 2 no caminho real do `comCaixa` com prisma dublê + 4 no estado da CSP + 4 no
+percentil + 5 na escolha do texto por público) · **na tela**, como ROOT: `SISTEMA → Manutenção`
+mostrando **"CSP: Ligada"**, e em *Mensagens automáticas* a prévia do novo "Boas-vindas ao Portal
+(cliente)" com botão **"Entrar no Portal"**, rodapé sem o link interno e **zero** ocorrência da
+palavra "workspace" — nele e no de redefinição de senha.

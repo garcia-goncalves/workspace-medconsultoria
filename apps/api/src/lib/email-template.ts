@@ -1,5 +1,4 @@
 import { INSTITUCIONAL } from "@app/shared";
-import { config } from "../config.js";
 
 /** Content-ID do logo embutido (anexado em toda mensagem por enviarEmail). */
 export const LOGO_CID = "logo@medconsultoria";
@@ -33,7 +32,6 @@ function esc(s: string): string {
 
 /** Monta um e-mail transacional com a identidade visual da MedConsultoria. */
 export function montarEmail(opts: EmailBrandOpts): { html: string; texto: string } {
-  const origem = config.WEB_ORIGIN;
   const ano = new Date().getFullYear();
 
   const paragrafosHtml = opts.paragrafos
@@ -102,15 +100,20 @@ export function montarEmail(opts: EmailBrandOpts): { html: string; texto: string
         <!-- Rodapé -->
         <tr>
           <td style="padding:20px 34px;background:#f8fafc;border-top:1px solid ${CORES.borda};font-family:${FONTE};">
+            <!--
+              O rodapé é o MESMO nos 42 templates, e mais da metade deles vai para fora da empresa
+              (cliente do Portal, lead do site). Ele trazia "Acessar o workspace" apontando para o
+              sistema INTERNO e dizia "sua conta no Workspace MedConsultoria" — nome que o médico
+              nunca viu. Quem é da casa não perde nada: o e-mail que pede uma ação já traz o botão
+              próprio, e o endereço do sistema está no navegador dessa pessoa o dia inteiro.
+            -->
             <p style="margin:0 0 6px;font-size:12px;line-height:1.6;color:${CORES.muted};">
-              <a href="${origem}" target="_blank" style="color:${CORES.link};text-decoration:none;font-weight:600;">Acessar o workspace</a>
-              &nbsp;·&nbsp;
               <a href="mailto:${INSTITUCIONAL.email}" style="color:${CORES.link};text-decoration:none;">${INSTITUCIONAL.email}</a>
               &nbsp;·&nbsp;
               <a href="${INSTITUCIONAL.siteUrl}" target="_blank" style="color:${CORES.link};text-decoration:none;">${INSTITUCIONAL.site}</a>
             </p>
             <p style="margin:0 0 4px;font-size:11px;line-height:1.6;color:${CORES.muted};">
-              Você recebeu este e-mail porque há uma ação relacionada à sua conta no Workspace MedConsultoria.
+              Você recebeu este e-mail porque há uma ação relacionada à sua conta na MedConsultoria.
               Se não reconhece esta solicitação, ignore esta mensagem.
             </p>
             <p style="margin:0;font-size:11px;line-height:1.6;color:${CORES.muted};">
@@ -131,7 +134,9 @@ export function montarEmail(opts: EmailBrandOpts): { html: string; texto: string
   for (const p of opts.paragrafos) linhas.push(p.replace(/<[^>]+>/g, ""), "");
   if (opts.cta) linhas.push(`${opts.cta.texto}: ${opts.cta.url}`, "");
   if (opts.nota) linhas.push(opts.nota.replace(/<[^>]+>/g, ""), "");
-  linhas.push("—", "Atenciosamente, Equipe MedConsultoria", origem);
+  // Mesma razão do rodapé em HTML: a assinatura fechava com o endereço do sistema INTERNO, e esta
+  // versão é a que o cliente lê em leitor sem HTML. Vai o site institucional.
+  linhas.push("—", "Atenciosamente, Equipe MedConsultoria", INSTITUCIONAL.siteUrl);
   const texto = linhas.join("\n");
 
   return { html, texto };
