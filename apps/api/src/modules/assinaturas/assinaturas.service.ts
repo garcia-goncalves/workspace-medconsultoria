@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { mensagemDeLinkExpirado, situacaoDoLinkPublico } from "@app/shared";
 import { prisma } from "@app/db";
 import { destinatarioDeAssinatura } from "../documentos/destinatario-de-assinatura.js";
 import type { AssinarInput } from "@app/shared";
@@ -132,6 +133,15 @@ export async function listarDoDocumento(documentoId: string) {
   }));
 }
 
+/**
+ * Recusa link vencido (ADR-141). `PRECONDITION_FAILED`, e não `INTERNAL`, porque isto é
+ * estado ESPERADO: erro cru vira "erro do sistema" no painel do ROOT (a lição da ADR-135).
+ */
+function exigirLinkValido(a: { criadoEm: Date; assinadoEm: Date | null }): void {
+  const s = situacaoDoLinkPublico({ emitidoEm: a.criadoEm, respondidoEm: a.assinadoEm, agora: new Date() });
+  if (!s.valido) throw new TRPCError({ code: "PRECONDITION_FAILED", message: mensagemDeLinkExpirado(s) });
+}
+
 /** Dados públicos para a página de assinatura (acesso por token, sem login). */
 export async function getPorToken(token: string) {
   const a = await prisma.assinatura.findUnique({
@@ -139,6 +149,14 @@ export async function getPorToken(token: string) {
     include: { documento: { select: { titulo: true, conteudo: true } } },
   });
   if (!a) throw new TRPCError({ code: "NOT_FOUND", message: "Link de assinatura inválido." });
+  exigirLinkValido(a);
+
+  // Quem abriu, e quando. Antes disto ninguém sabia — o link é anônimo por natureza,
+  // mas o ACESSO precisa deixar rastro (LGPD, ADR-141). Sem usuário: é gente de fora.
+  await prisma.activityLog.create({
+    data: { acao: "assinatura.link_aberto", entidadeTipo: "documento", entidadeId: a.documentoId },
+  });
+
   const hashAtual = hashConteudo(a.documento.conteudo);
   const outras = await prisma.assinatura.findMany({
     where: { documentoId: a.documentoId },
@@ -172,6 +190,8 @@ export async function assinar(
   });
   if (!a) throw new TRPCError({ code: "NOT_FOUND", message: "Link de assinatura inválido." });
   if (a.status === "ASSINADO") return { ok: true, concluido: false, jaAssinado: true };
+  // ⚠️ Barrar só a LEITURA seria a segunda porta da ADR-140: o link expirado ainda assinaria.
+  exigirLinkValido(a);
 
   if (a.hashDocumento !== hashConteudo(a.documento.conteudo)) {
     throw new TRPCError({
