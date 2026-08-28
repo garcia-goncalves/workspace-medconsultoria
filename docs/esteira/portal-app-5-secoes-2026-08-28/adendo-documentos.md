@@ -49,3 +49,16 @@ baixo é "o que você mandou para a Med".
 Nenhuma regra de negócio, nenhuma consulta nova no servidor, nenhuma migração. Os dois
 procedimentos tRPC já existem e já devolvem o que a tela precisa: `portal.arquivos` e
 `portal.resumo`. É trabalho de organização de tela.
+
+---
+
+# Adendo 2 — o H1 do Início
+
+O `design.md` propôs `H1 = "Olá, Clínica X"`. O planejador provou que isso **quebra 4
+asserções** em `e2e/flows-portal.spec.ts` e `e2e/rbac.spec.ts`, que cobram a palavra
+"Portal" no cabeçalho — e o `criterio_de_aceitacao` do briefing exige justamente manter
+essa palavra, porque "qualquer caminho cai no Portal" é contrato testado.
+
+**Decidido:** `H1 = "Seu Portal"`, com a saudação (*"Olá, Clínica na Mooca"*) no subtítulo.
+Mudar os testes para caber na saudação seria trocar a prova pelo desejo — o teste está
+certo, a proposta é que não tinha visto o contrato.
