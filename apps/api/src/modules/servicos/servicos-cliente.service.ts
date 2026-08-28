@@ -9,6 +9,7 @@ import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js
 import { garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { config } from "../../config.js";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
+import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "@app/shared";
 
 /**
  * Visão agregada dos serviços de um cliente (ficha): o catálogo ativo, com o status
@@ -153,24 +154,31 @@ export async function ativarServicoCliente(
   // O CREDENCIAMENTO fica de fora: nele o honorário é no sucesso, e a conta a receber nasce
   // quando a operadora aprova (ADR-104). Contratar é o começo do trabalho, não o fim dele —
   // cobrar aqui adiantaria dinheiro que a proposta promete não adiantar.
+  //
+  // ⚠️ **O VALOR É O DA LINHA CONTRATADA, NUNCA O DO CATÁLOGO (ADR-137).** Quem contrata pela
+  // ficha pode combinar outro preço (`opts.valor`), e a conta saía pelo preço de tabela: a ficha
+  // dizendo R$ 2.500 e o Financeiro cobrando R$ 3.500, sem nada explicando a diferença. Pior, a
+  // guarda olhava o preço de catálogo — serviço sem preço de tabela, contratado por um valor
+  // combinado, não gerava conta NENHUMA e o dinheiro simplesmente não era cobrado. Ler de `cs`,
+  // que é a linha que a ficha mostra, faz os dois números baterem por construção.
+  const valorContratado = emReaisOu(cs.valor);
   if (
     !jaContratado &&
     (opts.origem ?? "MANUAL") === "MANUAL" &&
     !ehServicoDeCredenciamento(servico?.nome) &&
-    servico != null &&
-    emReaisOu(servico.valor) > 0
+    valorContratado > 0
   ) {
     try {
       const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } });
       const vencimento = new Date();
       vencimento.setDate(vencimento.getDate() + 30);
       vencimento.setHours(12, 0, 0, 0);
-      const mensal = servico.valorRecorrencia === "MENSAL";
+      const mensal = cs.valorRecorrencia === "MENSAL";
       await prisma.conta.create({
         data: {
           tipo: "RECEBER",
-          descricao: `${mensal ? "Mensalidade" : "Serviço"}: ${servico.nome} — ${cliente?.nome ?? "cliente"}`,
-          valor: emReaisOu(servico.valor),
+          descricao: `${mensal ? "Mensalidade" : "Serviço"}: ${servico?.nome ?? "Serviço"} — ${cliente?.nome ?? "cliente"}`,
+          valor: valorContratado,
           vencimento,
           clienteId,
           recorrencia: mensal ? "MENSAL" : "NENHUMA",
@@ -333,6 +341,15 @@ export async function atualizarContratacaoCliente(
 ) {
   const existente = await prisma.clienteServico.findUnique({ where: { clienteId_servicoId: { clienteId, servicoId } } });
   if (!existente) throw new TRPCError({ code: "NOT_FOUND", message: "Este serviço não está contratado para o cliente." });
+  // A mesma trava do catálogo, aplicada ao preço DESTE cliente (ADR-137): sobre o antes + o
+  // depois, porque a edição é parcial e o `refine` do schema só vê o que veio no pedido.
+  const depois = {
+    valor: dados.valor !== undefined ? dados.valor : emReais(existente.valor),
+    percentual: dados.percentual !== undefined ? dados.percentual : emReais(existente.percentual),
+  };
+  if (temValorEPercentual(depois)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_VALOR_E_PERCENTUAL });
+  }
   const data: Record<string, unknown> = {};
   if (dados.valor !== undefined) data.valor = dados.valor ?? null;
   if (dados.valorRecorrencia !== undefined) data.valorRecorrencia = dados.valorRecorrencia;

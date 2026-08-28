@@ -1,6 +1,12 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
-import { hasRoleLevel, podeNoPortal, PORTAL_SO_RESPONSAVEL, type Role } from "@app/shared";
+import {
+  hasRoleLevel,
+  podeAssinarPelaClinica,
+  podeNoPortal,
+  PORTAL_SO_RESPONSAVEL,
+  type Role,
+} from "@app/shared";
 import type { Context } from "./context.js";
 import { recordCall } from "../observability/monitor.js";
 import { SUPORTE_SO_LEITURA } from "../modules/auth/painel-cliente.service.js";
@@ -21,6 +27,28 @@ const timed = t.procedure.use(async ({ path, next }) => {
 
 /** Sem autenticação. */
 export const publicProcedure = timed;
+
+/**
+ * ACEITAR PROPOSTA E ASSINAR CONTRATO — público, mas com as travas do Portal valendo.
+ *
+ * Continua aberto a quem não está logado: o link de assinatura chega por e-mail e o token é a
+ * credencial. O que este procedure acrescenta é a leitura da SESSÃO quando ela existe — sem
+ * isso, a secretária EQUIPE (ADR-131) e a sessão de suporte da Med (ADR-128), as duas
+ * barradas no `portalProcedure`, davam a volta pela rota pública e assinavam assim mesmo.
+ * A régua é a mesma função pura que a tela usa para decidir se mostra o botão.
+ */
+export const aceiteProcedure = timed.use(
+  middleware(({ ctx, next }) => {
+    const veredito = podeAssinarPelaClinica(ctx.user);
+    if (!veredito.pode) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: veredito.motivo === "SUPORTE_SO_LEITURA" ? SUPORTE_SO_LEITURA : PORTAL_SO_RESPONSAVEL,
+      });
+    }
+    return next();
+  }),
+);
 
 /** Exige sessão válida; injeta `ctx.user` não-nulo. */
 const isAuthed = middleware(({ ctx, next }) => {

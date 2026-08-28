@@ -15,7 +15,16 @@
  *    com dinheiro real do documento.
  */
 import { describe, it, expect } from "vitest";
-import { ehServicoSomentePercentual, temPercentual, temValorFixo } from "@app/shared";
+import {
+  atualizarContratacaoClienteSchema,
+  createServicoSchema,
+  ehServicoSomentePercentual,
+  PRECO_VALOR_E_PERCENTUAL,
+  temPercentual,
+  temValorEPercentual,
+  temValorFixo,
+  updateServicoSchema,
+} from "@app/shared";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -100,5 +109,81 @@ describe("a decisão do SERVIDOR de documentos também não casa por nome de cat
 
   it("o servidor usa a regra de preço compartilhada para decidir a frase do repasse", () => {
     expect(servidor).toContain("ehServicoSomentePercentual");
+  });
+});
+
+/**
+ * AS DUAS TELAS QUE FICAVAM DE FORA (F4/F3 da descoberta de 28/08).
+ *
+ * O guarda acima cobria o seletor da proposta e o servidor de documentos — e deixava passar
+ * justamente o lugar mais **a montante** de todos: a tela de Serviços, onde o campo de % só
+ * existia se a categoria se chamasse "Faturamento". Era a QUINTA aparição da comparação. Ela
+ * impedia um segundo serviço percentual de existir, sumia com o % no dia em que alguém
+ * renomeasse a categoria, e deixava o campo Valor visível no serviço que não tem valor. A
+ * quinta cópia sobrevivia também no editor de preço da ficha do cliente.
+ */
+describe("as TELAS de preço não casam por nome de categoria", () => {
+  const semComentarios = (caminho: string) =>
+    readFileSync(fileURLToPath(new URL(caminho, import.meta.url)), "utf-8")
+      .split("\n")
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join("\n");
+
+  const TELAS = [
+    ["a tela de Serviços (catálogo)", "../../../web/src/features/crm/servicos/ServicosPage.tsx"],
+    ["o editor de preço da ficha do cliente", "../../../web/src/features/crm/clientes/ServicosContratadosCard.tsx"],
+  ] as const;
+
+  for (const [nome, caminho] of TELAS) {
+    it(`${nome} não compara com "Faturamento"`, () => {
+      expect(semComentarios(caminho)).not.toMatch(/categoria\s*===\s*["']Faturamento["']/);
+    });
+
+    it(`${nome} usa a regra de preço compartilhada`, () => {
+      expect(semComentarios(caminho)).toContain("ehServicoSomentePercentual");
+    });
+  }
+});
+
+/**
+ * A TRAVA QUE NUNCA EXISTIU: valor fixo + percentual no mesmo serviço.
+ *
+ * Nada impedia esse estado — nem banco, nem Zod, nem servidor, nem tela. E ele quebra em
+ * silêncio tudo o que lê `ehServicoSomentePercentual`: a linha da proposta volta a mostrar valor
+ * e quantidade, a estimativa do funil troca de pergunta sozinha, a conversão passa a provisionar
+ * dinheiro fixo. Nenhum desses caminhos avisa; eles só mudam de comportamento.
+ */
+describe("temValorEPercentual — a trava das duas cobranças juntas", () => {
+  it("recusa os dois preenchidos", () => {
+    expect(temValorEPercentual({ valor: 3500, percentual: 5 })).toBe(true);
+  });
+
+  it("aceita cada um sozinho, e o serviço sem preço nenhum", () => {
+    expect(temValorEPercentual({ valor: 3500, percentual: null })).toBe(false);
+    expect(temValorEPercentual({ valor: null, percentual: 5 })).toBe(false);
+    expect(temValorEPercentual({ valor: null, percentual: null })).toBe(false);
+  });
+
+  it("zero não é cobrança — não trava serviço com valor 0 e percentual 5", () => {
+    expect(temValorEPercentual({ valor: 0, percentual: 5 })).toBe(false);
+    expect(temValorEPercentual({ valor: 3500, percentual: 0 })).toBe(false);
+  });
+
+  it("os três schemas recusam o envio com as duas cobranças, em português", () => {
+    const base = { nome: "Faturamento", valor: 3500, percentual: 5 };
+    const r1 = createServicoSchema.safeParse(base);
+    const r2 = updateServicoSchema.safeParse({ id: "s1", ...base });
+    const r3 = atualizarContratacaoClienteSchema.safeParse({ clienteId: "c1", servicoId: "s1", valor: 3500, percentual: 5 });
+    for (const r of [r1, r2, r3]) {
+      expect(r.success).toBe(false);
+      expect(r.success === false && r.error.issues[0]?.message).toBe(PRECO_VALOR_E_PERCENTUAL);
+    }
+  });
+
+  it("os três schemas aceitam cada cobrança sozinha", () => {
+    expect(createServicoSchema.safeParse({ nome: "Faturamento", percentual: 5 }).success).toBe(true);
+    expect(createServicoSchema.safeParse({ nome: "Gestão", valor: 3500 }).success).toBe(true);
+    expect(updateServicoSchema.safeParse({ id: "s1", percentual: 5 }).success).toBe(true);
+    expect(atualizarContratacaoClienteSchema.safeParse({ clienteId: "c1", servicoId: "s1", valor: 2500 }).success).toBe(true);
   });
 });

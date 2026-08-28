@@ -2817,6 +2817,40 @@ Então:
   - Portal do cliente: *"Convênios atendidos: Unimed, Bradesco Saúde, Amil One, Care Plus,
     Omint"*.
 
+### O degrau seguinte, achado na revisão de segurança: para QUEM ia o link
+
+Barrar a sessão não adianta se o link chega numa caixa que a pessoa barrada abre. O e-mail de
+aceite e o de assinatura iam para **`Cliente.email`** — a caixa cadastral da clínica, que na
+prática é a da recepção. A secretária EQUIPE abria essa caixa, clicava no link **deslogada**, e
+assinava: deslogado é justamente o caminho do signatário legítimo. Pior, esse é o único caminho
+que **não** deixa nome na trilha (`assinadoPorId` nulo) — a trava, sozinha, teria só tirado o
+botão da tela.
+
+`destinatarioDeAssinatura` (`apps/api/src/modules/documentos/`) passou a escolher **quem fala
+pela clínica**: a conta de Portal daquele cliente que não é EQUIPE, sem acesso revogado,
+preferindo quem já entrou. ⚠️ **A caixa da clínica continua sendo a reserva** — o cliente que
+ainda não tem ninguém no Portal (a maioria hoje) não muda em nada. ⚠️ **Conta convidada e ainda
+sem senha VALE**: `ativo = false` é ambíguo (ADR-131) e quem manda é o `acessoRevogadoEm` —
+senão a clínica cujo dono acabou de ser convidado não receberia a proposta.
+
+### O token que já vazou NÃO foi rotacionado — e por quê
+
+A revisão levantou a dívida certa (é a lição da ADR-114: fechar o vazamento não paga a dívida
+enquanto a chave vazada abre a porta). Aqui ela **não foi cobrada**, por uma leitura de exposição
+real, e não por conveniência:
+
+- para o caminho EQUIPE existir, **precisa existir uma conta EQUIPE** — e a migração da ADR-131
+  (27/08, 21:43) marcou **todas** as contas de Portal existentes como RESPONSAVEL. Conta EQUIPE
+  só nasce quando alguém convida uma pessoa nova, o que ainda não aconteceu;
+- o caminho da sessão de suporte é a equipe da Med, que **já alcança o token** pelo painel do
+  documento, legitimamente.
+
+Rotacionar todo token PENDENTE derrubaria links que já estão na caixa de clientes reais, para
+fechar uma porta que provavelmente ninguém atravessou. ⚠️ **A conferência que decide isso é uma
+só:** existe alguma conta de Portal com papel EQUIPE em produção? **Se existir, rotacionar passa
+a ser obrigatório** — e a rotação é regerar `Assinatura.token` e `Documento.propostaToken` de
+toda linha PENDENTE e reemitir os links.
+
 ### O que ficou de fora, e por quê
 
 - ~~A exigência "Quais operadoras você atende?" continua no checklist do Faturamento~~ —
@@ -3905,3 +3939,163 @@ marcas — duas fontes é como elas divergiram.
 - **Zero erro de console** em Agenda, Equipe e acessos, Projetos e Mensagens.
 
 **Zero migração** — nada mudou no banco.
+
+---
+
+## ADR-137 — Aceitar proposta e assinar contrato passam pelas travas do Portal (o buraco C6)
+
+**Data:** 2026-08-28 · **Situação:** implementado, não publicado ·
+**Origem:** achado **C6** da descoberta de 28/08 (`docs/esteira/refino-final-2026-08-28/achados.md`)
+
+### O problema
+
+Duas travas de permissão foram escritas com cuidado, cada uma com a sua ADR, e **nenhuma das
+duas ficava no caminho que realmente assina um contrato**:
+
+- A **sessão de suporte** (ADR-128) — alguém da Med vendo o Portal como o cliente — é barrada em
+  toda **mutação** do `portalProcedure`. "Vê tudo, não assina nada."
+- A conta **EQUIPE** da clínica (ADR-131) — médico, secretária — é barrada em toda mutação que
+  não esteja na lista `ACOES_LIBERADAS_PARA_EQUIPE`. "A trava é sobre assinar, não sobre ver."
+
+Só que `propostas.responder` e `assinaturas.assinar` **não são do `portalProcedure`**: são
+`publicProcedure`, porque a página de aceite (`/proposta/:token`) e a de assinatura
+(`/assinar/:token`) são links de e-mail que quem assina abre sem nunca ter entrado no sistema.
+
+O caminho de volta era o `portal.resumo`: a página inicial do Portal listava as propostas
+pendentes e os documentos para assinar **com o token de cada um dentro**. Qualquer pessoa logada
+naquele Portal — inclusive as duas que a regra proíbe — recebia o link e clicava. A secretária
+assinava o contrato pela clínica; a Med assinava em nome do cliente. O comentário do campo
+`SessionUser.operador` já *dizia* que o "guarda das ações de compromisso (aceitar/recusar
+proposta, assinar)" lia aquele campo. Não lia.
+
+Agravante: a assinatura gravava **IP e user-agent**, que dizem de onde veio, nunca quem foi.
+Desde a ADR-131 cada pessoa da clínica tem conta própria, e "quem aceitou" deixou de ser a
+clínica e passou a ser gente.
+
+### A decisão
+
+**A rota continua pública. A trava é sobre a SESSÃO, não sobre o token.**
+
+Fechar as rotas exigiria login de quem assina, e quem assina é justamente quem chega pelo
+e-mail. O token — 256 bits, sorteado, com hash do conteúdo conferido — é a credencial desse
+caminho e continua sendo. O que passou a existir é a leitura da sessão **quando ela existe**:
+
+| Quem está logado ao clicar | Pode? | Por quê |
+| -------------------------- | ----- | ------- |
+| ninguém (link de e-mail)   | sim   | é o caminho normal de quem assina |
+| sessão de suporte da Med   | não   | "vê tudo, não assina nada" (ADR-128) |
+| conta EQUIPE da clínica    | não   | não fala pela clínica (ADR-131) |
+| responsável, ou conta interna | sim | é quem a regra já autorizava |
+
+Três peças:
+
+1. **`podeAssinarPelaClinica`** (`packages/shared/src/portal-papeis.ts`) — função pura, a régua
+   única. Devolve a **chave** do motivo (`SUPORTE_SO_LEITURA` / `SO_RESPONSAVEL`), não a frase:
+   a frase da sessão de suporte mora no servidor, e duas cópias do mesmo texto divergem no
+   primeiro ajuste.
+2. **`aceiteProcedure`** (`apps/api/src/trpc/trpc.ts`) — um `publicProcedure` com essa régua no
+   meio. `propostas.responder` e `assinaturas.assinar` passaram a usá-lo. ⚠️ **A trava mora no
+   procedure, não no serviço**, pelo mesmo motivo do `portalProcedure`: ação nova nasce coberta.
+   E é por isso que o teste chama pelo `createCaller` — chamar o serviço direto passaria verde
+   com o buraco aberto, que é exatamente o engano que deixou isto escapar.
+3. **O `portal.resumo` não entrega o token a quem não pode usá-lo.** ⚠️ **O item continua
+   aparecendo na lista** — a trava é sobre assinar, não sobre ver, e esconder a proposta da
+   secretária resolveria um problema que ninguém tem. O que some é o botão. Sem isso a tela
+   mostraria um botão que o servidor recusa, que é o modo de falha da ADR-133.
+
+### Quem assinou passou a ficar registrado
+
+Migração `20260828140843_assinatura_e_aceite_com_autor`: `Assinatura.assinadoPorId` e
+`Documento.propostaRespPorId`, **duas colunas novas e nuláveis** com FK `SET NULL`. Nada é
+apagado, nada é convertido, nenhuma linha existente muda de valor; reverter é `DROP COLUMN` nas
+duas. O `activityLog` do aceite e da assinatura passou a gravar o mesmo `userId`.
+
+⚠️ **Nulo é o caso NORMAL, não uma falha:** o link de e-mail é anônimo por natureza. A coluna
+responde "havia alguém logado, e quem era?", não "quem é o signatário".
+
+### O que ficou de fora, e por quê
+
+- **Conta interna da Med logada (ADMIN/ROOT) não é barrada.** Ela já alcança o token pelas telas
+  internas, e barrá-la aqui mudaria um comportamento que ninguém relatou como problema. O achado
+  nomeava a EQUIPE e a sessão de suporte. ⚠️ Consequência aceita: quem está numa sessão de suporte
+  barrada pode clicar em "voltar ao meu acesso" e assinar. O que a ADR-128 barra é agir **como o
+  cliente**, e isso continua barrado — e agora fica atribuído pelo `assinadoPorId`.
+- **Prazo de validade no token.** Nem o de proposta (`randomUUID`, 122 bits) nem o de assinatura
+  (`gerarTokenPublico`, 256 bits) expiram. Inadivinháveis os dois; validade é outra decisão.
+- **Não há trava por clínica no token.** Quem tem o token pode assinar — é o desenho do link
+  público. O `portal.resumo` já isola por `clienteId`, então ninguém obtém por ali o token de
+  outra clínica.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm -r lint` verdes · **497 testes de unidade** do `@app/api` (6 novos na
+régua pura) · **8 testes de integração novos** contra o MySQL de verdade e **pelo `createCaller`**
+(`aceite-e-assinatura-travas.integration.test.ts`): a EQUIPE recusada nas duas ações **sem gravar
+nada**, a sessão de suporte recusada nas duas, o anônimo assinando (com `assinadoPorId` nulo), o
+responsável assinando **com o próprio id gravado**, e o `portal.resumo` devolvendo `token: null`
+— mas a lista cheia — para os dois papéis barrados.
+
+---
+
+## ADR-138 — O Faturamento é só percentual: a comparação por categoria morre na raiz e nasce a trava
+
+**Data:** 2026-08-28 · **Situação:** implementado, não publicado ·
+**Origem:** achados **F1, F3, F4, F10, F12, F19** e "a trava que falta" da descoberta de 28/08
+
+### A comparação por categoria, pela QUINTA vez
+
+`categoria === "Faturamento"` já tinha sido removida em quatro rodadas (ADR-125, 126, 127 e o
+teste de regressão que nasceu delas). A descoberta a encontrou de novo, e no lugar mais **a
+montante de todos**: `ServicosPage.tsx`, a tela onde a Thaís cria e edita o serviço. Ali ela
+fazia três estragos ao mesmo tempo:
+
+1. **impedia um segundo serviço percentual de existir** — % em Gestão? o campo nem aparece;
+2. **sumia com o % no dia em que alguém renomeasse a categoria** na tela ao lado, sem aviso;
+3. **deixava o campo Valor visível** justamente no serviço que não tem valor.
+
+O teste de regressão que existia guardava só o `PropostaServicosPicker.tsx` e o
+`documentos.service.ts` — e a tela mais a montante, que alimenta as duas, ficava de fora. Agora
+ele varre também `ServicosPage.tsx` e `ServicosContratadosCard.tsx` (o editor de preço da ficha,
+onde a comparação sobrevivia como um dos ramos de um OU).
+
+### Quem decide passou a ser um interruptor, não o nome da categoria
+
+Nas duas telas: **"Como este serviço é cobrado" → Valor fixo | % do faturamento**. A categoria
+voltou a ser só o que ela diz que é — um agrupamento no catálogo —, e os textos de ajuda que
+ensinavam a regra errada ("escolher 'Faturamento' libera o campo de %") foram reescritos.
+
+⚠️ **Trocar de forma LIMPA a outra.** Sem isso o campo escondido continuaria gravado e o serviço
+ficaria com as duas cobranças — que é exatamente o estado que a trava abaixo recusa.
+
+### A trava que nunca existiu
+
+Não havia **nada** — banco (sem CHECK), Zod, servidor nem tela — impedindo valor fixo +
+percentual no mesmo serviço. E esse estado quebra em silêncio tudo o que lê
+`ehServicoSomentePercentual`: a linha da proposta volta a mostrar valor e quantidade, a
+estimativa do funil troca de pergunta sozinha, a conversão passa a provisionar dinheiro fixo.
+Nenhum desses caminhos avisa; eles só mudam de comportamento.
+
+`temValorEPercentual` (`@app/shared`, junto das outras três réguas de preço) é aplicada em
+**dois níveis**:
+
+- **`refine` nos três schemas** (`createServicoSchema`, `updateServicoSchema`,
+  `atualizarContratacaoClienteSchema`), com a recusa escrita em português;
+- ⚠️ **e uma conferência no SERVIDOR sobre o ANTES + o DEPOIS**, porque a edição é parcial: o
+  `refine` só vê o que veio no pedido, e mandar só `percentual` num serviço que já tem `valor`
+  gravado passaria batido. É a mesma armadilha da ADR-136 — a régua tem de olhar o estado que
+  vai ficar, não o pedaço que chegou.
+
+⚠️ **Zero não é cobrança:** `valor: 0` com `percentual: 5` passa. Tratar zero como "tem valor"
+travaria o serviço percentual criado com o campo preenchido a zero, que é o padrão de vários
+formulários.
+
+⚠️ **Conferido antes de ligar a trava:** no banco local, **0 de 15 serviços e 0 de 12
+contratações** têm as duas cobranças. Ninguém fica trancado fora da própria edição.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm -r lint` verdes · **510 testes de unidade** (9 novos) · **na tela**,
+como ROOT no localhost: em *Serviços → Faturamento → Configurar*, o botão **"% do faturamento"**
+marcado, **sem** campo Valor, com os 5%; clicar em **"Valor fixo"** troca ao vivo para Valor +
+Cobrança padrão. Na *ficha da Clínica Vida Plena → Faturamento → Editar preço*, o mesmo botão,
+já em percentual, com os convênios. **Zero erro de console** nas duas.

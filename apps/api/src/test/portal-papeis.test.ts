@@ -5,6 +5,7 @@ import {
   ACOES_LIBERADAS_PARA_EQUIPE,
   PORTAL_PAPEIS,
   PORTAL_PAPEL_LABEL,
+  podeAssinarPelaClinica,
 } from "@app/shared";
 
 /**
@@ -108,5 +109,56 @@ describe("sobraResponsavel — a clínica nunca fica sem quem assine", () => {
     // contasse, a clínica recém-cadastrada não conseguiria convidar a primeira secretária.
     const pendente = { id: "u4", papel: "RESPONSAVEL" as const, ativo: true };
     expect(sobraResponsavel([pendente, secretaria], { id: "u2", papel: "EQUIPE" })).toBe(true);
+  });
+});
+
+/**
+ * A TRAVA DAS PÁGINAS DE TOKEN (C6 da descoberta de 28/08).
+ *
+ * `propostas.responder` e `assinaturas.assinar` são rotas públicas, e precisam continuar
+ * sendo: quem assina clica num link de e-mail sem login. O defeito era que o Portal
+ * entregava o token no resumo da home, e aí quem já estava logado e **não** podia assinar
+ * — a secretária EQUIPE e a sessão de suporte da Med — assinava por fora das duas travas.
+ *
+ * Testado aqui porque é autorização: errar para o lado permissivo faz uma secretária
+ * assinar um contrato pela clínica, e nada na tela diz que foi por engano.
+ */
+describe("podeAssinarPelaClinica — quem pode aceitar proposta e assinar contrato", () => {
+  it("ninguém logado continua podendo: é o link de e-mail, o caminho normal de quem assina", () => {
+    expect(podeAssinarPelaClinica(null).pode).toBe(true);
+    expect(podeAssinarPelaClinica(undefined).pode).toBe(true);
+  });
+
+  it("a sessão de suporte da Med NÃO assina — vê tudo, não assina nada (ADR-128)", () => {
+    const r = podeAssinarPelaClinica({
+      papelPortal: "RESPONSAVEL",
+      operador: { id: "u1", nome: "Thaís" },
+    });
+    expect(r.pode).toBe(false);
+    expect(r.pode === false && r.motivo).toBe("SUPORTE_SO_LEITURA");
+  });
+
+  it("a EQUIPE da clínica NÃO assina pela clínica (ADR-131)", () => {
+    const r = podeAssinarPelaClinica({ papelPortal: "EQUIPE", operador: null });
+    expect(r.pode).toBe(false);
+    expect(r.pode === false && r.motivo).toBe("SO_RESPONSAVEL");
+  });
+
+  it("o responsável da clínica assina, logado ou não", () => {
+    expect(podeAssinarPelaClinica({ papelPortal: "RESPONSAVEL" }).pode).toBe(true);
+    // Conta anterior à ADR-131: papel nulo vale como responsável, a mesma leitura do `podeNoPortal`.
+    expect(podeAssinarPelaClinica({ papelPortal: null }).pode).toBe(true);
+  });
+
+  it("a sessão de suporte é recusada ANTES do papel — a Med não assina nem pelo responsável", () => {
+    const r = podeAssinarPelaClinica({
+      papelPortal: "EQUIPE",
+      operador: { id: "u1", nome: "Thaís" },
+    });
+    expect(r.pode === false && r.motivo).toBe("SUPORTE_SO_LEITURA");
+  });
+
+  it("conta interna da Med (sem papel de portal) não é barrada por esta regra", () => {
+    expect(podeAssinarPelaClinica({ papelPortal: null, operador: null }).pode).toBe(true);
   });
 });

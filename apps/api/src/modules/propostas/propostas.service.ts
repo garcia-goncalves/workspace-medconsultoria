@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
+import { destinatarioDeAssinatura } from "../documentos/destinatario-de-assinatura.js";
 import type { ResponderPropostaInput } from "@app/shared";
 import { hashConteudo } from "../../lib/hash.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
@@ -58,8 +59,11 @@ export async function habilitarAceite(
   });
 
   if (avisarPorEmail && doc.cliente.email) {
-    void enviarEmailTemplate("proposta_para_aceite", doc.cliente.email, {
-      nome: doc.cliente.nome,
+    // Para QUEM FALA PELA CLÍNICA, não para a caixa da recepção (ADR-137) — ver
+    // `destinatarioDeAssinatura`. Aceitar proposta é ação de responsável.
+    const destino = await destinatarioDeAssinatura(doc.cliente.id, { nome: doc.cliente.nome, email: doc.cliente.email });
+    void enviarEmailTemplate("proposta_para_aceite", destino.email, {
+      nome: destino.nome,
       documento: doc.titulo,
       link: linkProposta(token),
     }).catch(() => {});
@@ -136,7 +140,7 @@ export async function getPorToken(token: string) {
  * avisa a equipe; recusa grava o motivo e avisa a equipe. Trilha de auditoria (IP/quando).
  * Idempotente: se já respondida, não sobrescreve.
  */
-export async function responder(input: ResponderPropostaInput, ip?: string) {
+export async function responder(input: ResponderPropostaInput, ip?: string, respondidoPorId?: string | null) {
   const doc = await prisma.documento.findFirst({
     where: { propostaToken: input.token, deletedAt: null },
     select: { id: true, titulo: true, conteudo: true, propostaStatus: true, propostaHash: true, clienteId: true, criadoPorId: true, itens: true, cliente: { select: { nome: true } } },
@@ -159,11 +163,14 @@ export async function responder(input: ResponderPropostaInput, ip?: string) {
       propostaStatus: aceita ? "ACEITA" : "RECUSADA",
       propostaRespondidaEm: new Date(),
       propostaRespIp: ip ?? null,
+      // Quem clicou, se estava logado (ADR-137). Nulo no link de e-mail, que é anônimo.
+      propostaRespPorId: respondidoPorId ?? null,
       propostaMotivoRecusa: aceita ? null : input.motivo?.trim() || null,
     },
   });
   await prisma.activityLog.create({
     data: {
+      userId: respondidoPorId ?? null,
       acao: aceita ? "proposta.aceita" : "proposta.recusada",
       entidadeTipo: "documento",
       entidadeId: doc.id,

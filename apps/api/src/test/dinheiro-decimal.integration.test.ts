@@ -26,6 +26,13 @@ const PFX = `dec-${randomBytes(4).toString("hex")}`;
 let atorId: string;
 let clienteId: string;
 let servicoId: string;
+/**
+ * Um SEGUNDO serviço, só percentual — a ADR-138 passou a recusar valor fixo + percentual na
+ * mesma linha, e este teste guardava os dois campos num serviço só. A cobertura que importa aqui
+ * não é a combinação (que agora é estado proibido): é o `Decimal` de CADA campo chegando à tela
+ * como número. Dois serviços provam a mesma coisa sem fabricar um estado que o sistema recusa.
+ */
+let servicoPctId: string;
 let leadId: string;
 let criadoId: string | null = null;
 
@@ -43,8 +50,10 @@ beforeAll(async () => {
   const cliente = await prisma.cliente.create({ data: { nome: `${PFX}-clinica` } });
   clienteId = cliente.id;
 
-  const s = await criarServico({ nome: `${PFX}-servico`, valor: 1234.56, percentual: 7.5, categoria: "Faturamento" });
+  const s = await criarServico({ nome: `${PFX}-servico`, valor: 1234.56, categoria: "Gestão" });
   servicoId = s.id;
+  const sPct = await criarServico({ nome: `${PFX}-servico-pct`, percentual: 7.5, categoria: "Faturamento" });
+  servicoPctId = sPct.id;
 
   const stage =
     (await prisma.pipelineStage.findFirst({ orderBy: { ordem: "asc" } })) ??
@@ -61,7 +70,7 @@ afterAll(async () => {
   await prisma.lead.deleteMany({ where: { OR: [{ id: leadId }, ...(criadoId ? [{ id: criadoId }] : [])] } });
   await prisma.projeto.deleteMany({ where: { clienteId } });
   await prisma.cliente.deleteMany({ where: { id: clienteId } });
-  await prisma.servico.deleteMany({ where: { id: servicoId } });
+  await prisma.servico.deleteMany({ where: { id: { in: [servicoId, servicoPctId] } } });
   await prisma.user.deleteMany({ where: { id: atorId } });
 });
 
@@ -69,14 +78,18 @@ describe("ADR-118 — o dinheiro guardado em Decimal e entregue em number", () =
   it("guarda o centavo exato que o Float arredondava", async () => {
     const bruto = await prisma.servico.findUniqueOrThrow({ where: { id: servicoId } });
     expect(bruto.valor?.toFixed(2)).toBe("1234.56");
-    expect(bruto.percentual?.toFixed(2)).toBe("7.50");
+    const brutoPct = await prisma.servico.findUniqueOrThrow({ where: { id: servicoPctId } });
+    expect(brutoPct.percentual?.toFixed(2)).toBe("7.50");
   });
 
   it("criarServico e atualizarServico devolvem número, não Decimal", async () => {
     const editado = await atualizarServico(servicoId, { valor: 1234.56 });
     expect(ehDinheiroDaTela(editado.valor)).toBe(true);
     expect(editado.valor).toBe(1234.56);
-    expect(ehDinheiroDaTela(editado.percentual)).toBe(true);
+    // O percentual pelo outro serviço: os dois no mesmo é estado proibido desde a ADR-138.
+    const editadoPct = await atualizarServico(servicoPctId, { percentual: 7.5 });
+    expect(ehDinheiroDaTela(editadoPct.percentual)).toBe(true);
+    expect(editadoPct.percentual).toBe(7.5);
   });
 
   it("as duas listagens do catálogo devolvem número", async () => {
@@ -88,7 +101,8 @@ describe("ADR-118 — o dinheiro guardado em Decimal e entregue em number", () =
     const ativos = await listServicosAtivos();
     const meuAtivo = ativos.find((s) => s.id === servicoId);
     expect(meuAtivo && ehDinheiroDaTela(meuAtivo.valor)).toBe(true);
-    expect(meuAtivo && ehDinheiroDaTela(meuAtivo.percentual)).toBe(true);
+    const meuAtivoPct = ativos.find((s) => s.id === servicoPctId);
+    expect(meuAtivoPct && ehDinheiroDaTela(meuAtivoPct.percentual)).toBe(true);
   });
 
   it("contratar herda o preço do catálogo ao centavo e responde em número", async () => {
@@ -96,7 +110,10 @@ describe("ADR-118 — o dinheiro guardado em Decimal e entregue em number", () =
     expect(ehDinheiroDaTela(cs.valor)).toBe(true);
     expect(cs.valor).toBe(1234.56);
     expect(ehDinheiroDaTela(cs.percentual)).toBe(true);
-    expect(cs.percentual).toBe(7.5);
+    // O percentual pelo serviço percentual — os dois na mesma linha é estado proibido (ADR-138).
+    const csPct = await ativarServicoCliente(clienteId, servicoPctId, {}, { id: atorId });
+    expect(ehDinheiroDaTela(csPct.percentual)).toBe(true);
+    expect(csPct.percentual).toBe(7.5);
 
     // E o que ficou no banco continua exato (a herança Decimal→Decimal não arredondou).
     const gravado = await prisma.clienteServico.findFirstOrThrow({ where: { clienteId, servicoId } });

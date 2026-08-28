@@ -1,6 +1,7 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { emReais } from "../../lib/dinheiro.js";
+import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "@app/shared";
 import { Prisma } from "@prisma/client";
 
 /**
@@ -523,6 +524,21 @@ export async function atualizarServico(
     ativo?: boolean;
   },
 ) {
+  // ⚠️ **A TRAVA PRECISA SER AQUI, não só no Zod (ADR-137).** O `refine` do schema só vê o que
+  // veio no pedido, e a edição é parcial: mandar só `percentual` num serviço que já tem `valor`
+  // gravado passaria batido e deixaria o serviço com as duas cobranças — que é o estado que
+  // reconfigura preço, proposta, funil e provisão em silêncio. Aqui a conferência é sobre o
+  // ANTES + o DEPOIS, que é o que de fato vai ficar na linha.
+  const antes = await prisma.servico.findUnique({ where: { id }, select: { valor: true, percentual: true } });
+  if (!antes) throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado." });
+  const depois = {
+    valor: dados.valor !== undefined ? dados.valor : emReais(antes.valor),
+    percentual: dados.percentual !== undefined ? dados.percentual : emReais(antes.percentual),
+  };
+  if (temValorEPercentual(depois)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_VALOR_E_PERCENTUAL });
+  }
+
   const data: Record<string, unknown> = {};
   if (dados.nome !== undefined) data.nome = dados.nome.trim();
   if (dados.descricao !== undefined) data.descricao = dados.descricao?.trim() || null;
