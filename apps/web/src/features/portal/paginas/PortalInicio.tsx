@@ -215,7 +215,7 @@ export function PortalInicio() {
     <div className="space-y-6">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold text-primary">Seu Portal</h1>
-        <p className="text-muted-foreground">Olá, {r.clienteNome} — o que precisa da sua atenção hoje.</p>
+        <p className="text-muted-foreground">Olá, {r.clienteNome}. Veja o que precisa da sua atenção hoje.</p>
       </div>
 
       {/* ── AÇÃO PRIMEIRO ─────────────────────────────────────────────────────────────── */}

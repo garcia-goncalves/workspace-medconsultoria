@@ -61,6 +61,8 @@
        o valor real, e é ele que diz ao cabeçalho onde grudar. */
     --portal-tabbar-h: 56px;
     --portal-faixa-h: 0px;
+    /* Quanto o selo "AMBIENTE LOCAL" precisa subir para não cobrir a barra do Portal. */
+    --selo-recuo: 0px;
 
     /* Sombras em camadas — tom azulado da marca, bem suaves. */
     --shadow-color: 218 55% 22%;
@@ -68,6 +70,19 @@
     --shadow: 0 1px 3px 0 hsl(var(--shadow-color) / 0.08), 0 1px 2px -1px hsl(var(--shadow-color) / 0.05);
     --shadow-md: 0 4px 14px -3px hsl(var(--shadow-color) / 0.1), 0 2px 6px -2px hsl(var(--shadow-color) / 0.05);
     --shadow-lg: 0 14px 34px -8px hsl(var(--shadow-color) / 0.18), 0 6px 14px -6px hsl(var(--shadow-color) / 0.08);
+  }
+
+  /* Com o Portal aberto no CELULAR, a barra de seções ocupa o rodapé — e o selo de ambiente
+     local caía em cima dela. A partir de `md` a barra vira abas no topo e o recuo volta a
+     zero. Quem põe e tira a classe é o `PortalLayout`; o breakpoint fica aqui, em CSS, para
+     não haver uma segunda régua de largura em JavaScript. */
+  :root.portal-montado {
+    --selo-recuo: calc(var(--portal-tabbar-h) + env(safe-area-inset-bottom));
+  }
+  @media (min-width: 768px) {
+    :root.portal-montado {
+      --selo-recuo: 0px;
+    }
   }
 
   /* (Tema escuro removido: era código morto — não havia toggle nem classes `dark:` no app.

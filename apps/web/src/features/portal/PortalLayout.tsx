@@ -267,6 +267,15 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
 export function PortalLayout() {
   const [editar, setEditar] = useState(false);
   const [guia, setGuia] = useState(false);
+
+  // Marca a raiz enquanto o Portal está aberto. Serve para o que é fixo FORA desta árvore
+  // saber que existe uma barra no rodapé — hoje, o selo "AMBIENTE LOCAL", que caía em cima
+  // dela e escondia dois rótulos. A régua de largura fica no CSS, não aqui.
+  useEffect(() => {
+    document.documentElement.classList.add("portal-montado");
+    return () => document.documentElement.classList.remove("portal-montado");
+  }, []);
+
   return (
     <div className="min-h-dvh overscroll-y-contain bg-muted/30">
       {/* Sessão de suporte da equipe (ADR-128) — some para o cliente de verdade. */}

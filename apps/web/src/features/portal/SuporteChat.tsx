@@ -128,8 +128,11 @@ export function SuporteChat({
           // No Portal, o campo fica GRUDADO acima da barra de seções enquanto se rola a
           // conversa. Sem isto, responder uma conversa longa exige rolar até o fim para
           // achar onde escrever — e no celular a barra de baixo ainda cobriria o campo.
+          // No computador a barra não é fixa e não há nada para o campo evitar: `md:static`
+          // devolve o comportamento normal, senão ele ficaria preso ao fundo da JANELA numa
+          // tela de 1920px com três mensagens — flutuando sem motivo.
           ancorarAcimaDaBarra &&
-            "sticky bottom-[calc(var(--portal-tabbar-h)+env(safe-area-inset-bottom))] z-10 md:bottom-0",
+            "sticky bottom-[calc(var(--portal-tabbar-h)+env(safe-area-inset-bottom))] z-10 md:static",
         )}
       >
         <textarea

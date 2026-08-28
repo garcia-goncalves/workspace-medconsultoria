@@ -34,7 +34,7 @@ const GUIA_INICIO: Passo[] = [
     logo: true,
     titulo: "Bem-vindo ao seu Portal",
     descricao:
-      "Aqui você acompanha tudo do seu atendimento com a MedConsultoria — serviços, documentos, reuniões e suporte — num só lugar, com segurança. Use a barra de baixo (ou as abas, no computador) para trocar de assunto.",
+      "Aqui você acompanha seu atendimento — serviços, documentos, reuniões e suporte — num só lugar. Use a barra de baixo para trocar de assunto.",
   },
   {
     icon: Hourglass,
@@ -49,7 +49,7 @@ const GUIA_DOCUMENTOS: Passo[] = [
     icon: FileSignature,
     titulo: "O que preparamos para você",
     descricao:
-      "Propostas, contratos e atas que a MedConsultoria escreveu ficam no primeiro bloco. Quando pedirem a sua assinatura, é só clicar, revisar e assinar pela tela — com validade jurídica. Você baixa qualquer um deles quando quiser.",
+      "Propostas, contratos e atas que preparamos ficam no primeiro bloco. Para assinar, é só clicar, revisar e confirmar pela tela — com validade jurídica.",
   },
   {
     icon: FileUp,
@@ -115,7 +115,7 @@ const GUIA_EQUIPE: Passo[] = [
     icon: ShieldCheck,
     titulo: "Quem fala pela clínica",
     descricao:
-      "Quem é Responsável aceita proposta, contrata e cancela. Quem é Equipe cuida do dia a dia — envia documento, responde formulário e fala com o suporte — e vê tudo o mesmo tanto. A clínica nunca fica sem alguém que possa assinar.",
+      "Quem é Responsável aceita proposta, contrata e cancela serviço. Quem é Equipe cuida do dia a dia — mas vê tudo do mesmo jeito. A clínica nunca fica sem alguém que possa assinar.",
   },
 ];
 

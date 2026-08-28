@@ -1,6 +1,8 @@
 import { useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle } from "lucide-react";
 import { trpc } from "../../../lib/trpc";
+import { Button } from "../../../components/ui/button";
+import { EmptyState } from "../../../components/ui/empty-state";
 import { PortalCredenciamento } from "../PortalCredenciamento";
 import { usePortalNavegar } from "../navegar";
 
@@ -20,11 +22,38 @@ export function PortalCredenciamentoPage() {
   const q = trpc.portal.credenciamento.useQuery();
   const navegar = usePortalNavegar();
 
-  // Substitui o endereço de propósito: quem cai aqui sem credenciamento não deve poder
-  // "voltar" para uma tela que não existe para ele — o botão do navegador viraria um vaivém.
+  /*
+   * ⚠️ "SEM DADO" E "DEU ERRO" NÃO SÃO A MESMA COISA, e tratá-los junto era um defeito de
+   * verdade: quando a consulta FALHA, `isLoading` também fica falso e `data` também fica
+   * indefinido. O cliente que tocou em "Convênios" durante uma falha de rede seria devolvido
+   * ao Início em silêncio — e concluiria que perdeu o processo de credenciamento.
+   *
+   * Redirecionar, portanto, só quando o servidor respondeu e disse que não há processo.
+   * `substituir` de propósito: quem não tem credenciamento não deve poder "voltar" para uma
+   * tela que não existe para ele, senão o botão do navegador vira um vaivém.
+   */
   useEffect(() => {
-    if (!q.isLoading && !q.data) navegar("/portal", { substituir: true });
-  }, [q.isLoading, q.data, navegar]);
+    if (!q.isLoading && !q.isError && !q.data) navegar("/portal", { substituir: true });
+  }, [q.isLoading, q.isError, q.data, navegar]);
+
+  if (q.isError) {
+    return (
+      <EmptyState
+        icon={AlertTriangle}
+        title="Não conseguimos carregar a sua papelada"
+        description="Pode ter sido a conexão. Tente de novo — se continuar assim, fale com a nossa equipe pelo Suporte."
+      >
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button onClick={() => q.refetch()} disabled={q.isFetching}>
+            Tentar de novo
+          </Button>
+          <Button variant="outline" onClick={() => navegar("/portal/suporte")}>
+            Falar com o Suporte
+          </Button>
+        </div>
+      </EmptyState>
+    );
+  }
 
   if (q.isLoading || !q.data) {
     return (
@@ -37,8 +66,8 @@ export function PortalCredenciamentoPage() {
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold text-primary">Credenciamento nos convênios</h1>
-        <p className="text-muted-foreground">A papelada de cada médico, por convênio.</p>
+        <h1 className="text-2xl font-semibold text-primary">Convênios</h1>
+        <p className="text-muted-foreground">A papelada de credenciamento de cada médico.</p>
       </div>
       <PortalCredenciamento />
     </div>

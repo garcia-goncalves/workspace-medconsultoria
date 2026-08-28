@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Sparkles, Send } from "lucide-react";
 import { trpc } from "../../../lib/trpc";
 import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
+import { Skeleton } from "../../../components/ui/skeleton";
 import { Button } from "../../../components/ui/button";
 import { Textarea } from "../../../components/ui/textarea";
 import { toast } from "../../../components/ui/toast";
@@ -48,6 +49,20 @@ export function PortalServicosPage() {
       </div>
 
       <PortalServicos />
+
+      {/* ⚠️ Esta consulta leva ~12 s em produção. Sem um lugar reservado, a tela parecia
+          pronta e um card inteiro caía do céu doze segundos depois, empurrando o que o
+          cliente estava lendo. A silhueta diz "vem mais coisa" e o conteúdo chega no lugar
+          que já estava guardado para ele. */}
+      {catalogo.isLoading && (
+        <Card>
+          <div className="space-y-3 p-4">
+            <Skeleton className="h-4 w-44" />
+            <Skeleton className="h-11 w-full" />
+            <Skeleton className="h-11 w-full" />
+          </div>
+        </Card>
+      )}
 
       {/* Autosserviço: o cliente escolhe os serviços que precisa, e o pedido vira oportunidade no funil */}
       {catalogo.data && catalogo.data.length > 0 && (

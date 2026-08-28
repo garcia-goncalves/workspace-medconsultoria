@@ -54,7 +54,7 @@ function ItemDaBarra({
       }}
       className={cn(
         "relative flex min-w-0 select-none flex-col items-center justify-center gap-0.5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40",
-        variante === "barra" ? "h-full px-1 pb-[env(safe-area-inset-bottom)]" : "px-3 py-2.5",
+        variante === "barra" ? "h-full px-0.5 pb-[env(safe-area-inset-bottom)]" : "px-3 py-2.5",
         ativo ? "text-primary" : "text-muted-foreground hover:text-foreground",
       )}
     >
@@ -72,7 +72,17 @@ function ItemDaBarra({
           </span>
         )}
       </span>
-      <span className={cn("max-w-full truncate", variante === "barra" ? "text-[11px]" : "text-xs font-medium")}>
+      {/* ⚠️ O rótulo encolhe a 360px, e isso foi MEDIDO na tela, não estimado: com a vaga
+          preenchida são cinco itens de ~72px, e a 11px "Documentos" era cortado em
+          "Docume…". Rótulo cortado derruba metade da razão de ele existir — quem não
+          reconhece o ícone conta com a palavra. O nome completo continua sempre no
+          `aria-label`, para quem usa leitor de tela. */}
+      <span
+        className={cn(
+          "max-w-full truncate leading-tight",
+          variante === "barra" ? "text-[10px] min-[390px]:text-[11px]" : "text-xs font-medium",
+        )}
+      >
         {secao.rotulo}
       </span>
     </a>
