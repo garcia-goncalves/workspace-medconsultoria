@@ -1315,7 +1315,7 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
     if (pid && !projetoId) projetoId = pid;
   }
   if (!projetoId) {
-    const geral = await prisma.projeto.create({ data: { clienteId, nome: `Projeto — ${nomeCliente}`, responsavelId: resp }, select: { id: true } });
+    const geral = await prisma.projeto.create({ data: { clienteId, nome: "Projeto geral", responsavelId: resp }, select: { id: true } });
     await prisma.activityLog.create({ data: { userId, acao: "projeto.criado", entidadeTipo: "projeto", entidadeId: geral.id } });
     projetoId = geral.id;
   }
@@ -1371,7 +1371,8 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
     const inicio = proximoDiaUtil(3, 10);
     await prisma.evento.create({
       data: {
-        titulo: `Reunião de kickoff — ${nomeCliente}`,
+        // Sem o nome do cliente: a Agenda já o mostra num selo próprio ao lado do título.
+        titulo: "Reunião de kickoff",
         descricao: "Alinhamento inicial do onboarding após o fechamento. Ajuste a data/hora conforme a agenda do cliente.",
         tipo: "REUNIAO",
         escopo: "EMPRESA",

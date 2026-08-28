@@ -235,7 +235,9 @@ Equipe e acessos) · Serviços · Modelos · Equipe e acessos · Sistema (as 9 a
 | **B3** | Sistema → Desempenho | **P95 maior que o máximo** (256 ms de p95 com máximo de 184 ms), porque o percentil devolvia o teto do balde do histograma. |
 | **B4** | E-mail ao cliente | O médico que ativava o acesso ao **Portal** recebia "Bem-vindo ao **Workspace** MedConsultoria", prometendo clientes e finanças, com botão para o **sistema interno**. Mais o rodapé dos 42 templates e o e-mail de redefinir senha, com o mesmo vazamento. |
 
-## Achados em ABERTO — refino de tela, nenhum produz dado errado
+## Achados de refino — TODOS FECHADOS na ADR-136 (28/08/2026)
+
+> Os quatro foram corrigidos. O texto abaixo fica como o registro do que se via antes.
 
 ### B5 — o nome do cliente aparece até 3× na mesma linha
 

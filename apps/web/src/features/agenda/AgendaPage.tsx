@@ -303,6 +303,7 @@ export function AgendaPage() {
       clienteId: ev.clienteId,
       projetoId: ev.projetoId,
       participanteIds: ev.participantes.map((p) => p.id),
+      ocorrenciaClicada: ev.inicio,
     });
   const criarEm = (d: Date) => {
     setNovoInicio(d);

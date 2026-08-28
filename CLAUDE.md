@@ -13,7 +13,63 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-28 · madrugada · ADR-135 · a varredura de tela TERMINOU)
+## Estado atual (2026-08-28 · v1.2.1 NO AR + ADR-136 · os 4 refinos da auditoria, FECHADOS)
+
+- **✅ NO AR DESDE 28/08/2026 às 02:41 — a v1.2.1, com todo o lote da ADR-135.** Publicação
+  `33135568404` no commit `9ef24e9`, disparada por `workflow_dispatch` (o `gh workflow run` **foi
+  barrado para mim de novo** — quem colou o comando foi o dono). Suíte completa verde ANTES de
+  tocar no servidor, depois 7/7 no deploy: `found 0 vulnerabilities`,
+  **`No pending migrations to apply.`** (o lote não tinha migração), ensaio de boot com **16
+  portas ouvindo**, `restart.txt marcado em 2026-08-27 23:40:49`, `/health` = `{"status":"ok"}`,
+  `/` e `/credenciamentos` = **200**. Etiqueta **`v1.2.1`** criada e enviada à mão (o `deploy.yml`
+  continua não criando).
+- **⚠️ A TELA DE PRODUÇÃO LOGADA NÃO FOI CONFERIDA, e o motivo importa:** o Chrome do dono está em
+  produção com uma sessão de **cliente do Portal** (Clínica na Mooca), não de ROOT. `/sistema`
+  redireciona para o Portal. As duas provas que faltam — `SISTEMA → Manutenção` dizendo
+  **"CSP: Ligada"** e `SISTEMA → Desempenho` sem P95 maior que o máximo — **exigem o dono entrar
+  como ROOT**. Sem erro de console em duas cargas do Portal de produção.
+- **🔁 B6 — EDITAR UMA REPETIÇÃO MUDAVA A SÉRIE INTEIRA, SEM DIZER (ADR-136).** O único dos quatro
+  refinos com risco real: clicar na reunião de 24/08 abria o formulário em 03/08 (a 1ª ocorrência)
+  e salvar mudava **todas** as reuniões. ⚠️ **O conserto foi a frase, não o comportamento** —
+  editar só uma ocorrência exigiria exceção por data no banco para um problema que ninguém
+  relatou. Faixa âmbar no topo do formulário, com a regra em função pura testada (`avisoDeSerie`):
+  ⚠️ **hora diferente no MESMO dia não é divergência de dia**, e a comparação usa o formatador
+  central (fuso `America/Sao_Paulo`) — em UTC o aviso acenderia errado perto da meia-noite.
+- **👥 B7 — A COLUNA *PAPEL* NÃO DIZIA QUEM ASSINA (ADR-136).** *Equipe e acessos* dizia só
+  "Cliente" para os dois papéis da ADR-131. Agora mostra "· Responsável no Portal" / "· Equipe no
+  Portal". ⚠️ **Papel nulo é mostrado como Responsável** — a MESMA leitura de `podeNoPortal`; duas
+  leituras do mesmo nulo (uma na trava, outra na tela) é o modo de falha da ADR-133.
+- **✂️ B5 — O NOME DO CLIENTE APARECIA ATÉ 3× NA MESMA LINHA (ADR-136).** Os títulos gerados
+  (`"<Serviço> — <Cliente>"`, `"Reunião de kickoff — <Cliente>"`, `"Projeto — <Cliente>"`)
+  perderam o sufixo; toda tela que lista projeto já mostra o cliente ao lado. ⚠️ **Havia UM lugar
+  onde o nome viajava sozinho** — a notificação `projeto_participante` —, e lá o cliente passou a
+  ser acrescentado explicitamente, em vez de depender de estar embutido por acaso. ⚠️ **O que já
+  está gravado NÃO muda**: os antigos seguem com o nome dentro, e a tela fica misturada por um
+  tempo. ⚠️ **As contas do Financeiro ficaram como estão**, fora do escopo do achado.
+- **🏷️ B8 — "LEAD" DE UM LADO, "cliente" DO OUTRO (ADR-136).** Em Mensagens, a assinatura olhava
+  só `autor.role === "CLIENTE"` (lead e cliente do Portal são ambos `User` com esse papel); agora
+  olha também a categoria da conversa — a mesma fonte do selo da lista.
+- **Zero migração** neste lote — nada mudou no banco.
+- **Provas (ADR-136):** typecheck e lint verdes · **491 testes de unidade** do `@app/api` · **158
+  do `@app/web`** (5 novos) · **na tela**, como ROOT no localhost: a faixa do evento recorrente
+  com a data certa, "Cliente · Responsável no Portal" em Equipe, o projeto novo chamado só
+  **"Gestão Operacional"** ao lado dos antigos, "Clínica teste · lead" em Mensagens, e **zero erro
+  de console** nas quatro telas.
+
+### Ainda aberto depois desta janela
+
+- **⚠️ CONFERIR A v1.2.1 NA TELA DE PRODUÇÃO, como ROOT** — "CSP: Ligada" em *Manutenção*, o P95
+  em *Desempenho*, e a prévia do template "Boas-vindas ao Portal (cliente)". Depende do dono
+  entrar com a conta dele.
+- **⚠️ PENDÊNCIA DO DONO: preencher o "Foro de eleição"** em *Ajustes → Dados da empresa*. Está em
+  branco e o contrato sai com **`[A PREENCHER]`** — comportamento correto (o sistema não inventa
+  dado jurídico), mas precisa ser preenchido antes do primeiro contrato real. O resto dos dados
+  jurídicos e os bancários já estão completos.
+- **Sobra de teste no banco LOCAL:** contratei "Gestão Operacional" para a *Clínica Teste CNPJ*
+  para provar o B5, e deixei contratado. É o banco de desenvolvimento, que os e2e já enchem de
+  resíduo; cancelar criaria um estado artificial diferente.
+
+## Estado anterior (2026-08-28 · madrugada · ADR-135 · a varredura de tela TERMINOU)
 
 - **✅ A VARREDURA DE TELA ANTES DO DADO REAL ESTÁ CONCLUÍDA.** As **10 páginas** que faltavam
   foram percorridas clicando (Tarefas · Agenda · Projetos · E-mail · Mensagens · Ajustes e os 6
@@ -65,9 +121,9 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   botão *Entrar no Portal*, rodapé sem link interno e **zero** ocorrência de "workspace" — nele e
   no de redefinir senha.
 
-### Ainda aberto depois desta janela
+### Ainda aberto depois daquela janela — TUDO FECHADO na ADR-136
 
-- **Refino de tela (4), nenhum produz dado errado** — o nome do cliente aparecendo **até 3× na
+- ~~**Refino de tela (4), nenhum produz dado errado**~~ **FEITOS** — o nome do cliente aparecendo **até 3× na
   mesma linha** na Agenda e em Projetos; o evento **recorrente** que abre a data da 1ª ocorrência
   sem avisar que edita a série; a coluna *Papel* de Equipe sem distinguir **Responsável × Equipe**
   do Portal (ADR-131); e "LEAD" × "cliente" para a mesma pessoa em Mensagens. Detalhe no relatório.

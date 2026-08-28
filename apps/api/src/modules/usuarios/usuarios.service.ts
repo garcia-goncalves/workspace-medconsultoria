@@ -104,6 +104,10 @@ const publicSelect = {
   avatarUrl: true,
   clienteId: true,
   createdAt: true,
+  // Papel DENTRO da clínica (ADR-131). A coluna "Papel" da tela dizia só "Cliente", e quem
+  // olhava não sabia se aquela secretária pode assinar pela clínica. Nulo vale como
+  // RESPONSAVEL — são as contas anteriores à regra.
+  papelPortal: true,
   cliente: { select: { nome: true } },
 } as const;
 
