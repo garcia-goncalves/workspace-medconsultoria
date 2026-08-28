@@ -153,6 +153,15 @@ lugar só. Não espalhar checagem por chamador.
 Portal do cliente** — os dois visíveis a quem não é da casa. Inofensivo no local;
 **conferir em produção antes do dado real**.
 
+> ✅ **FECHADO em 27/08/2026, 21:50 — conferido em PRODUÇÃO, não presumido.** Depois da
+> publicação da `v1.2.0`, `/comecar` e o **"Solicitar" do Portal** foram abertos no
+> navegador em `workspace.medconsultoria.com.br`: os dois listam **só os 10 serviços
+> reais** (Gestão Operacional · Faturamento · Credenciamento · Negociação com operadoras ·
+> Branding · Manual da marca · Site · Redes sociais · Conteúdo & SEO · Tráfego pago).
+> **Nenhum** `Serviço E2E` ou `Serviço Guard`. O lixo é só do banco local, onde os e2e o
+> criam — e lá ele **fica**, porque limpar o banco de desenvolvimento não prova nada sobre
+> produção e o próximo `pnpm test:e2e` o recria.
+
 **A4 — fim do formulário público é beco sem saída.** Depois de "Recebemos seu contato!"
 não há link nenhum. Refino pequeno.
 
