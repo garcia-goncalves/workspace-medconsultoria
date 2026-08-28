@@ -11,6 +11,7 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
 import { Modal } from "../../components/ui/modal";
+import { EmptyState } from "../../components/ui/empty-state";
 import { toast } from "../../components/ui/toast";
 import { SuporteChat } from "./SuporteChat";
 
@@ -89,6 +90,7 @@ export function PortalSuporte() {
             onEnviar={(corpo) => sel && enviar.mutate({ conversaId: sel, corpo })}
             enviando={enviar.isPending}
             isLoading={thread.isLoading}
+            ancorarAcimaDaBarra
           />
         </div>
       ) : chamados.isLoading ? (
@@ -113,9 +115,18 @@ export function PortalSuporte() {
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-sm text-muted-foreground">
-          <LifeBuoy className="h-6 w-6 text-muted-foreground/40" />
-          Precisa de algo? Abra um chamado e fale com a nossa equipe.
+        /* Vazio com uma saída, não um aviso. Antes a tela dizia "abra um chamado" e o botão
+           ficava lá em cima, no cabeçalho do card — a instrução e a ação em lugares diferentes. */
+        <div className="p-4">
+          <EmptyState
+            icon={LifeBuoy}
+            title="Nenhum chamado aberto"
+            description="Precisa de alguma coisa? Abra um chamado que a nossa equipe responde por aqui."
+          >
+            <Button onClick={() => setAbrir(true)}>
+              <Plus className="h-4 w-4" /> Abrir chamado
+            </Button>
+          </EmptyState>
         </div>
       )}
 

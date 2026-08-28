@@ -2,11 +2,14 @@ import { useState } from "react";
 import { Check, Circle, Package, PenLine, Trash2 } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
+import { Skeleton } from "../../components/ui/skeleton";
+import { EmptyState } from "../../components/ui/empty-state";
 import { Button } from "../../components/ui/button";
 import { useConfirm, usePrompt } from "../../components/ui/confirm-dialog";
 import { toast } from "../../components/ui/toast";
 import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
 import { BriefingDialog } from "./BriefingDialog";
+import { usePodeNoPortal } from "./permissoes";
 
 /**
  * "Seus serviços" no Portal do Cliente: os serviços contratados, o que ainda falta
@@ -17,6 +20,9 @@ export function PortalServicos() {
   const confirm = useConfirm();
   const prompt = usePrompt();
   const q = trpc.portal.meusServicos.useQuery();
+  // Cancelar um serviço contratado é falar PELA clínica (ADR-131) — e a sessão de suporte da
+  // Med também não faz (ADR-128). A régua é a mesma função pura que o servidor usa.
+  const cancelamento = usePodeNoPortal()("cancelarServico");
   const invalidate = () => {
     utils.portal.meusServicos.invalidate();
     utils.portal.arquivos.invalidate();
@@ -31,7 +37,35 @@ export function PortalServicos() {
   const [briefing, setBriefing] = useState<string | null>(null);
 
   const servicos = q.data ?? [];
-  if (servicos.length === 0) return null; // prospect ainda sem serviços contratados
+
+  if (q.isLoading) {
+    return (
+      <Card>
+        <div className="space-y-2 p-4">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-20 w-full" />
+        </div>
+      </Card>
+    );
+  }
+
+  /*
+   * Vazio com voz, no lugar de um `return null`.
+   *
+   * Enquanto o Portal era uma página só, sumir era razoável: o cliente rolava e via as outras
+   * coisas. Agora isto é uma SEÇÃO com endereço próprio — quem toca em "Serviços" e recebe uma
+   * tela em branco não conclui "ainda não contratei nada", conclui que o sistema quebrou.
+   * O catálogo do autosserviço vem logo abaixo, na página, e é para lá que o texto aponta.
+   */
+  if (servicos.length === 0) {
+    return (
+      <EmptyState
+        icon={Package}
+        title="Você ainda não tem serviços ativos"
+        description="Veja abaixo o que podemos fazer por você — escolha e a nossa equipe prepara."
+      />
+    );
+  }
 
   const onCancelar = async (servicoId: string, nome: string) => {
     const motivo = await prompt({
@@ -76,12 +110,19 @@ export function PortalServicos() {
                   <Check className="h-3 w-3" /> Tudo enviado
                 </span>
               )}
-              <button
-                onClick={() => onCancelar(s.servico.id, s.servico.nome)}
-                className="ml-auto text-xs font-medium text-destructive hover:underline"
-              >
-                Cancelar serviço
-              </button>
+              {/* O SERVIÇO CONTINUA VISÍVEL para quem não pode cancelar — a trava é sobre agir,
+                  não sobre ver. A secretária precisa saber o que está contratado justamente para
+                  avisar quem cancela. O que sai é o botão, e a frase diz por quê. */}
+              {cancelamento.pode ? (
+                <button
+                  onClick={() => onCancelar(s.servico.id, s.servico.nome)}
+                  className="ml-auto text-xs font-medium text-destructive hover:underline"
+                >
+                  Cancelar serviço
+                </button>
+              ) : (
+                <span className="ml-auto text-xs text-muted-foreground">{cancelamento.frase}</span>
+              )}
             </div>
 
             {/* Os convênios que combinamos faturar (ADR-126). O cliente precisa poder conferir

@@ -450,6 +450,21 @@ const mapServico = <
   percentual: emReais(s.percentual),
 });
 
+/**
+ * Garante o catálogo canônico SEM ler a lista inteira.
+ *
+ * Existe porque o catálogo é criado **sob demanda**, e até 28/08/2026 quem o criava era, na
+ * prática, quem listasse serviços primeiro. No Portal isso era o `servicosDisponiveis` da página
+ * única — e ele deixou de rodar na abertura quando o Portal virou seções (ADR-139), porque leva
+ * 11,9 s em produção. Num banco recém-criado, o cliente que abrisse **Convênios** primeiro
+ * encontrava catálogo vazio: sem serviço de credenciamento, sem exigências, "Tudo enviado 0/0".
+ *
+ * Custa uma leitura de nomes. Quem precisa do catálogo garantido, e não da lista, chama isto.
+ */
+export async function garantirCatalogoDeServicos() {
+  await seedIfEmpty();
+}
+
 /** Todos os serviços (gestão) — inclui inativos + contagens de exigências e passos. */
 export async function listServicos() {
   await seedIfEmpty();

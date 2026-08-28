@@ -20,8 +20,10 @@ const TrocarSenhaPrimeiroAcessoPage = lazy(() => import("./features/auth/TrocarS
 const CapturaLeadPage = lazy(() => import("./features/captura/CapturaLeadPage").then((m) => ({ default: m.CapturaLeadPage })));
 const AssinarPage = lazy(() => import("./features/assinaturas/AssinarPage").then((m) => ({ default: m.AssinarPage })));
 const PropostaPublicaPage = lazy(() => import("./features/propostas/PropostaPublicaPage").then((m) => ({ default: m.PropostaPublicaPage })));
-const PortalLayout = lazy(() => import("./features/portal/PortalLayout").then((m) => ({ default: m.PortalLayout })));
-const PortalHome = lazy(() => import("./features/portal/PortalHome").then((m) => ({ default: m.PortalHome })));
+// O Portal virou um roteador próprio (`app/portal-router.tsx`). O que se carrega sob demanda é
+// o `PortalApp`, um arquivo fino que só devolve o `RouterProvider` dele — uma instância de
+// roteador não é um componente, e o `lazy` precisa de um.
+const PortalApp = lazy(() => import("./features/portal/PortalApp").then((m) => ({ default: m.PortalApp })));
 import { AuthProvider } from "./lib/auth-context";
 import { router } from "./app/router";
 import { DialogsProvider } from "./components/ui/confirm-dialog";
@@ -88,9 +90,7 @@ export function App() {
       <DialogsProvider>
         {me.data.role === "CLIENTE" ? (
           <SobDemanda>
-            <PortalLayout>
-              <PortalHome />
-            </PortalLayout>
+            <PortalApp />
           </SobDemanda>
         ) : (
           <RouterProvider router={router} />

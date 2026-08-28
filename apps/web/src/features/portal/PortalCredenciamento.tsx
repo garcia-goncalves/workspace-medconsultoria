@@ -57,14 +57,19 @@ export function PortalCredenciamento() {
   };
 
   const linhaDaVaga = (r: Requisito, v: Vaga, i: number) => (
-    <div key={`${r.id}-${v.profissionalId ?? ""}-${v.lado ?? i}`} className="flex items-center gap-2 py-0.5">
+    // `flex-wrap` a 360px: sem ele, a etiqueta do lado mais o nome do arquivo mais o botão
+    // estouram a largura e a linha rola para fora da tela.
+    <div key={`${r.id}-${v.profissionalId ?? ""}-${v.lado ?? i}`} className="flex flex-wrap items-center gap-2 py-1">
       {v.arquivo ? (
         <Check className="h-3.5 w-3.5 shrink-0 text-success" />
       ) : (
         <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
       )}
+      {/* Frente e verso são DUAS vagas separadas, cada uma com o próprio botão — a etiqueta
+          precisa ficar colada na vaga a que pertence, senão o cliente manda o mesmo lado duas
+          vezes e a barra de progresso não anda. */}
       {v.lado && (
-        <span className="w-12 shrink-0 text-[11px] font-semibold uppercase text-muted-foreground">
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           {LADO_ARQUIVO_LABEL[v.lado]}
         </span>
       )}

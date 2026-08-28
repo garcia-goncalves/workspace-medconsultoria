@@ -21,7 +21,7 @@ test("chamado cliente↔equipe em tempo real (sem refresh), reconexão e persist
   const ASSUNTO = `Chamado ${RUN}`;
 
   // ── CLIENTE abre um chamado pelo Portal ──
-  await cli.goto("/");
+  await cli.goto("/portal/suporte"); // o Suporte virou secao com endereco proprio
   await cli.getByRole("button", { name: "Abrir chamado" }).first().click();
   const modal = cli.getByRole("dialog");
   await modal.getByLabel("Assunto *").fill(ASSUNTO);

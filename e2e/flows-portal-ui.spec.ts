@@ -12,7 +12,7 @@ function campo(d: Locator, rotulo: string): Locator {
 
 test.describe.serial("Bloco 5 — Portal (UI)", () => {
   test("briefing: cliente preenche todos os tipos pela UI, envia e persiste", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/portal/servicos"); // o briefing e o cancelamento moram na seção Meus serviços
     // O briefing pode já ter resposta (outro spec HTTP usa o mesmo requisito) → aceita ambos os rótulos.
     await page.getByRole("button", { name: /Preencher na tela|Revisar resposta/ }).first().click();
     const d = page.getByRole("dialog");
@@ -47,7 +47,7 @@ test.describe.serial("Bloco 5 — Portal (UI)", () => {
   });
 
   test("cancelar serviço pela UI e confirmar estado após refresh", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/portal/servicos"); // o briefing e o cancelamento moram na seção Meus serviços
     const btnCancelar = page.getByRole("button", { name: "Cancelar serviço" }).first();
     await expect(btnCancelar).toBeVisible();
     await btnCancelar.click();

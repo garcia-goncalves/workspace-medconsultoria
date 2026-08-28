@@ -165,3 +165,31 @@ export function podeAssinarPelaClinica(
   if (sessao.papelPortal === "EQUIPE") return { pode: false, motivo: "SO_RESPONSAVEL" };
   return { pode: true };
 }
+
+/**
+ * PODE ESTA SESSÃO EXECUTAR ESTA AÇÃO DO PORTAL? — a régua ÚNICA, lida pela tela E pelo servidor.
+ *
+ * As duas condições já existiam, mas viviam soltas dentro do middleware do servidor: a sessão
+ * de suporte da Med (ADR-128, "vê tudo e não assina nada") e o papel EQUIPE (ADR-131). Funcionava
+ * — e a tela não sabia de nada. A secretária via quatro botões que o servidor ia recusar
+ * ("Não tenho mais interesse", "Quero retomar", "Solicitar" e "Cancelar serviço"), clicava,
+ * confirmava num modal e só então levava um "sem permissão".
+ *
+ * ⚠️ **Esconder o botão na tela sem trazer o servidor para a mesma função seria pior que o
+ * problema.** Seriam duas réguas para a mesma pergunta, e a primeira vez que alguém liberasse
+ * uma ação nova em `ACOES_LIBERADAS_PARA_EQUIPE` sem lembrar da tela, a tela esconderia um botão
+ * que o servidor aceita — o modo de falha da ADR-133, de novo. Por isso o servidor passou a
+ * chamar esta função, e a matriz de decisão dele é a mesma de antes, linha por linha.
+ *
+ * Devolve a CHAVE do motivo, não a frase: a frase de cada ponta é diferente de propósito (a tela
+ * diz "Só o responsável pela clínica cancela", ao lado do botão que sumiu; o servidor devolve a
+ * recusa completa, que pode chegar por API).
+ */
+export function podeAgirNoPortal(
+  sessao: SessaoQueAssina,
+  acao: AcaoDoPortal,
+): { pode: true } | { pode: false; motivo: MotivoSemAssinar } {
+  if (sessao.operador) return { pode: false, motivo: "SUPORTE_SO_LEITURA" };
+  if (!podeNoPortal(sessao.papelPortal, acao)) return { pode: false, motivo: "SO_RESPONSAVEL" };
+  return { pode: true };
+}

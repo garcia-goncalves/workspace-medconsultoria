@@ -4099,3 +4099,179 @@ como ROOT no localhost: em *Serviços → Faturamento → Configurar*, o botão 
 marcado, **sem** campo Valor, com os 5%; clicar em **"Valor fixo"** troca ao vivo para Valor +
 Cobrança padrão. Na *ficha da Clínica Vida Plena → Faturamento → Editar preço*, o mesmo botão,
 já em percentual, com os convênios. **Zero erro de console** nas duas.
+
+---
+
+## ADR-139 — O Portal do cliente vira aplicativo: barra de 4 coringas + 1 vaga, e seis seções com endereço
+
+**Data:** 2026-08-28 · **Status:** aceita · **Esteira:** `docs/esteira/portal-app-5-secoes-2026-08-28/`
+(briefing, spec, design, adendo) e `docs/superpowers/plans/portal-app-5-secoes.md`.
+
+### O problema
+
+O Portal do cliente era **uma página só, com 16 blocos empilhados**, escolhida por PAPEL em
+`App.tsx` e **ignorando o caminho** — qualquer endereço caía nela. Sem roteador, sem menu, sem
+abas, sem seção recolhível: 37 funcionalidades numa rolagem. Ordem do dono: *"o Portal precisa
+parecer um aplicativo no celular, com menu inferior"*.
+
+### A decisão que muda tudo: a barra tem 4 CORINGAS e 1 VAGA
+
+A recomendação era de **5 seções fixas** (Início · Documentos · Credenciamento · Meus serviços ·
+Suporte). O dono recusou, com a razão certa: *"nem todos nossos clientes tem convênios. Nem todos
+tem credenciamento tbm."*
+
+Então: **Início · Documentos · [vaga] · Serviços · Suporte**. Os quatro de fora valem para todo
+cliente. A 3ª posição é uma **vaga**, preenchida pela primeira candidata aplicável àquele cliente.
+Sem candidata, a barra tem **quatro** itens e fica simétrica — nunca cinco com um buraco, nunca um
+item morto.
+
+⚠️ **A vaga é uma LISTA DE CANDIDATAS (`features/portal/secoes.ts`), nunca um
+`if (temCredenciamento)` dentro da barra.** A diferença aparece na próxima frente de trabalho:
+quando o Faturamento ganhar tela própria, ela entra acrescentando **uma linha** — sem reabrir o
+componente, sem renegociar espaço, sem risco de a barra virar seis itens por descuido.
+
+Hoje há **uma** candidata, e isso é fato do repositório, não escolha: `PortalCredenciamento` é a
+única tela de frente que existe. Rótulo **"Convênios"**, porque "Credenciamento" (14 caracteres)
+não cabe num item de barra a 360px — e "Convênios" é como o médico chama isto de qualquer forma.
+
+### A segunda ordem do dono: Documentos são DOIS ACERVOS
+
+De um lado, o que a **MedConsultoria** preparou (briefing, proposta, contrato, ata): o cliente lê,
+aceita, assina — e não apaga. Do outro, o que o **cliente** enviou (RG, alvará, CRM, mini
+currículo): ele envia e remove — e não assina. A distinção **já existia no código** e é de FONTE
+(`portal.resumo.documentos` × `portal.arquivos`), com ações **opostas**.
+
+⚠️ **Nunca uma lista só ordenada por data.** Com o mesmo peso visual, assinar um contrato e apagar
+o próprio RG ficam a um clique um do outro — e é assim que o cliente apaga o que não devia.
+
+Entre os dois entrou o bloco **"o que ainda falta enviar"** (`ExigenciasPendentes`), a fila plana
+do que a Med está esperando. É o **único acionável** dos três, e por isso fica no MEIO: no fim da
+página, seria lido depois da lista do que já foi enviado — que é justamente onde o cliente conclui
+que entregou tudo.
+
+### Por que o roteador do Portal mora em arquivo próprio
+
+Dois testes-guarda leem o **TEXTO** de `apps/web/src/app/router.tsx` por expressão regular:
+`lib/paginas.test.ts` (toda rota precisa de lugar no menu lateral **da equipe** ou de exceção
+declarada) e `components/GuiaTour.test.ts` (toda rota precisa de guia próprio no catálogo
+**interno**). Uma rota do Portal ali reprovaria os dois, cobrando item de menu da equipe e guia
+interno para uma tela que é do cliente. Logo: `app/portal-router.tsx`, e `lib/paginas.ts` não muda
+uma linha.
+
+⚠️ **"Qualquer caminho cai no Portal" é contrato TESTADO em dois arquivos** — `flows-portal.spec`
+vai a `/financeiro` e `rbac.spec` vai a `/clientes`, e as quatro asserções procuram um cabeçalho
+que case `/Portal/i`. Quem preserva isso agora é a **rota curinga**; e o H1 do Início é
+**"Seu Portal"**, com a saudação no subtítulo — "Olá, Clínica X" quebraria as quatro.
+
+⚠️ **O redirecionamento de `/` para `/portal` NÃO PODE VAZAR** para `App.tsx` nem para o roteador
+interno. "Voltar ao meu acesso" recarrega para `/` (`FaixaDeSuporte.tsx`) e, a partir dali, a
+pessoa é FUNCIONARIO — para quem `/` é o Dashboard interno. Fora do roteador do Portal, o operador
+da Med voltaria ao Portal em laço, sem saída.
+
+### A trava de papel passou a aparecer ANTES do clique — com UMA régua só
+
+Quatro botões apareciam para quem o servidor ia recusar: *"Não tenho mais interesse"*,
+*"Quero retomar"*, *"Solicitar"* e *"Cancelar serviço"*. A secretária (EQUIPE, ADR-131) e a sessão
+de suporte da Med (ADR-128) clicavam, liam um modal, confirmavam — e só então levavam "sem
+permissão".
+
+⚠️ **Esconder só na tela seria pior que o problema:** seriam duas réguas para a mesma pergunta, e
+na primeira liberação nova em `ACOES_LIBERADAS_PARA_EQUIPE` a tela passaria a esconder um botão que
+o servidor aceita — o modo de falha da ADR-133. Nasceu `podeAgirNoPortal` (função pura,
+`@app/shared`) e **o `portalProcedure` passou a chamá-la**, no lugar das duas condições soltas. É
+refatoração **sem mudança de comportamento**, provada por um teste que percorre papel × ação ×
+sessão de suporte e confere contra a conta feita à mão.
+
+Na tela: **esconder COM EXPLICAÇÃO**, nunca desabilitar em silêncio. E **o item continua visível** —
+a trava é sobre agir, não sobre ver: a secretária precisa saber o que está contratado justamente
+para avisar quem cancela.
+
+### O ganho de desempenho que saiu de graça
+
+`portal.servicosDisponiveis` leva **11,9 s em produção** e era obrigatória para o Portal abrir,
+inclusive para quem só ia assinar um contrato. Com as seções, ela carrega **só em Meus serviços**,
+e `portal.emails` **só em Suporte**. Os três contadores da barra usam **as mesmas** consultas que
+as seções — mesma chave de cache, uma ida só ao servidor.
+
+### Decisões menores que valem registro
+
+- **Contador em três seções, não em cinco.** Início nunca tem contador (a seção *é* a fila) e
+  Documentos também não (não há fonte própria; a pendência já é contada nas outras duas).
+- **A fila de "o que falta enviar" lista só o OBRIGATÓRIO** — é exatamente o que o campo
+  `pendentes` do servidor conta e o que a pílula mostra. Incluir o "se houver" faria a barra dizer
+  2 e a fila mostrar 3.
+- **Um guia por seção** (`GuiaPortal.tsx`), com `/portal` **por último** na lista de prefixos: ele
+  é prefixo de todos os outros e, em primeiro lugar, capturaria as cinco seções. Mesma armadilha de
+  `/emails` × `/emails-enviados`.
+- **A barra continua visível dentro de um chamado de suporte** — escondê-la tiraria a única saída
+  de quem entrou por engano.
+- **Equipe da clínica e Perfil vão para o menu do avatar**, não para a barra: são configuração, e
+  um lugar na barra sairia caro para uma tela visitada uma vez por semestre.
+
+### O que ficou de fora, de propósito
+
+- **O preço no card do serviço contratado.** `portal.meusServicos` não devolve preço, e buscá-lo é
+  mexer no servidor — onde vale a ADR-118 (`Decimal` não atravessa o tRPC, e quando atravessa a
+  tela mostra "R$ NaN" sem um único erro de console).
+- **CRM do médico na tela de Convênios:** `credenciamentoParaOPortal` recorta para id, nome e
+  especialidade. Mostrar o CRM exigiria mexer no servidor.
+- **Os 4 achados de REGRA do Portal (M9, C7, C8, F20)**, por ordem do dono: misturar correção de
+  regra com redesenho faz o PR crescer e esconde qual das duas coisas quebrou.
+- Manifesto web, `viewport-fit=cover` e rota por chamado de suporte.
+
+### Dois defeitos que só a TELA mostrou
+
+1. **O selo "AMBIENTE LOCAL" caiu em cima da barra**, escondendo dois rótulos. Só no ambiente
+   local — mas justamente enquanto se testa a navegação. Ele agora sobe a altura da barra.
+2. **Com cinco itens a 360px, "Documentos" era cortado em "Docume…"** — medido, não estimado. O
+   rótulo encolhe para 10px abaixo de 390px; o nome completo continua no `aria-label`.
+
+E um que só a **revisão** pegou: `PortalCredenciamentoPage` tratava "consulta sem dado" e "consulta
+FALHOU" como a mesma coisa. Numa falha de rede, o cliente era devolvido ao Início **em silêncio** —
+e concluiria que perdeu o processo de credenciamento.
+
+### Provas
+
+`pnpm -r typecheck` e `pnpm -r lint` verdes · **suíte completa do `@app/api` verde (72 arquivos,
+679 testes**, 8 novos na matriz de papel × ação) · **171 testes do `@app/web`** (13 novos:
+`secoes.test.ts` e `GuiaPortal.test.ts`) · **39 testes de ponta a ponta verdes**, incluindo
+acessibilidade (axe) nas **cinco** seções do Portal · e **na tela**, como cliente do Portal a
+360x800 e a 1920x1080: as cinco seções, a barra com a vaga preenchida, o redirecionamento de
+`/financeiro` e de `/portal/xpto` para `/portal`, e **zero erro de console**.
+
+**Zero migração** — nada mudou no banco.
+
+### Adendo (mesma data) — o defeito que só o banco NOVO mostrou
+
+A CI reprovou `flows-credenciamento-portal` depois desta entrega, e a causa **era do redesenho**,
+não do ambiente — a rodada anterior do mesmo PR, só com documentação, passara.
+
+⚠️ **O catálogo de serviços da Med é criado SOB DEMANDA** (`seedIfEmpty`, em
+`servicos.service.ts`), e quem o criava, na prática, era quem listasse serviços primeiro. No
+Portal, isso era o `portal.servicosDisponiveis` da página única — que rodava em **toda** abertura.
+Tirá-lo da carga inicial (o ganho de desempenho desta ADR) tirou junto a semeadura: num banco
+recém-criado, o cliente que abrisse **Convênios** primeiro caía num catálogo vazio, e a tela dizia
+*"Tudo enviado 0/0"* com a papelada inteira faltando.
+
+⚠️ **Isso não aparece no banco de quem desenvolve** — ele tem o catálogo há meses. Aparece na CI e
+apareceria numa produção recém-nascida.
+
+O conserto tem duas metades, e a segunda é a que morde de verdade:
+
+1. `credenciamentoDoCliente` passou a **garantir o catálogo** antes de sincronizar
+   (`garantirCatalogoDeServicos` — uma leitura de nomes, não a lista de 11,9 s). Depender de
+   "alguém abriu outra tela antes" é acoplamento que só falha em banco novo.
+2. `sincronizarRequisitosCredenciamento` **memorizava "serviço inexistente" para sempre**: a
+   função guarda a promessa numa variável de módulo, e um resultado `{ ok: false, motivo:
+   "servico-inexistente" }` ficava gravado no processo. A sincronização nunca mais rodaria —
+   **nem depois de o serviço aparecer** — até alguém reiniciar o servidor. Agora esse resultado
+   não é memorizado, e a próxima chamada tenta de novo (o mesmo tratamento que a falha já tinha).
+
+**Como isto foi descoberto, e como descobrir de novo:** reproduzindo a semeadura EXATA da CI num
+banco novo local (`prisma migrate deploy` + `pnpm db:seed` + `pnpm db:demo`) e olhando o catálogo —
+ele volta **vazio**. Nenhuma leitura de código mostra isso, e nenhum revisor pegaria: o defeito é
+a soma de uma consulta que saiu de uma tela com uma semeadura que ninguém sabia estar pendurada
+nela.
+
+**Prova:** `flows-credenciamento-portal` **7/7 verde no banco isolado**, que reprovava 2 antes do
+conserto; suíte completa do `@app/api` verde (72 arquivos, 679 testes).

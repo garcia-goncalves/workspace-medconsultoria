@@ -2,8 +2,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import {
   hasRoleLevel,
+  podeAgirNoPortal,
   podeAssinarPelaClinica,
-  podeNoPortal,
   PORTAL_SO_RESPONSAVEL,
   type Role,
 } from "@app/shared";
@@ -84,31 +84,30 @@ export const portalProcedure = timed.use(
     if (ctx.user.role !== "CLIENTE" || !ctx.user.clienteId) {
       throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito ao Portal do Cliente" });
     }
-    // SESSÃO DE SUPORTE (ADR-128): a equipe **vê tudo e não assina nada**.
+    // QUEM PODE AGIR PELO CLIENTE — duas travas, uma régua só (`podeAgirNoPortal`).
     //
-    // A trava mora AQUI, e não em cada ação, de propósito. Marcar ação por ação exige acertar a
-    // lista hoje e lembrar dela em toda ação nova — e a que alguém esquecer é justamente a que
-    // vai morder, porque no Portal escrever é sempre falar pelo cliente: desistir do
-    // atendimento, cancelar serviço, pedir serviço novo, enviar briefing, apagar documento,
-    // abrir chamado. Barrando toda MUTAÇÃO num lugar só, ação nova nasce protegida.
+    // (1) SESSÃO DE SUPORTE (ADR-128): a equipe da Med **vê tudo e não assina nada**.
+    // (2) PAPEL DENTRO DA CLÍNICA (ADR-131): a secretária cuida do dia a dia e não fala pela
+    //     clínica; a lista de liberações tem padrão NEGAR, então ação nova nasce fechada.
     //
-    // Leitura segue livre — é para isso que a equipe entra no painel. E o que a equipe
-    // legitimamente precisa escrever (anexar documento, mudar dado cadastral, abrir conversa)
-    // ela faz pelas telas internas, assinando com o próprio nome.
-    if (type === "mutation" && ctx.user.operador) {
-      throw new TRPCError({ code: "FORBIDDEN", message: SUPORTE_SO_LEITURA });
-    }
-    // QUEM, DENTRO DA CLÍNICA, PODE ISTO (ADR-131).
+    // As duas moram AQUI, e não dentro de cada ação, de propósito. Marcar ação por ação exige
+    // acertar a lista hoje e lembrar dela em toda ação nova — e a que alguém esquecer é
+    // justamente a que vai morder, porque no Portal escrever é sempre falar pelo cliente.
     //
-    // Mora aqui pelo mesmo motivo da trava acima: numa clínica com médico, secretária e dono
-    // usando contas próprias, decidir permissão dentro de cada ação é apostar que ninguém vai
-    // esquecer — e a que esquecerem é a que cancela um serviço contratado. Aqui a ação nova
-    // nasce fechada, e liberar é acrescentar o nome dela em `ACOES_LIBERADAS_PARA_EQUIPE`.
+    // Só vale para MUTAÇÃO: os dois papéis leem tudo daquela clínica. A trava é sobre agir, não
+    // sobre ver — a secretária precisa conferir a cobrança que ela mesma processa.
     //
-    // Só vale para MUTAÇÃO: os dois papéis leem tudo daquela clínica. A trava é sobre assinar,
-    // não sobre ver — a secretária precisa conferir a cobrança que ela mesma processa.
-    if (type === "mutation" && !podeNoPortal(ctx.user.papelPortal, path.replace(/^portal\./, ""))) {
-      throw new TRPCError({ code: "FORBIDDEN", message: PORTAL_SO_RESPONSAVEL });
+    // ⚠️ A função é a MESMA que a tela usa para decidir se mostra o botão. Duas cópias
+    // divergiriam na primeira liberação nova, e a tela passaria a esconder um botão que o
+    // servidor aceita (ou a mostrar um que ele recusa) — o modo de falha da ADR-133.
+    if (type === "mutation") {
+      const veredito = podeAgirNoPortal(ctx.user, path.replace(/^portal\./, ""));
+      if (!veredito.pode) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: veredito.motivo === "SUPORTE_SO_LEITURA" ? SUPORTE_SO_LEITURA : PORTAL_SO_RESPONSAVEL,
+        });
+      }
     }
     return next({ ctx: { user: ctx.user, clienteId: ctx.user.clienteId } });
   }),
