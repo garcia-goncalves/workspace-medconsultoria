@@ -63,7 +63,42 @@ publicar é apertar um botão.
    *"Ensaio de boot"*, **a produção não foi tocada** — ela continua servindo a versão
    anterior, e não há nada de urgente a fazer.
 
-Pelo terminal, o equivalente é `gh workflow run deploy.yml -f confirmar=PUBLICAR`.
+Pelo terminal, o equivalente é `gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR`.
+
+> ⚠️ **Esse comando é RECUSADO quando o Claude o roda** — volta `Blocked by classifier`,
+> uma recusa seca, e o "pode subir" dito na conversa **não** a levanta. É de propósito:
+> a trava existe para que publicação em produção passe pela mão de uma pessoa. **Não
+> contorne com `gh api -X POST .../dispatches`** — achar o buraco derrota o motivo dele
+> existir. O caminho é o dono colar na conversa, com o `!` na frente:
+>
+> ```
+> ! gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR
+> ```
+>
+> Não sai saída nenhuma quando dá certo — é silencioso mesmo. Em 26/08/2026 o comando
+> passou direto e esta página chegou a dizer "tente primeiro"; em 27/08 barrou de novo.
+> **Conte com pedir**, e trate a passagem como sorte.
+
+### Depois que publicar: a etiqueta é passo à mão
+
+⚠️ **O `deploy.yml` NÃO cria a etiqueta de versão sozinho.** Sem ela, voltar atrás deixa de
+ser trivial — é a etiqueta que dá nome ao ponto de retorno. Assim que o smoke test ficar
+verde:
+
+```bash
+git tag -a v1.2.0 <sha-publicado> -m "v1.2.0 — publicado em <data> (run <id>)"
+git push origin v1.2.0
+```
+
+| Etiqueta | Commit | Publicada em | Execução |
+|---|---|---|---|
+| `v1.0.0` | `bd61f6a` | 22/08/2026 19:03 | `32591319305` |
+| `v1.1.0` | `d5dcc7c` | 26/08/2026 18:57 | `33015554302` |
+| `v1.2.0` | `cf243e6` | 27/08/2026 21:43 | `33129316255` |
+
+E **conferir na tela** — o smoke test prova que o site responde, não que a tela nova desenha
+certo. Foi assim que a ADR-118 quase foi ao ar mostrando `R$ NaN` sem um único erro de
+console.
 
 ### Os três segredos (uma vez por projeto, só o dono faz)
 
