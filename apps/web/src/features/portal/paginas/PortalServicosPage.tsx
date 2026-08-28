@@ -7,6 +7,7 @@ import { Textarea } from "../../../components/ui/textarea";
 import { toast } from "../../../components/ui/toast";
 import { ServicosPicker } from "../../crm/leads/ServicosPicker";
 import { PortalServicos } from "../PortalServicos";
+import { usePodeNoPortal } from "../permissoes";
 
 /**
  * MEUS SERVIÇOS — o que a clínica contratou, e o que ela ainda pode contratar.
@@ -21,6 +22,8 @@ export function PortalServicosPage() {
   const resumo = trpc.portal.resumo.useQuery();
   const catalogo = trpc.portal.servicosDisponiveis.useQuery();
   const utils = trpc.useUtils();
+  // Pedir serviço novo é falar PELA clínica (ADR-131): a secretária vê o catálogo e não pede.
+  const pedirServico = usePodeNoPortal()("solicitarServicos");
   const [pedidos, setPedidos] = useState<string[]>([]);
   const [msgServico, setMsgServico] = useState("");
 
@@ -63,6 +66,19 @@ export function PortalServicosPage() {
             )}
             {disponiveis.length === 0 ? (
               <p className="text-sm text-muted-foreground">Você já solicitou todos os nossos serviços. 🎉</p>
+            ) : !pedirServico.pode ? (
+              /* A LISTA CONTINUA VISÍVEL — a trava é sobre pedir, não sobre saber o que existe.
+                 O que sai é o formulário: um seletor que não pode ser enviado é uma armadilha. */
+              <>
+                <ul className="space-y-1 text-sm">
+                  {disponiveis.map((s) => (
+                    <li key={s.id} className="text-foreground">
+                      · {s.nome}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-muted-foreground">{pedirServico.frase}</p>
+              </>
             ) : (
               <>
                 <ServicosPicker servicos={disponiveis} value={pedidos} onChange={setPedidos} />

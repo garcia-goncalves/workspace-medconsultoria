@@ -6,6 +6,7 @@ import {
   PORTAL_PAPEIS,
   PORTAL_PAPEL_LABEL,
   podeAssinarPelaClinica,
+  podeAgirNoPortal,
 } from "@app/shared";
 
 /**
@@ -160,5 +161,82 @@ describe("podeAssinarPelaClinica — quem pode aceitar proposta e assinar contra
 
   it("conta interna da Med (sem papel de portal) não é barrada por esta regra", () => {
     expect(podeAssinarPelaClinica({ papelPortal: null, operador: null }).pode).toBe(true);
+  });
+});
+
+/**
+ * A RÉGUA ÚNICA DE "PODE AGIR" — a que a tela e o servidor passaram a compartilhar.
+ *
+ * Existe porque quatro botões do Portal ("Não tenho mais interesse", "Quero retomar",
+ * "Solicitar" e "Cancelar serviço") apareciam para quem o servidor ia recusar. Consertar só a
+ * tela criaria duas réguas para a mesma pergunta — o modo de falha da ADR-133 —, então o
+ * `portalProcedure` passou a chamar esta mesma função.
+ *
+ * A matriz abaixo é a prova de que a refatoração NÃO mudou comportamento: papel × ação ×
+ * sessão de suporte, com o resultado que o servidor já dava antes.
+ */
+describe("podeAgirNoPortal — papel x ação x sessão de suporte", () => {
+  const OS_QUATRO_BOTOES = ["desistir", "retomar", "solicitarServicos", "cancelarServico"] as const;
+
+  it("o RESPONSAVEL pode os quatro botões", () => {
+    for (const acao of OS_QUATRO_BOTOES) {
+      expect(podeAgirNoPortal({ papelPortal: "RESPONSAVEL", operador: null }, acao).pode, acao).toBe(true);
+    }
+  });
+
+  it("a EQUIPE não pode nenhum dos quatro, e o motivo é o papel", () => {
+    for (const acao of OS_QUATRO_BOTOES) {
+      const v = podeAgirNoPortal({ papelPortal: "EQUIPE", operador: null }, acao);
+      expect(v.pode, acao).toBe(false);
+      expect(v.pode === false && v.motivo).toBe("SO_RESPONSAVEL");
+    }
+  });
+
+  it("a EQUIPE PODE o que a lista de liberações libera — a trava é sobre agir pela clínica", () => {
+    for (const acao of ACOES_LIBERADAS_PARA_EQUIPE) {
+      expect(podeAgirNoPortal({ papelPortal: "EQUIPE", operador: null }, acao).pode, acao).toBe(true);
+    }
+  });
+
+  it("a sessão de suporte da Med não faz NADA, nem o que a EQUIPE pode", () => {
+    // ADR-128: "vê tudo, não assina nada". Vale inclusive para abrir chamado e enviar arquivo.
+    const suporte = { papelPortal: "RESPONSAVEL" as const, operador: { id: "u1", nome: "Thaís" } };
+    for (const acao of [...OS_QUATRO_BOTOES, ...ACOES_LIBERADAS_PARA_EQUIPE]) {
+      const v = podeAgirNoPortal(suporte, acao);
+      expect(v.pode, acao).toBe(false);
+      expect(v.pode === false && v.motivo, acao).toBe("SUPORTE_SO_LEITURA");
+    }
+  });
+
+  it("a sessão de suporte vence o papel: mesmo sendo EQUIPE, o motivo é o suporte", () => {
+    // A ordem importa para a MENSAGEM: quem está no painel do cliente precisa ler "modo de
+    // suporte", não "peça ao responsável da clínica" — o responsável não resolveria nada.
+    const v = podeAgirNoPortal({ papelPortal: "EQUIPE", operador: { id: "u1" } }, "cancelarServico");
+    expect(v.pode === false && v.motivo).toBe("SUPORTE_SO_LEITURA");
+  });
+
+  it("papel NULO vale como RESPONSAVEL — são as contas anteriores à regra", () => {
+    for (const acao of OS_QUATRO_BOTOES) {
+      expect(podeAgirNoPortal({ papelPortal: null, operador: null }, acao).pode, acao).toBe(true);
+    }
+  });
+
+  it("ação nova nasce FECHADA para a EQUIPE (o padrão é negar)", () => {
+    expect(podeAgirNoPortal({ papelPortal: "EQUIPE", operador: null }, "acaoQueNinguemEscreveuAinda").pode).toBe(false);
+  });
+
+  it("dá exatamente a mesma resposta que as duas condições soltas de antes", () => {
+    // A refatoração juntou `operador` + `podeNoPortal` numa função. Esta é a prova de que a
+    // matriz não mudou: para toda combinação, o veredito bate com a conta feita à mão.
+    const papeis = ["RESPONSAVEL", "EQUIPE", null] as const;
+    const acoes = [...OS_QUATRO_BOTOES, ...ACOES_LIBERADAS_PARA_EQUIPE, "qualquerOutra"];
+    for (const papelPortal of papeis) {
+      for (const operador of [null, { id: "u1" }]) {
+        for (const acao of acoes) {
+          const esperado = operador ? false : podeNoPortal(papelPortal, acao);
+          expect(podeAgirNoPortal({ papelPortal, operador }, acao).pode, `${papelPortal}/${acao}`).toBe(esperado);
+        }
+      }
+    }
   });
 });

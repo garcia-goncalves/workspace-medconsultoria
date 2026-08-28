@@ -20,6 +20,7 @@ import { Button } from "../../../components/ui/button";
 import { useConfirm, usePrompt } from "../../../components/ui/confirm-dialog";
 import { toast } from "../../../components/ui/toast";
 import { usePortalNavegar } from "../navegar";
+import { usePodeNoPortal } from "../permissoes";
 
 /**
  * INÍCIO — a fila do que precisa da atenção do cliente.
@@ -99,6 +100,11 @@ export function PortalInicio() {
   const confirm = useConfirm();
   const prompt = usePrompt();
   const navegar = usePortalNavegar();
+  const podeFazer = usePodeNoPortal();
+  // As duas ações desta tela que falam PELA clínica (ADR-131/ADR-128). Quem não pode vê a
+  // frase no lugar do botão — nunca um botão que o servidor vai recusar depois do modal.
+  const encerrar = podeFazer("desistir");
+  const voltarAtras = podeFazer("retomar");
 
   const desistir = trpc.portal.desistir.useMutation({
     onSuccess: () => {
@@ -194,14 +200,18 @@ export function PortalInicio() {
             </div>
             {r.podeDesistir && (
               <div className="mt-4 border-t pt-3">
-                <button
-                  type="button"
-                  onClick={pedirDesistencia}
-                  disabled={desistir.isPending}
-                  className="text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:opacity-50"
-                >
-                  Não tenho mais interesse
-                </button>
+                {encerrar.pode ? (
+                  <button
+                    type="button"
+                    onClick={pedirDesistencia}
+                    disabled={desistir.isPending}
+                    className="text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:opacity-50"
+                  >
+                    Não tenho mais interesse
+                  </button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{encerrar.frase}</p>
+                )}
               </div>
             )}
           </div>
@@ -221,9 +231,13 @@ export function PortalInicio() {
                 Mudou de ideia? É só retomar — sua equipe continua à disposição.
               </p>
             </div>
-            <Button variant="outline" size="sm" className="shrink-0" onClick={pedirRetomada} disabled={retomar.isPending}>
-              <RotateCcw className="h-4 w-4" /> Quero retomar
-            </Button>
+            {voltarAtras.pode ? (
+              <Button variant="outline" size="sm" className="shrink-0" onClick={pedirRetomada} disabled={retomar.isPending}>
+                <RotateCcw className="h-4 w-4" /> Quero retomar
+              </Button>
+            ) : (
+              <p className="shrink-0 text-xs text-muted-foreground">{voltarAtras.frase}</p>
+            )}
           </div>
         </Card>
       )}

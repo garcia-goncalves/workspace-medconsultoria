@@ -7,6 +7,7 @@ import { useConfirm, usePrompt } from "../../components/ui/confirm-dialog";
 import { toast } from "../../components/ui/toast";
 import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
 import { BriefingDialog } from "./BriefingDialog";
+import { usePodeNoPortal } from "./permissoes";
 
 /**
  * "Seus serviços" no Portal do Cliente: os serviços contratados, o que ainda falta
@@ -17,6 +18,9 @@ export function PortalServicos() {
   const confirm = useConfirm();
   const prompt = usePrompt();
   const q = trpc.portal.meusServicos.useQuery();
+  // Cancelar um serviço contratado é falar PELA clínica (ADR-131) — e a sessão de suporte da
+  // Med também não faz (ADR-128). A régua é a mesma função pura que o servidor usa.
+  const cancelamento = usePodeNoPortal()("cancelarServico");
   const invalidate = () => {
     utils.portal.meusServicos.invalidate();
     utils.portal.arquivos.invalidate();
@@ -76,12 +80,19 @@ export function PortalServicos() {
                   <Check className="h-3 w-3" /> Tudo enviado
                 </span>
               )}
-              <button
-                onClick={() => onCancelar(s.servico.id, s.servico.nome)}
-                className="ml-auto text-xs font-medium text-destructive hover:underline"
-              >
-                Cancelar serviço
-              </button>
+              {/* O SERVIÇO CONTINUA VISÍVEL para quem não pode cancelar — a trava é sobre agir,
+                  não sobre ver. A secretária precisa saber o que está contratado justamente para
+                  avisar quem cancela. O que sai é o botão, e a frase diz por quê. */}
+              {cancelamento.pode ? (
+                <button
+                  onClick={() => onCancelar(s.servico.id, s.servico.nome)}
+                  className="ml-auto text-xs font-medium text-destructive hover:underline"
+                >
+                  Cancelar serviço
+                </button>
+              ) : (
+                <span className="ml-auto text-xs text-muted-foreground">{cancelamento.frase}</span>
+              )}
             </div>
 
             {/* Os convênios que combinamos faturar (ADR-126). O cliente precisa poder conferir
