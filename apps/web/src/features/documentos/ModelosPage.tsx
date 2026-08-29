@@ -115,7 +115,7 @@ export function ModelosPage() {
                   {listaBriefings.map((f) => (
                     <div
                       key={f.id}
-                      className="group flex items-start gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+                      className="group flex min-w-0 items-start gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
                     >
                       <button
                         onClick={() => setCamposBriefing(f)}
@@ -174,7 +174,7 @@ export function ModelosPage() {
                         key={m.id}
                         to="/modelos/$modeloId"
                         params={{ modeloId: m.id }}
-                        className="group flex items-start gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+                        className="group flex min-w-0 items-start gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
                       >
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/5 text-primary ring-1 ring-inset ring-primary/10">
                           <FileText className="h-5 w-5" />

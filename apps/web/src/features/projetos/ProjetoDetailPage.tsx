@@ -455,7 +455,7 @@ export function ProjetoDetailPage() {
               onDragOver={onDragOver}
               onDragEnd={onDragEnd}
             >
-              <div className="flex min-w-0 gap-4 overflow-x-auto pb-2">
+              <div data-rolagem-horizontal className="flex min-w-0 gap-4 overflow-x-auto pb-2">
                 {CARD_STATUS_ORDER.map((status) => (
                   <Column
                     key={status}

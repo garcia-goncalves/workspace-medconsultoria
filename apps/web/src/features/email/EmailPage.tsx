@@ -477,8 +477,12 @@ export function EmailPage() {
 
   return (
     <div className="flex h-full overflow-hidden rounded-xl border bg-card shadow-sm">
-      {/* ── coluna 1: caixas e pastas (só no computador — no celular vira o Sheet abaixo) ── */}
-      <aside className="hidden w-56 shrink-0 flex-col border-r md:flex">
+      {/* ── coluna 1: caixas e pastas (só no computador — no celular e no tablet vira o Sheet
+          abaixo) ──
+          O corte é `lg`, não `md`: a 768px as TRÊS colunas (224 da barra de pastas + 380 da lista
+          + a leitura) não cabem, e quem era espremido até estourar a janela era justamente a
+          leitura — 179px de excesso medidos em `e2e/responsividade-total.spec.ts`. */}
+      <aside className="hidden w-56 shrink-0 flex-col border-r lg:flex">
         <div className="flex items-center justify-between gap-2 border-b p-3">
           <h1 className="text-sm font-semibold text-primary">E-mail</h1>
           <div className="flex items-center gap-1">
@@ -534,7 +538,7 @@ export function EmailPage() {
       >
         {/* Substitui o aside no celular: abre o painel de caixas/pastas + escrever, num espaço que
             não tem lugar para uma coluna a mais do lado da lista. */}
-        <div className="flex items-center gap-2 border-b p-2 md:hidden">
+        <div className="flex items-center gap-2 border-b p-2 lg:hidden">
           <button
             type="button"
             onClick={() => setMenuMobile(true)}

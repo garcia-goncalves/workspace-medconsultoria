@@ -94,7 +94,7 @@ function Column({
   );
   const totalColTexto = formatEstimativaDoFunil(totalCol, { compacto: true });
   return (
-    <div className="flex flex-col rounded-xl bg-muted/40 lg:h-full lg:min-w-0 lg:flex-1">
+    <div className="flex flex-col rounded-xl bg-muted/40 lg:h-full lg:min-w-[12rem] lg:flex-1">
       <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3.5 py-2.5">
         <span
           className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -663,8 +663,13 @@ export function LeadsPipelinePage() {
             )}
           </div>
 
-          {/* Desktop/tablet: as colunas lado a lado, com arraste (dnd-kit). */}
-          <div className="hidden min-h-0 flex-1 md:flex">
+          {/* Desktop/tablet: as colunas lado a lado, com arraste (dnd-kit).
+              `grid-cols-[minmax(0,1fr)]` (em vez de `flex`) é o que IMPEDE o quadro de vazar a
+              largura da janela — a trilha de grid com mínimo explícito 0 contém a largura do
+              conteúdo, que num `flex` seria o `min-width:auto` do conteúdo das colunas. É a mesma
+              solução do quadro de Projetos (`ProjetoDetailPage.tsx`); sem ela o funil empurrava a
+              janela em 385px a 1366px, medido em `e2e/responsividade-total.spec.ts`. */}
+          <div className="hidden min-h-0 flex-1 md:grid md:grid-cols-[minmax(0,1fr)]">
             <DndContext
               sensors={sensors}
               collisionDetection={closestCorners}
@@ -672,7 +677,7 @@ export function LeadsPipelinePage() {
               onDragOver={onDragOver}
               onDragEnd={onDragEnd}
             >
-              <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:items-stretch">
+              <div data-rolagem-horizontal className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-stretch lg:overflow-x-auto lg:pb-2">
                 {stages.data?.map((stage) => (
                   <Column
                     key={stage.id}

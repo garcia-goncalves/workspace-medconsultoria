@@ -135,6 +135,16 @@ async function verificarSemElementoEstourando(page: Page, url: string, vpNome: s
   const culpados = await page.evaluate((tolerancia) => {
     const largura = window.innerWidth;
     const achados: Array<{ seletor: string; texto: string; direita: number; excesso: number }> = [];
+    // Um filho de contêiner que rola na horizontal POR DESENHO (barra de abas, tabela larga)
+    // passa da borda de propósito — é para rolar dentro dele. Reprovar isso faria alguém
+    // "consertar" tirando a rolagem, que é justamente a solução.
+    //
+    // ⚠️ A marca é o atributo `data-rolagem-horizontal`, NUNCA o `overflow-x` calculado: o CSS
+    // transforma `visible` em `auto` no eixo oposto assim que um dos dois deixa de ser visível,
+    // então TODA lista com `overflow-y-auto` aparece como se rolasse na horizontal. Usar o estilo
+    // calculado escondia defeito real (cartões de /clientes e /modelos estourando 36px a 360px).
+    const dentroDeAlgoQueRola = (el: HTMLElement) => !!el.parentElement?.closest("[data-rolagem-horizontal]");
+
     const todos = document.body.querySelectorAll<HTMLElement>("*");
     for (const el of todos) {
       const estilo = getComputedStyle(el);
@@ -142,6 +152,7 @@ async function verificarSemElementoEstourando(page: Page, url: string, vpNome: s
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) continue;
       if (rect.right > largura + tolerancia) {
+        if (dentroDeAlgoQueRola(el)) continue;
         let seletor = el.tagName.toLowerCase();
         if (el.id) seletor += `#${el.id}`;
         const classes = typeof el.className === "string" ? el.className.trim().split(/\s+/).filter(Boolean).slice(0, 3) : [];
@@ -166,8 +177,14 @@ async function verificarSemElementoEstourando(page: Page, url: string, vpNome: s
 
 async function verificarZeroErroConsole(page: Page, url: string, vpNome: string) {
   const erros: string[] = [];
+  // O 412 (`PRECONDITION_FAILED`) NÃO é defeito: é o crachá que a ADR-135 deu ao erro ESPERADO
+  // "esta caixa de e-mail precisa ser reconectada" — a tela já o trata, mostrando o botão
+  // *Reconectar*. O navegador registra qualquer resposta fora do 2xx como erro de recurso, então
+  // contá-lo aqui reprovaria justamente o comportamento correto. Qualquer outro status continua
+  // reprovando.
+  const esperado = (t: string) => /Failed to load resource.*412 \(Precondition Failed\)/.test(t);
   const aoConsole = (m: import("@playwright/test").ConsoleMessage) => {
-    if (m.type() === "error") erros.push(m.text());
+    if (m.type() === "error" && !esperado(m.text())) erros.push(m.text());
   };
   const aoErroDePagina = (e: Error) => erros.push(e.message);
   page.on("console", aoConsole);

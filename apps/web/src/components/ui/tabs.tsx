@@ -78,6 +78,8 @@ export function TabsList({ children, className, "aria-label": ariaLabel }: { chi
     <div
       ref={ref}
       role="tablist"
+      // A barra de abas rola na horizontal de propósito quando não cabe — ver `table.tsx`.
+      data-rolagem-horizontal
       aria-label={ariaLabel}
       onKeyDown={onKeyDown}
       className={cn(

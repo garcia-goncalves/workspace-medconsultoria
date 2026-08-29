@@ -100,53 +100,49 @@ deram 10 nas três, sem crescer.
 
 ---
 
-# MEDIÇÃO FINAL DE RESPONSIVIDADE (29/08, ~04h) — o que exatamente falta
+# FECHAMENTO DA MEDIÇÃO (29/08, manhã) — os 5 tamanhos, área interna E Portal, VERDES
 
-Rodado com o banco de demonstração já correto. **Portal: 5/5 tamanhos APROVADO.**
-Área interna: reprova nos 5. Mas os achados se dividem em duas naturezas, e a
-distinção importa:
+## O falso positivo, e a armadilha que ele escondia
 
-## (1) FALSO POSITIVO DO TESTE — elemento dentro de contêiner que rola de propósito
+A primeira tentativa de corrigir o teste foi ignorar todo elemento com ancestral cujo
+`overflow-x` **calculado** fosse `auto`/`scroll`. **Isso cegou a régua.** O CSS transforma
+`visible` em `auto` no eixo oposto assim que um dos dois deixa de ser visível — então **toda
+lista com `overflow-y-auto` aparece como se rolasse na horizontal**. Medido com a régua cega:
+`/clientes @360` (cartão estourando **36px**) e `/modelos @390` (cartão estourando **105px**)
+passavam **aprovados**.
 
-O teste reprova qualquer elemento cujo `getBoundingClientRect().right` passe da
-largura da janela. **Isso é errado para filho de um contêiner com `overflow-x: auto`**:
-ele legitimamente se estende além do recorte, porque é para rolar. É exatamente o
-caso da barra de abas nova e da tabela dentro do `Table` (que já embrulha em
-`overflow-x-auto`).
+A regra que ficou é uma **marca explícita**: `data-rolagem-horizontal`, posta nos quatro lugares
+onde a rolagem lateral é desenho — `components/ui/table.tsx`, `components/ui/tabs.tsx`, a fileira
+do quadro de Projetos e a fileira do funil. Estilo calculado não distingue intenção; atributo
+distingue, e deixa escrito ali por que aquilo rola.
 
-Casos assim, todos provavelmente inofensivos — **conferir na tela antes de "corrigir"**:
-- `/emails`, `/leads`, `/projetos/$id` → `button#…-tab-….relative.flex.shrink-0`
-  (as abas de `tabs.tsx`, que rolam na horizontal por desenho)
-- `/documentos @ 768` → `table.w-full.text-sm` (+67px)
-- `/financeiro @ 768` → `table.w-full.text-sm` (+245px)
+## Os 4 defeitos reais, todos fechados
 
-**Correção certa:** em `e2e/responsividade-total.spec.ts`, na função
-`verificarSemElementoEstourando`, **ignorar elemento que tenha ancestral com
-`overflow-x` = `auto` ou `scroll`**. Sem isso o teste vai reprovar para sempre e
-alguém vai "consertar" tirando a rolagem horizontal — que é justamente a solução.
+| Rota | Era | Correção |
+|---|---|---|
+| `/leads @ 1366` | **+385px** | `grid-cols-[minmax(0,1fr)]` no lugar de `flex` + fileira com `overflow-x-auto` — a mesma solução do quadro de Projetos |
+| `/email @ 768` | +179px | a coluna de pastas passou a aparecer só a partir de `lg`; abaixo disso vira o painel que já existia. As TRÊS colunas (224 + 380 + leitura) não cabem em 768 |
+| `/modelos @ 360/390` | +135 / +105 | `min-w-0` no cartão — a trilha do grid nascia do min-content dele |
+| `/clientes @ 360` | +36px | idem |
 
-## (2) DEFEITOS REAIS que sobraram (4)
+## O `412` do `/email` NÃO é defeito
 
-| Rota | Tamanho | Elemento | Excesso |
-|---|---|---|---|
-| `/leads` | **1366** | `div.flex.min-h-0.flex-1` (o quadro do funil no computador) | **+385px** |
-| `/email` | 768 | `p.m-auto.text-sm.text-muted-foreground` ("Escolha um e-mail para ler.") | +179px |
-| `/modelos` | 360 / 390 | `div.group.flex.items-start` (cartão do modelo, título sem truncar) | +135 / +105 |
-| `/clientes` | 360 | `div.group.flex.cursor-pointer` (cartão do cliente) | +36px |
+É o crachá que a ADR-135 deu ao estado esperado *"esta caixa precisa ser reconectada"* — a tela já
+o trata, com o botão **Reconectar**. O navegador registra qualquer resposta fora do 2xx como erro
+de recurso. A verificação de console passou a dispensar **só** esse status, com o porquê ao lado.
 
-⚠️ O de `/leads @ 1366` é o mesmo modo de falha que o quadro de projetos tinha: o
-board empurrando a janela em vez de rolar dentro de si. A solução já existe e está
-aplicada em `ProjetoDetailPage.tsx` (grid que se contém, `grid-cols-[minmax(0,1fr)]`)
-— **copiar de lá.**
-⚠️ O de `/clientes @ 360` foi "corrigido" com `min-w-0`, mas **continua**. Reconferir:
-o nome no teste isolado é longo (`Cliente E2E (e-mail na ficha)`), então pode ser
-outro elemento da mesma linha que não encolhe.
+## Prova
 
-## (3) Ruído de ambiente que JÁ FOI RESOLVIDO
+- `pnpm typecheck` **6/6** · `pnpm lint` limpo
+- `pnpm --filter @app/web test` → **213 verdes**
+- `pnpm --filter @app/api test` (suíte inteira) → **785 verdes**. ⚠️ Uma reprovação apareceu em
+  `email-caixa.integration.test.ts` quando a suíte rodou **junto** com o e2e isolado; sozinha, a
+  mesma suíte de arquivo dá **16/16**. É disputa de recurso entre as duas rodadas, não defeito.
+- `e2e/responsividade-total.spec.ts` no runner isolado → **verde nos 5 tamanhos, 30 rotas, área
+  interna e Portal**.
 
-O `412 Precondition Failed` do `/email` sumiu: era a `CaixaEmail` semeada pedindo
-reconexão, e a limpeza não a apagava. Corrigido no commit `bbc84ff`.
+## Armadilha nova desta rodada
 
-Ainda aparece nos logs: `ECONNREFUSED 127.0.0.1:587` (a máquina não tem servidor
-de e-mail — **é o esperado**, não é defeito) e `Target page/browser has been closed`
-(instabilidade do Chromium no teste, some no retry).
+⚠️ **O runner isolado deixa servidor de pé quando a rodada é interrompida**, e a rodada seguinte
+**trava calada** na semeadura das fixtures (fica parada, sem mensagem). O que destrava é matar
+quem estiver ouvindo em **4410** e **4419** antes de rodar de novo.

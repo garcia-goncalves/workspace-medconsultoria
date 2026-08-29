@@ -4553,3 +4553,78 @@ typecheck 6/6 · lint limpo · **729 testes** do `@app/api` (**3 novos de integr
 reprovando antes** — o primeiro falhou com `expected 1 to be +0`, que é exatamente o número da
 tela de produção) · 171 do `@app/web` · na tela local, "Nome da clínica" com o exemplo e os quatro
 indicadores coerentes, **zero erro de console**. **Zero migração.**
+
+## ADR-143 — O refino da experiência inteira: 30 telas que funcionam no celular, e a régua que mede isso sem mentir
+
+**Data:** 29/08/2026 · **Contexto:** ordem do dono — *"refinar as 30 telas até dar gosto de usar,
+responsivo de verdade a 360px, com conteúdo que faça sentido para uma consultoria médica, tudo
+testado — Portal incluído"*. Esteira em `docs/esteira/refino-experiencia-2026-08-29/`.
+
+### A caixa de peças veio antes das telas
+
+`packages/ui` exportava **só `cn`**. Não havia aba, painel lateral, balão, sanfona nem tabela que
+soubesse virar cartão no celular — então cada tela que precisasse de uma inventava a sua, e o
+refino não se sustentaria por duas semanas. Nasceram `tabs`, `sheet`, `popover`, `accordion`,
+`dialog-stack` e `data-table` (acima de `md` tabela, abaixo cartões, alvo de toque de 44px), mais a
+prop `hint` em `PageHeader`, `Modal` e `CardTitle`. ⚠️ **Tudo à mão, nenhuma biblioteca nova** — o
+custo de uma dependência a mais no artefato publicado é permanente, e estas seis peças somam menos
+de 400 linhas.
+
+### A causa raiz do vazamento era uma linha do esqueleto
+
+Vinte telas empurravam a janela para os lados, e a causa não estava em nenhuma delas: era o
+`<main>` do `AppLayout` **sem `min-w-0`** — o `min-width: auto` do Flexbox, que faz um item nunca
+encolher abaixo do conteúdo dele. O mesmo modo de falha reapareceu duas vezes mais alto: em **grid**,
+a trilha `1fr` é `minmax(auto, 1fr)`, e esse `auto` é o **min-content do cartão**; sem `min-w-0` no
+cartão, um único chip que não encolhe alarga a coluna inteira. Foi o que sobrou em `/clientes` e
+`/modelos` a 360px, depois de tudo o mais estar resolvido.
+
+⚠️ **Para quadro (Kanban), `min-w-0` não basta:** o funil e o quadro de projetos usam
+`grid-cols-[minmax(0,1fr)]` no lugar de `flex`, com a fileira de colunas rolando dentro de si
+(`overflow-x-auto`). Foram 385px de excesso no funil a 1366px — num notebook comum.
+
+### ⚠️ A régua não pode se enganar sozinha (e se enganou)
+
+A medição é `e2e/responsividade-total.spec.ts`: 30 rotas × 5 tamanhos, conferindo overflow do
+documento, elemento estourando, erro de console, alvo de toque e texto cortado.
+
+Ela reprovava a barra de abas e a tabela larga, que rolam na horizontal **de propósito**. A primeira
+correção foi ignorar todo elemento com ancestral cujo `overflow-x` calculado fosse `auto`/`scroll` —
+e **isso cegou o teste**: o CSS transforma `visible` em `auto` no eixo oposto assim que um dos dois
+deixa de ser visível, então **toda lista com `overflow-y-auto` passa a parecer que rola na
+horizontal**. Medido: com essa regra, os cartões de `/clientes` estourando 36px e os de `/modelos`
+estourando 105px passavam como aprovados.
+
+A regra que ficou é uma **marca explícita no código**: `data-rolagem-horizontal`, posta nos quatro
+lugares onde a rolagem lateral é desenho (`Table`, `TabsList`, e as duas fileiras de Kanban). Estilo
+calculado não distingue intenção; atributo distingue — e ainda deixa escrito, ali, por que aquilo
+rola. Sem isso, a saída fácil seria "consertar" tirando a rolagem, que é justamente a solução.
+
+⚠️ **O `412 Precondition Failed` do `/email` também é comportamento certo**, não erro: é o crachá que
+a ADR-135 deu ao estado esperado *"esta caixa precisa ser reconectada"*, que a tela já trata com o
+botão **Reconectar**. O navegador registra qualquer resposta fora do 2xx como erro de recurso; a
+verificação de console passou a dispensar **só** esse status, com o porquê escrito ao lado.
+
+### O que mais entrou nesta esteira
+
+- **Cada passo do funil diz de quem está esperando** — enum `QuemFaz` (MED/CLIENTE) em
+  `ServicoPasso` e `LeadPasso` (migração `20260829014839`, duas colunas com padrão; reverter é
+  `DROP COLUMN`), com selo âmbar *"com a clínica"* no painel do lead.
+- **Cinco defeitos de cobrança** (M1, C10, M15, F8, F9) e **cancelar serviço encerra a mensalidade**
+  — ⚠️ são **dois movimentos**: `recorrenciaAte = hoje` na série inteira (senão a varredura da
+  madrugada cria a próxima) **mais** o soft-delete só das parcelas futuras em aberto. **O que já
+  venceu fica de pé** — o serviço foi prestado naquele mês.
+- **Cinco avisos que nunca chegavam** (C1, C2, M6, M8, C8).
+- **`pnpm db:limpar` deixava NOVE tabelas para trás**, entre elas `Profissional`, `Credenciamento` e
+  **`CaixaEmail`, que guarda a senha IMAP cifrada de cada pessoa**. ⚠️ **A cascata do banco não salva
+  aqui**: o script desliga as chaves estrangeiras durante a limpeza, então **tabela ausente da lista
+  é tabela que sobrevive**.
+- **A carteira de demonstração nasce pelos fluxos reais** (`pnpm db:demo:rica`), não por linhas
+  soltas — inclusive com três credenciamentos datados para trás, para o alerta âmbar da tela de
+  Credenciamentos acender na demonstração.
+
+### Prova
+
+typecheck 6/6 · lint limpo · **213 testes** do `@app/web` · **785** do `@app/api` (suíte inteira,
+integração incluída) · e a medição de responsividade **verde nos 5 tamanhos, nas 30 rotas, área
+interna e Portal** — o mesmo arquivo que reprovava os cinco tamanhos no começo da rodada.

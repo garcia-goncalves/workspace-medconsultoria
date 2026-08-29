@@ -131,7 +131,9 @@ function ClienteCard({ c, onOpen, onConvidarPortal }: { c: ClienteItem; onOpen: 
   return (
     <div
       onClick={onOpen}
-      className="group flex cursor-pointer flex-col rounded-xl border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+      // `min-w-0`: sem ele a trilha do grid nasce do MIN-CONTENT do cartão, e o cartão inteiro
+      // fica mais largo que a coluna — era o estouro de 36px a 360px.
+      className="group flex min-w-0 cursor-pointer flex-col rounded-xl border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
     >
       <div className="flex items-start gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-blueLight to-primary text-sm font-semibold text-white shadow-sm">
