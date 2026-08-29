@@ -105,6 +105,10 @@ export default {
           from: { transform: "translateX(100%)" },
           to: { transform: "translateX(0)" },
         },
+        "slide-in-bottom": {
+          from: { transform: "translateY(100%)" },
+          to: { transform: "translateY(0)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.15s ease-out",
@@ -112,6 +116,9 @@ export default {
         "slide-down": "slide-down 0.16s ease-out",
         "slide-in-right": "slide-in-right 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
         "slide-in-panel": "slide-in-panel 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
+        // Painel do Sheet quando `lado="baixo"` (padrão no celular) — mesmo gesto do
+        // `slide-in-panel` (borda → dentro), só que a partir de baixo.
+        "slide-in-bottom": "slide-in-bottom 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
       },
     },
   },

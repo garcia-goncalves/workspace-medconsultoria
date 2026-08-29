@@ -120,4 +120,19 @@
     background-color: hsl(215 16% 70%);
     background-clip: content-box;
   }
+
+  /* Respeita "reduzir movimento" do sistema operacional para TODA animação/transição do app
+     (inclusive as `animate-*` do preset já usadas por Modal e pelo drawer do AppLayout) — um
+     kill-switch central em vez de replicar a checagem em cada componente novo (Sheet, Popover,
+     Accordion). Só entra em vigor quando o usuário liga a preferência; nada muda por padrão. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
