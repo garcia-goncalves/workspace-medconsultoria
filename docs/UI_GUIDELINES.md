@@ -115,6 +115,38 @@ Use SEMPRE estes em vez de repetir classes inline — garante consistência de t
 - **`Modal`** — diálogo (Esc/click-fora fecham). Backdrop com blur, header com borda, corpo rolável (`max-h-[90vh]`), animação de entrada.
 - **`Skeleton` / `TableSkeleton`** — placeholders de carregamento. **Prefira-os a spinners** em telas com layout (listas, tabelas, cards). Spinner (`Loader2`) fica só para botões/ações inline.
 
+#### Acrescentados em 29/08/2026 (o refino responsivo)
+
+Até esta data o repositório **não tinha** abas, painel lateral, balão interativo, sanfona nem
+tabela de dados — cada tela inventava a sua, e é por isso que refino não "pegava" na tela
+seguinte. Continuam sendo implementação própria (Tailwind + `cva` + `cn`): **não há Radix,
+shadcn nem Headless UI instalados, e não devem ser.**
+
+- **`DataTable`** — a peça de maior alavancagem do refino. **Acima de `md` é tabela de verdade**
+  (reusa `Table`/`TH`/`TD`); **abaixo vira lista de cartões**: a coluna marcada `principal` é o
+  título do cartão, as demais viram pares rótulo/valor, as `ocultaEmCelular` somem, e as ações
+  ganham alvo de toque de 44px. Colunas são dados (`{ chave, cabecalho, render, alinhamento?,
+  ocultaEmCelular?, principal?, valorOrdenacao? }`), ordenação com `aria-sort` correto.
+  ⚠️ **Toda tabela nova nasce aqui** — tabela crua com `overflow-x` é inutilizável no telefone.
+- **`Tabs`** — abas com papéis ARIA, setas/Home/End e `roving tabindex`. ⚠️ Abaixo de `sm` as
+  abas **rolam na horizontal**; nunca quebram em duas linhas.
+- **`Sheet`** — painel que desliza. `lado`: `direita` · `esquerda` · `baixo`. ⚠️ **No celular o
+  padrão vira `baixo`** — é o gesto natural no telefone.
+- **`Popover`** — balão ancorado para conteúdo **clicável** (o `Tooltip` só serve para texto).
+  Em portal, vira sozinho quando falta espaço na tela. `role="dialog"` **sem** `aria-modal`:
+  não bloqueia a página, e é essa a diferença deliberada para o `Sheet`.
+- **`Accordion`** — seções recolhíveis, para encolher blocos longos no celular. ⚠️ Seção fechada
+  recebe `inert`: sai do `Tab` e do leitor de tela, em vez de só sumir visualmente.
+- **`dialog-stack.ts`** — a pilha de `Esc` e a prisão de foco, extraídas do `Modal`. ⚠️ **Overlay
+  novo usa esta pilha**, nunca uma segunda: com duas pilhas independentes, um `Esc` fecharia dois
+  overlays de uma vez quando um estivesse por cima do outro.
+- **`hint` em `PageHeader`, `Modal` e `CardTitle`** — o "?" com balão, mesmo padrão do `Label`.
+  É para onde vai o texto explicativo longo. Régua: **até ~25 palavras cabe no balão**; acima
+  disso, encurte ou mande para o Guia. ⚠️ **Nem todo texto longo é excesso** — aviso que evita
+  perda de dado, consequência antes de ação destrutiva e obrigação legal ficam na tela.
+- **`prefers-reduced-motion`** agora é honrado globalmente (`index.css`): quem pediu menos
+  movimento no sistema operacional tem toda animação e transição zeradas.
+
 Convenções: título de página `text-2xl font-semibold tracking-tight text-primary`; subtítulo `mt-1 text-sm text-muted-foreground`; grid de cards `gap-3`; seções `space-y-6`.
 
 ### Fundação elevada (tokens + shell)
@@ -151,7 +183,20 @@ Convenções: título de página `text-2xl font-semibold tracking-tight text-pri
 - **Feedback imediato:** toda mutação dá retorno (toast/optimistic update). Erros em linguagem humana, em PT-BR, dizendo o que fazer.
 - **Busca global (Cmd-K)** encontra cliente/projeto/tarefa rapidamente.
 - **Consistência:** mesma ação → mesmo lugar → mesmo rótulo em todo o app.
-- **Mobile:** o MVP é desktop-first (uso operacional interno), mas layout responsivo básico não deve quebrar. App mobile dedicado não está no escopo agora.
+- **Mobile — a regra MUDOU em 29/08/2026, por ordem do dono ("totalmente responsivo").**
+  A linha anterior dizia *"o MVP é desktop-first, layout responsivo básico não deve quebrar"*.
+  Não vale mais. Hoje:
+  - **A aplicação interna** continua **otimizada** para o computador — é onde a Thaís opera oito
+    horas —, mas precisa **funcionar de verdade** no celular, não só "não quebrar".
+  - **O Portal do cliente é projetado a partir do celular.** É lá que o médico e a secretária o
+    abrem, poucas vezes por mês, com pressa. Desenhar no desktop e encolher é o caminho errado.
+  - **A régua é 360px**, e ela é verificada por teste (`e2e/responsividade-total.spec.ts`):
+    nenhuma rota pode vazar na horizontal, nenhum elemento pode estourar a janela, e no Portal
+    nenhum alvo clicável pode ter lado menor que **44px**.
+  - ⚠️ **`title="..."` nativo não existe no toque.** Botão só-ícone precisa de `aria-label` e,
+    quando a explicação importa, do `Tooltip` do projeto. Foram medidos ~201 botões dependendo
+    só do `title` — no celular, ninguém descobre o que eles fazem.
+  - App nativo continua fora do escopo.
 
 ---
 
