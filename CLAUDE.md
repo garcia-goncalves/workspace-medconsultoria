@@ -13,7 +13,55 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-28 · noite · v1.3.0 NO AR — o lote ADR-139 + ADR-140 + ADR-141 publicado)
+## Estado atual (2026-08-28 · madrugada · ADR-142 na `main` + OS DADOS DA EMPRESA FORAM PREENCHIDOS EM PRODUÇÃO)
+
+- **✅ O BLOQUEIO DO DADO REAL CAIU: o dono preencheu os campos jurídicos e bancários de PRODUÇÃO
+  em 28/08, à mão, na tela.** Conferido reabrindo o formulário (que carrega do servidor):
+  razão social **Thais Garcia de Sousa** · CNPJ **34.270.022/0001-93** · **foro "Comarca de São
+  Paulo/SP"** (que estava dado como pendência do dono desde 27/08 — ele resolveu junto) · endereço
+  *"Alto da Mooca - SP"* · Nubank / 0001 / 686169152-5 · titular Thais Garcia de Sousa · PIX
+  34.270.022/0001-93. ⚠️ **O DPO continua vazio** — benigno, a página cai no e-mail institucional.
+- **✅ `/privacidade` DE PRODUÇÃO JÁ IDENTIFICA O CONTROLADOR**, conferido na tela: *"Thais Garcia
+  de Sousa, CNPJ 34.270.022/0001-93, com sede em Alto da Mooca - SP"*. **A pendência da LGPD que
+  travava o dado real está FECHADA.** Zero erro de console.
+- **⚠️ O ENDEREÇO AINDA ESTÁ INCOMPLETO** — *"Alto da Mooca - SP"* não tem rua, número nem CEP. Já
+  não sai `[A PREENCHER]`, mas é endereço que não localiza a empresa; sai assim no contrato e na
+  página pública. **Pendência do dono.**
+- **⚠️ DOCUMENTO JÁ GERADO NÃO SE CORRIGE SOZINHO.** A *Proposta comercial – Clínica na Mooca*
+  (27/08) segue **sem o bloco de dados para pagamento** — conferido lendo o papel inteiro em
+  produção. O documento guarda o texto de quando foi gerado; **se essa proposta for usada, tem de
+  ser gerada de novo**. Documento novo já nasce certo.
+- **📭 NÃO EXISTE NENHUM CLIENTE DE VERDADE EM PRODUÇÃO — só o prospect.** Descoberto ao tentar
+  provar o contrato: o seletor de cliente do "Novo documento" responde **"Nenhum cliente
+  encontrado"**, porque a *Clínica na Mooca* ainda é PROSPECT e contrato só se emite para cliente
+  convertido. **É a mesma raiz do "Total de clientes 0" corrigido na ADR-142.** Consequência: o
+  contrato com dado real **ainda não foi provado na tela** — só o será quando houver a 1ª conversão.
+- **🔒 EU NÃO CONSIGO DIGITAR EM FORMULÁRIO DE PRODUÇÃO.** Tentado das duas formas (`form_input` e
+  clique + digitação): **`Blocked by classifier` nas duas**, e **inclusive em campo de texto comum**
+  como Razão social — não é só o campo bancário. Navegar, rolar, abrir modal, ler e capturar tela
+  passam normalmente. **O sim do dono na conversa não levanta a trava**, igual ao `gh workflow run`.
+  O caminho que funciona: abrir a tela para ele e entregar os valores prontos para colar.
+- **✅ ADR-142 NA `main`** (PR #154, squash, CI 3/3 verde, commit `b9798fa`). **Zero migração.** Dois
+  consertos:
+  - **Os dois números que se contradiziam em Clientes.** *"Total de clientes 0"* ao lado de
+    *"Com Portal ativo 1"*, visto em produção. A contagem não estava errada — contava **outro
+    universo**: `total`/`ativos`/`inativos` excluem o PROSPECT (ADR-24), mas `portaisAtivos`
+    contava toda conta de Portal, inclusive a do prospect (ADR-128). ⚠️ **A correção é estreitar a
+    contagem, não trocar o rótulo** — renomear deixaria a página com um número que fala de um
+    conjunto que ela não lista.
+  - **O campo "Nome" do cliente estava declarado como nome de PESSOA.** Achado ao responder a
+    pergunta do dono (*"no lead tem NOME e CLÍNICA, no cliente só tem NOME — é assim mesmo?"*). **É
+    assim de propósito e está certo:** todo cliente é PJ (ADR-119), `Cliente.nome` **é a clínica**,
+    as pessoas vivem em `Contato` (a do lead vira contato principal na conversão). ⚠️ **Mas o
+    formulário tinha `autoComplete="name"`** — o Chrome oferecia ali o nome do próprio operador, e
+    o cliente podia nascer com nome de gente, que é o nome impresso no contrato. Hoje: **"Nome da
+    clínica *"**, `autoComplete="organization"`, exemplo no campo e explicação no "?".
+  - **Provas:** typecheck 6/6 · lint limpo · **729 testes** do `@app/api` (**3 novos de integração,
+    vistos reprovando antes** — o primeiro falhou com `expected 1 to be +0`, exatamente o número da
+    tela de produção) · 171 do `@app/web` · na tela local, zero erro de console.
+- **🚨 O banco de produção continua caindo, e segue intocado por ordem do dono.**
+
+## Estado anterior (2026-08-28 · noite · v1.3.0 NO AR — o lote ADR-139 + ADR-140 + ADR-141 publicado)
 
 - **✅ NO AR DESDE 28/08/2026 às 23:27 (20:27 no servidor) — a v1.3.0.** Publicação `33218952176`
   no commit `bed5f1a`, disparada por `workflow_dispatch` (o `gh workflow run` **foi barrado para mim
