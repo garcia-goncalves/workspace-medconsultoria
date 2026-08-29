@@ -7,10 +7,10 @@ import { hashPassword } from "../lib/password";
 /**
  * Ciclo marcar → desmarcar → marcar de uma conta recorrente.
  *
- * Desmarcar faz SOFT-DELETE da sucessora (a linha continua na tabela). Se a geração
- * ignorasse as apagadas, remarcar criaria uma SEGUNDA linha para a mesma data: a apagada
- * viraria órfã e um índice único em (recorrenteId, vencimento) recusaria o insert.
- * A geração ressuscita a linha existente.
+ * Desmarcar DESFAZ a sucessora, apagando a linha que a materialização tinha acabado de criar.
+ * Numa série, `deletedAt` passou a ter um significado só — "alguém excluiu esta parcela de
+ * propósito" —, e a geração respeita isso em vez de ressuscitar (C10). O índice único
+ * `(recorrenteId, vencimento)` continua garantindo uma linha por data.
  */
 const PFX = `rec-${randomBytes(4).toString("hex")}`;
 let categoriaId: string;
@@ -46,7 +46,7 @@ async function daSerie(origemId: string) {
 }
 
 describe("recorrência — marcar, desmarcar e marcar de novo", () => {
-  it("não duplica a data: ressuscita a ocorrência que a reversão apagou", async () => {
+  it("não duplica a data: a reversão desfaz a sucessora e remarcar a cria de novo", async () => {
     const origem = await prisma.conta.create({
       data: {
         tipo: "PAGAR",
@@ -64,21 +64,22 @@ describe("recorrência — marcar, desmarcar e marcar de novo", () => {
     let serie = await daSerie(origem.id);
     expect(serie).toHaveLength(2);
     expect(iso(serie[1]!.vencimento)).toBe("2026-02-28");
-    const sucessoraId = serie[1]!.id;
 
-    // 2) Desmarcar → a sucessora é apagada (soft-delete), mas a LINHA continua.
+    // 2) Desmarcar → a sucessora é desfeita. ⚠️ A linha é APAGADA de verdade (C10): a
+    //    materialização a tinha criado segundos antes, ninguém a pagou, e desmarcar é desfazer
+    //    essa criação. Deixá-la soft-deletada dava dois significados a `deletedAt` numa série, e
+    //    era por isso que a varredura ressuscitava a parcela que alguém excluía à mão.
     await marcarPaga(origem.id, false, ctx);
     serie = await daSerie(origem.id);
-    expect(serie, "a linha continua na tabela").toHaveLength(2);
-    expect(serie[1]!.deletedAt, "apagada por soft-delete").not.toBeNull();
+    expect(serie, "a sucessora foi desfeita, não guardada").toHaveLength(1);
 
-    // 3) Marcar de novo → ressuscita a MESMA linha; não cria uma segunda para a data.
+    // 3) Marcar de novo → a data volta a existir, uma única vez.
     await marcarPaga(origem.id, true, ctx);
     serie = await daSerie(origem.id);
-    expect(serie, "sem linha nova para a mesma data").toHaveLength(2);
-    expect(serie[1]!.id, "é a mesma linha de antes").toBe(sucessoraId);
-    expect(serie[1]!.deletedAt, "de volta à vida").toBeNull();
-    expect(serie[1]!.pago, "ressuscita como pendente").toBe(false);
+    expect(serie, "uma linha por data, nunca duas").toHaveLength(2);
+    expect(iso(serie[1]!.vencimento)).toBe("2026-02-28");
+    expect(serie[1]!.deletedAt).toBeNull();
+    expect(serie[1]!.pago, "nasce pendente").toBe(false);
   });
 
   it("editar o vencimento para colidir com uma irmã dá erro EXPLICÁVEL, não erro cru do banco", async () => {

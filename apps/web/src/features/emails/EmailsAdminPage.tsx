@@ -24,6 +24,8 @@ import { Badge } from "../../components/ui/badge";
 import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { useConfirm, usePrompt } from "../../components/ui/confirm-dialog";
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs";
+import { HintIcon } from "../../components/ui/tooltip";
 
 interface Campos {
   assunto: string;
@@ -269,28 +271,20 @@ export function EmailsAdminPage() {
         <Skeleton className="h-96 w-full rounded-xl" />
       ) : (
         <div className="space-y-5">
-          {/* Abas por categoria de mensagem */}
-          <div className="flex flex-wrap gap-1 rounded-xl border bg-muted/30 p-1">
-            {GRUPOS.map((grupo) => {
-              const n = lista.data?.filter((t) => t.grupo === grupo.id).length ?? 0;
-              if (!n) return null;
-              return (
-                <button
-                  key={grupo.id}
-                  onClick={() => trocarGrupo(grupo.id)}
-                  className={cn(
-                    "flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    grupoAtivo === grupo.id
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {grupo.label}
-                  <span className="ml-1.5 text-xs opacity-70">({n})</span>
-                </button>
-              );
-            })}
-          </div>
+          {/* Abas por categoria de mensagem — rola na horizontal no celular, sem espremer */}
+          <Tabs value={grupoAtivo} onValueChange={(v) => trocarGrupo(v as GrupoId)}>
+            <TabsList aria-label="Categoria de mensagem">
+              {GRUPOS.map((grupo) => {
+                const n = lista.data?.filter((t) => t.grupo === grupo.id).length ?? 0;
+                if (!n) return null;
+                return (
+                  <TabsTrigger key={grupo.id} value={grupo.id} contador={n}>
+                    {grupo.label}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+          </Tabs>
 
           {/* O que é esta categoria (explica para o usuário) */}
           <p className="flex items-start gap-1.5 px-0.5 text-sm text-muted-foreground">
@@ -318,7 +312,7 @@ export function EmailsAdminPage() {
                     </div>
                     <div className="text-xs leading-snug text-muted-foreground">{t.descricao}</div>
                     {t.notificacao && (
-                      <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary">
                         <Bell className="h-2.5 w-2.5" /> Também no sino
                       </span>
                     )}
@@ -344,15 +338,11 @@ export function EmailsAdminPage() {
 
                   {atual.variaveis.length > 0 && (
                     <div className="rounded-lg border bg-muted/30 p-3">
-                      <div className="mb-1 flex items-center gap-1.5 text-xs font-medium">
+                      <div className="mb-2 flex items-center gap-1.5 text-xs font-medium">
                         <Sparkles className="h-3.5 w-3.5 text-primary" />
                         Campos automáticos
+                        <HintIcon text="Preenchidos sozinhos pelo sistema no envio. Clique em um campo para inseri-lo no texto onde o cursor estiver — você não digita o valor, só escolhe onde ele aparece." />
                       </div>
-                      <p className="mb-2 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
-                        <Info className="mt-px h-3 w-3 shrink-0" />
-                        Preenchidos sozinhos pelo sistema no envio. Clique em um campo para inseri-lo no texto onde o cursor
-                        estiver — você não digita o valor, só escolhe onde ele aparece.
-                      </p>
                       <div className="flex flex-wrap gap-1.5">
                         {atual.variaveis.map((v) => (
                           <button
@@ -471,26 +461,16 @@ export function EmailsAdminPage() {
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <div className="text-sm font-medium text-muted-foreground">Prévia ao vivo (dados de exemplo)</div>
                     {atual.notificacao && (
-                      <div className="flex gap-1 rounded-md border bg-muted/30 p-0.5">
-                        <button
-                          onClick={() => setAbaPrev("email")}
-                          className={cn(
-                            "flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors",
-                            abaPrev === "email" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
-                          )}
-                        >
-                          <Mail className="h-3 w-3" /> E-mail
-                        </button>
-                        <button
-                          onClick={() => setAbaPrev("notif")}
-                          className={cn(
-                            "flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors",
-                            abaPrev === "notif" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
-                          )}
-                        >
-                          <Bell className="h-3 w-3" /> Sino
-                        </button>
-                      </div>
+                      <Tabs value={abaPrev} onValueChange={(v) => setAbaPrev(v as "email" | "notif")}>
+                        <TabsList aria-label="Como ver a prévia" className="gap-0 rounded-md border bg-muted/30 p-0.5">
+                          <TabsTrigger value="email" className="min-h-9 gap-1 rounded px-2 py-1 text-xs">
+                            <Mail className="h-3 w-3" /> E-mail
+                          </TabsTrigger>
+                          <TabsTrigger value="notif" className="min-h-9 gap-1 rounded px-2 py-1 text-xs">
+                            <Bell className="h-3 w-3" /> Sino
+                          </TabsTrigger>
+                        </TabsList>
+                      </Tabs>
                     )}
                   </div>
 
@@ -506,7 +486,7 @@ export function EmailsAdminPage() {
                           <div className="min-w-0 flex-1">
                             <div className="text-sm font-semibold">{preview.data?.notifTitulo ?? form.titulo}</div>
                             <div className="truncate text-xs text-muted-foreground">{preview.data?.notifCorpo ?? form.corpo}</div>
-                            <div className="mt-0.5 text-[11px] text-muted-foreground">agora</div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">agora</div>
                           </div>
                           <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
                         </div>

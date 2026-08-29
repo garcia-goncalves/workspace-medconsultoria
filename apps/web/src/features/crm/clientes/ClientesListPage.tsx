@@ -30,10 +30,10 @@ import { Input } from "../../../components/ui/input";
 import { Button } from "../../../components/ui/button";
 import { Select } from "../../../components/ui/select";
 import { PageHeader } from "../../../components/ui/page-header";
-import { Table, THead, TH, TR, TD } from "../../../components/ui/table";
+import { DataTable, type Coluna } from "../../../components/ui/data-table";
 import { Badge, type BadgeProps } from "../../../components/ui/badge";
 import { EmptyState } from "../../../components/ui/empty-state";
-import { Skeleton, TableSkeleton } from "../../../components/ui/skeleton";
+import { Skeleton } from "../../../components/ui/skeleton";
 import { QueryError } from "../../../components/ui/query-error";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
 import { SITUACAO_COMERCIAL_LABEL, formatarCNPJ, type SituacaoComercial } from "@app/shared";
@@ -131,7 +131,9 @@ function ClienteCard({ c, onOpen, onConvidarPortal }: { c: ClienteItem; onOpen: 
   return (
     <div
       onClick={onOpen}
-      className="group flex cursor-pointer flex-col rounded-xl border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+      // `min-w-0`: sem ele a trilha do grid nasce do MIN-CONTENT do cartão, e o cartão inteiro
+      // fica mais largo que a coluna — era o estouro de 36px a 360px.
+      className="group flex min-w-0 cursor-pointer flex-col rounded-xl border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
     >
       <div className="flex items-start gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-blueLight to-primary text-sm font-semibold text-white shadow-sm">
@@ -139,9 +141,9 @@ function ClienteCard({ c, onOpen, onConvidarPortal }: { c: ClienteItem; onOpen: 
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold text-foreground group-hover:text-primary">{c.nome}</div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Building2 className="h-3 w-3" />
-            <span className="truncate">{c.cnpj ? formatarCNPJ(c.cnpj) : "CNPJ não informado"}</span>
+          <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <Building2 className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 truncate">{c.cnpj ? formatarCNPJ(c.cnpj) : "CNPJ não informado"}</span>
           </div>
         </div>
         <Badge variant={situacaoVar[c.situacaoComercial as SituacaoComercial]}>
@@ -268,6 +270,109 @@ export function ClientesListPage() {
     [porBusca, situacao, responsavelId],
   );
 
+  const colunas: Coluna<ClienteItem>[] = [
+    {
+      chave: "cliente",
+      cabecalho: "Cliente",
+      principal: true,
+      valorOrdenacao: (c) => c.nome,
+      render: (c) => (
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-blueLight to-primary text-[11px] font-semibold text-white">
+            {iniciais(c.nome)}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate font-medium text-primary">{c.nome}</div>
+            <div className="truncate text-xs text-muted-foreground">{c.cnpj ? formatarCNPJ(c.cnpj) : "CNPJ não informado"}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      chave: "situacao",
+      cabecalho: "Situação",
+      render: (c) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant={situacaoVar[c.situacaoComercial as SituacaoComercial]}>
+            {SITUACAO_COMERCIAL_LABEL[c.situacaoComercial as SituacaoComercial]}
+          </Badge>
+          {c.emFunil && (
+            <span
+              className="inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[11px] font-medium text-warning"
+              title="Tem oportunidade aberta no funil (quer mais serviços)"
+            >
+              <Target className="h-3 w-3" /> No funil
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      chave: "contato",
+      cabecalho: "Contato",
+      ocultaEmCelular: true,
+      render: (c) => (
+        <span className="block max-w-[220px] truncate text-muted-foreground">
+          {c.email ?? (c.telefone ? maskTelefone(c.telefone) : "—")}
+        </span>
+      ),
+    },
+    {
+      chave: "projetos",
+      cabecalho: "Projetos",
+      alinhamento: "direita",
+      ocultaEmCelular: true,
+      valorOrdenacao: (c) => c._count.projetos,
+      render: (c) => <span className="tabular-nums text-muted-foreground">{c._count.projetos}</span>,
+    },
+    {
+      chave: "servicos",
+      cabecalho: "Serviços",
+      alinhamento: "direita",
+      valorOrdenacao: (c) => c._count.servicosContratados,
+      render: (c) =>
+        c._count.servicosContratados > 0 ? (
+          <span className="tabular-nums text-muted-foreground">{c._count.servicosContratados}</span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-warning" title="Sem serviço contratado">
+            <AlertTriangle className="h-3.5 w-3.5" /> 0
+          </span>
+        ),
+    },
+    {
+      chave: "proximaReuniao",
+      cabecalho: "Próxima reunião",
+      ocultaEmCelular: true,
+      valorOrdenacao: (c) => (c.proximaReuniao ? new Date(c.proximaReuniao) : null),
+      render: (c) =>
+        c.proximaReuniao ? (
+          <span className="inline-flex items-center gap-1 text-primary">
+            <CalendarClock className="h-3.5 w-3.5" /> {data(c.proximaReuniao)}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    {
+      chave: "portal",
+      cabecalho: "Portal",
+      ocultaEmCelular: true,
+      render: (c) =>
+        c.email || c.portal.estado === "ATIVO" ? (
+          <AcessoPortalBotao portal={c.portal} clienteId={c.id} temEmail={!!c.email} onEnviarAcesso={() => enviarAcesso(c)} />
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
+    },
+    {
+      chave: "responsavel",
+      cabecalho: "Responsável",
+      ocultaEmCelular: true,
+      valorOrdenacao: (c) => c.responsavel?.nome ?? null,
+      render: (c) => <span className="text-muted-foreground">{c.responsavel?.nome ?? "—"}</span>,
+    },
+  ];
+
   const r = resumo.data;
   const filtrando = !!search.trim() || situacao !== "" || responsavelId !== "";
   const limpar = () => {
@@ -360,8 +465,8 @@ export function ClientesListPage() {
         {filtrando && (
           <button
             onClick={limpar}
-            className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            title="Limpar busca e filtros"
+            className="inline-flex min-h-11 items-center gap-1 rounded-lg border px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Limpar busca e filtros"
           >
             <X className="h-4 w-4" />
             Limpar
@@ -371,15 +476,17 @@ export function ClientesListPage() {
         <div className="ml-auto inline-flex overflow-hidden rounded-lg border">
           <button
             onClick={() => setVisao("cards")}
-            className={cn("p-2 transition-colors", visao === "cards" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}
-            title="Visão em cards"
+            aria-label="Visão em cards"
+            aria-pressed={visao === "cards"}
+            className={cn("flex h-11 w-11 items-center justify-center transition-colors", visao === "cards" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}
           >
             <LayoutGrid className="h-4 w-4" />
           </button>
           <button
             onClick={() => setVisao("lista")}
-            className={cn("p-2 transition-colors", visao === "lista" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}
-            title="Visão em lista"
+            aria-label="Visão em lista"
+            aria-pressed={visao === "lista"}
+            className={cn("flex h-11 w-11 items-center justify-center transition-colors", visao === "lista" ? "bg-primary text-primary-foreground" : "hover:bg-accent")}
           >
             <List className="h-4 w-4" />
           </button>
@@ -390,16 +497,44 @@ export function ClientesListPage() {
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
       {clientes.isError ? (
         <QueryError onRetry={() => clientes.refetch()} />
+      ) : visao === "lista" ? (
+        <DataTable
+          dados={filtrados}
+          colunas={colunas}
+          chaveLinha={(c) => c.id}
+          carregando={clientes.isLoading}
+          linhasEsqueleto={6}
+          aoClicarLinha={(c) => abrir(c.id)}
+          vazio={
+            <EmptyState
+              icon={Users}
+              title={clientes.data && clientes.data.length > 0 ? "Nenhum cliente com esses filtros" : "Nenhum cliente ainda"}
+              description={
+                clientes.data && clientes.data.length > 0
+                  ? "Ajuste a busca ou os filtros para encontrar quem procura."
+                  : "Comece cadastrando seu primeiro cliente."
+              }
+            >
+              {!clientes.data || clientes.data.length === 0 ? (
+                <Button onClick={() => setNovo(true)}>
+                  <Plus className="h-4 w-4" />
+                  Novo cliente
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={limpar}>
+                  <X className="h-4 w-4" />
+                  Limpar filtros
+                </Button>
+              )}
+            </EmptyState>
+          }
+        />
       ) : clientes.isLoading ? (
-        visao === "cards" ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-40 rounded-xl" />
-            ))}
-          </div>
-        ) : (
-          <TableSkeleton rows={6} cols={8} />
-        )
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-40 rounded-xl" />
+          ))}
+        </div>
       ) : filtrados.length === 0 ? (
         <EmptyState
           icon={Users}
@@ -422,92 +557,12 @@ export function ClientesListPage() {
             </Button>
           )}
         </EmptyState>
-      ) : visao === "cards" ? (
+      ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtrados.map((c) => (
             <ClienteCard key={c.id} c={c} onOpen={() => abrir(c.id)} onConvidarPortal={() => enviarAcesso(c)} />
           ))}
         </div>
-      ) : (
-        <Table>
-          <THead>
-            <tr>
-              <TH>Cliente</TH>
-              <TH>Situação</TH>
-              <TH>Contato</TH>
-              <TH className="text-right">Projetos</TH>
-              <TH className="text-right">Serviços</TH>
-              <TH>Próxima reunião</TH>
-              <TH>Portal</TH>
-              <TH>Responsável</TH>
-            </tr>
-          </THead>
-          <tbody>
-            {filtrados.map((c) => (
-              <TR key={c.id} className="cursor-pointer" onClick={() => abrir(c.id)}>
-                <TD>
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-blueLight to-primary text-[11px] font-semibold text-white">
-                      {iniciais(c.nome)}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="truncate font-medium text-primary">{c.nome}</div>
-                      <div className="truncate text-xs text-muted-foreground">{c.cnpj ? formatarCNPJ(c.cnpj) : "CNPJ não informado"}</div>
-                    </div>
-                  </div>
-                </TD>
-                <TD>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge variant={situacaoVar[c.situacaoComercial as SituacaoComercial]}>
-                      {SITUACAO_COMERCIAL_LABEL[c.situacaoComercial as SituacaoComercial]}
-                    </Badge>
-                    {c.emFunil && (
-                      <span
-                        className="inline-flex items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[11px] font-medium text-warning"
-                        title="Tem oportunidade aberta no funil (quer mais serviços)"
-                      >
-                        <Target className="h-3 w-3" /> No funil
-                      </span>
-                    )}
-                  </div>
-                </TD>
-                <TD className="max-w-[220px] truncate text-muted-foreground">{c.email ?? (c.telefone ? maskTelefone(c.telefone) : "—")}</TD>
-                <TD className="text-right tabular-nums text-muted-foreground">{c._count.projetos}</TD>
-                <TD className="text-right tabular-nums">
-                  {c._count.servicosContratados > 0 ? (
-                    <span className="text-muted-foreground">{c._count.servicosContratados}</span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-warning" title="Sem serviço contratado">
-                      <AlertTriangle className="h-3.5 w-3.5" /> 0
-                    </span>
-                  )}
-                </TD>
-                <TD className="text-muted-foreground">
-                  {c.proximaReuniao ? (
-                    <span className="inline-flex items-center gap-1 text-primary">
-                      <CalendarClock className="h-3.5 w-3.5" /> {data(c.proximaReuniao)}
-                    </span>
-                  ) : (
-                    "—"
-                  )}
-                </TD>
-                <TD onClick={(e) => e.stopPropagation()}>
-                  {c.email || c.portal.estado === "ATIVO" ? (
-                    <AcessoPortalBotao
-                      portal={c.portal}
-                      clienteId={c.id}
-                      temEmail={!!c.email}
-                      onEnviarAcesso={() => enviarAcesso(c)}
-                    />
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                </TD>
-                <TD className="text-muted-foreground">{c.responsavel?.nome ?? "—"}</TD>
-              </TR>
-            ))}
-          </tbody>
-        </Table>
       )}
       </div>
 

@@ -39,13 +39,14 @@ import { Textarea } from "../../../components/ui/textarea";
 import { Select } from "../../../components/ui/select";
 import { MoneyInput } from "../../../components/ui/money-input";
 import { formatPreco } from "../../../lib/masks";
-import { Card } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { QueryError } from "../../../components/ui/query-error";
+import { EmptyState } from "../../../components/ui/empty-state";
 import { Modal } from "../../../components/ui/modal";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
 import { SortableList, SortableItem, DragHandle } from "../../../components/ui/sortable";
+import { Tabs, TabsList, TabsTrigger } from "../../../components/ui/tabs";
 
 type ServicoRow = RouterOutputs["servicos"]["list"][number];
 type Tipo = "DOCUMENTO" | "INFORMACAO" | "BRIEFING";
@@ -380,7 +381,7 @@ function DetalhesPanel({
       </div>
       {atualizar.error && <p className="text-sm text-destructive">{atualizar.error.message}</p>}
 
-      <div className="flex items-center gap-2 border-t pt-4">
+      <div className="flex flex-wrap items-center gap-2 border-t pt-4">
         <Button
           type="button"
           variant="outline"
@@ -468,6 +469,9 @@ function ExigenciasPanel({ servico }: { servico: ServicoRow }) {
   const reqs = items;
   const forms = formularios.data ?? [];
   const tipoAtual = TIPOS_REQUISITO.find((t) => t.valor === tipo)!;
+
+  if (q.isError) return <QueryError onRetry={() => q.refetch()} message="Não deu para carregar o que o cliente precisa entregar." />;
+  if (q.isLoading) return <Skeleton className="h-40 rounded-lg" />;
 
   const adicionar = () => {
     if (!titulo.trim()) return;
@@ -643,8 +647,9 @@ function ExigenciasPanel({ servico }: { servico: ServicoRow }) {
                     )
                       remover.mutate({ id: r.id });
                   }}
-                  className="shrink-0 rounded p-1 text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded p-1 text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
                   title="Remover"
+                  aria-label={`Remover exigência "${r.titulo}"`}
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -652,7 +657,7 @@ function ExigenciasPanel({ servico }: { servico: ServicoRow }) {
             );
           })}
         </SortableList>
-        {reqs.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma exigência cadastrada ainda.</p>}
+        {reqs.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">Nenhuma exigência cadastrada ainda.</p>}
       </div>
     </div>
   );
@@ -691,11 +696,18 @@ function PassosPanel({ servico }: { servico: ServicoRow }) {
 
   const passos = items;
 
+  if (q.isError) return <QueryError onRetry={() => q.refetch()} message="Não deu para carregar os passos da venda." />;
+  if (q.isLoading) return <Skeleton className="h-40 rounded-lg" />;
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         <strong>Para vender:</strong> estes passos entram no checklist do lead que escolher este serviço, na etapa indicada
-        do funil. Os <strong>obrigatórios</strong> são critério para avançar de etapa.
+        do funil. Os <strong>obrigatórios</strong> são critério para avançar de etapa; os marcados{" "}
+        <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning ring-1 ring-inset ring-warning/20">
+          com a clínica
+        </span>{" "}
+        esperam uma resposta do cliente, não da equipe.
       </p>
 
       <form
@@ -742,11 +754,18 @@ function PassosPanel({ servico }: { servico: ServicoRow }) {
                   {doGrupo.map((p) => (
                     <SortableItem key={p.id} id={p.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
                       <DragHandle className="-ml-1 shrink-0" />
-                      <span className="flex-1">{p.titulo}</span>
+                      <span className="min-w-0 flex-1 break-words">
+                        {p.titulo}
+                        {p.quemFaz === "CLIENTE" && (
+                          <span className="ml-1.5 whitespace-nowrap rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning ring-1 ring-inset ring-warning/20">
+                            com a clínica
+                          </span>
+                        )}
+                      </span>
                       <button
                         onClick={() => atualizar.mutate({ id: p.id, obrigatorio: !p.obrigatorio })}
                         className={cn(
-                          "rounded px-1.5 py-0.5 text-[10px] font-semibold transition-colors",
+                          "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold transition-colors",
                           p.obrigatorio ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground hover:bg-muted/70",
                         )}
                         title="Alternar obrigatório"
@@ -765,8 +784,9 @@ function PassosPanel({ servico }: { servico: ServicoRow }) {
                           )
                             remover.mutate({ id: p.id });
                         }}
-                        className="rounded p-1 text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded p-1 text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
                         title="Remover"
+                        aria-label={`Remover passo "${p.titulo}"`}
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -777,7 +797,7 @@ function PassosPanel({ servico }: { servico: ServicoRow }) {
             </div>
           );
         })}
-        {passos.length === 0 && <p className="text-sm text-muted-foreground">Nenhum passo cadastrado ainda.</p>}
+        {passos.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">Nenhum passo cadastrado ainda.</p>}
       </div>
     </div>
   );
@@ -852,8 +872,9 @@ function RoteiroPanel({ servico, onDirtyChange }: { servico: ServicoRow; onDirty
               />
               <button
                 onClick={() => setTarefas((ts) => ts.filter((_, i) => i !== ti))}
-                className="shrink-0 rounded p-1 text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded p-1 text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
                 title="Remover tarefa"
+                aria-label={`Remover tarefa "${t.titulo || `#${ti + 1}`}"`}
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -865,8 +886,9 @@ function RoteiroPanel({ servico, onDirtyChange }: { servico: ServicoRow; onDirty
                   <Input value={it} onChange={(e) => setItem(ti, ii, e.target.value)} placeholder="Item do checklist" className="h-8" />
                   <button
                     onClick={() => setTarefa(ti, { itens: t.itens.filter((_, i) => i !== ii) })}
-                    className="shrink-0 rounded p-1 text-muted-foreground/50 transition-colors hover:text-destructive"
+                    className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded p-1 text-muted-foreground/50 transition-colors hover:text-destructive"
                     title="Remover item"
+                    aria-label={`Remover item "${it || `#${ii + 1}`}" da tarefa`}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -881,7 +903,7 @@ function RoteiroPanel({ servico, onDirtyChange }: { servico: ServicoRow; onDirty
             </div>
           </div>
         ))}
-        {tarefas.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma tarefa no roteiro ainda.</p>}
+        {tarefas.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">Nenhuma tarefa no roteiro ainda.</p>}
       </div>
 
       <button
@@ -984,24 +1006,18 @@ function ServicoConfigDialog({
       }
     >
       <div className="space-y-4">
-        <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
-          {ABAS.map((a) => {
-            const Icon = a.icon;
-            const ativo = aba === a.chave;
-            return (
-              <button
-                key={a.chave}
-                onClick={() => pedirTroca(a.chave)}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
-                  ativo ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" /> {a.label}
-              </button>
-            );
-          })}
-        </div>
+        <Tabs value={aba} onValueChange={(v) => pedirTroca(v as Aba)}>
+          <TabsList aria-label="Configuração do serviço">
+            {ABAS.map((a) => {
+              const Icon = a.icon;
+              return (
+                <TabsTrigger key={a.chave} value={a.chave}>
+                  <Icon className="h-4 w-4" /> {a.label}
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+        </Tabs>
 
         {aba === "detalhes" && <DetalhesPanel servico={servico} onClose={onClose} onDirtyChange={setDirty} />}
         {aba === "roteiro" && <RoteiroPanel servico={servico} onDirtyChange={setDirty} />}
@@ -1135,7 +1151,16 @@ export function ServicosPage() {
           ))}
         </div>
       ) : (
-        <Card className="p-10 text-center text-sm text-muted-foreground">Nenhum serviço cadastrado ainda.</Card>
+        <EmptyState
+          icon={Briefcase}
+          title="Nenhum serviço cadastrado ainda"
+          description="Cadastre o primeiro serviço do catálogo para começar a vender."
+        >
+          <Button onClick={() => setNovo(true)}>
+            <Plus className="h-4 w-4" />
+            Novo serviço
+          </Button>
+        </EmptyState>
       )}
 
       <NovoServicoDialog open={novo} onClose={() => setNovo(false)} />

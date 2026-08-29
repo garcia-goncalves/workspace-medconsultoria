@@ -194,7 +194,25 @@ export async function salvarGrade(
       continue;
     }
     // Já saiu do papel: o valor combinado está congelado no que foi protocolado/cobrado.
+    //
+    // ⚠️ **UMA EXCEÇÃO, ESTREITA, E É ELA QUE FECHA O M15:** o cruzamento APROVADO cujo honorário
+    // ficou "a combinar" não cobrou nada — não há valor congelado, há valor faltando. Deixá-lo
+    // preservado seria manter para sempre o credenciamento aprovado que ninguém cobra. Acertado o
+    // valor aqui, a cobrança que a aprovação não pôde criar nasce agora. As condições são todas
+    // necessárias: APROVADO (o trabalho terminou em sucesso), sem `contaId` (não cobrou), valor
+    // atual zerado (era "a combinar", não um preço que alguém quer reescrever) e valor novo > 0.
     if (vigente.status !== "A_PROTOCOLAR") {
+      const honorarioPendente =
+        vigente.status === "APROVADO" && !vigente.contaId && Number(vigente.valor) <= 0 && c.valor > 0;
+      if (honorarioPendente) {
+        await prisma.credenciamento.update({
+          where: { id: vigente.id },
+          data: { valor: c.valor, observacoes: semAvisoDeHonorario(vigente.observacoes) },
+        });
+        await criarContaDoHonorario(vigente.id, input.clienteId, c.valor, ator);
+        atualizados++;
+        continue;
+      }
       preservados++;
       continue;
     }
@@ -236,6 +254,35 @@ export async function salvarGrade(
 
   /** `preservados` = cruzamentos que a edição NÃO tocou por já estarem em curso. */
   return { criados, atualizados, removidos, preservados };
+}
+
+/**
+ * O AVISO DE HONORÁRIO A DEFINIR — o sinal que substitui a conta de R$ 0,00 (M15).
+ *
+ * Mora nas observações do cruzamento porque é o único lugar que a página Credenciamentos já
+ * desenha embaixo de cada linha: sem tela nova, a Thaís vê a pendência exatamente onde ela vê o
+ * caso. Uma conta a receber de R$ 0,00 no Financeiro seria o oposto — um número que se lê como
+ * "já resolvido".
+ */
+const AVISO_HONORARIO_A_COMBINAR =
+  "Honorário a combinar: defina o valor deste credenciamento na grade da ficha para gerar a cobrança.";
+
+/** Acrescenta o aviso, sem repeti-lo se já estiver lá. */
+function comAvisoDeHonorario(observacoes: string | null): string {
+  const texto = observacoes?.trim() ?? "";
+  if (texto.includes(AVISO_HONORARIO_A_COMBINAR)) return texto;
+  return texto ? `${texto}\n${AVISO_HONORARIO_A_COMBINAR}` : AVISO_HONORARIO_A_COMBINAR;
+}
+
+/** Tira o aviso quando o valor foi acertado — deixá-lo diria que a pendência continua. */
+function semAvisoDeHonorario(observacoes: string | null): string | null {
+  if (!observacoes) return observacoes;
+  const restante = observacoes
+    .split("\n")
+    .filter((linha) => linha.trim() !== AVISO_HONORARIO_A_COMBINAR)
+    .join("\n")
+    .trim();
+  return restante || null;
 }
 
 /**
@@ -283,8 +330,23 @@ export async function mudarStatusCredenciamento(
   // AQUI nasce a cobrança — e só aqui (§3.3, §6.3). O honorário do credenciamento é no
   // sucesso: nem o aceite da proposta, nem contratar o serviço na ficha, nem converter o lead
   // geram conta. A operadora aprovou; agora há o que cobrar.
+  //
+  // ⚠️ **A NÃO SER QUE O HONORÁRIO AINDA SEJA "A COMBINAR" (M15).** `Credenciamento.valor` tem
+  // padrão 0 — o cruzamento pode ser montado antes de o preço estar acertado. Aprovar isso criava
+  // uma conta a receber de **R$ 0,00** e prendia as duas por `contaId`; daí em diante a guarda
+  // `!atual.contaId` fechava a porta e ninguém mais cobrava aquele credenciamento. Recusar a
+  // aprovação também não serve: a operadora aprovou, e o fato tem de ser registrado. Então
+  // aprova-se sem inventar cobrança nenhuma, `contaId` fica nulo (a porta continua aberta) e a
+  // pendência fica escrita na linha, que é o que a página Credenciamentos desenha.
   if (input.status === "APROVADO" && !atual.contaId) {
-    await criarContaDoHonorario(atualizado.id, atual.clienteId, Number(atual.valor), ator);
+    if (Number(atual.valor) > 0) {
+      await criarContaDoHonorario(atualizado.id, atual.clienteId, Number(atual.valor), ator);
+    } else {
+      await prisma.credenciamento.update({
+        where: { id: atualizado.id },
+        data: { observacoes: comAvisoDeHonorario(atualizado.observacoes) },
+      });
+    }
   }
 
   await prisma.activityLog.create({

@@ -41,6 +41,7 @@ import { maskTelefone, formatBRL, formatPreco } from "../../../lib/masks";
 import { dataHora, dataUTC, data } from "../../../lib/format-date";
 import { Textarea } from "../../../components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "../../../components/ui/card";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "../../../components/ui/accordion";
 import { Badge, type BadgeProps } from "../../../components/ui/badge";
 import { QueryError } from "../../../components/ui/query-error";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
@@ -661,7 +662,7 @@ export function ClienteDetailPage() {
                       </div>
                     </div>
                     <button
-                      className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      className="-m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                       onClick={async () => {
                         if (
                           await confirm({
@@ -719,79 +720,91 @@ export function ClienteDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Próximos compromissos */}
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" /> Próximos compromissos
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {rel.data && rel.data.eventos.length > 0 ? (
-                rel.data.eventos.map((e) => (
-                  <div key={e.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                    <span className="w-24 shrink-0 text-xs font-medium tabular-nums text-primary">{data(e.inicio)}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{e.titulo}</div>
-                      <div className="truncate text-xs text-muted-foreground">{EVENTO_TIPO_LABEL[e.tipo]}</div>
-                    </div>
-                    {e.linkReuniao && (
-                      <a
-                        href={e.linkReuniao}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md bg-success/10 px-2 py-1 text-xs font-medium text-success transition-colors hover:bg-success/20"
-                      >
-                        <Video className="h-3.5 w-3.5" /> Entrar
-                      </a>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">Nenhum compromisso futuro.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Financeiro (só admin recebe as contas) */}
-          {rel.data?.contas && (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <Wallet className="h-4 w-4 text-muted-foreground" /> Financeiro
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {rel.data.contas.length > 0 ? (
-                  rel.data.contas.map((ct) => (
-                    <div key={ct.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate font-medium">{ct.descricao}</span>
-                          {ct.recorrencia === "MENSAL" && (
-                            <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">Mensal</span>
+          {/* Próximos compromissos — recolhível (bloco de referência, não de ação) */}
+          <Card className="p-0">
+            <Accordion modo="multipla" defaultValue={["eventos"]} className="px-4">
+              <AccordionItem value="eventos">
+                <AccordionTrigger>
+                  <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Calendar className="h-4 w-4 text-muted-foreground" /> Próximos compromissos
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-2">
+                    {rel.data && rel.data.eventos.length > 0 ? (
+                      rel.data.eventos.map((e) => (
+                        <div key={e.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                          <span className="w-24 shrink-0 text-xs font-medium tabular-nums text-primary">{data(e.inicio)}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium">{e.titulo}</div>
+                            <div className="truncate text-xs text-muted-foreground">{EVENTO_TIPO_LABEL[e.tipo]}</div>
+                          </div>
+                          {e.linkReuniao && (
+                            <a
+                              href={e.linkReuniao}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex shrink-0 items-center gap-1 rounded-md bg-success/10 px-2 py-1 text-xs font-medium text-success transition-colors hover:bg-success/20"
+                            >
+                              <Video className="h-3.5 w-3.5" /> Entrar
+                            </a>
                           )}
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          vence {dataUTC(ct.vencimento)}
-                          {ct.pago ? " · paga" : ""}
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Nenhum compromisso futuro.</p>
+                    )}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </Card>
+
+          {/* Financeiro (só admin recebe as contas) — recolhível, mesmo motivo */}
+          {rel.data?.contas && (
+            <Card className="p-0">
+              <Accordion modo="multipla" defaultValue={["financeiro"]} className="px-4">
+              <AccordionItem value="financeiro">
+                <AccordionTrigger>
+                  <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Wallet className="h-4 w-4 text-muted-foreground" /> Financeiro
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-2">
+                    {rel.data.contas.length > 0 ? (
+                      rel.data.contas.map((ct) => (
+                        <div key={ct.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate font-medium">{ct.descricao}</span>
+                              {ct.recorrencia === "MENSAL" && (
+                                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">Mensal</span>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              vence {dataUTC(ct.vencimento)}
+                              {ct.pago ? " · paga" : ""}
+                            </div>
+                          </div>
+                          <span
+                            className={
+                              ct.tipo === "RECEBER"
+                                ? "shrink-0 font-medium tabular-nums text-success"
+                                : "shrink-0 font-medium tabular-nums text-destructive"
+                            }
+                          >
+                            {ct.tipo === "RECEBER" ? "+" : "−"} {formatBRL(ct.valor)}
+                          </span>
                         </div>
-                      </div>
-                      <span
-                        className={
-                          ct.tipo === "RECEBER"
-                            ? "shrink-0 font-medium tabular-nums text-success"
-                            : "shrink-0 font-medium tabular-nums text-destructive"
-                        }
-                      >
-                        {ct.tipo === "RECEBER" ? "+" : "−"} {formatBRL(ct.valor)}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-muted-foreground">Nenhuma conta vinculada.</p>
-                )}
-              </CardContent>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Nenhuma conta vinculada.</p>
+                    )}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+              </Accordion>
             </Card>
           )}
 

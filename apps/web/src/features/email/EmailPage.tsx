@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
   Mail,
+  Menu,
   Plus,
   Search,
   X,
@@ -28,8 +30,10 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Avatar } from "../../components/ui/avatar";
 import { Modal } from "../../components/ui/modal";
+import { Sheet } from "../../components/ui/sheet";
 import { Combobox } from "../../components/ui/combobox";
 import { Label } from "../../components/ui/label";
+import { Skeleton } from "../../components/ui/skeleton";
 import { toast } from "../../components/ui/toast";
 import { QueryError } from "../../components/ui/query-error";
 import { useConfirm } from "../../components/ui/confirm-dialog";
@@ -59,6 +63,10 @@ export function EmailPage() {
   const [busca, setBusca] = useState("");
   const [buscaAtiva, setBuscaAtiva] = useState("");
   const [escrevendo, setEscrevendo] = useState<{ modo: ModoEscrever; mensagemId?: string } | null>(null);
+  // No celular não há espaço para o aside de caixas/pastas ao lado da lista — ele vira um painel
+  // que sobe de baixo (Sheet), aberto por um botão no topo da lista. No computador ele nunca abre
+  // (o aside fixo continua do lado, como sempre foi).
+  const [menuMobile, setMenuMobile] = useState(false);
 
   // Divisor arrastável, no mesmo padrão das Mensagens (ADR-83).
   const [larguraLista, setLarguraLista] = useState(() => {
@@ -138,9 +146,8 @@ export function EmailPage() {
     const ok = await confirm({
       title: "Desconectar esta caixa?",
       description:
-        `${caixa.email} sai do Workspace e a senha guardada é apagada. ` +
-        "Os e-mails continuam no servidor, como sempre estiveram — nada é apagado lá. " +
-        "Para voltar a ler por aqui é só plugar a caixa de novo.",
+        `A senha guardada de ${caixa.email} é apagada. ` +
+        "Os e-mails continuam no servidor — é só plugar de novo para voltar a lê-los aqui.",
       confirmText: "Desconectar",
       variant: "destructive",
       icon: Unplug,
@@ -326,7 +333,16 @@ export function EmailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberta.data?.id]);
 
-  if (caixas.isLoading) return <div className="p-6 text-sm text-muted-foreground">Carregando…</div>;
+  if (caixas.isLoading) {
+    return (
+      <div className="flex h-full flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm">
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-12 w-full" />
+      </div>
+    );
+  }
 
   /*
    * Erro ANTES da lista vazia, e a ordem é o conserto.
@@ -363,10 +379,110 @@ export function EmailPage() {
     );
   }
 
+  // Corpo com a lista de caixas + pastas de cada uma — usado nos DOIS lugares: no `<aside>` fixo
+  // do computador e dentro do `Sheet` que sobe de baixo no celular (onde não há espaço para uma
+  // coluna extra do lado da lista). `setMenuMobile(false)` no computador é inofensivo (o painel
+  // nunca abre lá).
+  const corpoCaixasEPastas = (
+    <div className="space-y-3">
+      {caixas.data.map((c) => (
+        <div key={c.id}>
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setCaixaId(c.id);
+                setPastaId(null);
+                setMsgId(null);
+                setMenuMobile(false);
+              }}
+              className={cn(
+                "min-w-0 flex-1 truncate rounded-lg px-2 py-2 text-left text-xs font-semibold sm:py-1.5",
+                c.id === caixaAtual?.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
+              )}
+              title={c.email}
+            >
+              {c.rotulo || c.email}
+            </button>
+            <button
+              type="button"
+              onClick={() => desplugar(c)}
+              disabled={removerCaixa.isPending}
+              aria-label={`Desconectar a caixa ${c.email}`}
+              className="shrink-0 rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-50 sm:p-1.5"
+            >
+              <Unplug className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Caixa que o servidor não conseguiu ler. NÃO é erro vermelho de página inteira: o
+              que já foi baixado continua legível — o que a pessoa precisa saber é que a lista
+              parou no tempo, e desde quando. Senha recusada tem tratamento próprio, logo abaixo. */}
+          {c.estado === "ERRO" && (
+            <p className="mt-1 flex items-start gap-1 px-2 text-xs leading-snug text-warning">
+              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>
+                Não deu para falar com o servidor de e-mail
+                {c.ultimaSyncEm ? ` — o que está aqui é do último acesso, em ${dataHora(c.ultimaSyncEm)}` : ""}.
+              </span>
+            </p>
+          )}
+
+          {c.estado === "AUTENTICACAO_FALHOU" && (
+            <div className="mt-1 px-2">
+              <p className="flex items-start gap-1 text-xs text-destructive">
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                Parada: a senha guardada não funciona mais.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setReconectar({ id: c.id, email: c.email });
+                  setMenuMobile(false);
+                }}
+                className="mt-1 rounded-md px-1 text-xs font-semibold text-primary underline-offset-2 hover:underline"
+              >
+                Reconectar
+              </button>
+            </div>
+          )}
+
+          {c.id === caixaAtual?.id &&
+            pastas.data?.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  setPastaId(p.id);
+                  setMsgId(null);
+                  setMenuMobile(false);
+                }}
+                className={cn(
+                  "mt-0.5 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm sm:py-1.5",
+                  p.id === pastaAtual?.id ? "bg-muted font-medium" : "hover:bg-muted/60",
+                )}
+              >
+                <span className="truncate">{p.nome}</span>
+                {p.naoLidos > 0 && (
+                  <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+                    {p.naoLidos}
+                  </span>
+                )}
+              </button>
+            ))}
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="flex h-full overflow-hidden rounded-xl border bg-card shadow-sm">
-      {/* ── coluna 1: caixas e pastas ── */}
-      <aside className="hidden w-56 shrink-0 flex-col border-r md:flex">
+      {/* ── coluna 1: caixas e pastas (só no computador — no celular e no tablet vira o Sheet
+          abaixo) ──
+          O corte é `lg`, não `md`: a 768px as TRÊS colunas (224 da barra de pastas + 380 da lista
+          + a leitura) não cabem, e quem era espremido até estourar a janela era justamente a
+          leitura — 179px de excesso medidos em `e2e/responsividade-total.spec.ts`. */}
+      <aside className="hidden w-56 shrink-0 flex-col border-r lg:flex">
         <div className="flex items-center justify-between gap-2 border-b p-3">
           <h1 className="text-sm font-semibold text-primary">E-mail</h1>
           <div className="flex items-center gap-1">
@@ -391,92 +507,26 @@ export function EmailPage() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
-          {caixas.data.map((c) => (
-            <div key={c.id} className="mb-3">
-              <div className="flex items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCaixaId(c.id);
-                    setPastaId(null);
-                    setMsgId(null);
-                  }}
-                  className={cn(
-                    "min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-left text-xs font-semibold",
-                    c.id === caixaAtual?.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
-                  )}
-                  title={c.email}
-                >
-                  {c.rotulo || c.email}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => desplugar(c)}
-                  disabled={removerCaixa.isPending}
-                  aria-label={`Desconectar a caixa ${c.email}`}
-                  title="Desconectar esta caixa do Workspace. Os e-mails continuam no servidor."
-                  className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-50"
-                >
-                  <Unplug className="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              {/* Caixa que o servidor não conseguiu ler. NÃO é erro vermelho de página inteira: o
-                  que já foi baixado continua legível — o que a pessoa precisa saber é que a lista
-                  parou no tempo, e desde quando. Senha recusada tem tratamento próprio, logo abaixo. */}
-              {c.estado === "ERRO" && (
-                <p className="mt-1 flex items-start gap-1 px-2 text-[11px] leading-snug text-warning">
-                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                  <span>
-                    Não deu para falar com o servidor de e-mail
-                    {c.ultimaSyncEm ? ` — o que está aqui é do último acesso, em ${dataHora(c.ultimaSyncEm)}` : ""}.
-                  </span>
-                </p>
-              )}
-
-              {c.estado === "AUTENTICACAO_FALHOU" && (
-                <div className="mt-1 px-2">
-                  <p className="flex items-start gap-1 text-[11px] text-destructive">
-                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                    Parada: a senha guardada não funciona mais.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setReconectar({ id: c.id, email: c.email })}
-                    className="mt-1 rounded-md px-1 text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
-                  >
-                    Reconectar
-                  </button>
-                </div>
-              )}
-
-              {c.id === caixaAtual?.id &&
-                pastas.data?.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => {
-                      setPastaId(p.id);
-                      setMsgId(null);
-                    }}
-                    className={cn(
-                      "mt-0.5 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
-                      p.id === pastaAtual?.id ? "bg-muted font-medium" : "hover:bg-muted/60",
-                    )}
-                  >
-                    <span className="truncate">{p.nome}</span>
-                    {p.naoLidos > 0 && (
-                      <span className="rounded-full bg-primary px-1.5 text-[11px] text-primary-foreground">
-                        {p.naoLidos}
-                      </span>
-                    )}
-                  </button>
-                ))}
-            </div>
-          ))}
-        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">{corpoCaixasEPastas}</div>
       </aside>
+
+      {/* Painel mobile equivalente ao aside: caixas, pastas, adicionar caixa. Sobe de baixo. */}
+      <Sheet open={menuMobile} onClose={() => setMenuMobile(false)} title="Caixas e pastas">
+        <div className="mb-3">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              setMenuMobile(false);
+              setAdicionando(true);
+            }}
+          >
+            <Plus className="mr-1.5 h-4 w-4" /> Adicionar caixa
+          </Button>
+        </div>
+        {corpoCaixasEPastas}
+      </Sheet>
 
       {/* ── coluna 2: lista ── */}
       <div
@@ -486,6 +536,32 @@ export function EmailPage() {
           msgId ? "hidden md:flex" : "flex",
         )}
       >
+        {/* Substitui o aside no celular: abre o painel de caixas/pastas + escrever, num espaço que
+            não tem lugar para uma coluna a mais do lado da lista. */}
+        <div className="flex items-center gap-2 border-b p-2 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setMenuMobile(true)}
+            aria-label="Ver caixas e pastas de e-mail"
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted"
+          >
+            <Menu className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-primary">
+              {pastaAtual?.nome ?? caixaAtual?.rotulo ?? caixaAtual?.email ?? "E-mail"}
+            </span>
+          </button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setEscrevendo({ modo: "novo" })}
+            disabled={!caixaAtual}
+            aria-label="Escrever novo e-mail"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+
         <div className="flex items-center gap-2 border-b p-2">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -513,7 +589,13 @@ export function EmailPage() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {mensagens.isLoading && <p className="p-4 text-sm text-muted-foreground">Carregando…</p>}
+          {mensagens.isLoading && (
+            <div className="space-y-1 p-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full" />
+              ))}
+            </div>
+          )}
           {/* Falhando, a lista ficava MUDA: "Nenhum e-mail nesta pasta" depende de `length === 0`,
               que não acontece com `data` indefinido. Pasta cheia parecia pasta vazia. */}
           {mensagens.isError && (
@@ -543,7 +625,7 @@ export function EmailPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className={cn("truncate text-sm", !m.lido && "font-semibold")}>{m.deNome || m.deEmail}</span>
-                  <span className="shrink-0 text-[11px] text-muted-foreground">{data(m.dataEm)}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{data(m.dataEm)}</span>
                 </div>
                 <p className={cn("truncate text-sm", !m.lido ? "font-medium" : "text-muted-foreground")}>
                   {m.assunto || "(sem assunto)"}
@@ -582,7 +664,13 @@ export function EmailPage() {
       <section className={cn("min-w-0 flex-1 flex-col", msgId ? "flex" : "hidden md:flex")}>
         {!msgId && <p className="m-auto text-sm text-muted-foreground">Escolha um e-mail para ler.</p>}
 
-        {msgId && aberta.isLoading && <p className="p-4 text-sm text-muted-foreground">Abrindo…</p>}
+        {msgId && aberta.isLoading && (
+          <div className="space-y-3 p-4">
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        )}
 
         {/* Acontece no caminho NORMAL: "Abrir na minha caixa", na ficha do cliente, manda
             `?mensagem=<id>` de um e-mail que pode ser da caixa de OUTRA pessoa (ADR-95 — a caixa é
@@ -601,7 +689,7 @@ export function EmailPage() {
           <>
             <header className="shrink-0 border-b p-4">
               <Button type="button" variant="ghost" size="sm" className="mb-2 md:hidden" onClick={() => setMsgId(null)}>
-                Voltar
+                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Voltar à lista
               </Button>
               <h2 className="text-base font-semibold">{msgAberta.assunto || "(sem assunto)"}</h2>
               <p className="mt-1 text-sm text-muted-foreground">

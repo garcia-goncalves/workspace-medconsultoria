@@ -151,3 +151,79 @@ export function temValorEPercentual(p: PrecoDoServico): boolean {
 /** A recusa, escrita para a Thaís ler — nunca "validation error". */
 export const PRECO_VALOR_E_PERCENTUAL =
   "Escolha uma forma de cobrança: valor fixo OU percentual do faturamento. Os dois juntos fazem o serviço aparecer com preço em um lugar e com percentual em outro.";
+
+// ── O valor do funil, separado por forma de cobrança (F8) ─────────────────────
+
+/** Um serviço do lead, com o que decide se o dinheiro é recorrente ou de uma vez só. */
+export interface ServicoParaDivisao extends ServicoParaEstimativa {
+  valorRecorrencia: string | null | undefined;
+}
+
+/** O valor previsto de um lead, separado pelo que ele significa. */
+export interface DivisaoDaEstimativa {
+  /** Receita que se repete todo mês (serviço mensal, ou percentual do faturamento). */
+  mensal: number;
+  /** Cobrança de uma vez só. */
+  avulso: number;
+}
+
+/**
+ * O TOTAL DO FUNIL SOMAVA MENSAL COM AVULSO (F8).
+ *
+ * "Total da coluna", no board de Vendas, e os números do Início somavam R$ 3.500/mês com
+ * R$ 1.500 de cobrança única e mostravam R$ 5.000 — um número que não responde nem "por mês"
+ * nem "no total". Não é cobrança errada (nada disso vira conta a receber por aqui): é relatório
+ * que engana quem decide olhando para ele.
+ *
+ * A régua é pura e mora aqui porque quem a aplica são DOIS lugares — o board e o painel do
+ * Início. Duas cópias divergiriam, e a divergência apareceria como dois totais diferentes para
+ * o mesmo funil, na mesma tela (o modo de falha da ADR-133).
+ *
+ * As decisões, e o porquê de cada uma:
+ *  - **quem decide o que é mensal é o PREÇO**, nunca a categoria (a comparação
+ *    `categoria === "Faturamento"` já foi removida cinco vezes deste código);
+ *  - **serviço só percentual conta como MENSAL**: o `valorEstimado` dele é derivado do
+ *    faturamento (ADR-125) e vale por mês, não uma vez só;
+ *  - **sem preço de serviço nenhum, a estimativa digitada à mão é AVULSA** — é exatamente o que
+ *    a conversão provisiona nesse caso (uma conta `recorrencia: NENHUMA`, ver
+ *    `planejarProvisaoDaConversao`). Duas leituras do mesmo número dariam relatório e cobrança
+ *    contando coisas diferentes;
+ *  - **o credenciamento fica fora dos dois**: o honorário só nasce quando a operadora aprova
+ *    (ADR-104/108), então não é receita prevista do funil.
+ */
+export function dividirEstimativaDoLead(
+  servicos: ServicoParaDivisao[],
+  valorEstimado: number | null | undefined,
+): DivisaoDaEstimativa {
+  let mensal = 0;
+  let avulso = 0;
+  let temCredenciamento = false;
+  let temOutroServico = false;
+
+  for (const s of servicos) {
+    if (ehServicoDeCredenciamento(s.nome)) {
+      temCredenciamento = true;
+      continue;
+    }
+    temOutroServico = true;
+    if (s.valor != null && s.valor > 0) {
+      if (s.valorRecorrencia === "MENSAL") mensal += s.valor;
+      else avulso += s.valor;
+    }
+  }
+
+  // Lead SÓ de credenciamento não tem receita prevista: a estimativa do funil não pode entrar
+  // pela porta dos fundos. É a mesma guarda de `planejarProvisaoDaConversao`, pelo mesmo motivo.
+  const soCredenciamento = temCredenciamento && !temOutroServico;
+
+  if (mensal === 0 && avulso === 0 && !soCredenciamento) {
+    const estimado = valorEstimado ?? 0;
+    if (estimado > 0) {
+      const derivada = planejarEstimativaDoLead(servicos, null).modo === "PERCENTUAL";
+      if (derivada) mensal = estimado;
+      else avulso = estimado;
+    }
+  }
+
+  return { mensal: emCentavos(mensal), avulso: emCentavos(avulso) };
+}

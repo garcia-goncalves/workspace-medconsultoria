@@ -70,6 +70,50 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   { tipo: "servico_solicitado", label: "Cliente pediu serviços pelo Portal", descricao: "Quando um cliente escolhe serviços no Portal do Cliente.", grupo: "Clientes e Portal" },
   { tipo: "documento_cliente_enviado", label: "Cliente enviou um documento", descricao: "Quando um cliente anexa um documento pelo Portal.", grupo: "Clientes e Portal" },
   { tipo: "servico_cancelado", label: "Cliente cancelou um serviço", descricao: "Quando um cliente cancela um serviço pelo Portal.", grupo: "Clientes e Portal" },
+  // ── OS SEIS AVISOS QUE TINHAM MODELO E NUNCA SAÍAM (M6) ──────────────────────────────
+  //
+  // Todos nascem da varredura proativa (`realtime/reminders.ts`), com `unico: true` por
+  // entidade — o aviso não se repete a cada rodada. São exatamente os avisos que ninguém vai
+  // buscar sozinho: um projeto que parou não grita, um lead esfriando não grita, uma proposta
+  // sem resposta não grita. Por isso nascem LIGADOS: aqui o risco é avisar de MENOS, e aviso
+  // que não chega é trabalho que não acontece.
+  {
+    tipo: "conflito_agenda",
+    label: "Conflito de horário na agenda",
+    descricao: "Quando dois compromissos seus caem no mesmo horário.",
+    grupo: "Agenda e tarefas",
+  },
+  {
+    tipo: "projeto_parado",
+    label: "Projeto parado",
+    descricao: "Projeto ativo sem nenhum movimento há mais de 14 dias.",
+    grupo: "Agenda e tarefas",
+  },
+  {
+    tipo: "projeto_sem_responsavel",
+    label: "Projeto sem responsável",
+    descricao: "Projeto que ficou sem ninguém responsável por ele.",
+    grupo: "Agenda e tarefas",
+    minRole: "ADMIN",
+  },
+  {
+    tipo: "documento_parado",
+    label: "Documento sem resposta do cliente",
+    descricao: "Proposta ou documento enviado ao cliente que está há dias sem aceite nem assinatura.",
+    grupo: "Documentos",
+  },
+  {
+    tipo: "lead_parado",
+    label: "Lead parado no funil",
+    descricao: "Lead ativo sem movimento há mais de 14 dias.",
+    grupo: "Vendas e funil",
+  },
+  {
+    tipo: "upsell_oportunidade",
+    label: "Cliente quer mais (upsell)",
+    descricao: "Cliente ativo com uma oportunidade aberta no funil — quer contratar mais serviços.",
+    grupo: "Vendas e funil",
+  },
   { tipo: "incidente", label: "Alertas do sistema", descricao: "Incidentes técnicos detectados na aplicação.", grupo: "Sistema", minRole: "ROOT" },
   { tipo: "erro", label: "Erros do sistema", descricao: "Novos erros registrados na aplicação.", grupo: "Sistema", minRole: "ROOT" },
 ];

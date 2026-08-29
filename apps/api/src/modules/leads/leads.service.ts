@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import type { CreateLeadInput, UpdateLeadInput, MoveLeadInput, CapturaLeadInput } from "@app/shared";
-import { situacaoDocumento, planejarEstimativaDoLead, tituloDoPassoDeEstimativa, AVISO_PRIVACIDADE_VERSAO } from "@app/shared";
+import { situacaoDocumento, planejarEstimativaDoLead, dividirEstimativaDoLead, tituloDoPassoDeEstimativa, AVISO_PRIVACIDADE_VERSAO } from "@app/shared";
 import { listStages } from "../pipeline/pipeline.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { convidarUsuario, reenviarConvite, garantirAcessoPortal } from "../usuarios/usuarios.service.js";
@@ -204,15 +204,18 @@ async function seedPassosSeVazio(leadId: string, stageId: string, chaveAuto: str
     servicoId: string | null;
     titulo: string;
     obrigatorio: boolean;
+    quemFaz: "MED" | "CLIENTE";
     acaoDoc: string | null;
     autoRegra: string | null;
     ordem: number;
   }[] = [];
 
+  // Os passos gerais da etapa (o PLAYBOOK) são todos trabalho nosso — quem cadastra serviço,
+  // registra valor e emite proposta é a Med. O que é do cliente vem do catálogo do serviço.
   const modelo = PLAYBOOK[chaveAuto];
   if (modelo)
     modelo.forEach((m, i) =>
-      dados.push({ leadId, stageId, servicoId: null, titulo: m.titulo, obrigatorio: m.obrigatorio, acaoDoc: m.acaoDoc ?? null, autoRegra: m.autoRegra ?? null, ordem: i }),
+      dados.push({ leadId, stageId, servicoId: null, titulo: m.titulo, obrigatorio: m.obrigatorio, quemFaz: "MED", acaoDoc: m.acaoDoc ?? null, autoRegra: m.autoRegra ?? null, ordem: i }),
     );
 
   const servicos = await prisma.servico.findMany({
@@ -223,7 +226,7 @@ async function seedPassosSeVazio(leadId: string, stageId: string, chaveAuto: str
   let ordem = dados.length;
   for (const s of servicos) {
     for (const sp of s.passos) {
-      dados.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, acaoDoc: null, autoRegra: null, ordem: ordem++ });
+      dados.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, quemFaz: sp.quemFaz, acaoDoc: null, autoRegra: null, ordem: ordem++ });
     }
   }
 
@@ -266,13 +269,14 @@ async function sincronizarPassosServicos(leadId: string, stageId: string, chaveA
     servicoId: string;
     titulo: string;
     obrigatorio: boolean;
+    quemFaz: "MED" | "CLIENTE";
     acaoDoc: null;
     ordem: number;
   }[] = [];
   for (const s of servicos) {
     for (const sp of s.passos) {
       if (jaTem.has(`${s.id}::${sp.titulo}`)) continue;
-      novos.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, acaoDoc: null, ordem: ordem++ });
+      novos.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, quemFaz: sp.quemFaz, acaoDoc: null, ordem: ordem++ });
     }
   }
   if (novos.length) await prisma.leadPasso.createMany({ data: novos });
@@ -336,7 +340,14 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
     const docs = docIds.length
       ? await prisma.documento.findMany({
           where: { id: { in: docIds }, deletedAt: null },
-          select: { id: true, assinaturaSolicitadaEm: true, assinadoEm: true },
+          select: {
+            id: true,
+            assinaturaSolicitadaEm: true,
+            assinadoEm: true,
+            // O ACEITE ONLINE É O OUTRO CAMINHO, e ele faltava aqui (C1).
+            propostaSolicitadaEm: true,
+            propostaStatus: true,
+          },
         })
       : [];
     const docById = new Map(docs.map((d) => [d.id, d]));
@@ -345,8 +356,18 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
       const d = ds.documentoId ? docById.get(ds.documentoId) : undefined;
       if (!d) continue;
       if (ds.acaoDoc === "proposta") {
-        if (d.assinaturaSolicitadaEm) marco.proposta_enviada = true;
-        if (d.assinadoEm) marco.proposta_assinada = true;
+        // ⚠️ SÃO DUAS PORTAS PARA CADA MARCO, E A RÉGUA SÓ CONHECIA UMA (C1).
+        //
+        // Uma proposta chega ao cliente de dois jeitos: pedindo ASSINATURA
+        // (`assinaturaSolicitadaEm` → `assinadoEm`) ou habilitando o ACEITE ONLINE
+        // (`propostaSolicitadaEm` → `propostaStatus = ACEITA`), que é o caminho normal do
+        // link de e-mail e do Portal. Só a primeira contava.
+        //
+        // O efeito era o pior tipo de trabalho invisível: o cliente aceitava, a tela do
+        // documento dizia "ACEITA", e o passo OBRIGATÓRIO "Confirmar o aceite do cliente"
+        // seguia aberto — travando `avancarEtapa` sem que nada na tela explicasse por quê.
+        if (d.assinaturaSolicitadaEm || d.propostaSolicitadaEm) marco.proposta_enviada = true;
+        if (d.assinadoEm || d.propostaStatus === "ACEITA") marco.proposta_assinada = true;
       } else if (ds.acaoDoc === "contrato") {
         if (d.assinaturaSolicitadaEm) marco.contrato_enviado = true;
         if (d.assinadoEm) marco.contrato_assinado = true;
@@ -537,6 +558,9 @@ export async function getLeadDetalhe(id: string) {
       titulo: p.titulo,
       obrigatorio: p.obrigatorio,
       concluido: p.concluido,
+      // De quem o passo está esperando: "MED" = nossa vez, "CLIENTE" = parado na clínica.
+      // É o que permite a tela responder *o que está esperando o cliente?* sem abrir lead a lead.
+      quemFaz: p.quemFaz,
       grupo: p.servicoId ? servMap.get(p.servicoId) ?? "Serviço" : "Geral",
       acaoDoc: p.acaoDoc,
       documentoId: p.documentoId,
@@ -729,7 +753,15 @@ export async function listLeads() {
     orderBy: [{ pipelineStageId: "asc" }, { ordem: "asc" }],
     include: {
       responsavel: { select: { nome: true } },
-      servicos: { select: { id: true, nome: true }, orderBy: { ordem: "asc" } },
+      // O PREÇO dos serviços vem junto por causa do F8: é ele — nunca a categoria — que diz se o
+      // valor do lead é receita que se repete todo mês ou cobrança de uma vez só. A conta é feita
+      // AQUI e não na tela, por duas razões: `valor` e `percentual` são `Decimal` e um `Decimal`
+      // atravessando o tRPC vira "R$ NaN" na tela sem erro nenhum (ADR-118); e o preço de cada
+      // serviço não é assunto do board — o que ele precisa é do total já classificado.
+      servicos: {
+        select: { id: true, nome: true, valor: true, valorRecorrencia: true, percentual: true },
+        orderBy: { ordem: "asc" },
+      },
       // A CONTA de Portal em si, não só a contagem (ADR-128): o card precisa dos TRÊS estados
       // — sem acesso / convidado e ainda não entrou / entrou —, e para isso precisa saber
       // quando a conta nasceu e quando o cliente entrou pela última vez.
@@ -744,11 +776,31 @@ export async function listLeads() {
       },
     },
   });
-  return leads.map(({ clientePortal, ...l }) => {
+  return leads.map(({ clientePortal, servicos, ...l }) => {
     const portal = acessoAoPortal(clientePortal?.usuariosPortal);
+    // O valor do lead separado pelo que ele significa (F8): o board somava R$ 3.500/mês com
+    // R$ 1.500 avulso e mostrava R$ 5.000, um número que não responde nem "por mês" nem "no
+    // total". A régua é a mesma do painel do Início (`dividirEstimativaDoLead`, em `@app/shared`).
+    const estimativa = dividirEstimativaDoLead(
+      servicos.map((s) => ({
+        nome: s.nome,
+        valor: emReais(s.valor),
+        valorRecorrencia: s.valorRecorrencia,
+        percentual: emReais(s.percentual),
+      })),
+      emReais(l.valorEstimado),
+    );
     // `portalAtivo` continua existindo com o MESMO significado de antes (entra de verdade) —
     // várias telas já leem esse nome, e trocá-lo por prazer seria quebrar o que funciona.
-    return { ...mapLead(l), portalAtivo: portal.estado === "ATIVO", portal };
+    return {
+      ...mapLead(l),
+      // O board só precisa de id e nome; preço de serviço não é assunto dele (e `Decimal` não
+      // atravessa o tRPC — ADR-118).
+      servicos: servicos.map((s) => ({ id: s.id, nome: s.nome })),
+      estimativa,
+      portalAtivo: portal.estado === "ATIVO",
+      portal,
+    };
   });
 }
 

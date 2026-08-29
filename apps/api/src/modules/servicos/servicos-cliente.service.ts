@@ -9,6 +9,8 @@ import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js
 import { garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { config } from "../../config.js";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
+import { hojeBRT } from "../../lib/datas.js";
+import { planejarEncerramentoDaCobranca, type PlanoDeEncerramento } from "./encerrar-cobranca.js";
 import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "@app/shared";
 
 /**
@@ -102,6 +104,80 @@ export async function servicosDoCliente(clienteId: string) {
   });
 }
 
+/**
+ * A CONVERSÃO DO LEAD AINDA VAI COBRAR POR ESTE CLIENTE?
+ *
+ * É a guarda contra cobrar duas vezes, e ela é **uma só** para todas as portas que provisionam
+ * cobrança fora da conversão (contratar pela ficha, aceitar proposta de upsell). Havendo lead não
+ * convertido e não perdido, quem cobra é a conversão, que soma os serviços contratados; sem lead
+ * ativo, a porta que está sendo usada é a única que sobrou e precisa cobrar — senão ninguém cobra.
+ *
+ * Lead **convertido** e lead **perdido** não seguram nada: o primeiro já cobrou, o segundo nunca
+ * vai converter.
+ */
+async function aConversaoAindaVaiCobrar(clienteId: string): Promise<boolean> {
+  const leadAtivo = await prisma.lead.findFirst({
+    where: { clienteId, deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
+    select: { id: true },
+  });
+  return leadAtivo !== null;
+}
+
+/**
+ * O SUFIXO DA DESCRIÇÃO DA COBRANÇA DAQUELE SERVIÇO — num lugar só.
+ *
+ * Há DUAS portas que criam a conta a receber de um serviço (contratar pela ficha e aceitar a
+ * proposta) e agora uma TERCEIRA que precisa reencontrá-la para encerrá-la no cancelamento.
+ * Cada uma montava a frase por conta própria; a que procura tem de casar exatamente com as
+ * que escrevem, senão o cancelamento não acha nada e continua cobrando em silêncio.
+ */
+export function sufixoDaCobrancaDoServico(servicoNome: string, clienteNome: string): string {
+  return `${servicoNome} — ${clienteNome}`;
+}
+
+/**
+ * Levanta a cobrança recorrente daquele serviço e diz o que para e o que fica.
+ *
+ * Usada pela PRÉVIA (o texto da confirmação na tela) e pelo próprio cancelamento — a mesma
+ * consulta e a mesma régua, para o número prometido ser o número executado.
+ */
+async function levantarCobrancaDoServico(clienteId: string, servicoId: string): Promise<PlanoDeEncerramento> {
+  const [cliente, servico] = await Promise.all([
+    prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
+    prisma.servico.findUnique({ where: { id: servicoId }, select: { nome: true } }),
+  ]);
+  if (!cliente || !servico) return { series: [], encerrar: [], mantidas: [], valorEncerrado: 0 };
+
+  const contas = await prisma.conta.findMany({
+    where: {
+      clienteId,
+      tipo: "RECEBER",
+      deletedAt: null,
+      descricao: { endsWith: sufixoDaCobrancaDoServico(servico.nome, cliente.nome) },
+    },
+    select: { id: true, vencimento: true, pago: true, valor: true, recorrencia: true, recorrenteId: true },
+  });
+
+  return planejarEncerramentoDaCobranca(
+    contas.map((c) => ({ ...c, valor: emReaisOu(c.valor) })),
+    hojeBRT(),
+  );
+}
+
+/**
+ * O que a tela precisa dizer ANTES do clique. Confirmação que esconde consequência de
+ * dinheiro é como se instala desconfiança no sistema — quem cancela tem de ver quantas
+ * parcelas futuras vão parar e que as vencidas continuam.
+ */
+export async function previaDoCancelamento(clienteId: string, servicoId: string) {
+  const plano = await levantarCobrancaDoServico(clienteId, servicoId);
+  return {
+    parcelasFuturas: plano.encerrar.length,
+    valorFuturo: plano.valorEncerrado,
+    parcelasVencidas: plano.mantidas.length,
+  };
+}
+
 /** Liga (contrata) um serviço para o cliente — pela equipe (origem MANUAL). Idempotente. */
 export async function ativarServicoCliente(
   clienteId: string,
@@ -161,12 +237,20 @@ export async function ativarServicoCliente(
   // guarda olhava o preço de catálogo — serviço sem preço de tabela, contratado por um valor
   // combinado, não gerava conta NENHUMA e o dinheiro simplesmente não era cobrado. Ler de `cs`,
   // que é a linha que a ficha mostra, faz os dois números baterem por construção.
+  //
+  // ⚠️ **E A CONVERSÃO DO LEAD NÃO PODE COBRAR O MESMO SERVIÇO DE NOVO (M1).** Todo lead tem um
+  // `Cliente` PROSPECT por trás (ADR-132), e a ficha desse prospect já deixa contratar. Quem
+  // contratava ali gerava a conta aqui, e a conversão — que provisiona a partir dos serviços
+  // contratados — gerava a segunda. Eram DUAS PORTAS para o mesmo dinheiro, e só uma conhecia a
+  // regra. A guarda é a MESMA de `provisionarUpsellAceito`, chamada de propósito: inventar uma
+  // segunda régua para a mesma pergunta é como as duas respostas começam a divergir.
   const valorContratado = emReaisOu(cs.valor);
   if (
     !jaContratado &&
     (opts.origem ?? "MANUAL") === "MANUAL" &&
     !ehServicoDeCredenciamento(servico?.nome) &&
-    valorContratado > 0
+    valorContratado > 0 &&
+    !(await aConversaoAindaVaiCobrar(clienteId))
   ) {
     try {
       const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } });
@@ -177,7 +261,7 @@ export async function ativarServicoCliente(
       await prisma.conta.create({
         data: {
           tipo: "RECEBER",
-          descricao: `${mensal ? "Mensalidade" : "Serviço"}: ${servico?.nome ?? "Serviço"} — ${cliente?.nome ?? "cliente"}`,
+          descricao: `${mensal ? "Mensalidade" : "Serviço"}: ${sufixoDaCobrancaDoServico(servico?.nome ?? "Serviço", cliente?.nome ?? "cliente")}`,
           valor: valorContratado,
           vencimento,
           clienteId,
@@ -302,11 +386,7 @@ async function provisionarUpsellAceito(
   ator: { id: string },
 ) {
   try {
-    const leadAtivo = await prisma.lead.findFirst({
-      where: { clienteId, deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
-      select: { id: true },
-    });
-    if (leadAtivo) return; // a conversão cobra — cobrar aqui também seria cobrar duas vezes.
+    if (await aConversaoAindaVaiCobrar(clienteId)) return; // a conversão cobra; aqui seria a 2ª vez.
 
     const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } });
 
@@ -323,7 +403,7 @@ async function provisionarUpsellAceito(
 
       // Já existe conta deste serviço para este cliente? Reaceitar a mesma proposta (ou aceitar
       // duas que repetem um serviço) não pode lançar a cobrança de novo.
-      const descricaoBase = `${servico?.nome ?? "Serviço"} — ${cliente?.nome ?? "cliente"}`;
+      const descricaoBase = sufixoDaCobrancaDoServico(servico?.nome ?? "Serviço", cliente?.nome ?? "cliente");
       const jaTem = await prisma.conta.count({
         where: { clienteId, tipo: "RECEBER", deletedAt: null, descricao: { endsWith: descricaoBase } },
       });
@@ -388,12 +468,57 @@ export async function cancelarServicoCliente(
     data: { userId: atorId ?? null, acao: "servico.cancelado", entidadeTipo: "cliente", entidadeId: clienteId, dados: { servicoId, porTipo } },
   });
 
-  // GAP 2 — o trabalho para: pausa o projeto daquele serviço (reversível se retomar). A
-  // cobrança NÃO é apagada automaticamente (a mensalidade agrega vários serviços) — a equipe
-  // revisa. Best-effort.
+  // GAP 2 — o trabalho para: pausa o projeto daquele serviço (reversível se retomar). Best-effort.
   await prisma.projeto
     .updateMany({ where: { clienteId, servicoId, status: "ATIVO", deletedAt: null }, data: { status: "PAUSADO" } })
     .catch(() => {});
+
+  // ⚠️ E O DINHEIRO PARA JUNTO — decisão do dono (28/08/2026).
+  //
+  // Antes: "a cobrança NÃO é apagada automaticamente — a equipe revisa". Na prática ninguém
+  // revisava, e a série recorrente seguia materializando parcela todo mês: a Med emitindo
+  // cobrança de um serviço que já não presta, até alguém notar e apagar à mão.
+  //
+  // ⚠️ **ENCERRAR NÃO É APAGAR A SÉRIE.** São dois movimentos, e cada um resolve metade:
+  //
+  //  1. `recorrenciaAte = hoje` em TODAS as linhas da série — é o que faz
+  //     `gerarProximaOcorrencia` parar de criar o mês seguinte. Sem isto, apagar a parcela
+  //     aberta só adiantaria o problema: a varredura da madrugada criaria a próxima.
+  //  2. as parcelas FUTURAS ainda em aberto saem (soft-delete). As vencidas e as pagas ficam:
+  //     o serviço foi prestado naquele mês e o dinheiro é devido.
+  //
+  // ⚠️ **O soft-delete aqui não briga com o significado que `deletedAt` ganhou na série** (C10:
+  // "alguém excluiu esta ocorrência de propósito"). É exatamente isso: uma pessoa cancelou o
+  // serviço. E a linha ficando onde está é o que segura a data no índice único
+  // `(recorrenteId, vencimento)`, impedindo que a parcela volte por outro caminho.
+  //
+  // Best-effort: o cancelamento do cliente não cai porque o Financeiro tropeçou.
+  try {
+    const plano = await levantarCobrancaDoServico(clienteId, servicoId);
+    if (plano.series.length) {
+      await prisma.conta.updateMany({
+        where: { OR: [{ id: { in: plano.series } }, { recorrenteId: { in: plano.series } }] },
+        data: { recorrenciaAte: hojeBRT() },
+      });
+    }
+    if (plano.encerrar.length) {
+      await prisma.conta.updateMany({
+        where: { id: { in: plano.encerrar } },
+        data: { deletedAt: new Date() },
+      });
+      await prisma.activityLog.create({
+        data: {
+          userId: atorId ?? null,
+          acao: "conta.encerrada",
+          entidadeTipo: "cliente",
+          entidadeId: clienteId,
+          dados: { origem: "servico_cancelado", servicoId, parcelas: plano.encerrar.length, valor: plano.valorEncerrado },
+        },
+      });
+    }
+  } catch {
+    /* encerrar a cobrança é best-effort — o serviço já consta como cancelado. */
+  }
 
   if (porTipo === "CLIENTE") {
     const [cliente, servico] = await Promise.all([

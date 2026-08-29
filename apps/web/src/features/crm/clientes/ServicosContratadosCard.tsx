@@ -12,7 +12,7 @@ import { Button } from "../../../components/ui/button";
 import { Label } from "../../../components/ui/label";
 import { Select } from "../../../components/ui/select";
 import { MoneyInput } from "../../../components/ui/money-input";
-import { formatPreco } from "../../../lib/masks";
+import { formatPreco, formatBRL } from "../../../lib/masks";
 import { ConveniosPicker } from "../../documentos/ConveniosPicker";
 import { RespostaBriefingDialog } from "./RespostaBriefingDialog";
 
@@ -173,9 +173,29 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
     if (confirmado) ativar.mutate({ clienteId, servicoId, avisarCliente: marcado });
   };
   const onCancelar = async (servicoId: string, nome: string) => {
+    // ⚠️ CONFIRMAÇÃO QUE ESCONDE CONSEQUÊNCIA DE DINHEIRO INSTALA DESCONFIANÇA NO SISTEMA.
+    // Cancelar encerra a mensalidade (decisão do dono, 28/08/2026), e quem clica precisa ver
+    // quantas parcelas param e que as vencidas continuam — antes, não depois. O número vem do
+    // servidor, da MESMA função que o cancelamento executa.
+    const previa = await utils.clientes.previaCancelamento
+      .fetch({ clienteId, servicoId })
+      .catch(() => null);
+    const sobreODinheiro = !previa
+      ? ""
+      : previa.parcelasFuturas > 0
+        ? ` As cobranças futuras são encerradas: ${previa.parcelasFuturas} ${
+            previa.parcelasFuturas === 1 ? "parcela" : "parcelas"
+          } de ${formatBRL(previa.valorFuturo)} no total.${
+            previa.parcelasVencidas > 0
+              ? ` O que já venceu continua a receber (${previa.parcelasVencidas} ${
+                  previa.parcelasVencidas === 1 ? "cobrança" : "cobranças"
+                }) — o serviço foi prestado.`
+              : ""
+          }`
+        : " Não há cobrança futura a encerrar.";
     const ok = await confirm({
       title: `Cancelar "${nome}"?`,
-      description: "O serviço deixa de constar como contratado para este cliente.",
+      description: `O serviço deixa de constar como contratado para este cliente e o trabalho é pausado.${sobreODinheiro}`,
       confirmText: "Cancelar serviço",
       variant: "destructive",
     });

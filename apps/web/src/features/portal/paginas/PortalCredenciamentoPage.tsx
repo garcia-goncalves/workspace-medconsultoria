@@ -44,10 +44,10 @@ export function PortalCredenciamentoPage() {
         description="Pode ter sido a conexão. Tente de novo — se continuar assim, fale com a nossa equipe pelo Suporte."
       >
         <div className="flex flex-wrap justify-center gap-2">
-          <Button onClick={() => q.refetch()} disabled={q.isFetching}>
+          <Button className="min-h-11" onClick={() => q.refetch()} disabled={q.isFetching}>
             Tentar de novo
           </Button>
-          <Button variant="outline" onClick={() => navegar("/portal/suporte")}>
+          <Button variant="outline" className="min-h-11" onClick={() => navegar("/portal/suporte")}>
             Falar com o Suporte
           </Button>
         </div>

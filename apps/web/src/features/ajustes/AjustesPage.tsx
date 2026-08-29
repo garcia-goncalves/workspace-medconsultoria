@@ -126,7 +126,7 @@ export function AjustesPage() {
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {itens.map((it) => {
                 const cls =
-                  "group flex items-start gap-3 rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-md";
+                  "group flex min-w-0 items-start gap-3 rounded-xl border bg-card p-4 text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-md";
                 const inner = (
                   <>
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">

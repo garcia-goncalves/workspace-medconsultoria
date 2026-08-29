@@ -23,6 +23,15 @@ const { EmailPage } = await import("./EmailPage");
 // responde de um mapa por `op.path`.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// O painel mobile de caixas/pastas usa `Sheet`, que lê `window.matchMedia` — o jsdom não
+// implementa. Mesmo stub do `sheet.test.tsx`; o valor não importa aqui (o painel nasce fechado).
+window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+  matches: false,
+  media: query,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+})) as unknown as typeof window.matchMedia;
+
 type Handler = (input: unknown) => unknown | Promise<unknown>;
 
 function linkMock(handlers: Record<string, Handler>): TRPCLink<AnyTRPCRouter> {

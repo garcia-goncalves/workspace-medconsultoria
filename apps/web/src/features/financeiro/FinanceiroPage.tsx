@@ -11,13 +11,15 @@ import { formatBRL } from "../../lib/masks";
 import { dataUTC } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
 import { PageHeader } from "../../components/ui/page-header";
-import { Table, THead, TH, TR, TD } from "../../components/ui/table";
 import { EmptyState } from "../../components/ui/empty-state";
-import { TableSkeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { useConfirm } from "../../components/ui/confirm-dialog";
+import { DataTable, type Coluna } from "../../components/ui/data-table";
 import { ContaFormDialog, type ContaEditavel } from "./ContaFormDialog";
 import { CategoriasDialog } from "./CategoriasDialog";
+import type { RouterOutputs } from "../../lib/trpc";
+
+type ContaLinha = RouterOutputs["financeiro"]["contas"]["list"][number];
 
 const hojeInicio = () => {
   const d = new Date();
@@ -96,13 +98,117 @@ export function FinanceiroPage() {
     { id: "TUDO", label: "Tudo", icon: Layers },
   ];
 
+  const abrirEdicao = (c: ContaLinha) =>
+    setEditar({
+      id: c.id,
+      tipo: c.tipo,
+      escopo: c.escopo,
+      descricao: c.descricao,
+      valor: c.valor,
+      vencimento: c.vencimento,
+      categoriaId: c.categoriaId,
+      clienteId: c.clienteId,
+      recorrencia: c.recorrencia,
+      recorrenciaAte: c.recorrenciaAte,
+      observacoes: c.observacoes,
+    });
+
+  const confirmarRemover = async (c: ContaLinha) => {
+    if (
+      await confirm({
+        title: "Remover conta",
+        description: `"${c.descricao}" será removida. ${c.recorrencia !== "NENHUMA" ? "Só esta ocorrência é removida." : "Esta ação não pode ser desfeita."}`,
+        confirmText: "Remover",
+        variant: "destructive",
+      })
+    )
+      remove.mutate({ id: c.id });
+  };
+
+  const colunas: Coluna<ContaLinha>[] = [
+    {
+      chave: "descricao",
+      cabecalho: "Descrição",
+      principal: true,
+      valorOrdenacao: (c) => c.descricao,
+      render: (c) => (
+        <div>
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium">{c.descricao}</span>
+            {c.recorrencia !== "NENHUMA" && (
+              <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                <Repeat className="h-2.5 w-2.5" />
+                {c.recorrencia === "MENSAL" ? "Mensal" : c.recorrencia === "SEMANAL" ? "Semanal" : "Diária"}
+              </span>
+            )}
+          </div>
+          {c.cliente && <div className="text-xs text-muted-foreground">{c.cliente.nome}</div>}
+        </div>
+      ),
+    },
+    {
+      chave: "categoria",
+      cabecalho: "Categoria",
+      ocultaEmCelular: true,
+      valorOrdenacao: (c) => c.categoria?.nome ?? null,
+      render: (c) =>
+        c.categoria ? (
+          <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+            <span className="h-2 w-2 rounded-full" style={{ background: c.categoria.cor ?? "#94a3b8" }} />
+            {c.categoria.nome}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    {
+      chave: "vencimento",
+      cabecalho: "Vencimento",
+      valorOrdenacao: (c) => new Date(c.vencimento),
+      render: (c) => {
+        const vencida = !c.pago && new Date(c.vencimento) < hoje;
+        return <span className={cn(vencida && "font-medium text-destructive")}>{dataUTC(c.vencimento)}</span>;
+      },
+    },
+    {
+      chave: "valor",
+      cabecalho: "Valor",
+      alinhamento: "direita",
+      valorOrdenacao: (c) => c.valor,
+      render: (c) => (
+        <span className={cn("font-medium tabular-nums", receber ? "text-success" : "text-destructive")}>
+          {receber ? "+" : "−"} {formatBRL(c.valor)}
+        </span>
+      ),
+    },
+    {
+      chave: "pago",
+      cabecalho: receber ? "Recebida" : "Paga",
+      alinhamento: "centro",
+      render: (c) => (
+        <button
+          onClick={() => marcarPaga.mutate({ id: c.id, pago: !c.pago })}
+          aria-label={c.pago ? "Marcar como pendente" : receber ? "Marcar como recebida" : "Marcar como paga"}
+          className={cn(
+            "inline-flex h-11 w-11 items-center justify-center rounded-full border transition-colors md:h-6 md:w-6",
+            c.pago
+              ? "border-success bg-success text-success-foreground"
+              : "border-input text-transparent hover:border-success",
+          )}
+        >
+          <Check className="h-3.5 w-3.5" />
+        </button>
+      ),
+    },
+  ];
+
   return (
     <div className="flex h-full flex-col gap-4">
       <PageHeader
         title="Financeiro"
         subtitle="O que você precisa pagar e receber — separado por carteira, com lembretes e contas recorrentes automáticas."
       >
-        <Button variant="ghost" onClick={() => setGerirCategorias(true)} title="Gerenciar categorias">
+        <Button variant="ghost" onClick={() => setGerirCategorias(true)}>
           <Tags className="h-4 w-4" />
           Categorias
         </Button>
@@ -211,117 +317,36 @@ export function FinanceiroPage() {
           <div className="mt-3">
             {contas.isError ? (
               <QueryError onRetry={() => contas.refetch()} />
-            ) : contas.isLoading ? (
-              <TableSkeleton rows={5} cols={5} />
-            ) : contas.data && contas.data.length > 0 ? (
-              <Table>
-                <THead>
-                  <tr>
-                    <TH>Descrição</TH>
-                    <TH>Categoria</TH>
-                    <TH>Vencimento</TH>
-                    <TH className="text-right">Valor</TH>
-                    <TH className="text-center">{receber ? "Recebida" : "Paga"}</TH>
-                    <TH />
-                  </tr>
-                </THead>
-                <tbody>
-                  {contas.data.map((c) => {
-                    const vencida = !c.pago && new Date(c.vencimento) < hoje;
-                    return (
-                      <TR key={c.id}>
-                        <TD>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium">{c.descricao}</span>
-                            {c.recorrencia !== "NENHUMA" && (
-                              <span className="inline-flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                <Repeat className="h-2.5 w-2.5" />
-                                {c.recorrencia === "MENSAL" ? "Mensal" : c.recorrencia === "SEMANAL" ? "Semanal" : "Diária"}
-                              </span>
-                            )}
-                          </div>
-                          {c.cliente && <div className="text-xs text-muted-foreground">{c.cliente.nome}</div>}
-                        </TD>
-                        <TD>
-                          {c.categoria ? (
-                            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                              <span className="h-2 w-2 rounded-full" style={{ background: c.categoria.cor ?? "#94a3b8" }} />
-                              {c.categoria.nome}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TD>
-                        <TD className={cn(vencida && "font-medium text-destructive")}>{dataUTC(c.vencimento)}</TD>
-                        <TD className={cn("text-right font-medium tabular-nums", receber ? "text-success" : "text-destructive")}>
-                          {receber ? "+" : "−"} {formatBRL(c.valor)}
-                        </TD>
-                        <TD className="text-center">
-                          <button
-                            onClick={() => marcarPaga.mutate({ id: c.id, pago: !c.pago })}
-                            className={cn(
-                              "inline-flex h-6 w-6 items-center justify-center rounded-full border transition-colors",
-                              c.pago
-                                ? "border-success bg-success text-success-foreground"
-                                : "border-input text-transparent hover:border-success",
-                            )}
-                            title={c.pago ? "Marcar como pendente" : receber ? "Marcar como recebida" : "Marcar como paga"}
-                          >
-                            <Check className="h-3.5 w-3.5" />
-                          </button>
-                        </TD>
-                        <TD>
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() =>
-                                setEditar({
-                                  id: c.id,
-                                  tipo: c.tipo,
-                                  escopo: c.escopo,
-                                  descricao: c.descricao,
-                                  valor: c.valor,
-                                  vencimento: c.vencimento,
-                                  categoriaId: c.categoriaId,
-                                  clienteId: c.clienteId,
-                                  recorrencia: c.recorrencia,
-                                  recorrenciaAte: c.recorrenciaAte,
-                                  observacoes: c.observacoes,
-                                })
-                              }
-                              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                              title="Editar"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={async () => {
-                                if (
-                                  await confirm({
-                                    title: "Remover conta",
-                                    description: `"${c.descricao}" será removida. ${c.recorrencia !== "NENHUMA" ? "Só esta ocorrência é removida." : "Esta ação não pode ser desfeita."}`,
-                                    confirmText: "Remover",
-                                    variant: "destructive",
-                                  })
-                                )
-                                  remove.mutate({ id: c.id });
-                              }}
-                              className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                              title="Remover"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </TD>
-                      </TR>
-                    );
-                  })}
-                </tbody>
-              </Table>
             ) : (
-              <EmptyState
-                icon={receber ? ArrowDownCircle : ArrowUpCircle}
-                title={`Nenhuma conta ${receber ? "a receber" : "a pagar"} ${status === "PENDENTES" ? "pendente" : status === "PAGAS" ? (receber ? "recebida" : "paga") : ""}`.trim()}
-                description="Lance uma nova conta pelo botão acima."
+              <DataTable
+                dados={contas.data ?? []}
+                colunas={colunas}
+                chaveLinha={(c) => c.id}
+                carregando={contas.isLoading}
+                linhasEsqueleto={5}
+                vazio={
+                  <EmptyState
+                    icon={receber ? ArrowDownCircle : ArrowUpCircle}
+                    title={`Nenhuma conta ${receber ? "a receber" : "a pagar"} ${status === "PENDENTES" ? "pendente" : status === "PAGAS" ? (receber ? "recebida" : "paga") : ""}`.trim()}
+                    description="Lance uma nova conta pelo botão acima."
+                  />
+                }
+                acoes={(c) => (
+                  <>
+                    <Button variant="ghost" size="icon" aria-label={`Editar conta "${c.descricao}"`} onClick={() => abrirEdicao(c)}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Remover conta "${c.descricao}"`}
+                      className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => confirmarRemover(c)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                )}
               />
             )}
           </div>
@@ -427,8 +452,8 @@ function Linha({ c, mostrarCarteira, onMarcar }: { c: ContaAgenda; mostrarCartei
     <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2">
       <button
         onClick={() => onMarcar(c.id, true)}
-        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-input text-transparent transition-colors hover:border-success hover:text-success"
-        title={receber ? "Marcar como recebida" : "Marcar como paga"}
+        aria-label={receber ? "Marcar como recebida" : "Marcar como paga"}
+        className="-m-2.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-input text-transparent transition-colors hover:border-success hover:text-success"
       >
         <Check className="h-3.5 w-3.5" />
       </button>

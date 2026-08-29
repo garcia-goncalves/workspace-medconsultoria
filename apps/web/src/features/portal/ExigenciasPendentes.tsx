@@ -51,7 +51,7 @@ export function ExigenciasPendentes() {
             Não conseguimos verificar o que ainda falta enviar.{" "}
             <span className="font-medium text-foreground">Isto não quer dizer que está tudo certo.</span>
           </span>
-          <Button size="sm" variant="outline" onClick={() => void q.refetch()} disabled={q.isFetching}>
+          <Button size="sm" className="min-h-11" variant="outline" onClick={() => void q.refetch()} disabled={q.isFetching}>
             Tentar de novo
           </Button>
         </div>
@@ -118,7 +118,7 @@ export function ExigenciasPendentes() {
         <button
           type="button"
           onClick={() => navegar("/portal/servicos")}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-2 hover:underline"
+          className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-primary underline-offset-2 hover:underline"
         >
           Enviar em Meus serviços <ArrowRight className="h-3.5 w-3.5" />
         </button>

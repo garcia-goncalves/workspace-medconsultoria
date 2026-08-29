@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { LifeBuoy, Plus, ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
-import { cn } from "@app/ui";
 import { CHAMADO_STATUS_LABEL, type ChamadoStatus } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { QueryError } from "../../components/ui/query-error";
@@ -8,6 +7,7 @@ import { POLL, useEventoRealtime } from "../../lib/socket";
 import { data } from "../../lib/format-date";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
+import { Badge, type BadgeProps } from "../../components/ui/badge";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
@@ -16,10 +16,10 @@ import { EmptyState } from "../../components/ui/empty-state";
 import { toast } from "../../components/ui/toast";
 import { SuporteChat } from "./SuporteChat";
 
-const statusBadge: Record<ChamadoStatus, string> = {
-  ABERTO: "bg-warning/15 text-warning",
-  EM_ANDAMENTO: "bg-brand-blueLight/15 text-brand-blueText",
-  RESOLVIDO: "bg-success/15 text-success",
+const statusBadge: Record<ChamadoStatus, NonNullable<BadgeProps["variant"]>> = {
+  ABERTO: "warning",
+  EM_ANDAMENTO: "primary",
+  RESOLVIDO: "success",
 };
 
 export function PortalSuporte() {
@@ -68,11 +68,14 @@ export function PortalSuporte() {
           <span className="text-xs text-muted-foreground">Precisa de algo? Fale direto com a nossa equipe.</span>
         </div>
         {sel ? (
-          <button onClick={() => setSel(null)} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+          <button
+            onClick={() => setSel(null)}
+            className="inline-flex min-h-11 items-center gap-1 text-xs text-primary hover:underline"
+          >
             <ArrowLeft className="h-3.5 w-3.5" /> Meus chamados
           </button>
         ) : (
-          <Button size="sm" onClick={() => setAbrir(true)}>
+          <Button size="sm" className="min-h-11" onClick={() => setAbrir(true)}>
             <Plus className="h-4 w-4" /> Abrir chamado
           </Button>
         )}
@@ -83,7 +86,11 @@ export function PortalSuporte() {
           <div className="flex items-center gap-2 border-b bg-muted/20 px-4 py-2 text-sm">
             <span className="font-medium">{chamado?.assunto ?? thread.data?.assunto}</span>
             {thread.data?.numero && <span className="text-xs text-muted-foreground">#{thread.data.numero}</span>}
-            {thread.data?.status && <span className={cn("ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold", statusBadge[thread.data.status])}>{CHAMADO_STATUS_LABEL[thread.data.status]}</span>}
+            {thread.data?.status && (
+              <Badge variant={statusBadge[thread.data.status]} className="ml-auto">
+                {CHAMADO_STATUS_LABEL[thread.data.status]}
+              </Badge>
+            )}
           </div>
           <SuporteChat
             mensagens={thread.data?.mensagens ?? []}
@@ -110,16 +117,27 @@ export function PortalSuporte() {
       ) : chamados.data && chamados.data.length > 0 ? (
         <div className="divide-y">
           {chamados.data.map((c) => (
-            <button key={c.id} onClick={() => setSel(c.id)} className="flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-accent/40">
+            <button
+              key={c.id}
+              onClick={() => setSel(c.id)}
+              className="flex min-h-11 w-full items-center gap-3 px-5 py-3 text-left hover:bg-accent/40"
+            >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium">{c.assunto ?? "Chamado"}</span>
-                  <span className="text-[10px] text-muted-foreground">#{c.numero}</span>
-                  {c.status && <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", statusBadge[c.status])}>{CHAMADO_STATUS_LABEL[c.status]}</span>}
+                  <span className="text-xs text-muted-foreground">#{c.numero}</span>
+                  {c.status && <Badge variant={statusBadge[c.status]}>{CHAMADO_STATUS_LABEL[c.status]}</Badge>}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">{c.ultimaMensagem?.conteudo ?? "Sem mensagens"} · {data(c.updatedAt)}</div>
               </div>
-              {c.naoLidas > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">{c.naoLidas}</span>}
+              {c.naoLidas > 0 && (
+                <span
+                  aria-hidden
+                  className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground"
+                >
+                  {c.naoLidas}
+                </span>
+              )}
               <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
             </button>
           ))}
@@ -133,7 +151,7 @@ export function PortalSuporte() {
             title="Nenhum chamado aberto"
             description="Precisa de alguma coisa? Abra um chamado que a nossa equipe responde por aqui."
           >
-            <Button onClick={() => setAbrir(true)}>
+            <Button className="min-h-11" onClick={() => setAbrir(true)}>
               <Plus className="h-4 w-4" /> Abrir chamado
             </Button>
           </EmptyState>

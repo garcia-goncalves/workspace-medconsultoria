@@ -21,6 +21,8 @@ import { Button, buttonVariants } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { AvatarUpload } from "../../components/ui/avatar";
+import { Skeleton } from "../../components/ui/skeleton";
+import { QueryError } from "../../components/ui/query-error";
 import { EmailsEnviadosList } from "../../components/EmailsEnviadosList";
 
 /** Aviso de sucesso efêmero. */
@@ -109,7 +111,7 @@ function PerfilCard() {
             </p>
           </div>
           {update.error && <p className="text-sm text-destructive">{update.error.message}</p>}
-          <div className="flex items-center gap-3 pt-1">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
             <Button type="submit" disabled={update.isPending || !isDirty}>
               Salvar
             </Button>
@@ -183,7 +185,7 @@ function SenhaCard() {
             </div>
           </div>
           {change.error && <p className="text-sm text-destructive">{change.error.message}</p>}
-          <div className="flex items-center gap-3 pt-1">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
             <Button type="submit" disabled={change.isPending}>
               Alterar senha
             </Button>
@@ -213,7 +215,8 @@ function Toggle({
       disabled={disabled}
       onClick={onToggle}
       className={cn(
-        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        // alvo de toque ≥44px sem alargar o visual: pseudo-elemento amplia a área clicável
+        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors before:absolute before:-inset-2.5 before:content-[''] disabled:cursor-not-allowed disabled:opacity-50",
         ativo ? "bg-success" : "bg-input",
       )}
     >
@@ -263,32 +266,42 @@ function EmailsCard() {
         <p className="mb-4 text-sm text-muted-foreground">
           E-mails de acesso e segurança (convite, boas-vindas, redefinição de senha) são sempre enviados.
         </p>
-        <div className="space-y-5">
-          {EMAIL_GRUPOS.filter((g) => prefs.data?.some((p) => p.grupo === g)).map((grupo) => (
-            <section key={grupo}>
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {grupo}
-              </h3>
-              <div className="divide-y">
-                {prefs.data
-                  ?.filter((p) => p.grupo === grupo)
-                  .map((p) => (
-                    <div key={p.tipo} className="flex items-center justify-between gap-4 py-3">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium">{p.label}</div>
-                        <div className="text-xs text-muted-foreground">{p.descricao}</div>
+        {prefs.isError ? (
+          <QueryError onRetry={() => prefs.refetch()} />
+        ) : prefs.isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-14 w-full rounded-lg" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+            <Skeleton className="h-14 w-full rounded-lg" />
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {EMAIL_GRUPOS.filter((g) => prefs.data?.some((p) => p.grupo === g)).map((grupo) => (
+              <section key={grupo}>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {grupo}
+                </h3>
+                <div className="divide-y">
+                  {prefs.data
+                    ?.filter((p) => p.grupo === grupo)
+                    .map((p) => (
+                      <div key={p.tipo} className="flex items-center justify-between gap-4 py-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium">{p.label}</div>
+                          <div className="text-xs text-muted-foreground">{p.descricao}</div>
+                        </div>
+                        <Toggle
+                          ativo={p.ativo}
+                          disabled={setPref.isPending}
+                          onToggle={() => setPref.mutate({ tipo: p.tipo, ativo: !p.ativo })}
+                        />
                       </div>
-                      <Toggle
-                        ativo={p.ativo}
-                        disabled={setPref.isPending}
-                        onToggle={() => setPref.mutate({ tipo: p.tipo, ativo: !p.ativo })}
-                      />
-                    </div>
-                  ))}
-              </div>
-            </section>
-          ))}
-        </div>
+                    ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -310,10 +323,19 @@ function MeusEmailsCard() {
         <p className="mb-4 text-sm text-muted-foreground">
           Os e-mails que o sistema enviou para você.
         </p>
-        <EmailsEnviadosList
-          emails={meusEmails.data ?? []}
-          vazio="Você ainda não recebeu e-mails do sistema."
-        />
+        {meusEmails.isError ? (
+          <QueryError onRetry={() => meusEmails.refetch()} />
+        ) : meusEmails.isLoading ? (
+          <div className="space-y-1.5">
+            <Skeleton className="h-14 rounded-lg" />
+            <Skeleton className="h-14 rounded-lg" />
+          </div>
+        ) : (
+          <EmailsEnviadosList
+            emails={meusEmails.data ?? []}
+            vazio="Você ainda não recebeu e-mails do sistema."
+          />
+        )}
       </CardContent>
     </Card>
   );

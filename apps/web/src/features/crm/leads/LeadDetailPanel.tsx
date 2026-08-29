@@ -141,7 +141,8 @@ export function LeadDetailPanel({
           )}
           <button
             onClick={onClose}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Fechar"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             title="Fechar"
           >
             <X className="h-5 w-5" />
@@ -240,9 +241,21 @@ export function LeadDetailPanel({
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       Próximos passos · {d.stage.nome}
                     </h3>
-                    {d.faltamObrig > 0 && (
-                      <span className="text-[11px] text-muted-foreground">{d.faltamObrig} obrigatório(s) restante(s)</span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {/* Quantos passos estão parados na clínica. É a pergunta que se faz toda
+                          manhã olhando o funil — antes só dava para responder abrindo lead a lead. */}
+                      {(() => {
+                        const naClinica = d.passos.filter((p) => p.quemFaz === "CLIENTE" && !p.concluido).length;
+                        return naClinica > 0 ? (
+                          <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning ring-1 ring-inset ring-warning/20">
+                            {naClinica} com a clínica
+                          </span>
+                        ) : null;
+                      })()}
+                      {d.faltamObrig > 0 && (
+                        <span className="text-[11px] text-muted-foreground">{d.faltamObrig} obrigatório(s) restante(s)</span>
+                      )}
+                    </div>
                   </div>
                   {d.passos.length === 0 ? (
                     <p className="px-1.5 py-2 text-sm text-muted-foreground">Sem passos nesta etapa. Adicione abaixo.</p>
@@ -268,7 +281,8 @@ export function LeadDetailPanel({
                                 <button
                                   onClick={() => !p.auto && toggle.mutate({ passoId: p.id })}
                                   disabled={toggle.isPending || p.auto}
-                                  className={cn(p.auto && "cursor-default")}
+                                  aria-label={p.auto ? `"${p.titulo}" é automático` : (p.concluido ? `Reabrir "${p.titulo}"` : `Concluir "${p.titulo}"`)}
+                                  className={cn("flex min-h-11 min-w-11 items-center justify-center", p.auto && "cursor-default")}
                                   title={
                                     p.auto
                                       ? "Automático — o sistema conclui e reabre sozinho conforme os dados do lead"
@@ -283,6 +297,11 @@ export function LeadDetailPanel({
                                 </button>
                                 <span className={cn("flex-1 text-sm", p.concluido && "text-muted-foreground line-through")}>
                                   {p.titulo}
+                                  {p.quemFaz === "CLIENTE" && !p.concluido && (
+                                    <span className="ml-1.5 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning ring-1 ring-inset ring-warning/20">
+                                      com a clínica
+                                    </span>
+                                  )}
                                   {p.obrigatorio && !p.concluido && (
                                     <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
                                       obrigatório
@@ -338,7 +357,8 @@ export function LeadDetailPanel({
                                       )
                                         removePasso.mutate({ passoId: p.id });
                                     }}
-                                    className="rounded p-1 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                    aria-label={`Remover passo "${p.titulo}"`}
+                                    className="flex min-h-11 min-w-11 items-center justify-center rounded p-1 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive"
                                     title="Remover passo"
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />

@@ -10,11 +10,10 @@ import {
 import { trpc } from "../../lib/trpc";
 import { PageHeader } from "../../components/ui/page-header";
 import { EmptyState } from "../../components/ui/empty-state";
-import { Table, THead, TH, TR, TD } from "../../components/ui/table";
+import { DataTable, type Coluna } from "../../components/ui/data-table";
 import { Select } from "../../components/ui/select";
 import { Label } from "../../components/ui/label";
 import { Button } from "../../components/ui/button";
-import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { formatBRL } from "../../lib/masks";
 import { data as formatarData } from "../../lib/format-date";
@@ -29,7 +28,9 @@ import { MudarStatusDialog } from "../crm/clientes/CredenciamentoGradeCard";
  * travou e eu preciso cobrar hoje?**
  *
  * Por isso abre ordenada pelo que está parado há mais tempo (e não pelo mais recente, padrão
- * de quase toda listagem daqui), e por isso o alerta vem antes de qualquer filtro.
+ * de quase toda listagem daqui), e por isso o alerta vem antes de qualquer filtro. A ordem
+ * já vem PRONTA do servidor (`ordenarPainelCredenciamentos`) — a `DataTable` só reordena se a
+ * pessoa clicar num cabeçalho, então a ordem "mais parado primeiro" é preservada por padrão.
  *
  * Complementa o `CredenciamentoGradeCard`, que mostra o mesmo dado por cliente, dentro da
  * ficha — e de quem este painel reusa o diálogo de mudança de situação, para as travas de
@@ -101,6 +102,92 @@ export function CredenciamentosPage() {
   const linhas = (dados?.linhas ?? []) as LinhaPainel[];
   const resumo = dados?.resumo;
 
+  const colunas: Coluna<LinhaPainel>[] = [
+    {
+      chave: "medico",
+      cabecalho: "Médico",
+      principal: true,
+      valorOrdenacao: (l) => l.profissionalNome,
+      render: (l) => (
+        <div className="flex items-start gap-2">
+          {l.precisaAtencao && (
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0 text-warning"
+              aria-label="Parado há tempo demais"
+            />
+          )}
+          <div className="min-w-0">
+            <p className="font-medium">{l.profissionalNome}</p>
+            <p className="text-xs text-muted-foreground">
+              {l.profissionalEspecialidade}
+              {l.tentativa > 1 && ` · ${l.tentativa}ª tentativa`}
+            </p>
+            {/* Médico desativado NÃO some daqui: ele foi desativado para preservar o processo
+                em curso (e a cobrança que ele sustenta) — ADR-105. */}
+            {!l.profissionalAtivo && (
+              <span className="mt-0.5 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                fora da lista
+              </span>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      chave: "operadora",
+      cabecalho: "Operadora",
+      valorOrdenacao: (l) => l.operadoraNome,
+      render: (l) => l.operadoraNome,
+    },
+    {
+      chave: "cliente",
+      cabecalho: "Cliente",
+      valorOrdenacao: (l) => l.clienteNome,
+      render: (l) => (
+        <Link to="/clientes/$clienteId" params={{ clienteId: l.clienteId }} className="text-primary hover:underline">
+          {l.clienteNome}
+        </Link>
+      ),
+    },
+    {
+      chave: "situacao",
+      cabecalho: "Situação",
+      valorOrdenacao: (l) => STATUS_CREDENCIAMENTO_LABEL[l.status],
+      render: (l) => (
+        <div>
+          <span className={`rounded px-2 py-1 text-xs font-semibold ${COR[l.status]}`}>
+            {STATUS_CREDENCIAMENTO_LABEL[l.status]}
+          </span>
+          {l.motivoNegativa && <p className="mt-1 max-w-[16rem] text-xs text-destructive">Motivo: {l.motivoNegativa}</p>}
+          {l.observacoes && <p className="mt-1 max-w-[16rem] text-xs text-muted-foreground">{l.observacoes}</p>}
+        </div>
+      ),
+    },
+    {
+      chave: "nestaSituacao",
+      cabecalho: "Nesta situação",
+      render: (l) => (
+        // Processo terminado mostra QUANDO terminou; processo em curso mostra há quanto tempo
+        // espera. "Parado há 3 dias" num aprovado seria falso.
+        <span className={l.precisaAtencao ? "font-semibold text-warning" : "text-muted-foreground"}>
+          {FINAIS.includes(l.status) ? formatarData(l.desde) : tempoParado(l.diasParados)}
+        </span>
+      ),
+    },
+    {
+      chave: "valor",
+      cabecalho: "Valor",
+      alinhamento: "direita",
+      valorOrdenacao: (l) => l.valor,
+      render: (l) => (
+        <div>
+          {formatBRL(l.valor)}
+          {l.temConta && <p className="text-[11px] text-success">conta criada</p>}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -154,170 +241,101 @@ export function CredenciamentosPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-card p-3 shadow-sm">
-        <div className="min-w-[10rem] flex-1 space-y-1">
-          <Label htmlFor="filtro-cliente">Cliente</Label>
-          <Select id="filtro-cliente" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
-            <option value="">Todos</option>
-            {(opcoes.data?.clientes ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nome}
-              </option>
-            ))}
-          </Select>
+      <div className="space-y-3 rounded-xl border bg-card p-3 shadow-sm">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <Label htmlFor="filtro-cliente">Cliente</Label>
+            <Select id="filtro-cliente" value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
+              <option value="">Todos</option>
+              {(opcoes.data?.clientes ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="filtro-operadora">Operadora</Label>
+            <Select id="filtro-operadora" value={operadoraId} onChange={(e) => setOperadoraId(e.target.value)}>
+              <option value="">Todas</option>
+              {(opcoes.data?.operadoras ?? []).map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.nome}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="filtro-situacao">Situação</Label>
+            <Select
+              id="filtro-situacao"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as "" | StatusCredenciamento)}
+            >
+              <option value="">Todas</option>
+              {STATUS_CREDENCIAMENTO.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_CREDENCIAMENTO_LABEL[s]}
+                </option>
+              ))}
+            </Select>
+          </div>
         </div>
-        <div className="min-w-[10rem] flex-1 space-y-1">
-          <Label htmlFor="filtro-operadora">Operadora</Label>
-          <Select id="filtro-operadora" value={operadoraId} onChange={(e) => setOperadoraId(e.target.value)}>
-            <option value="">Todas</option>
-            {(opcoes.data?.operadoras ?? []).map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.nome}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="min-w-[10rem] flex-1 space-y-1">
-          <Label htmlFor="filtro-situacao">Situação</Label>
-          <Select
-            id="filtro-situacao"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as "" | StatusCredenciamento)}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={somenteAtencao ? "default" : "outline"}
+            onClick={() => setSomenteAtencao((v) => !v)}
+            aria-pressed={somenteAtencao}
           >
-            <option value="">Todas</option>
-            {STATUS_CREDENCIAMENTO.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_CREDENCIAMENTO_LABEL[s]}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <Button
-          variant={somenteAtencao ? "default" : "outline"}
-          onClick={() => setSomenteAtencao((v) => !v)}
-          title="Mostra só o que passou do prazo"
-        >
-          <AlertTriangle className="h-4 w-4" /> Só os parados
-        </Button>
-        {temFiltro && (
-          <Button variant="ghost" onClick={limpar}>
-            Limpar filtros
+            <AlertTriangle className="h-4 w-4" /> Só os parados
           </Button>
-        )}
-      </div>
-
-      {q.isPending ? (
-        <div className="space-y-2">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-14 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : linhas.length === 0 ? (
-        <EmptyState
-          icon={Stethoscope}
-          title={temFiltro ? "Nada com esses filtros" : "Nenhum credenciamento ainda"}
-          description={
-            temFiltro
-              ? "Tente afrouxar os filtros — ou limpe todos para ver a lista inteira."
-              : "Os credenciamentos aparecem aqui assim que uma proposta com a grade médico × operadora for criada na ficha de um cliente."
-          }
-        >
           {temFiltro && (
-            <Button variant="outline" onClick={limpar}>
+            <Button variant="ghost" onClick={limpar}>
               Limpar filtros
             </Button>
           )}
-        </EmptyState>
-      ) : (
-        <Table>
-          <THead>
-            <tr>
-              <TH>Médico</TH>
-              <TH>Operadora</TH>
-              <TH>Cliente</TH>
-              <TH>Situação</TH>
-              <TH>Nesta situação</TH>
-              <TH className="text-right">Valor</TH>
-              <TH className="text-right">Ação</TH>
-            </tr>
-          </THead>
-          <tbody>
-            {linhas.map((l) => (
-              <TR key={l.id} className={l.precisaAtencao ? "bg-warning/5" : undefined}>
-                <TD>
-                  <div className="flex items-start gap-2">
-                    {l.precisaAtencao && (
-                      <AlertTriangle
-                        className="mt-0.5 h-4 w-4 shrink-0 text-warning"
-                        aria-label="Parado há tempo demais"
-                      />
-                    )}
-                    <div className="min-w-0">
-                      <p className="font-medium">{l.profissionalNome}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {l.profissionalEspecialidade}
-                        {l.tentativa > 1 && ` · ${l.tentativa}ª tentativa`}
-                      </p>
-                      {/* Médico desativado NÃO some daqui: ele foi desativado para preservar o
-                          processo em curso (e a cobrança que ele sustenta) — ADR-105. */}
-                      {!l.profissionalAtivo && (
-                        <span className="mt-0.5 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
-                          fora da lista
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </TD>
-                <TD>{l.operadoraNome}</TD>
-                <TD>
-                  <Link
-                    to="/clientes/$clienteId"
-                    params={{ clienteId: l.clienteId }}
-                    className="text-primary hover:underline"
-                  >
-                    {l.clienteNome}
-                  </Link>
-                </TD>
-                <TD>
-                  <span className={`rounded px-2 py-1 text-xs font-semibold ${COR[l.status]}`}>
-                    {STATUS_CREDENCIAMENTO_LABEL[l.status]}
-                  </span>
-                  {l.motivoNegativa && (
-                    <p className="mt-1 max-w-[16rem] text-xs text-destructive">Motivo: {l.motivoNegativa}</p>
-                  )}
-                  {l.observacoes && (
-                    <p className="mt-1 max-w-[16rem] text-xs text-muted-foreground">{l.observacoes}</p>
-                  )}
-                </TD>
-                <TD className={l.precisaAtencao ? "font-semibold text-warning" : "text-muted-foreground"}>
-                  {/* Processo terminado mostra QUANDO terminou; processo em curso mostra há
-                      quanto tempo espera. "Parado há 3 dias" num aprovado seria falso. */}
-                  {FINAIS.includes(l.status) ? formatarData(l.desde) : tempoParado(l.diasParados)}
-                </TD>
-                <TD className="text-right">
-                  {formatBRL(l.valor)}
-                  {l.temConta && <p className="text-[11px] text-success">conta criada</p>}
-                </TD>
-                <TD className="text-right">
-                  {l.status === "NEGADO" || l.status === "ENCERRADO" ? (
-                    <Link
-                      to="/clientes/$clienteId"
-                      params={{ clienteId: l.clienteId }}
-                      className="text-xs text-primary hover:underline"
-                    >
-                      Ver na ficha
-                    </Link>
-                  ) : (
-                    <Button size="sm" variant="outline" onClick={() => setMudando(l)}>
-                      Atualizar
-                    </Button>
-                  )}
-                </TD>
-              </TR>
-            ))}
-          </tbody>
-        </Table>
-      )}
+        </div>
+      </div>
+
+      <DataTable
+        dados={linhas}
+        colunas={colunas}
+        chaveLinha={(l) => l.id}
+        carregando={q.isPending}
+        linhasEsqueleto={4}
+        vazio={
+          <EmptyState
+            icon={Stethoscope}
+            title={temFiltro ? "Nada com esses filtros" : "Nenhum credenciamento ainda"}
+            description={
+              temFiltro
+                ? "Tente afrouxar os filtros — ou limpe todos para ver a lista inteira."
+                : "Os credenciamentos aparecem aqui assim que uma proposta com a grade médico × operadora for criada na ficha de um cliente."
+            }
+          >
+            {temFiltro && (
+              <Button variant="outline" onClick={limpar}>
+                Limpar filtros
+              </Button>
+            )}
+          </EmptyState>
+        }
+        acoes={(l) =>
+          l.status === "NEGADO" || l.status === "ENCERRADO" ? (
+            <Link
+              to="/clientes/$clienteId"
+              params={{ clienteId: l.clienteId }}
+              className="text-xs text-primary hover:underline"
+            >
+              Ver na ficha
+            </Link>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => setMudando(l)}>
+              Atualizar
+            </Button>
+          )
+        }
+      />
 
       {mudando && (
         <MudarStatusDialog

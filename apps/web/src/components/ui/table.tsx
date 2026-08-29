@@ -4,7 +4,10 @@ import { cn } from "@app/ui";
 /** Tabela padrão (já embrulhada em card com borda, sombra e overflow). */
 export function Table({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
+    // `data-rolagem-horizontal`: a tabela larga rola AQUI dentro de propósito. A marca diz isso
+    // ao `e2e/responsividade-total.spec.ts`, que sem ela reprovaria a rolagem e induziria alguém a
+    // "consertar" tirando-a.
+    <div data-rolagem-horizontal className="overflow-x-auto rounded-xl border bg-card shadow-sm">
       <table className={cn("w-full text-sm", className)}>{children}</table>
     </div>
   );

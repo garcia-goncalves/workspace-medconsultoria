@@ -13,7 +13,68 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-28 · madrugada · ADR-142 na `main` + OS DADOS DA EMPRESA FORAM PREENCHIDOS EM PRODUÇÃO)
+## Estado atual (2026-08-29 · madrugada · ADR-143 na branch `refino/experiencia-total` — NÃO publicado, NÃO mesclado)
+
+> **Leia `docs/esteira/refino-experiencia-2026-08-29/ESTADO.md`** (o retrato da rodada, com a
+> medição antes×depois) e a **ADR-143** em `docs/DECISIONS.md`.
+
+- **📱 A APLICAÇÃO INTEIRA PASSOU A FUNCIONAR NO CELULAR.** 30 telas × 5 tamanhos (360 · 390 · 768 ·
+  1366 · 1920), área interna **e** Portal, **verdes** em `e2e/responsividade-total.spec.ts` — o mesmo
+  arquivo que reprovava os cinco tamanhos no começo da rodada. Nasceu a caixa de peças que faltava
+  (`tabs`, `sheet`, `popover`, `accordion`, `dialog-stack`, `data-table`, e a prop `hint` em
+  `PageHeader`/`Modal`/`CardTitle`), **tudo à mão, sem biblioteca nova**.
+- **🧩 A CAUSA RAIZ DO VAZAMENTO ERA UMA LINHA DO ESQUELETO:** o `<main>` do `AppLayout` sem
+  `min-w-0` (o `min-width:auto` do Flexbox). ⚠️ **O mesmo modo de falha reaparece em GRID**: a trilha
+  `1fr` é `minmax(auto,1fr)`, e esse `auto` é o **min-content do cartão** — um chip que não encolhe
+  alarga a coluna inteira. Foi o que sobrou em `/clientes` e `/modelos` a 360px.
+- **🗂️ Para QUADRO (Kanban), `min-w-0` não basta:** funil e quadro de projetos usam
+  `grid-cols-[minmax(0,1fr)]` no lugar de `flex`, com a fileira rolando dentro de si. Eram **385px**
+  de excesso no funil a 1366px.
+- **🚨 A RÉGUA SE CEGOU SOZINHA, E ISSO É A LIÇÃO DA RODADA.** Isentar do teste quem tem ancestral
+  com `overflow-x` **calculado** em `auto`/`scroll` esconde defeito real: **o CSS transforma
+  `visible` em `auto` no eixo oposto** assim que um dos dois deixa de ser visível, então toda lista
+  com `overflow-y-auto` parece rolar na horizontal. Com essa regra, cartões estourando 36px e 105px
+  passavam aprovados. **A isenção certa é a marca explícita `data-rolagem-horizontal`**, posta nos
+  quatro lugares onde a rolagem lateral é desenho (`Table`, `TabsList`, as duas fileiras de Kanban).
+- **⚠️ O `412` do `/email` NÃO é erro** — é o crachá que a ADR-135 deu ao estado esperado *"esta
+  caixa precisa ser reconectada"*, que a tela já trata com o botão *Reconectar*. A verificação de
+  console dispensa **só** esse status.
+- **💰 Cinco defeitos de cobrança fechados** (M1, C10, M15, F8, F9) e **cancelar serviço encerra a
+  mensalidade** (decisão do dono). ⚠️ São **dois movimentos**: `recorrenciaAte = hoje` na série
+  inteira **mais** o soft-delete só das parcelas futuras em aberto — **o que já venceu fica de pé**.
+- **🔔 Cinco avisos que nunca chegavam** (C1, C2, M6, M8, C8) passaram a chegar.
+- **🧭 Cada passo do funil diz de quem está esperando** — enum `QuemFaz` (MED/CLIENTE), migração
+  `20260829014839`, **aditiva** (duas colunas com padrão; reverter é `DROP COLUMN`).
+- **🧹 `pnpm db:limpar` deixava NOVE tabelas para trás**, entre elas `Profissional`, `Credenciamento`
+  e **`CaixaEmail`, que guarda a senha IMAP cifrada de cada pessoa**. ⚠️ **A cascata do banco não
+  salva aqui** — o script desliga as chaves estrangeiras, então **tabela ausente da lista sobrevive**.
+- **🕵️ A CI PEGOU O QUE O BANCO LOCAL ESCONDIA.** O `e2e` rodou pela 1ª vez ao abrir o PR (`push`
+  só roda `build-test`, ADR-121) e reprovou 17 vezes. **Três defeitos reais** invisíveis aqui
+  porque as telas nasciam vazias: os avisos do Início a 360px; o `<select>` de `/emails-enviados`
+  — ⚠️ **`w-auto` num `<select>` é a largura da OPÇÃO MAIS LONGA**, +84px; e o nome do arquivo no
+  Portal, um **link de 20px de altura**, abaixo da régua de toque. **E oito testes velhos**, sem
+  nenhum defeito de aplicação: os botões trocaram `title` genérico por **nome acessível** e as
+  seções viraram **abas** (`role="tab"`) — a marcação melhorou, o teste é que ficou para trás.
+- **⚠️ `DataTable` tem `data-linha` nas DUAS formas** (tabela acima de `md`, cartão abaixo); o
+  teste usa `[data-linha]:visible`. Sem a marca, `role="row"` não acha nada no celular.
+- **⚠️ Texto truncado NÃO é estouro** — `getBoundingClientRect` ignora o recorte do `truncate`. A
+  isenção é a combinação exata (`text-overflow: ellipsis` + `overflow-x: hidden`), nunca "qualquer
+  ancestral com overflow hidden".
+- **Provas:** typecheck 6/6 · lint limpo · **213 testes** do `@app/web` · **785** do `@app/api`
+  (suíte inteira, 93 arquivos; `test:unit` NÃO roda integração) · medição de responsividade verde
+  nos 5 tamanhos · **suíte `e2e` completa: 119 verdes em três lotes**.
+
+### O que falta nesta esteira
+
+- **Conferir as 30 telas no navegador**, a 1920 e a 360 (local = Playwright).
+- **Abrir o PR** e esperar a CI (3 verificações; a `main` só aceita PR).
+- **Publicar só com o sinal do dono** — o `gh workflow run` é barrado para mim; ele precisa colar
+  `! gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR`.
+- ⚠️ **ANTES DE PUBLICAR, CONFERIR EM PRODUÇÃO:** a correção **C10** mudou o significado de "parcela
+  apagada". Se houver em produção parcela apagada por reversão antiga, ela passará a ser lida como
+  *excluída de propósito* e aquele mês será **pulado**.
+
+## Estado anterior (2026-08-28 · madrugada · ADR-142 na `main` + OS DADOS DA EMPRESA FORAM PREENCHIDOS EM PRODUÇÃO)
 
 - **✅ O BLOQUEIO DO DADO REAL CAIU: o dono preencheu os campos jurídicos e bancários de PRODUÇÃO
   em 28/08, à mão, na tela.** Conferido reabrindo o formulário (que carrega do servidor):

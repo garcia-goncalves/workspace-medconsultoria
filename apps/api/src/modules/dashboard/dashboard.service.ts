@@ -1,6 +1,6 @@
 import { prisma } from "@app/db";
 import type { Role } from "@app/shared";
-import { hasRoleLevel } from "@app/shared";
+import { hasRoleLevel, dividirEstimativaDoLead } from "@app/shared";
 import { hojeBRT } from "../../lib/datas.js";
 import { listEventos } from "../agenda/agenda.service.js";
 import { resumo as financeiroResumo } from "../financeiro/contas.service.js";
@@ -187,11 +187,16 @@ async function montarGestao(hojeInicio: Date, em7: Date, d7: Date, d14: Date, d3
       where: { deletedAt: null, pago: false, tipo: "PAGAR", vencimento: { gte: hojeInicio, lte: em7 } },
     }),
     listStages(),
-    prisma.lead.groupBy({
-      by: ["pipelineStageId"],
+    // ⚠️ Era um `groupBy` somando `valorEstimado` — e essa soma juntava mensalidade com cobrança
+    // única no mesmo número (F8). Para separar é preciso o PREÇO de cada serviço do lead, que o
+    // `groupBy` não alcança; a soma passou a ser feita aqui, com a mesma régua do board.
+    prisma.lead.findMany({
       where: { deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
-      _count: { _all: true },
-      _sum: { valorEstimado: true },
+      select: {
+        pipelineStageId: true,
+        valorEstimado: true,
+        servicos: { select: { nome: true, valor: true, valorRecorrencia: true, percentual: true } },
+      },
     }),
     prisma.lead.count({ where: { deletedAt: null, createdAt: { gte: d7 } } }),
     prisma.lead.count({ where: { convertidoEmClienteId: { not: null }, updatedAt: { gte: d30 } } }),
@@ -256,13 +261,35 @@ async function montarGestao(hojeInicio: Date, em7: Date, d7: Date, d14: Date, d3
   ]);
 
   // Funil por etapa (na ordem do pipeline).
-  const etapaMap = new Map(leadsPorEtapa.map((e) => [e.pipelineStageId, e]));
+  //
+  // ⚠️ **RECORRENTE E AVULSO NÃO SE SOMAM (F8).** "R$ 5.000 no funil" não quer dizer nada quando
+  // são R$ 3.500 por mês mais R$ 1.500 uma vez só. A régua é `dividirEstimativaDoLead`, a MESMA
+  // que o board de Vendas usa — duas cópias dariam dois totais diferentes para o mesmo funil.
+  const porEtapa = new Map<string, { count: number; mensal: number; avulso: number }>();
+  for (const lead of leadsPorEtapa) {
+    const acc = porEtapa.get(lead.pipelineStageId) ?? { count: 0, mensal: 0, avulso: 0 };
+    const d = dividirEstimativaDoLead(
+      lead.servicos.map((s) => ({
+        nome: s.nome,
+        valor: emReaisOu(s.valor),
+        valorRecorrencia: s.valorRecorrencia,
+        percentual: emReaisOu(s.percentual),
+      })),
+      emReaisOu(lead.valorEstimado),
+    );
+    porEtapa.set(lead.pipelineStageId, {
+      count: acc.count + 1,
+      mensal: acc.mensal + d.mensal,
+      avulso: acc.avulso + d.avulso,
+    });
+  }
   const funilEtapas = stages.map((s) => {
-    const e = etapaMap.get(s.id);
-    return { nome: s.nome, count: e?._count._all ?? 0, valor: emReaisOu(e?._sum.valorEstimado) };
+    const e = porEtapa.get(s.id);
+    return { nome: s.nome, count: e?.count ?? 0, mensal: e?.mensal ?? 0, avulso: e?.avulso ?? 0 };
   });
   const funilTotal = funilEtapas.reduce((acc, e) => acc + e.count, 0);
-  const funilValor = funilEtapas.reduce((acc, e) => acc + e.valor, 0);
+  const funilMensal = funilEtapas.reduce((acc, e) => acc + e.mensal, 0);
+  const funilAvulso = funilEtapas.reduce((acc, e) => acc + e.avulso, 0);
 
   // Projetos por status.
   const projStatus = { ATIVO: 0, PAUSADO: 0, CONCLUIDO: 0 } as Record<string, number>;
@@ -291,7 +318,10 @@ async function montarGestao(hojeInicio: Date, em7: Date, d7: Date, d14: Date, d3
     funil: {
       etapas: funilEtapas,
       total: funilTotal,
-      valor: funilValor,
+      /** Receita prevista que se repete todo mês (mensalidade e % do faturamento). */
+      mensal: funilMensal,
+      /** Cobrança única prevista. Nunca somada com a de cima — ver F8. */
+      avulso: funilAvulso,
       novos7: novosLeads7,
       convertidos30: leadsConvertidos30,
       parados: leadsParados,

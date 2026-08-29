@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { ArrowLeft, Plus, Loader2, Pencil, UserPlus, Building2, AlertTriangle, CalendarClock, ListTodo } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Plus, Loader2, Pencil, UserPlus, Building2, AlertTriangle, CalendarClock, ListTodo } from "lucide-react";
 import { cn } from "@app/ui";
 import { CARD_STATUS_ORDER, CARD_STATUS_LABEL, type CardStatus } from "@app/shared";
 import { trpc } from "../../lib/trpc";
@@ -21,6 +21,9 @@ import { data } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
 import { PageHeader } from "../../components/ui/page-header";
 import { QueryError } from "../../components/ui/query-error";
+import { Skeleton } from "../../components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
+import { Popover } from "../../components/ui/popover";
 import { isNotFoundError } from "../../lib/trpc-error";
 import { KanbanCard, type CardItem } from "./KanbanCard";
 import { CardPanel } from "./CardPanel";
@@ -43,6 +46,23 @@ function emptyBoard(): Board {
   };
 }
 
+// "Aguardando cliente" tem cor própria (âmbar) — é a única coluna cuja bola está com a clínica,
+// não com a equipe, e não pode se confundir com o cinza neutro das demais.
+const COLUNA_TOM: Record<CardStatus, string> = {
+  A_FAZER: "bg-muted/40",
+  EM_ANDAMENTO: "bg-muted/40",
+  AGUARDANDO_CLIENTE: "bg-warning/10",
+  AGUARDANDO_TERCEIROS: "bg-muted/40",
+  CONCLUIDO: "bg-muted/40",
+};
+const CONTADOR_TOM: Record<CardStatus, string> = {
+  A_FAZER: "bg-background text-muted-foreground",
+  EM_ANDAMENTO: "bg-background text-muted-foreground",
+  AGUARDANDO_CLIENTE: "bg-warning/20 text-warning",
+  AGUARDANDO_TERCEIROS: "bg-background text-muted-foreground",
+  CONCLUIDO: "bg-background text-muted-foreground",
+};
+
 function Column({
   status,
   cards,
@@ -56,16 +76,16 @@ function Column({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   return (
-    <div className="flex w-72 shrink-0 flex-col rounded-xl bg-muted/40">
+    <div className={cn("flex w-72 min-w-0 shrink-0 flex-col rounded-xl", COLUNA_TOM[status])}>
       <div className="flex items-center gap-2 px-3.5 py-3">
         <span className="text-sm font-medium">{CARD_STATUS_LABEL[status]}</span>
-        <span className="rounded-full bg-background px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+        <span className={cn("rounded-full px-1.5 py-0.5 text-[11px] font-medium", CONTADOR_TOM[status])}>
           {cards.length}
         </span>
         <button
           onClick={onAdd}
-          className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-          title="Adicionar cartão"
+          aria-label={`Adicionar cartão em "${CARD_STATUS_LABEL[status]}"`}
+          className="ml-auto flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <Plus className="h-4 w-4" />
         </button>
@@ -87,6 +107,88 @@ function Column({
   );
 }
 
+/** Menu "Mover para…" — a alternativa ao arraste no celular, onde 5 colunas lado a lado não cabem. */
+function MoverMenu({ atual, titulo, onMover }: { atual: CardStatus; titulo: string; onMover: (novo: CardStatus) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel={`Mover "${titulo}" para outra coluna`}
+      trigger={(p) => (
+        <button
+          {...p}
+          aria-label={`Mover "${titulo}" para outra coluna`}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <ArrowRightLeft className="h-4 w-4" />
+        </button>
+      )}
+    >
+      <div className="w-52">
+        <p className="px-2 pb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mover para</p>
+        <div className="space-y-0.5">
+          {CARD_STATUS_ORDER.filter((s) => s !== atual).map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                onMover(s);
+                setOpen(false);
+              }}
+              className="flex min-h-11 w-full items-center rounded-md px-2.5 py-2 text-left text-sm text-foreground hover:bg-accent"
+            >
+              {CARD_STATUS_LABEL[s]}
+            </button>
+          ))}
+        </div>
+      </div>
+    </Popover>
+  );
+}
+
+/**
+ * Uma coluna do quadro, no celular: SEM arraste (5 colunas lado a lado não cabem a 360px — ver
+ * `docs/UI_GUIDELINES.md` §7), com "Mover para…" no lugar (`MoverMenu`). O cartão inteiro continua
+ * abrindo com um toque; mover é uma ação explícita ao lado, não escondida num gesto.
+ */
+function ColunaMobile({
+  status,
+  cards,
+  onAdd,
+  onOpen,
+  onMover,
+}: {
+  status: CardStatus;
+  cards: CardItem[];
+  onAdd: () => void;
+  onOpen: (id: string) => void;
+  onMover: (cardId: string, novoStatus: CardStatus) => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2.5">
+      <button
+        onClick={onAdd}
+        className="flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-dashed text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+      >
+        <Plus className="h-4 w-4" />
+        Adicionar cartão
+      </button>
+      {cards.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">Nenhum cartão nesta coluna.</p>
+      ) : (
+        <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pb-2">
+          {cards.map((card) => (
+            <div key={card.id} className="flex items-stretch gap-2">
+              <KanbanCard card={card} onOpen={() => onOpen(card.id)} draggable={false} className="min-w-0 flex-1" />
+              <MoverMenu atual={status} titulo={card.titulo} onMover={(novo) => onMover(card.id, novo)} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ProjetoDetailPage() {
   const { projetoId } = route.useParams();
   const projeto = trpc.projetos.get.useQuery({ id: projetoId });
@@ -102,6 +204,8 @@ export function ProjetoDetailPage() {
   const [editarProjeto, setEditarProjeto] = useState(false);
   const [delegar, setDelegar] = useState(false);
   const [gerenciarPart, setGerenciarPart] = useState(false);
+  // Coluna aberta no celular (uma por vez — ver `ColunaMobile`).
+  const [abaMobile, setAbaMobile] = useState<CardStatus>("A_FAZER");
 
   useEffect(() => {
     if (!cards.data) return;
@@ -327,31 +431,72 @@ export function ProjetoDetailPage() {
         </div>
       </div>
 
-      {cards.isLoading ? (
-        <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      {cards.isError ? (
+        <QueryError onRetry={() => cards.refetch()} />
+      ) : cards.isLoading ? (
+        <div className="grid flex-1 grid-cols-1 gap-3 md:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-64 rounded-xl" />
+          ))}
         </div>
       ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={onDragStart}
-          onDragOver={onDragOver}
-          onDragEnd={onDragEnd}
-        >
-          <div className="flex flex-1 gap-4 overflow-x-auto pb-2">
-            {CARD_STATUS_ORDER.map((status) => (
-              <Column
-                key={status}
-                status={status}
-                cards={board[status]}
-                onAdd={() => setCriarStatus(status)}
-                onOpen={(id) => setPainelCardId(id)}
-              />
-            ))}
+        <>
+          {/* Desktop/tablet: as 5 colunas lado a lado, com arraste (dnd-kit).
+              `grid-cols-[minmax(0,1fr)]` (em vez de `flex`) é o que IMPEDE o quadro de vazar a
+              largura da janela: uma trilha de grid com mínimo explícito 0 contém a largura do
+              conteúdo largo (5 colunas fixas) mesmo quando um ancestral do shell (`<main>`) não
+              tem `min-w-0` — o vazamento medido em `e2e/responsividade-total.spec.ts` (até 442px
+              de excesso a 1366px) vinha exatamente daí. */}
+          <div className="hidden flex-1 md:grid md:grid-cols-[minmax(0,1fr)]">
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragStart={onDragStart}
+              onDragOver={onDragOver}
+              onDragEnd={onDragEnd}
+            >
+              <div data-rolagem-horizontal className="flex min-w-0 gap-4 overflow-x-auto pb-2">
+                {CARD_STATUS_ORDER.map((status) => (
+                  <Column
+                    key={status}
+                    status={status}
+                    cards={board[status]}
+                    onAdd={() => setCriarStatus(status)}
+                    onOpen={(id) => setPainelCardId(id)}
+                  />
+                ))}
+              </div>
+              <DragOverlay>{activeCard ? <KanbanCard card={activeCard} overlay /> : null}</DragOverlay>
+            </DndContext>
           </div>
-          <DragOverlay>{activeCard ? <KanbanCard card={activeCard} overlay /> : null}</DragOverlay>
-        </DndContext>
+
+          {/* Celular: uma coluna por vez (abas), sem arraste — "Mover para…" no lugar dele. */}
+          <div className="flex min-h-0 flex-1 flex-col md:hidden">
+            <Tabs value={abaMobile} onValueChange={(v) => setAbaMobile(v as CardStatus)} className="flex min-h-0 flex-1 flex-col">
+              <TabsList aria-label="Colunas do quadro" className="shrink-0">
+                {CARD_STATUS_ORDER.map((status) => (
+                  <TabsTrigger key={status} value={status} contador={board[status].length}>
+                    {CARD_STATUS_LABEL[status]}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              {CARD_STATUS_ORDER.map((status) => (
+                <TabsContent key={status} value={status} className="mt-3 min-h-0 flex-1">
+                  <ColunaMobile
+                    status={status}
+                    cards={board[status]}
+                    onAdd={() => setCriarStatus(status)}
+                    onOpen={(id) => setPainelCardId(id)}
+                    onMover={(cardId, novoStatus) => {
+                      const destino = board[novoStatus];
+                      move.mutate({ id: cardId, status: novoStatus, ordem: destino.length });
+                    }}
+                  />
+                </TabsContent>
+              ))}
+            </Tabs>
+          </div>
+        </>
       )}
 
       {painelCardId && (
