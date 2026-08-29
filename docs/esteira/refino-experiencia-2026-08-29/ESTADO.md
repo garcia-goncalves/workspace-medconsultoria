@@ -77,3 +77,23 @@ Três frentes despachadas e **ainda não conferidas**:
 - ⚠️ **Os bancos auxiliares precisam migrar junto**: `medconsultoria_test` (integração) e `medconsultoria_e2e`. Os dois já receberam a migração desta esteira.
 - ⚠️ **O hook de segredo barra qualquer comando de Bash que cite `.env`** — inclusive `cat packages/db/package.json` se a linha contiver a palavra. Para consultar o banco, escreva um script `.mts` **dentro do repositório** (fora dele o `@prisma/client` não resolve) e rode com `pnpm exec tsx`.
 - ⚠️ **A raiz não é ESM**: script solto precisa da extensão `.mts`, senão `tsx` reclama de *top-level await*.
+
+## ⚠️ Pendência do banco de demonstração (29/08, madrugada)
+
+A datação dos credenciamentos **está feita** no semeador: as datas são relativas ao prazo
+lido de `IdentidadeInstitucional` (não a 60 fixo), e três linhas nascem claramente
+atrasadas — `A_PROTOCOLAR` há 120 dias, `PROTOCOLADO` há 90, `EM_ANALISE` há 75 —, mais
+duas dentro do prazo para o contraste.
+
+**Mas o banco de desenvolvimento está com dado duplicado:** 49 credenciamentos e 21
+profissionais, quando o desenho pede 10 e 5. São **quatro gerações sobrepostas dos mesmos
+nomes**, e a causa é concorrência: mais de um processo rodou `pnpm db:demo:rica` contra o
+mesmo banco ao mesmo tempo, e a checagem de idempotência (`findFirst` antes de criar) tem
+uma janela de corrida entre "conferi que não existe" e "criei".
+
+**Não é defeito da lógica** — no banco isolado, rodando sozinho, três execuções seguidas
+deram 10 nas três, sem crescer.
+
+**O que fazer:** com **nada mais rodando neste checkout**, um único
+`pnpm db:limpar --apply && pnpm db:demo:rica`. Depois, conferir que dá 10 credenciamentos,
+3 deles com o alerta âmbar aceso.
