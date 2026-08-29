@@ -99,7 +99,18 @@ export async function resumoClientes() {
   const [ativos, inativos, portaisAtivos] = await Promise.all([
     prisma.cliente.count({ where: { deletedAt: null, situacaoComercial: "ATIVO" } }),
     prisma.cliente.count({ where: { deletedAt: null, situacaoComercial: "INATIVO" } }),
-    prisma.user.count({ where: { role: "CLIENTE", ativo: true, deletedAt: null, passwordHash: { not: null } } }),
+    // O universo é o MESMO dos três acima: cliente da base (ATIVO/INATIVO). Contar todo
+    // Portal ativo traria junto o do PROSPECT — que vive no Funil e não entra no total
+    // (ADR-24) —, e a tela mostrava "Total de clientes 0" ao lado de "Com Portal ativo 1".
+    prisma.user.count({
+      where: {
+        role: "CLIENTE",
+        ativo: true,
+        deletedAt: null,
+        passwordHash: { not: null },
+        cliente: { deletedAt: null, situacaoComercial: { in: ["ATIVO", "INATIVO"] } },
+      },
+    }),
   ]);
   return { total: ativos + inativos, ativos, inativos, portaisAtivos };
 }
