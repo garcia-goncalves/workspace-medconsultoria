@@ -48,8 +48,21 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - **🧹 `pnpm db:limpar` deixava NOVE tabelas para trás**, entre elas `Profissional`, `Credenciamento`
   e **`CaixaEmail`, que guarda a senha IMAP cifrada de cada pessoa**. ⚠️ **A cascata do banco não
   salva aqui** — o script desliga as chaves estrangeiras, então **tabela ausente da lista sobrevive**.
+- **🕵️ A CI PEGOU O QUE O BANCO LOCAL ESCONDIA.** O `e2e` rodou pela 1ª vez ao abrir o PR (`push`
+  só roda `build-test`, ADR-121) e reprovou 17 vezes. **Três defeitos reais** invisíveis aqui
+  porque as telas nasciam vazias: os avisos do Início a 360px; o `<select>` de `/emails-enviados`
+  — ⚠️ **`w-auto` num `<select>` é a largura da OPÇÃO MAIS LONGA**, +84px; e o nome do arquivo no
+  Portal, um **link de 20px de altura**, abaixo da régua de toque. **E oito testes velhos**, sem
+  nenhum defeito de aplicação: os botões trocaram `title` genérico por **nome acessível** e as
+  seções viraram **abas** (`role="tab"`) — a marcação melhorou, o teste é que ficou para trás.
+- **⚠️ `DataTable` tem `data-linha` nas DUAS formas** (tabela acima de `md`, cartão abaixo); o
+  teste usa `[data-linha]:visible`. Sem a marca, `role="row"` não acha nada no celular.
+- **⚠️ Texto truncado NÃO é estouro** — `getBoundingClientRect` ignora o recorte do `truncate`. A
+  isenção é a combinação exata (`text-overflow: ellipsis` + `overflow-x: hidden`), nunca "qualquer
+  ancestral com overflow hidden".
 - **Provas:** typecheck 6/6 · lint limpo · **213 testes** do `@app/web` · **785** do `@app/api`
-  (suíte inteira; `test:unit` NÃO roda integração) · medição de responsividade verde nos 5 tamanhos.
+  (suíte inteira, 93 arquivos; `test:unit` NÃO roda integração) · medição de responsividade verde
+  nos 5 tamanhos · **suíte `e2e` completa: 119 verdes em três lotes**.
 
 ### O que falta nesta esteira
 

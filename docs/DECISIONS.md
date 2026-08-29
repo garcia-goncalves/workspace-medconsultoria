@@ -4623,8 +4623,38 @@ verificação de console passou a dispensar **só** esse status, com o porquê e
   soltas — inclusive com três credenciamentos datados para trás, para o alerta âmbar da tela de
   Credenciamentos acender na demonstração.
 
+### ⚠️ O que só a CI mostrou — e por que ela viu o que eu não via
+
+O `e2e` desta branch rodou pela **primeira vez** ao abrir o PR (`push` na `main` roda só o
+`build-test`, por causa da cota de Actions — ADR-121). Reprovou 17 vezes, de duas naturezas.
+
+**Três defeitos reais, invisíveis no banco de demonstração**, porque lá as telas nasciam vazias:
+os avisos do Início a 360px (`min-w-0` de novo, +21px); o `<select>` de `/emails-enviados` —
+⚠️ **`w-auto` num `<select>` é a largura da OPÇÃO MAIS LONGA**, e as opções são nomes de aviso
+("Conflito de horário na agenda"), o que empurrava a janela em **84px**; e o nome do arquivo no
+Portal, que é um **link de download de 20px de altura**, abaixo da régua de toque.
+
+**Oito testes velhos, e nenhum era defeito da aplicação.** Os botões de ação trocaram um `title`
+genérico por **nome acessível** (*"Editar conta X"*, *"Remover cartão"*) e as seções viraram
+**abas de verdade** (`role="tab"`). Um teste que procura *botão* chamado "Para vender" não acha
+uma *aba*; e `name: /Lead X/` passou a casar três botões, porque o nome do lead agora está dentro
+do rótulo de "Editar" e "Remover". ⚠️ **A marcação melhorou; o teste é que ficou para trás** — os
+seletores foram apontados para os nomes novos, nenhum foi afrouxado.
+
+⚠️ **`DataTable` ganhou `data-linha` nas DUAS formas** (tabela acima de `md`, cartão abaixo), e o
+teste usa `[data-linha]:visible`. Sem essa marca, um teste que procura `role="row"` acha a tabela e
+não acha nada no celular — e a diferença entre *"não existe"* e *"virou cartão"* é o que faz alguém
+desfazer a versão de celular achando que quebrou.
+
+**E a régua errou uma terceira vez, pelo lado oposto:** texto cortado com reticências (`truncate`)
+é desenho, mas os pedaços de texto **dentro** dele continuam medindo a largura inteira —
+`getBoundingClientRect` ignora o recorte. A isenção é a combinação exata do `truncate`
+(`text-overflow: ellipsis` + `overflow-x: hidden`). ⚠️ Não vale afrouxar para *"qualquer ancestral
+com overflow hidden"*: aí o teste pararia de ver conteúdo genuinamente cortado fora da tela.
+
 ### Prova
 
 typecheck 6/6 · lint limpo · **213 testes** do `@app/web` · **785** do `@app/api` (suíte inteira,
-integração incluída) · e a medição de responsividade **verde nos 5 tamanhos, nas 30 rotas, área
-interna e Portal** — o mesmo arquivo que reprovava os cinco tamanhos no começo da rodada.
+93 arquivos) · a medição de responsividade **verde nos 5 tamanhos, nas 30 rotas, área interna e
+Portal** — o mesmo arquivo que reprovava os cinco tamanhos no começo da rodada — e a **suíte `e2e`
+completa** no runner isolado, em três lotes: **45 + 26 + 48 = 119 verdes, zero reprovação**.
