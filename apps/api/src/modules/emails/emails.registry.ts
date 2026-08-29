@@ -478,6 +478,26 @@ export const EMAIL_TEMPLATES = {
       ctaTexto: "Ver documento",
     },
   },
+  /**
+   * M18: nasceu porque `assinar()` reaproveitava `documento_revisao` quando a ÚLTIMA
+   * assinatura entrava — e o corpo dele diz "está aguardando sua revisão", que é o oposto do
+   * que aconteceu. Vai para quem criou o documento (o mesmo destinatário de `documento_revisao`),
+   * sempre gente da equipe — não há vocabulário de "Workspace" a evitar aqui, é aviso interno.
+   */
+  documento_assinado: {
+    label: "Documento assinado por todos",
+    descricao: "Quando a última assinatura de um documento entra e ele fica totalmente assinado. Vai para quem criou o documento.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [{ chave: "documento", rotulo: "Nome do documento", descricao: "Título do documento", exemplo: "Contrato de prestação de serviços" }],
+    temCta: true,
+    default: {
+      assunto: "Documento assinado por todos",
+      titulo: "Documento assinado por todos",
+      corpo: "O documento \"{{documento}}\" foi assinado por todos os signatários e está concluído.",
+      ctaTexto: "Ver documento",
+    },
+  },
   conta_vencida: {
     label: "Conta vencida",
     descricao: "Alerta de conta a pagar/receber vencida. Vai para admins.",

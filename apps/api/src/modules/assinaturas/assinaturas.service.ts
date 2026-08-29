@@ -231,12 +231,13 @@ export async function assinar(
     // Integração com o funil: reconcilia os passos automáticos do lead — conclui tanto
     // o passo do documento quanto o "Confirmar o aceite/assinatura" (marco "assinado").
     await reconciliarLeadDoDocumento(a.documentoId);
-    // Avisa quem criou o documento (se o criador não foi removido).
+    // Avisa quem criou o documento (se o criador não foi removido). M18: template PRÓPRIO —
+    // `documento_revisao` diz "está aguardando sua revisão", o oposto de "assinado por todos".
     if (a.documento.criadoPorId) {
       void notificar(
         a.documento.criadoPorId,
-        "documento_revisao",
-        { documento: `${a.documento.titulo} (assinado por todos)` },
+        "documento_assinado",
+        { documento: a.documento.titulo },
         { entidadeTipo: "documento", entidadeId: a.documentoId },
       ).catch(() => {});
     }

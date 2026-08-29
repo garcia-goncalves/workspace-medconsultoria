@@ -20,12 +20,13 @@ import { dividirEstimativaDoLead, NOME_SERVICO_CREDENCIAMENTO } from "@app/share
 
 const servico = (
   nome: string,
-  p: { valor?: number | null; valorRecorrencia?: string | null; percentual?: number | null } = {},
+  p: { valor?: number | null; valorRecorrencia?: string | null; percentual?: number | null; ehCredenciamento?: boolean } = {},
 ) => ({
   nome,
   valor: p.valor ?? null,
   valorRecorrencia: p.valorRecorrencia ?? "AVULSO",
   percentual: p.percentual ?? null,
+  ehCredenciamento: p.ehCredenciamento ?? false,
 });
 
 describe("F8 — o valor do funil sai separado: recorrente × avulso", () => {
@@ -53,7 +54,7 @@ describe("F8 — o valor do funil sai separado: recorrente × avulso", () => {
 
   it("o credenciamento fica fora dos dois — o honorário só nasce quando a operadora aprova", () => {
     const d = dividirEstimativaDoLead(
-      [servico(NOME_SERVICO_CREDENCIAMENTO, { valor: 2500, valorRecorrencia: "AVULSO" })],
+      [servico(NOME_SERVICO_CREDENCIAMENTO, { valor: 2500, valorRecorrencia: "AVULSO", ehCredenciamento: true })],
       2500,
     );
     expect(d, "credenciamento não é receita prevista do funil").toEqual({ mensal: 0, avulso: 0 });

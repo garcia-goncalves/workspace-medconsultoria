@@ -137,19 +137,40 @@ export async function login(
 
   tentativas.delete(chave); // sucesso zera o contador
 
+  // AS QUATRO ESCRITAS DO LOGIN BEM-SUCEDIDO NÃO DEPENDEM UMA DA OUTRA — nenhuma lê o
+  // resultado de outra (nem `createSession` precisa do rehash, nem o registro de acesso
+  // precisa do `sid`). Rodá-las em paralelo, em vez de em série, corta a latência do login sem
+  // mudar o resultado observável:
+  //  - o rehash e a marcação de `ultimoAcessoEm` já eram best-effort (`.catch(() => {})`) —
+  //    continuam engolindo a própria falha, então NUNCA derrubam o `Promise.all` nem o login;
+  //  - `createSession` e o registro em `activityLog` continuam SEM catch, exatamente como
+  //    antes — se algum dos dois falhar, o login falha junto, igual ao comportamento de hoje.
+
   // Rehash transparente: se a senha estava em algoritmo legado (ex.: bcrypt do Plano B) e o
   // Argon2 está disponível, reescreve o hash para Argon2id no login — sem forçar reset. Ver #3.
-  if (await precisaRehash(user.passwordHash)) {
-    const novo = await hashPassword(input.password);
-    await prisma.user.update({ where: { id: user.id }, data: { passwordHash: novo } }).catch(() => {});
-  }
+  const rehash = precisaRehash(user.passwordHash)
+    .then((precisa) =>
+      precisa
+        ? hashPassword(input.password).then((novo) =>
+            prisma.user.update({ where: { id: user.id }, data: { passwordHash: novo } }),
+          )
+        : undefined,
+    )
+    .catch(() => {});
 
-  const sid = await createSession(user.id, { userAgent, ip });
   // ÚLTIMO ACESSO (ADR-128): marcado só aqui, no login com senha. É o que o card do lead/cliente
   // mostra para a Thaís saber se o cliente apareceu depois do convite. Sessão de suporte da
   // equipe NÃO passa por aqui, de propósito — nós entrarmos no painel dele não é ele vindo.
-  await prisma.user.update({ where: { id: user.id }, data: { ultimoAcessoEm: new Date() } }).catch(() => {});
-  await prisma.activityLog.create({ data: { userId: user.id, acao: "login" } });
+  const ultimoAcesso = prisma.user
+    .update({ where: { id: user.id }, data: { ultimoAcessoEm: new Date() } })
+    .catch(() => {});
+
+  const [sid] = await Promise.all([
+    createSession(user.id, { userAgent, ip }),
+    prisma.activityLog.create({ data: { userId: user.id, acao: "login" } }),
+    rehash,
+    ultimoAcesso,
+  ]);
 
   return { sid, user: toSessionUser(user) };
 }

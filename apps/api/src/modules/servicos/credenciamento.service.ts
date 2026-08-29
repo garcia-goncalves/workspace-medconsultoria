@@ -45,6 +45,8 @@ export type ServicoParaProvisao = {
   valor: number | null;
   valorRecorrencia: string | null;
   percentual: number | null;
+  /** A marca do credenciamento — ver `ehServicoDeCredenciamento` em `@app/shared`. */
+  ehCredenciamento: boolean;
 };
 
 export type ProvisaoDaConversao = {
@@ -88,7 +90,7 @@ export function planejarProvisaoDaConversao(
   let temOutroServico = false;
 
   for (const s of servicos) {
-    if (ehServicoDeCredenciamento(s.nome)) {
+    if (ehServicoDeCredenciamento(s)) {
       temCredenciamento = true;
       continue;
     }
@@ -305,7 +307,9 @@ export function sincronizarRequisitosCredenciamento(forcar = false): Promise<Sin
 
 async function executarSincronizacao(): Promise<SincronizacaoResultado> {
   const servico = await prisma.servico.findFirst({
-    where: { nome: NOME_SERVICO_CREDENCIAMENTO },
+    // Pela MARCA, não pelo nome: o nome pode ser editado na tela, a marca é o que decide
+    // regra de dinheiro (ver `ehServicoDeCredenciamento`).
+    where: { ehCredenciamento: true },
     select: { id: true },
   });
   if (!servico) return { ok: false, motivo: "servico-inexistente" };
@@ -460,7 +464,7 @@ export async function credenciamentoDoCliente(clienteId: string) {
   const [cliente, profissionais, servico] = await Promise.all([
     prisma.cliente.findUnique({ where: { id: clienteId }, select: { id: true, nome: true } }),
     prisma.profissional.findMany({ where: { clienteId, ativo: true }, orderBy: { nome: "asc" } }),
-    prisma.servico.findFirst({ where: { nome: NOME_SERVICO_CREDENCIAMENTO }, select: { id: true } }),
+    prisma.servico.findFirst({ where: { ehCredenciamento: true }, select: { id: true } }),
   ]);
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
 

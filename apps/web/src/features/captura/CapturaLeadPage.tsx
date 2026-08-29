@@ -51,6 +51,7 @@ export function CapturaLeadPage() {
   } = useForm<CapturaLeadInput>({ resolver: zodResolver(capturaLeadSchema) });
 
   if (capturar.isSuccess) {
+    const acessoEnviado = capturar.data?.acessoPortalEnviado === true;
     return (
       <AuthShell eyebrow={null} titulo={PAINEL_TITULO} descricao={PAINEL_DESCRICAO}>
         <div className="text-center">
@@ -61,6 +62,12 @@ export function CapturaLeadPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             Obrigado pelo interesse. Nossa equipe vai analisar e retornar em breve.
           </p>
+          {acessoEnviado && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Também enviamos um e-mail com o acesso ao seu Portal do Cliente — procure por ele na sua caixa de
+              entrada (e, se não achar, olhe também o spam/lixo eletrônico).
+            </p>
+          )}
         </div>
       </AuthShell>
     );

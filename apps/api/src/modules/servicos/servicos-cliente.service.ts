@@ -144,7 +144,7 @@ export function sufixoDaCobrancaDoServico(servicoNome: string, clienteNome: stri
 async function levantarCobrancaDoServico(clienteId: string, servicoId: string): Promise<PlanoDeEncerramento> {
   const [cliente, servico] = await Promise.all([
     prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
-    prisma.servico.findUnique({ where: { id: servicoId }, select: { nome: true } }),
+    prisma.servico.findUnique({ where: { id: servicoId }, select: { nome: true, ehCredenciamento: true } }),
   ]);
   if (!cliente || !servico) return { series: [], encerrar: [], mantidas: [], valorEncerrado: 0 };
 
@@ -188,7 +188,7 @@ export async function ativarServicoCliente(
   // Ao contratar, herda a precificação de referência do serviço (editável depois na ficha).
   const servico = await prisma.servico.findUnique({
     where: { id: servicoId },
-    select: { nome: true, valor: true, valorRecorrencia: true, percentual: true, percentualRecorrencia: true },
+    select: { nome: true, valor: true, valorRecorrencia: true, percentual: true, percentualRecorrencia: true, ehCredenciamento: true },
   });
   const jaContratado = await prisma.clienteServico.findUnique({
     where: { clienteId_servicoId: { clienteId, servicoId } },
@@ -248,7 +248,7 @@ export async function ativarServicoCliente(
   if (
     !jaContratado &&
     (opts.origem ?? "MANUAL") === "MANUAL" &&
-    !ehServicoDeCredenciamento(servico?.nome) &&
+    !ehServicoDeCredenciamento(servico) &&
     valorContratado > 0 &&
     !(await aConversaoAindaVaiCobrar(clienteId))
   ) {
@@ -397,9 +397,9 @@ async function provisionarUpsellAceito(
 
       const servico = await prisma.servico.findUnique({
         where: { id: it.servicoId },
-        select: { nome: true },
+        select: { nome: true, ehCredenciamento: true },
       });
-      if (ehServicoDeCredenciamento(servico?.nome)) continue;
+      if (ehServicoDeCredenciamento(servico)) continue;
 
       // Já existe conta deste serviço para este cliente? Reaceitar a mesma proposta (ou aceitar
       // duas que repetem um serviço) não pode lançar a cobrança de novo.

@@ -37,9 +37,12 @@ export function derivarRastreioOrigem(t: {
   utmSource?: string;
   utmMedium?: string;
   utmCampaign?: string;
+  utmTerm?: string;
+  utmContent?: string;
   gclid?: string;
   fbclid?: string;
   referrer?: string;
+  landing?: string;
 }): { origem: string; rastreio: string } {
   const refHost = hostDe(t.referrer);
   const s = (t.utmSource ?? "").toLowerCase();
@@ -64,10 +67,13 @@ export function derivarRastreioOrigem(t: {
   if (t.utmSource) partes.push(`Fonte (utm_source): ${t.utmSource}`);
   if (t.utmMedium) partes.push(`Meio (utm_medium): ${t.utmMedium}`);
   if (t.utmCampaign) partes.push(`Campanha: ${t.utmCampaign}`);
+  if (t.utmTerm) partes.push(`Termo de busca (utm_term): ${t.utmTerm}`);
+  if (t.utmContent) partes.push(`Conteúdo do anúncio (utm_content): ${t.utmContent}`);
   if (t.gclid) partes.push("Clique de anúncio do Google (gclid)");
   if (t.fbclid) partes.push("Clique de anúncio do Facebook/Instagram (fbclid)");
   if (refHost) partes.push(`Veio de: ${refHost}`);
   else if (!t.utmSource) partes.push("Acesso direto (digitou o link ou favorito)");
+  if (t.landing) partes.push(`Página de entrada: ${t.landing}`);
 
   return { origem, rastreio: `Recebido pelo formulário de captação do site.\n${partes.join("\n")}`.trim() };
 }
@@ -305,7 +311,7 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
       select: {
         valorEstimado: true,
         faturamentoMensalEstimado: true,
-        servicos: { select: { nome: true, valor: true, percentual: true } },
+        servicos: { select: { nome: true, valor: true, percentual: true, ehCredenciamento: true } },
       },
     });
     if (!lead) return;
@@ -314,7 +320,12 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
     // Faturamento de contas médicas) não tem valor fixo a estimar — o que se pergunta é o
     // faturamento da clínica, e o valor do negócio sai da conta. Ver ADR-125.
     const estimativa = planejarEstimativaDoLead(
-      lead.servicos.map((s) => ({ nome: s.nome, valor: emReais(s.valor), percentual: emReais(s.percentual) })),
+      lead.servicos.map((s) => ({
+        nome: s.nome,
+        valor: emReais(s.valor),
+        percentual: emReais(s.percentual),
+        ehCredenciamento: s.ehCredenciamento,
+      })),
       emReais(lead.faturamentoMensalEstimado),
     );
 
@@ -759,7 +770,7 @@ export async function listLeads() {
       // atravessando o tRPC vira "R$ NaN" na tela sem erro nenhum (ADR-118); e o preço de cada
       // serviço não é assunto do board — o que ele precisa é do total já classificado.
       servicos: {
-        select: { id: true, nome: true, valor: true, valorRecorrencia: true, percentual: true },
+        select: { id: true, nome: true, valor: true, valorRecorrencia: true, percentual: true, ehCredenciamento: true },
         orderBy: { ordem: "asc" },
       },
       // A CONTA de Portal em si, não só a contagem (ADR-128): o card precisa dos TRÊS estados
@@ -787,6 +798,7 @@ export async function listLeads() {
         valor: emReais(s.valor),
         valorRecorrencia: s.valorRecorrencia,
         percentual: emReais(s.percentual),
+        ehCredenciamento: s.ehCredenciamento,
       })),
       emReais(l.valorEstimado),
     );
@@ -952,19 +964,43 @@ export async function solicitarServicosPeloCliente(clienteId: string, servicoIds
   const msg = clean(mensagem ?? null);
   const nota = [msg && `Pedido pelo Portal: ${msg}`, `Serviços pedidos pelo Portal: ${nomes}`].filter(Boolean).join("\n");
 
-  const existente = await prisma.lead.findFirst({
+  let existente = await prisma.lead.findFirst({
     where: { clienteId, deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
     orderBy: { createdAt: "desc" },
     include: { pipelineStage: { select: { id: true, chaveAuto: true } } },
   });
 
+  // M10: quem desistiu (lead PERDIDO) e volta pelo Portal pedindo serviço precisa REABRIR o
+  // negócio perdido, não ganhar um segundo card no funil — mesmo padrão de `retomarPeloCliente`
+  // (o mesmo lead, achado pelo `perdidoEm` mais recente) e da reabertura pelo site (ADR-132/140).
+  let estavaPerdido = false;
+  if (!existente) {
+    existente = await prisma.lead.findFirst({
+      where: { clienteId, deletedAt: null, convertidoEmClienteId: null, NOT: { perdidoEm: null } },
+      orderBy: { perdidoEm: "desc" },
+      include: { pipelineStage: { select: { id: true, chaveAuto: true } } },
+    });
+    estavaPerdido = !!existente;
+  }
+
   let alvo: { id: string; nome: string; empresa: string | null; responsavelId: string | null };
 
   if (existente) {
-    // Adiciona os serviços ao negócio aberto (connect é idempotente — não duplica).
+    const ordemNaColuna = estavaPerdido
+      ? ((
+          await prisma.lead.aggregate({
+            where: { pipelineStageId: existente.pipelineStageId, deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
+            _max: { ordem: true },
+          })
+        )._max.ordem ?? -1) + 1
+      : undefined;
+
+    // Adiciona os serviços ao negócio (connect é idempotente — não duplica); se estava
+    // perdido, reabre limpando `perdidoEm`/`motivoPerda` e pondo o card no fim da coluna.
     await prisma.lead.update({
       where: { id: existente.id },
       data: {
+        ...(estavaPerdido ? { perdidoEm: null, motivoPerda: null, ordem: ordemNaColuna } : {}),
         servicos: { connect: servicos.map((s) => ({ id: s.id })) },
         observacoes: [existente.observacoes, nota].filter(Boolean).join("\n\n") || existente.observacoes,
       },
@@ -972,6 +1008,11 @@ export async function solicitarServicosPeloCliente(clienteId: string, servicoIds
     await sincronizarPassosServicos(existente.id, existente.pipelineStage.id, existente.pipelineStage.chaveAuto);
     await reconciliarPassosAuto(existente.id);
     alvo = { id: existente.id, nome: existente.nome, empresa: existente.empresa, responsavelId: existente.responsavelId };
+    if (estavaPerdido) {
+      await prisma.activityLog.create({
+        data: { acao: "lead.reaberto", entidadeTipo: "lead", entidadeId: existente.id, dados: { origem: "portal", motivo: "solicitou serviço novamente" } },
+      });
+    }
   } else {
     // Sem negócio aberto: abre uma nova oportunidade na 1ª etapa com os serviços.
     const cliente = await prisma.cliente.findFirst({
@@ -1380,7 +1421,7 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
       valorRecorrencia: true,
       percentual: true,
       percentualRecorrencia: true,
-      servico: { select: { nome: true } },
+      servico: { select: { nome: true, ehCredenciamento: true } },
     },
   });
 
@@ -1414,6 +1455,7 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
     const { avulso, mensal, percentuais, temCredenciamento, usarEstimativa } = planejarProvisaoDaConversao(
       contratados.map((s) => ({
         nome: s.servico.nome,
+        ehCredenciamento: s.servico.ehCredenciamento,
         valor: emReais(s.valor),
         valorRecorrencia: s.valorRecorrencia,
         percentual: emReais(s.percentual),
@@ -1644,12 +1686,16 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
   // boas-vindas COM o link de acesso, para o lead já acompanhar tudo por lá. Best-effort:
   // nunca deixa a captação falhar. Se já houver acesso (e-mail conhecido), manda só a
   // confirmação simples de recebimento.
+  // M20: a tela pública precisa saber se o acesso foi criado E o e-mail com o link
+  // realmente foi ENVIADO — nunca prometer um e-mail que pode não ter saído.
+  let acessoPortalEnviado = false;
   try {
     const clienteId = await garantirClienteDoLead(lead, null);
     const acesso = await garantirAcessoPortal(clienteId, lead.nome, lead.email, "AUTOCADASTRO");
     if (!acesso.criou && lead.email) {
       void enviarEmailTemplate("lead_confirmacao", lead.email, { nome: input.nome.trim() }).catch(() => {});
     }
+    acessoPortalEnviado = acesso.criou && acesso.emailEnviado;
   } catch {
     /* provisão de acesso ao Portal é best-effort — a captação do lead não pode falhar */
   }
@@ -1664,7 +1710,7 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
     void notificar(u.id, "lead_novo", { contato }, { entidadeTipo: "lead", entidadeId: lead.id }).catch(() => {});
   }
 
-  return { ok: true };
+  return { ok: true, acessoPortalEnviado };
 }
 
 /**

@@ -302,10 +302,24 @@ export async function createCliente(
   // confirmação, que hoje nasce **desmarcada** (ADR-128). Sem marcar, nada é criado e nada é
   // enviado; a Thaís avisa o cliente quando quiser, pelo botão "Enviar acesso" da ficha.
   // Best-effort: a criação do cliente não falha se o acesso não puder ser provido.
+  //
+  // ⚠️ O QUE NÃO PODE VOLTAR A SER SILÊNCIO: quando o e-mail já pertence a OUTRA conta, o acesso
+  // não é criado — e não pode ser, senão um mesmo e-mail abriria duas clínicas (ADR-128/131).
+  // Até aqui esse caso era indistinguível de "deu tudo certo": o `catch` engolia, e quem cadastrou
+  // ficava esperando um convite que nunca sairia. A recusa continua; o que muda é que ela CHEGA
+  // a quem apertou o botão.
+  let avisoDoAcessoPortal: string | null = null;
   if (enviarAcessoPortal && cliente.email) {
-    await garantirAcessoPortal(cliente.id, cliente.nome, cliente.email, "EQUIPE_COM_AVISO").catch(() => {});
+    const acesso = await garantirAcessoPortal(cliente.id, cliente.nome, cliente.email, "EQUIPE_COM_AVISO").catch(
+      () => null,
+    );
+    if (acesso?.emailEmUsoPorOutraConta) {
+      avisoDoAcessoPortal =
+        `O cliente foi cadastrado, mas o acesso ao Portal NÃO foi enviado: o e-mail ${cliente.email} ` +
+        "já pertence a outra conta do sistema. Use um e-mail próprio desta clínica e envie o acesso pela ficha.";
+    }
   }
-  return cliente;
+  return { ...cliente, avisoDoAcessoPortal };
 }
 
 export async function updateCliente(input: UpdateClienteInput) {

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createClienteSchema, type CreateClienteInput } from "@app/shared";
+import { toast } from "../../../components/ui/toast";
 import { trpc } from "../../../lib/trpc";
 import { Modal } from "../../../components/ui/modal";
 import { Button } from "../../../components/ui/button";
@@ -69,9 +70,13 @@ export function ClienteFormDialog({
   }, [open, cliente, reset]);
 
   const create = trpc.clientes.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (novo) => {
       utils.clientes.list.invalidate();
       utils.clientes.resumo.invalidate();
+      // O cliente foi criado, mas o acesso ao Portal pode não ter saído — e o único motivo
+      // possível hoje é o e-mail já pertencer a outra conta. Antes isso era silêncio: quem
+      // cadastrou ficava esperando um convite que nunca sairia.
+      if (novo?.avisoDoAcessoPortal) toast(novo.avisoDoAcessoPortal, "error");
       onClose();
     },
   });

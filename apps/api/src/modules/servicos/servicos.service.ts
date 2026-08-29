@@ -4,7 +4,6 @@ import { emReais } from "../../lib/dinheiro.js";
 import {
   temValorEPercentual,
   PRECO_VALOR_E_PERCENTUAL,
-  ehServicoDeCredenciamento,
   NOME_SERVICO_CREDENCIAMENTO,
 } from "@app/shared";
 import { Prisma } from "@prisma/client";
@@ -476,6 +475,10 @@ async function semearCatalogoSeFaltar() {
         roteiro: ROTEIROS_SERVICO[s.nome] ?? undefined,
         clausulasContrato: CLAUSULAS_SERVICOS[s.nome] ?? null,
         condicaoPagamento: CONDICOES_PAGAMENTO_SERVICOS[s.nome] ?? null,
+        // A MARCA do credenciamento nasce aqui, na semeadura — é o único lugar que ainda usa o
+        // nome canônico para decidi-la, e de propósito: depois disso quem manda é a marca, e o
+        // nome vira rótulo editável. Ver `ehServicoDeCredenciamento` em `@app/shared`.
+        ehCredenciamento: s.nome === NOME_SERVICO_CREDENCIAMENTO,
         // Mantém a ordem canônica do catálogo, independente do que já houvesse no banco.
         ordem: CONTEUDO_SERVICOS.findIndex((c) => c.nome === s.nome),
       })),
@@ -592,7 +595,25 @@ export async function listServicos() {
   return servicos.map(mapServico);
 }
 
-/** Serviços ativos para o formulário público / cadastro (sem dados sensíveis). */
+/**
+ * Serviços ativos para o formulário PÚBLICO de captação — só o que a página desenha.
+ *
+ * Existe separado de `listServicosAtivos` porque as duas rotas chamavam a mesma função e, com
+ * ela, o preço de tabela (valor e percentual) saía para qualquer visitante anônimo de
+ * `/comecar`, antes de qualquer contato comercial. A página nunca imprimiu esses números — eram
+ * dado a mais viajando, e dado que viaja é dado que alguém lê. Quem precisa de preço é a tela
+ * interna, que passa por `funcionarioProcedure`.
+ */
+export async function listServicosPublicos() {
+  await seedIfEmpty();
+  return prisma.servico.findMany({
+    where: { ativo: true },
+    orderBy: { ordem: "asc" },
+    select: { id: true, nome: true, descricao: true, categoria: true },
+  });
+}
+
+/** Serviços ativos para o cadastro INTERNO — com preço, que é o que a estimativa do funil usa. */
 export async function listServicosAtivos() {
   await seedIfEmpty();
   const servicos = await prisma.servico.findMany({
@@ -610,6 +631,9 @@ export async function listServicosAtivos() {
       // A proposta pré-preenche "Condições de pagamento" com a condição de cada serviço
       // escolhido (ADR-125) — vem daqui para o construtor não precisar de outra chamada.
       condicaoPagamento: true,
+      // A marca do credenciamento: a tela usa a MESMA régua do servidor para decidir o campo da
+      // estimativa e o que o construtor da proposta oferece (ver `ehServicoDeCredenciamento`).
+      ehCredenciamento: true,
     },
   });
   return servicos.map(mapServico);
@@ -671,33 +695,19 @@ export async function atualizarServico(
     throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_VALOR_E_PERCENTUAL });
   }
 
-  // ⚠️ O NOME DO SERVIÇO DE CREDENCIAMENTO É REGRA DE COBRANÇA, NÃO ROTULAGEM.
+  // O NOME DO SERVIÇO DE CREDENCIAMENTO DEIXOU DE SER REGRA DE COBRANÇA — e por isso não há
+  // mais trava de renomear aqui.
   //
-  // `ehServicoDeCredenciamento` casa por NOME, e três decisões de dinheiro dependem dela: manter
-  // o credenciamento fora da estimativa do funil, mantê-lo fora do provisionamento da conversão
-  // do lead, e deixar o honorário nascer só quando a operadora aprova (ADR-104/108).
+  // Até a migração `20260829203721`, "este serviço é o credenciamento?" era respondido
+  // comparando o nome com uma constante, e três decisões de dinheiro dependiam da resposta
+  // (ADR-104/108): ficar fora da estimativa do funil, ficar fora do provisionamento da conversão,
+  // e ter o honorário nascendo só na aprovação da operadora. Corrigir um typo em
+  // Ajustes → Serviços fazia a conversão gerar uma conta a receber e a aprovação gerar a SEGUNDA
+  // pelo mesmo honorário — cliente cobrado duas vezes, sem aviso. A trava existia para impedir
+  // isso, e a própria ADR-140 a registrou como remendo assumido, apontando a cura.
   //
-  // Ou seja: bastava corrigir um typo neste nome em Ajustes → Serviços para que, a partir dali,
-  // converter um lead passasse a gerar uma conta a receber pelo credenciamento — e, na aprovação
-  // da operadora, uma SEGUNDA conta pelo mesmo honorário. Cliente cobrado duas vezes, sem aviso.
-  //
-  // Enquanto a identificação não for um campo estrutural, o nome fica travado. Renomear de
-  // propósito é decisão de negócio, e ela passa por mudar a constante junto — não por um clique.
-  if (dados.nome !== undefined) {
-    const nomeNovo = dados.nome.trim();
-    const atual = await prisma.servico.findUnique({ where: { id }, select: { nome: true } });
-    const eraCredenciamento = ehServicoDeCredenciamento(atual?.nome);
-    if (eraCredenciamento && !ehServicoDeCredenciamento(nomeNovo)) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message:
-          `Este serviço não pode ser renomeado: o nome “${NOME_SERVICO_CREDENCIAMENTO}” é o que faz ` +
-          "o sistema cobrar o credenciamento só quando a operadora aprova. Renomeando, o cliente " +
-          "passaria a ser cobrado na conversão do lead e de novo na aprovação. Fale com quem cuida " +
-          "do sistema antes de mudar.",
-      });
-    }
-  }
+  // A cura agora existe: a marca `Servico.ehCredenciamento`. Com ela o nome voltou a ser rótulo,
+  // e a Thaís pode escrevê-lo como quiser sem tocar em regra nenhuma.
 
   const data: Record<string, unknown> = {};
   if (dados.nome !== undefined) data.nome = dados.nome.trim();

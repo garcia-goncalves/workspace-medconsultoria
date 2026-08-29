@@ -34,6 +34,7 @@ import { Skeleton } from "../../../components/ui/skeleton";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
 import { AssistenteIADialog } from "../../../components/ui/assistente-ia";
 import { EmailsDoLeadLista } from "../clientes/EmailsDoClienteCard";
+import { estimativaDoLeadComPreco, sufixoDeRecorrencia } from "./estimativa-do-lead";
 
 type Detalhe = RouterOutputs["leads"]["detalhe"];
 
@@ -75,6 +76,9 @@ export function LeadDetailPanel({
   const escreverEmail = trpc.ia.escreverMensagem.useMutation();
   const [iaAberto, setIaAberto] = useState<"passo" | "email" | null>(null);
   const q = trpc.leads.detalhe.useQuery({ id: leadId ?? "" }, { enabled: !!leadId });
+  // `leads.detalhe` não devolve preço de serviço (só id/nome) — cruzamos com o catálogo para
+  // saber se o valor mostrado é mensal (F13). `enabled` só quando o painel está aberto.
+  const catalogo = trpc.servicos.ativos.useQuery(undefined, { enabled: !!leadId });
   const gerarDoc = trpc.documentos.gerarParaLead.useMutation({
     onSuccess: (r) => {
       utils.leads.detalhe.invalidate();
@@ -131,7 +135,14 @@ export function LeadDetailPanel({
                 >
                   {d.stage.nome}
                 </span>
-                {d.valorEstimado != null && <Badge variant="success">{formatBRL(d.valorEstimado)}</Badge>}
+                {d.valorEstimado != null && (
+                  <Badge variant="success">
+                    {formatBRL(d.valorEstimado)}
+                    {sufixoDeRecorrencia(
+                      estimativaDoLeadComPreco(d.servicos, catalogo.data ?? [], d.valorEstimado),
+                    )}
+                  </Badge>
+                )}
               </div>
               <h2 className="mt-2 truncate text-xl font-semibold">{d.nome}</h2>
               {d.empresa && <p className="truncate text-sm text-muted-foreground">{d.empresa}</p>}

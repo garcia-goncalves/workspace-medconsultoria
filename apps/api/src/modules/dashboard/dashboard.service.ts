@@ -195,7 +195,7 @@ async function montarGestao(hojeInicio: Date, em7: Date, d7: Date, d14: Date, d3
       select: {
         pipelineStageId: true,
         valorEstimado: true,
-        servicos: { select: { nome: true, valor: true, valorRecorrencia: true, percentual: true } },
+        servicos: { select: { nome: true, valor: true, valorRecorrencia: true, percentual: true, ehCredenciamento: true } },
       },
     }),
     prisma.lead.count({ where: { deletedAt: null, createdAt: { gte: d7 } } }),
@@ -274,6 +274,7 @@ async function montarGestao(hojeInicio: Date, em7: Date, d7: Date, d14: Date, d3
         valor: emReaisOu(s.valor),
         valorRecorrencia: s.valorRecorrencia,
         percentual: emReaisOu(s.percentual),
+        ehCredenciamento: s.ehCredenciamento,
       })),
       emReaisOu(lead.valorEstimado),
     );

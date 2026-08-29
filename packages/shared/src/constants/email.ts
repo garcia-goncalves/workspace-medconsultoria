@@ -49,6 +49,7 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   { tipo: "projeto_participante", label: "Adicionado a um projeto", descricao: "Quando você é incluído na equipe de um projeto.", grupo: "Agenda e tarefas" },
   { tipo: "suporte", label: "Mensagens de suporte", descricao: "Novas mensagens no canal de suporte do cliente.", grupo: "Clientes e Portal" },
   { tipo: "documento_revisao", label: "Documento aguardando revisão", descricao: "Documentos que precisam da sua análise.", grupo: "Documentos", minRole: "ADMIN" },
+  { tipo: "documento_assinado", label: "Documento assinado por todos", descricao: "Quando a última assinatura entra e o documento fica concluído.", grupo: "Documentos", minRole: "ADMIN" },
   { tipo: "conta_vencida", label: "Contas vencidas", descricao: "Alertas de contas a pagar/receber vencidas.", grupo: "Financeiro", minRole: "ADMIN" },
   { tipo: "conta_a_vencer", label: "Contas a vencer", descricao: "Aviso de contas a pagar/receber que vencem em breve.", grupo: "Financeiro", minRole: "ADMIN" },
   {
