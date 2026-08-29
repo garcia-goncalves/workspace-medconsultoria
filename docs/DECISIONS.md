@@ -4658,3 +4658,119 @@ typecheck 6/6 · lint limpo · **213 testes** do `@app/web` · **785** do `@app/
 93 arquivos) · a medição de responsividade **verde nos 5 tamanhos, nas 30 rotas, área interna e
 Portal** — o mesmo arquivo que reprovava os cinco tamanhos no começo da rodada — e a **suíte `e2e`
 completa** no runner isolado, em três lotes: **45 + 26 + 48 = 119 verdes, zero reprovação**.
+
+---
+
+## ADR-144 — A marca do credenciamento: matar o "casa por nome" e as portas que ele abriu
+
+**Data:** 29/08/2026 · **Situação:** aceita · **Branch:** `fix/divida-tecnica-e-avisos`
+
+### O problema
+
+`ehServicoDeCredenciamento` respondia "este serviço é o credenciamento?" comparando o **nome**
+com uma constante. Três decisões de dinheiro dependiam da resposta (ADR-104/108): manter o
+credenciamento fora da estimativa do funil, fora do provisionamento da conversão do lead, e
+deixar o honorário nascer só quando a operadora aprova.
+
+Consequência: **corrigir um typo em Ajustes → Serviços religava a cobrança antecipada.** A
+conversão do lead passava a gerar uma conta a receber, e a aprovação da operadora gerava a
+segunda pelo mesmo honorário. Cliente cobrado duas vezes, sem aviso. A ADR-140 registrou o
+arranjo como **remendo assumido** — uma trava que proibia renomear — e apontou a cura:
+`Servico.ehCredenciamento`.
+
+### A decisão
+
+A marca é um campo do banco (migração `20260829203721`, aditiva, backfill na mesma transação;
+reverter é `DROP COLUMN`), e o nome voltou a ser rótulo. A trava de renomear saiu junto.
+
+**A assinatura da função pura passou a EXIGIR o campo** (`{ ehCredenciamento: boolean }`, não
+`string`). Isso não é preciosismo de tipo: é o que faz o **compilador cobrar o `select`** de
+quem escrever a próxima consulta. Esquecer de selecionar devolveria `false` calado — e `false`
+é o lado que cobra duas vezes. Foram nove consultas que o `tsc` apontou; nenhuma teria sido
+encontrada por leitura.
+
+Os dois lados da porta estão travados por teste, vistos reprovando antes: **nome mudado não
+desliga a regra, nome copiado não a liga.**
+
+### O que a revisão pegou, e que é a parte que vale ler
+
+Nenhum dos três achados existia antes desta mudança — os três **foram criados por ela**:
+
+1. **Liberar o renomear sem olhar a semeadura.** `semearCatalogoSeFaltar` procura o catálogo
+   canônico por nome. Renomeado o serviço, a leitura seguinte criaria um **segundo** serviço
+   marcado: clone no catálogo, os 14 requisitos sincronizados no serviço errado, e o Portal do
+   cliente que contratou o original voltando a dizer "0/0". A semeadura passou a reconhecer o
+   credenciamento pela marca, e os `findFirst` ganharam `orderBy` — sem ele, com dois marcados,
+   a escolha era arbitrária.
+
+2. **O backfill podia não casar nada em produção, e isso não produz erro nenhum.** Nome com
+   typo, caixa diferente, espaço não-ASCII colado de um documento, ou um renomear feito antes
+   de a trava da ADR-140 existir — qualquer um zera o `UPDATE`, e aí a regra volta ao lado que
+   cobra duas vezes. Sem log, sem tela, sem sintoma no dinheiro. Daí a migração
+   `20260829210500`: **se existe serviço parecido com credenciamento e nenhum ficou marcado, a
+   publicação para ali.** Provada nos três cenários antes de entrar — barra o perigoso (erro
+   3819), deixa passar o banco normal e o banco novo (a CI cria o catálogo sob demanda, então
+   não há o que casar no momento da migração).
+
+3. **A correção M20 abriu um oráculo de e-mail.** Dizer "também enviamos o acesso ao seu
+   Portal" só quando o e-mail era inédito fazia a página **pública** responder se um endereço
+   já é conhecido pelo sistema: um envio por alvo bastava para saber se aquele médico é cliente
+   da Med. A resposta de rota pública **não pode variar com o que existe no banco**.
+
+**A lição que fica:** liberar o que uma trava proibia exige varrer quem mais dependia daquela
+proibição. A trava de renomear não protegia só a cobrança — protegia a semeadura também, sem
+que ninguém tivesse escrito isso em lugar nenhum.
+
+### A marca tem tela, e só pode haver uma
+
+Sem escritor na aplicação, uma marca errada só teria conserto por `UPDATE` no banco de
+produção. Hoje é uma caixa em Serviços, com a consequência escrita ao lado; o servidor
+**recusa marcar um segundo**, dizendo qual já está marcado, em vez de desmarcar o primeiro em
+silêncio — trocar qual serviço rege a cobrança é decisão de negócio, não efeito colateral de
+salvar um formulário. Desmarcar continua permitido: é como se corrige uma marca errada.
+
+### Os doze defeitos que vieram no mesmo lote
+
+Todos verificados no código antes de tocar em qualquer linha — boa parte da lista herdada das
+auditorias já estava fechada, e a documentação é que estava velha.
+
+- **M18** — o e-mail disparado quando a última assinatura entrava dizia *"aguardando sua
+  revisão"* sobre um documento recém-concluído. Nasceu `documento_assinado`. ⚠️ Tipo novo sem
+  entrada em `EMAIL_CATEGORIAS` é filtrado por `decidirEmailOperacional` e **nunca sai**.
+- **M11** — convidar alguém cujo e-mail é de outra clínica respondia "já tinha acesso" e o
+  convite não saía. A recusa continua (um e-mail não abre duas clínicas); o motivo é que passou
+  a chegar. ⚠️ Separar esse caso de `jaTinhaAcesso` fez a conversão do lead parar de mandar as
+  boas-vindas — foram devolvidas, e o acesso não criado agora fica no histórico.
+- **M10** — cliente que desistia pelo Portal e voltava ganhava um segundo card no funil.
+- **M13** — desativar um médico **inflava** o progresso da papelada: o denominador contava só
+  ativos e o numerador contava os arquivos de todos.
+- **M17** — a exigência do título de especialista existia e a triagem nunca a lia. ⚠️ O
+  comprovante vale **por médico**; a régua genérica faria o diploma de um provar o título de outro.
+- **F13** — valor percentual sem "/mês" no card do lead. Misto não leva sufixo: seria enganoso
+  do mesmo jeito.
+- **F20** — o Portal não mostrava ao cliente quanto ele paga.
+- **F21** — o catálogo público devolvia preço de tabela a visitante anônimo.
+- **B2** — conta criada por automação nascia sem categoria, e o relatório por categoria
+  sub-contava a receita que o sistema gera sozinho. São **quatro** portas; todas passam agora
+  pela mesma função.
+- **B3** — `utm_term`, `utm_content` e a página de entrada eram aceitos e descartados. Vão para
+  `Lead.rastreio`, sem coluna nova.
+- **M20** — a página pública não falava do acesso ao Portal (ver o oráculo, acima).
+- **`createCliente`** avisava só o e-mail duplicado, quando o motivo mais provável de o convite
+  não sair é o servidor de e-mail fora do ar — que não lança exceção e já ficou meses assim em
+  produção (ADR-122).
+
+### O que NÃO entrou, e por quê
+
+- **`@@unique(nome)` em `Servico`** — a criação do índice **falha** se produção tiver nome
+  duplicado, e não consegui conferir isso: a extensão do navegador não abriu a aplicação de
+  produção nesta sessão. Fica para depois da conferência.
+- **Consentimento da assinatura** (LGPD) — pede migração própria e uma decisão sobre o texto do
+  termo, que é do dono.
+- **DPA com a OpenAI** e o **endereço da empresa** continuam pendências do dono.
+
+### Provas
+
+typecheck 6/6 · lint limpo · **814 testes** do `@app/api` (eram 785; suíte inteira, não
+`test:unit`) · **220** do `@app/web` (eram 213) · cada correção com o teste visto reprovando
+antes, e a migração-guarda provada nos três cenários.

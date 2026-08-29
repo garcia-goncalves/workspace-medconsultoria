@@ -13,7 +13,60 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-29 · madrugada · ADR-143 na branch `refino/experiencia-total` — NÃO publicado, NÃO mesclado)
+## Estado atual (2026-08-29 · tarde · ADR-144 na branch `fix/divida-tecnica-e-avisos` — NÃO publicado, NÃO mesclado)
+
+> **Leia a ADR-144 em `docs/DECISIONS.md`.** Nada aqui está no ar: a **v1.3.0** continua sendo o
+> que roda em produção, e a ADR-143 (mesclada hoje) também espera publicação.
+
+- **🔑 A MARCA DO CREDENCIAMENTO EXISTE NO BANCO, e o "casa por nome" morreu.** `ehServicoDeCredenciamento`
+  comparava o **nome** com uma constante, e três regras de dinheiro dependiam disso (ADR-104/108) —
+  corrigir um typo em Ajustes → Serviços fazia a conversão do lead gerar conta a receber e a
+  aprovação da operadora gerar a **segunda** pelo mesmo honorário. Hoje é `Servico.ehCredenciamento`
+  (migração `20260829203721`, **aditiva, com backfill na mesma transação**; reverter é `DROP COLUMN`).
+  A trava que proibia renomear saiu junto — ela só existia porque o nome era a regra.
+- **⚠️ A ASSINATURA DA RÉGUA EXIGE O CAMPO DE PROPÓSITO.** `ehServicoDeCredenciamento({ ehCredenciamento })`
+  não aceita mais `string`: assim o **compilador cobra o `select`** de quem escrever a próxima consulta.
+  Esquecer de selecionar devolveria `false` calado, e **`false` é o lado que cobra duas vezes**. Foram
+  **9 consultas** apontadas pelo `tsc` — nenhuma delas apareceria numa leitura de código.
+- **🚨 A MIGRAÇÃO `20260829210500` PARA A PUBLICAÇÃO se o backfill não casar nada.** Se o nome em
+  produção divergir (typo, caixa, espaço não-ASCII), zero linhas são marcadas e a regra volta ao lado
+  que cobra duas vezes — **sem erro, sem log, sem sintoma no dinheiro**. A guarda foi provada nos três
+  cenários: barra o perigoso (erro 3819), deixa passar o banco normal e o banco novo.
+- **🕳️ AS TRÊS COISAS QUE A REVISÃO PEGOU FORAM CRIADAS PELA PRÓPRIA CORREÇÃO** — a lição da rodada.
+  (1) liberar o renomear sem olhar a **semeadura**, que procura o catálogo por nome e criaria um
+  **clone marcado** (requisitos sincronizados no serviço errado, Portal dizendo "0/0"); (2) o backfill
+  silencioso acima; (3) a correção **M20** virando **oráculo de e-mail** na página pública — a frase só
+  aparecia para endereço inédito, então um anônimo descobria, um envio por alvo, se um médico já é
+  cliente. ⚠️ **Resposta de rota pública não pode variar com o que existe no banco.**
+- **🖥️ A MARCA TEM TELA E SÓ PODE HAVER UMA.** Caixa em Serviços com a consequência escrita ao lado; o
+  servidor **recusa marcar um segundo**, dizendo qual já está marcado. Sem isso, marca errada só teria
+  conserto por `UPDATE` no banco de produção.
+- **📋 DOZE DEFEITOS FECHADOS JUNTO:** M18 (e-mail dizia "aguardando revisão" de documento recém-assinado)
+  · M11 (convite mudo quando o e-mail é de outra clínica) · M10 (desistir e voltar criava um 2º card)
+  · M13 (desativar médico **inflava** o progresso da papelada) · M17 (a exigência do título de
+  especialista nunca era lida — ⚠️ o comprovante vale **por médico**) · F13 (percentual sem "/mês")
+  · F20 (o Portal não mostrava quanto o cliente paga) · F21 (preço de tabela para visitante anônimo)
+  · B2 (conta de automação sem categoria — são **quatro** portas) · B3 (UTMs descartados) · M20 ·
+  e o `createCliente`, que avisava só o e-mail duplicado quando o motivo mais provável é o servidor de
+  e-mail fora do ar (que **não lança exceção**).
+- **🧹 A DOCUMENTAÇÃO ESTAVA VELHA, NÃO O CÓDIGO.** O levantamento conferiu os 48 achados no código de
+  hoje: M1, C10, M15, F8, F9, C1, C2, M6, M8, M9, M12, M16, C6–C9, C12, F1–F19 e as 14 correções da
+  auditoria total **já estavam fechados**. O `seedIfEmpty` (a consulta de 11,9 s) e o banco de
+  demonstração também.
+- **Provas:** typecheck 6/6 · lint limpo · **814 testes** do `@app/api` (eram 785; suíte inteira, não
+  `test:unit`) · **220** do `@app/web` (eram 213) · cada correção vista reprovando antes.
+
+### O que falta nesta esteira
+
+- **`@@unique(nome)` em `Servico`** — a criação do índice **falha** se produção tiver nome duplicado, e
+  a conferência não saiu: a extensão do navegador não abriu a aplicação de produção nesta sessão.
+- **Consentimento da assinatura** (LGPD) — pede migração própria e a decisão do texto, que é do dono.
+- **Abrir o PR** e esperar a CI (3 verificações; a `main` só aceita PR).
+- ⚠️ **ANTES DE PUBLICAR:** conferir em produção o **nome do serviço de credenciamento** (a guarda barra
+  a publicação se ele divergir) e a pendência da **C10** herdada da ADR-143 (parcela apagada por
+  reversão antiga passa a ser lida como excluída de propósito, e aquele mês é pulado).
+
+## Estado anterior (2026-08-29 · madrugada · ADR-143 — MESCLADA na `main` (PR #156, commit `e737b40`), NÃO publicada)
 
 > **Leia `docs/esteira/refino-experiencia-2026-08-29/ESTADO.md`** (o retrato da rodada, com a
 > medição antes×depois) e a **ADR-143** em `docs/DECISIONS.md`.
