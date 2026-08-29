@@ -21,7 +21,7 @@ import { Readable } from "node:stream";
 import { hash } from "@node-rs/argon2";
 import { prisma } from "@app/db";
 import { podeRodarDemoSeed } from "@app/db/seed-guard";
-import { validarCNPJ, formatarCNPJ } from "@app/shared";
+import { validarCNPJ, formatarCNPJ, PRAZO_ACOMPANHAMENTO_PADRAO_DIAS } from "@app/shared";
 
 // ── util: datas ──────────────────────────────────────────
 function diasAtras(n: number, hora = 10, minuto = 0): Date {
@@ -134,6 +134,7 @@ async function main() {
   const { registrarUpload } = await import("../modules/arquivos/arquivos.service.js");
   const { salvarArquivo } = await import("../lib/storage.js");
   const { emReais } = await import("../lib/dinheiro.js");
+  const { getIdentidade } = await import("../modules/identidade/identidade.service.js");
 
   const senhaHash = await hash(senhaDeSeed());
 
@@ -632,42 +633,115 @@ async function main() {
     return alternativa;
   }
 
+  const identidade = await getIdentidade();
+  const prazoDias = identidade.credenciamentoPrazoDias || PRAZO_ACOMPANHAMENTO_PADRAO_DIAS;
+  console.log(`  prazo de acompanhamento (Ajustes → Dados da empresa): ${prazoDias} dias.`);
+  // Datas RELATIVAS a `prazoDias` — nunca um número fixo — para a história do painel continuar
+  // fazendo sentido se alguém mudar o prazo na tela. `atrasado` estoura o prazo de propósito
+  // (é o que acende o alerta âmbar); `dentroDoPrazo` fica por baixo dele, para o contraste
+  // existir na mesma tela.
+  const atrasado = (extraDias: number) => prazoDias + extraDias;
+  const dentroDoPrazo = (fracaoDoPrazo: number) => Math.max(1, Math.round(prazoDias * fracaoDoPrazo));
+
   interface CredenciamentoSpec {
     profissional: string;
     operadoraDesejada: string;
     status: "A_PROTOCOLAR" | "PROTOCOLADO" | "EM_ANALISE" | "APROVADO" | "NEGADO" | "ENCERRADO";
     valor: number;
-    diasAtras: number;
+    /**
+     * Dias PARADOS NA SITUAÇÃO ATUAL — exatamente o que `diasNaSituacaoAtual` (@app/shared)
+     * conta: `createdAt` para A_PROTOCOLAR, `protocoladoEm` para PROTOCOLADO, `emAnaliseEm`
+     * para EM_ANALISE. Para os três estados finais é só "há quantos dias terminou" (a régua de
+     * atraso não olha para eles — `credenciamentoPrecisaDeAtencao` os exclui sempre).
+     */
+    diasParados: number;
     motivoNegativa?: string;
     observacoes?: string;
   }
   const CREDENCIAMENTOS: CredenciamentoSpec[] = [
-    { profissional: "Dr. Marcelo Tavares", operadoraDesejada: "Unimed", status: "APROVADO", valor: 350, diasAtras: 40 },
-    { profissional: "Dr. Marcelo Tavares", operadoraDesejada: "Bradesco Saúde", status: "A_PROTOCOLAR", valor: 300, diasAtras: 5 },
-    // Parado há mais de 60 dias — é o que acende o alerta âmbar do painel de credenciamentos.
-    { profissional: "Dra. Fernanda Lacerda", operadoraDesejada: "Amil / One", status: "PROTOCOLADO", valor: 350, diasAtras: 75 },
-    { profissional: "Dra. Fernanda Lacerda", operadoraDesejada: "Porto Seguro", status: "EM_ANALISE", valor: 320, diasAtras: 20 },
-    { profissional: "Dr. Otávio Lins", operadoraDesejada: "Omint", status: "APROVADO", valor: 400, diasAtras: 30 },
+    // ── Recentes / finais, sem história de atraso ──
+    { profissional: "Dr. Marcelo Tavares", operadoraDesejada: "Unimed", status: "APROVADO", valor: 350, diasParados: 50 },
+    { profissional: "Dr. Marcelo Tavares", operadoraDesejada: "Bradesco Saúde", status: "A_PROTOCOLAR", valor: 300, diasParados: 3 },
+    { profissional: "Dr. Otávio Lins", operadoraDesejada: "Omint", status: "APROVADO", valor: 400, diasParados: 25 },
     {
       profissional: "Dr. Otávio Lins",
       operadoraDesejada: "Care Plus",
       status: "NEGADO",
       valor: 380,
-      diasAtras: 15,
+      diasParados: 18,
       motivoNegativa: "Documentação da especialização fora do prazo de validade exigido pela operadora.",
     },
-    { profissional: "Dr. Henrique Bastos", operadoraDesejada: "Saúde Caixa", status: "EM_ANALISE", valor: 360, diasAtras: 10 },
-    { profissional: "Dr. Henrique Bastos", operadoraDesejada: "Unimed", status: "A_PROTOCOLAR", valor: 350, diasAtras: 3 },
-    { profissional: "Dra. Patrícia Nogueira", operadoraDesejada: "Geap", status: "PROTOCOLADO", valor: 340, diasAtras: 12 },
     {
       profissional: "Dra. Patrícia Nogueira",
       operadoraDesejada: "Bradesco Saúde",
       status: "ENCERRADO",
       valor: 320,
-      diasAtras: 5,
+      diasParados: 8,
       observacoes: "Encerrado a pedido da clínica — profissional mudou de instituição antes da efetivação.",
     },
+    // ── Dentro do prazo, mas já andando — o contraste ao lado dos atrasados ──
+    { profissional: "Dr. Henrique Bastos", operadoraDesejada: "Saúde Caixa", status: "EM_ANALISE", valor: 360, diasParados: dentroDoPrazo(0.55) },
+    { profissional: "Dra. Patrícia Nogueira", operadoraDesejada: "Geap", status: "PROTOCOLADO", valor: 340, diasParados: dentroDoPrazo(0.75) },
+    // ── Claramente atrasados (>= prazoDias) — os que acendem o alerta âmbar do painel ──
+    // A_PROTOCOLAR: a culpa é NOSSA, não protocolamos ainda.
+    { profissional: "Dr. Henrique Bastos", operadoraDesejada: "Unimed", status: "A_PROTOCOLAR", valor: 350, diasParados: atrasado(60) },
+    // PROTOCOLADO: entregue, e a operadora não respondeu — o mais atrasado dos três.
+    { profissional: "Dra. Fernanda Lacerda", operadoraDesejada: "Amil / One", status: "PROTOCOLADO", valor: 350, diasParados: atrasado(30) },
+    // EM_ANALISE: a operadora está sentada em cima.
+    { profissional: "Dra. Fernanda Lacerda", operadoraDesejada: "Porto Seguro", status: "EM_ANALISE", valor: 320, diasParados: atrasado(15) },
   ];
+
+  /**
+   * Datas coerentes para UMA situação, a partir de `diasParados` (o carimbo que a régua do
+   * painel realmente lê). Os carimbos ANTERIORES na linha do tempo (protocolar → em análise →
+   * desfecho) recebem alguns dias A MAIS no passado — nunca depois do carimbo atual, senão o
+   * processo teria "voltado no tempo".
+   */
+  function datasDoCredenciamento(status: CredenciamentoSpec["status"], diasParados: number) {
+    switch (status) {
+      case "A_PROTOCOLAR":
+        return { createdAt: diasAtras(diasParados), protocoladoEm: null, emAnaliseEm: null, aprovadoEm: null, negadoEm: null, encerradoEm: null };
+      case "PROTOCOLADO":
+        return { createdAt: diasAtras(diasParados + 4), protocoladoEm: diasAtras(diasParados), emAnaliseEm: null, aprovadoEm: null, negadoEm: null, encerradoEm: null };
+      case "EM_ANALISE":
+        return {
+          createdAt: diasAtras(diasParados + 10),
+          protocoladoEm: diasAtras(diasParados + 6),
+          emAnaliseEm: diasAtras(diasParados),
+          aprovadoEm: null,
+          negadoEm: null,
+          encerradoEm: null,
+        };
+      case "APROVADO":
+        return {
+          createdAt: diasAtras(diasParados + 14),
+          protocoladoEm: diasAtras(diasParados + 10),
+          emAnaliseEm: diasAtras(diasParados + 5),
+          aprovadoEm: diasAtras(diasParados),
+          negadoEm: null,
+          encerradoEm: null,
+        };
+      case "NEGADO":
+        return {
+          createdAt: diasAtras(diasParados + 12),
+          protocoladoEm: diasAtras(diasParados + 9),
+          emAnaliseEm: diasAtras(diasParados + 5),
+          aprovadoEm: null,
+          negadoEm: diasAtras(diasParados),
+          encerradoEm: null,
+        };
+      case "ENCERRADO":
+        return {
+          createdAt: diasAtras(diasParados + 6),
+          protocoladoEm: diasAtras(diasParados + 4),
+          emAnaliseEm: null,
+          aprovadoEm: null,
+          negadoEm: null,
+          encerradoEm: diasAtras(diasParados),
+        };
+    }
+  }
+
   // Idempotência: por PROFISSIONAL, não por linha. Como o catálogo de operadoras pode não ter
   // o nome desejado (ou já ter sido usado), o resolvedor sempre acha ALGUMA — e comparar
   // (profissional, operadora resolvida) contra o banco não bastaria: numa rodada seguinte, com
@@ -697,7 +771,7 @@ async function main() {
 
     const prof = PROFISSIONAIS.find((p) => p.nome === c.profissional)!;
     const clienteId = clienteIdPorClinica.get(prof.clinica)!;
-    const criadoEm = diasAtras(c.diasAtras);
+    const datas = datasDoCredenciamento(c.status, c.diasParados);
 
     let contaId: string | undefined;
     if (c.status === "APROVADO") {
@@ -721,18 +795,15 @@ async function main() {
         operadoraId: operadora.id,
         valor: c.valor,
         status: c.status,
-        createdAt: criadoEm,
-        protocoladoEm: c.status === "A_PROTOCOLAR" ? null : criadoEm,
-        emAnaliseEm: c.status === "EM_ANALISE" || c.status === "APROVADO" || c.status === "NEGADO" ? diasAtras(Math.max(c.diasAtras - 5, 0)) : null,
-        aprovadoEm: c.status === "APROVADO" ? diasAtras(Math.max(c.diasAtras - 10, 0)) : null,
-        negadoEm: c.status === "NEGADO" ? diasAtras(Math.max(c.diasAtras - 10, 0)) : null,
-        encerradoEm: c.status === "ENCERRADO" ? criadoEm : null,
+        ...datas,
         motivoNegativa: c.motivoNegativa ?? null,
         observacoes: c.observacoes ?? null,
         contaId,
       },
     });
-    console.log(`  ✔ ${c.profissional} × ${operadora.nome}: ${c.status}.`);
+    const emCurso = c.status !== "APROVADO" && c.status !== "NEGADO" && c.status !== "ENCERRADO";
+    const atencao = emCurso && c.diasParados >= prazoDias;
+    console.log(`  ✔ ${c.profissional} × ${operadora.nome}: ${c.status}, parado há ${c.diasParados} dia(s)${atencao ? " ⚠ PASSOU DO PRAZO" : ""}.`);
   }
 
   // Documentação enviada só PARCIALMENTE — de propósito, para a seção "o que ainda falta

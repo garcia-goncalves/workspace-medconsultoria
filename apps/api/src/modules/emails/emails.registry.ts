@@ -655,6 +655,28 @@ export const EMAIL_TEMPLATES = {
     },
   },
 
+  suporte_resposta: {
+    label: "Resposta da equipe no seu chamado (aviso ao cliente)",
+    descricao:
+      "Enviado ao cliente quando alguém da MedConsultoria responde um chamado do Portal. É a volta do canal de suporte — sem ele o cliente só descobre a resposta se voltar ao Portal por conta própria.",
+    grupo: "Transacionais",
+    notificacao: false,
+    variaveis: [
+      { chave: "nome", rotulo: "Nome de quem recebe", descricao: "Pessoa da clínica", exemplo: "Dra. Helena" },
+      { chave: "assunto", rotulo: "Assunto do chamado", descricao: "Assunto do chamado respondido", exemplo: "Envio dos documentos" },
+      { chave: "mensagem", rotulo: "Trecho da resposta", descricao: "Início da resposta da equipe", exemplo: "Já separamos a lista para você." },
+      { chave: "link", rotulo: "Link do Portal", descricao: "Portal do Cliente", exemplo: "(link do Portal)" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "Respondemos o seu chamado: {{assunto}}",
+      titulo: "Temos uma resposta para você",
+      corpo:
+        'Respondemos o seu chamado "{{assunto}}" no Portal do Cliente:\n\n"{{mensagem}}"\n\nAbra o Portal para ler tudo e continuar a conversa por lá.',
+      ctaTexto: "Abrir o Portal",
+    },
+  },
+
   conflito_agenda: {
     label: "Conflito de horário na agenda",
     descricao: "Alerta proativo quando dois compromissos seus se sobrepõem. Vai para o dono e os participantes.",

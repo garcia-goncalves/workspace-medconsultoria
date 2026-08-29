@@ -46,6 +46,8 @@ export function LeadCard({
   onConvidarPortal,
   converting,
   overlay = false,
+  draggable = true,
+  className,
 }: {
   lead: LeadItem;
   onOpen?: () => void;
@@ -56,18 +58,25 @@ export function LeadCard({
   converting?: boolean;
   convidandoPortal?: boolean;
   overlay?: boolean;
+  /** `false` no celular: sem arraste (as colunas lado a lado não cabem a 360px) — o card só abre ao toque, e "Mover para…" substitui o gesto. */
+  draggable?: boolean;
+  className?: string;
 }) {
   // Sem `attributes` do dnd-kit no card: elas adicionam role="button", o que, com botões de ação
   // dentro, viola `nested-interactive` (axe). O arraste continua pelo `listeners` (ponteiro) e o
   // clique do mouse abre; o teclado abre pelo BOTÃO do nome (abaixo).
+  // `useSortable` continua sendo chamado mesmo com `draggable=false` (regra dos hooks) — só não
+  // aplicamos ref/listeners/estilo de arraste nesse caso, mesmo padrão do `KanbanCard` de Projetos.
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: lead.id,
+    disabled: !draggable || overlay,
   });
 
+  const ativo = draggable && !overlay;
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.4 : 1,
+    opacity: ativo && isDragging ? 0.4 : 1,
   };
 
   const dias = Math.max(0, Math.floor((Date.now() - new Date(lead.updatedAt).getTime()) / 86400000));
@@ -76,21 +85,22 @@ export function LeadCard({
 
   // O card inteiro é a "alça" de arrastar (exceto os botões de ação, que param a
   // propagação do pointerdown). A restrição de distância (6px) evita disparar no clique.
-  const dragProps = overlay ? {} : { ...listeners };
+  const dragProps = ativo ? { ...listeners } : {};
 
   return (
     <div
-      ref={overlay ? undefined : setNodeRef}
-      style={overlay ? undefined : style}
+      ref={ativo ? setNodeRef : undefined}
+      style={ativo ? style : undefined}
       {...dragProps}
       onClick={overlay ? undefined : onOpen}
       className={cn(
-        "touch-none rounded-md border bg-card p-3 shadow-sm transition-shadow hover:shadow-md",
-        !overlay && "cursor-grab active:cursor-grabbing hover:border-primary/40",
+        "rounded-md border bg-card p-3 shadow-sm transition-shadow hover:shadow-md",
+        ativo && "touch-none cursor-grab active:cursor-grabbing hover:border-primary/40",
+        className,
       )}
     >
       <div className="flex items-start gap-2">
-        {!overlay && <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40" aria-hidden />}
+        {ativo && <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40" aria-hidden />}
         <div className="min-w-0 flex-1">
           <button
             type="button"
@@ -179,14 +189,16 @@ export function LeadCard({
           <div className="ml-auto flex items-center gap-1">
             <button
               onClick={onEdit}
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label={`Editar "${lead.nome}"`}
+              className="flex min-h-11 min-w-11 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               title="Editar"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={onRemove}
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              aria-label={`Remover "${lead.nome}"`}
+              className="flex min-h-11 min-w-11 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
               title="Remover"
             >
               <Trash2 className="h-3.5 w-3.5" />

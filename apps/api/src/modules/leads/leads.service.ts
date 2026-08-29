@@ -340,7 +340,14 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
     const docs = docIds.length
       ? await prisma.documento.findMany({
           where: { id: { in: docIds }, deletedAt: null },
-          select: { id: true, assinaturaSolicitadaEm: true, assinadoEm: true },
+          select: {
+            id: true,
+            assinaturaSolicitadaEm: true,
+            assinadoEm: true,
+            // O ACEITE ONLINE É O OUTRO CAMINHO, e ele faltava aqui (C1).
+            propostaSolicitadaEm: true,
+            propostaStatus: true,
+          },
         })
       : [];
     const docById = new Map(docs.map((d) => [d.id, d]));
@@ -349,8 +356,18 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
       const d = ds.documentoId ? docById.get(ds.documentoId) : undefined;
       if (!d) continue;
       if (ds.acaoDoc === "proposta") {
-        if (d.assinaturaSolicitadaEm) marco.proposta_enviada = true;
-        if (d.assinadoEm) marco.proposta_assinada = true;
+        // ⚠️ SÃO DUAS PORTAS PARA CADA MARCO, E A RÉGUA SÓ CONHECIA UMA (C1).
+        //
+        // Uma proposta chega ao cliente de dois jeitos: pedindo ASSINATURA
+        // (`assinaturaSolicitadaEm` → `assinadoEm`) ou habilitando o ACEITE ONLINE
+        // (`propostaSolicitadaEm` → `propostaStatus = ACEITA`), que é o caminho normal do
+        // link de e-mail e do Portal. Só a primeira contava.
+        //
+        // O efeito era o pior tipo de trabalho invisível: o cliente aceitava, a tela do
+        // documento dizia "ACEITA", e o passo OBRIGATÓRIO "Confirmar o aceite do cliente"
+        // seguia aberto — travando `avancarEtapa` sem que nada na tela explicasse por quê.
+        if (d.assinaturaSolicitadaEm || d.propostaSolicitadaEm) marco.proposta_enviada = true;
+        if (d.assinadoEm || d.propostaStatus === "ACEITA") marco.proposta_assinada = true;
       } else if (ds.acaoDoc === "contrato") {
         if (d.assinaturaSolicitadaEm) marco.contrato_enviado = true;
         if (d.assinadoEm) marco.contrato_assinado = true;

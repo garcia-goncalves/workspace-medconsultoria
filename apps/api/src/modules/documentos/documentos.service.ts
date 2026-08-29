@@ -832,10 +832,49 @@ export async function gerarPropostaAutoParaLead(leadId: string, userId: string) 
       observacoes: true,
       responsavelId: true,
       clienteId: true,
+      createdAt: true,
       servicos: { select: { id: true, valor: true, valorRecorrencia: true, percentual: true, categoria: true } },
     },
   });
   if (!lead || lead.servicos.length === 0) return; // sem serviços = nada a propor ainda
+
+  // ⚠️ A GUARDA ACIMA OLHAVA O PASSO; O NÚMERO QUEIMA NO DOCUMENTO (C2).
+  //
+  // Há TRÊS portas para uma proposta nascer para um lead: esta automação, o botão do painel
+  // do lead (`gerarParaLead`) e o "Novo documento" (ADR-132). Só a primeira liga o passo do
+  // funil — e as outras duas costumam acontecer ANTES de o card entrar na etapa "Proposta",
+  // quando o passo com `acaoDoc: "proposta"` ainda nem existe (ele é semeado ao entrar na
+  // etapa). Resultado: `updateMany` casava zero linhas, a guarda não via nada, e arrastar o
+  // card emitia a SEGUNDA proposta.
+  //
+  // ⚠️ **Isso não é um documento a mais: é um buraco na numeração da Thaís**, que é a
+  // contagem manual dela e começou em 224 (ADR-104).
+  //
+  // A guarda passa a olhar a realidade — "este lead já tem proposta?" —, o mesmo formato de
+  // `gerarContratoAutoParaCliente`. O recorte por `createdAt` do lead é o que impede o
+  // oposto: um cliente já convertido que volta ao funil para um upsell tem propostas antigas,
+  // e elas não podem calar a proposta NOVA.
+  if (lead.clienteId) {
+    const jaExiste = await prisma.documento.findFirst({
+      where: {
+        clienteId: lead.clienteId,
+        deletedAt: null,
+        modelo: { tipo: "PROPOSTA" },
+        createdAt: { gte: lead.createdAt },
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    if (jaExiste) {
+      // ADOTA a que já existe: sem esta linha o painel do lead continuaria sem achar a
+      // proposta, e a régua de marcos do funil (C1) não teria documento para olhar.
+      await prisma.leadPasso.updateMany({
+        where: { leadId, acaoDoc: "proposta", documentoId: null },
+        data: { documentoId: jaExiste.id },
+      });
+      return;
+    }
+  }
 
   const clienteId = await garantirClienteDoLead(lead, userId);
   const itens = lead.servicos.map((s) => ({

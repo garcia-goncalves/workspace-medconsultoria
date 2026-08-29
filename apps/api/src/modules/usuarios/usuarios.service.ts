@@ -278,6 +278,7 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
     ativo?: boolean;
     clienteId?: string | null;
     passwordHash?: string;
+    acessoRevogadoEm?: Date | null;
   } = {};
 
   if (input.nome !== undefined) data.nome = input.nome.trim();
@@ -320,6 +321,18 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
       await assertSobraResponsavel(alvo.clienteId, { id: alvo.id, ativo: false });
     }
     data.ativo = input.ativo;
+    // ⚠️ `ativo = false` É AMBÍGUO — e por isso desativar aqui não bastava (C8).
+    //
+    // Conta convidada que ainda não definiu senha TAMBÉM nasce inativa. Quem lê a situação
+    // (`pessoas.service`: REVOGADO × CONVIDADO × ATIVO, e o `destinatarioDeAssinatura`) só
+    // consegue distinguir os dois estados por `acessoRevogadoEm`. Sem a marca, quem teve o
+    // acesso encerrado por esta tela aparecia como "convidado, ainda não entrou" — e a Med
+    // ficava esperando o cliente aparecer num acesso que ela mesma tinha fechado.
+    //
+    // É a segunda porta do mesmo dado: `revogarAcessoDaPessoa` (a tela do Portal) já marcava;
+    // *Equipe e acessos* não. Reativar apaga a marca pelo mesmo motivo, e é o que devolve o
+    // caminho do convite/redefinição (`recusarSeAcessoRevogado`, em `auth.service`).
+    data.acessoRevogadoEm = input.ativo === false ? new Date() : null;
   }
 
   const finalRole = data.role ?? alvo.role;

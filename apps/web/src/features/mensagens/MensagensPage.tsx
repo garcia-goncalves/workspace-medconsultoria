@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Plus, Send, MessageSquare, Users, Loader2, Search, UserRound, Info, Building2, MoreVertical,
+  Plus, Send, MessageSquare, Users, Search, UserRound, Info, Building2, MoreVertical,
   Pin, PinOff, BellOff, Bell, Archive, ArchiveRestore, Trash2, Pencil, Check, X, CheckCircle2, RotateCcw, Flag, ChevronLeft,
 } from "lucide-react";
 import { cn } from "@app/ui";
@@ -15,6 +15,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Avatar, avatarSrc } from "../../components/ui/avatar";
 import { Skeleton } from "../../components/ui/skeleton";
+import { QueryError } from "../../components/ui/query-error";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { NovaConversaDialog } from "./NovaConversaDialog";
 import { ConversaInfoDialog } from "./ConversaInfoDialog";
@@ -200,10 +201,10 @@ export function MensagensPage() {
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h1 className="font-semibold text-primary">{verArquivadas ? "Arquivadas" : "Mensagens"}</h1>
           <div className="flex items-center gap-1">
-            <Button size="icon" variant="ghost" onClick={() => setVerArquivadas((v) => !v)} title={verArquivadas ? "Voltar" : "Arquivadas"}>
+            <Button size="icon" variant="ghost" onClick={() => setVerArquivadas((v) => !v)} title={verArquivadas ? "Voltar" : "Arquivadas"} aria-label={verArquivadas ? "Voltar às conversas" : "Ver conversas arquivadas"}>
               {verArquivadas ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
             </Button>
-            <Button size="icon" variant="ghost" onClick={() => setNova(true)} title="Nova conversa">
+            <Button size="icon" variant="ghost" onClick={() => setNova(true)} title="Nova conversa" aria-label="Nova conversa">
               <Plus className="h-4 w-4" />
             </Button>
           </div>
@@ -244,6 +245,10 @@ export function MensagensPage() {
                 </div>
               ))}
             </div>
+          ) : conversas.isError ? (
+            <div className="p-4">
+              <QueryError onRetry={() => conversas.refetch()} message="Não foi possível carregar as conversas." />
+            </div>
           ) : lista.length > 0 ? (
             lista.map((c) => (
               <div key={c.id} className={cn("group relative flex w-full items-center gap-3 border-b px-4 py-3 text-left hover:bg-accent/40", selId === c.id && "bg-accent/60")}>
@@ -253,7 +258,7 @@ export function MensagensPage() {
                     <div className="flex items-center gap-1.5">
                       {c.fixado && <Pin className="h-3 w-3 shrink-0 text-muted-foreground" />}
                       <span className="truncate text-sm font-medium">{c.nome}</span>
-                      {c.categoria === "lead" && <span className="rounded bg-amber-100 px-1 text-[9px] font-semibold uppercase text-amber-700">lead</span>}
+                      {c.categoria === "lead" && <span className="rounded bg-amber-100 px-1 text-xs font-semibold uppercase text-amber-700">lead</span>}
                       {c.tipo === "CLIENTE" && c.prioridade === "ALTA" && <Flag className="h-3 w-3 shrink-0 text-destructive" />}
                       {c.tipo === "CLIENTE" && c.status && <span className={cn("h-1.5 w-1.5 rounded-full", statusDot[c.status])} />}
                       {c.silenciado && <BellOff className="h-3 w-3 shrink-0 text-muted-foreground" />}
@@ -266,11 +271,11 @@ export function MensagensPage() {
                   </div>
                 </button>
                 <div className="flex shrink-0 flex-col items-end gap-1">
-                  {c.ultimaMensagem && <span className="text-[10px] tabular-nums text-muted-foreground">{quando(c.ultimaMensagem.createdAt)}</span>}
-                  {c.naoLidas > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">{c.naoLidas}</span>}
+                  {c.ultimaMensagem && <span className="text-xs tabular-nums text-muted-foreground">{quando(c.ultimaMensagem.createdAt)}</span>}
+                  {c.naoLidas > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-xs font-semibold text-destructive-foreground">{c.naoLidas}</span>}
                 </div>
                 {/* Menu (⋮) */}
-                <button onClick={(e) => (e.stopPropagation(), setMenuId(menuId === c.id ? null : c.id))} className="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-0 hover:bg-accent group-hover:opacity-100" title="Opções">
+                <button onClick={(e) => (e.stopPropagation(), setMenuId(menuId === c.id ? null : c.id))} className="absolute right-1.5 top-1.5 rounded p-1 text-muted-foreground opacity-100 hover:bg-accent md:opacity-0 md:group-hover:opacity-100" title="Opções" aria-label={`Opções da conversa com ${c.nome}`}>
                   <MoreVertical className="h-3.5 w-3.5" />
                 </button>
                 {menuId === c.id && (
@@ -328,7 +333,7 @@ export function MensagensPage() {
         ) : (
           <>
             <div className="flex items-center gap-3 border-b px-5 py-2.5">
-              <button onClick={() => setSelId(null)} className="-ml-1 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground md:hidden" title="Voltar">
+              <button onClick={() => setSelId(null)} className="-ml-1 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground md:hidden" title="Voltar" aria-label="Voltar para a lista de conversas">
                 <ChevronLeft className="h-5 w-5" />
               </button>
               <ConvAvatar c={selecionada} size="h-8 w-8" />
@@ -336,8 +341,8 @@ export function MensagensPage() {
                 <div className="flex items-center gap-2">
                   <span className="truncate font-medium">{selecionada.nome}</span>
                   {selecionada.tipo === "CLIENTE" && selecionada.numero && <span className="text-xs text-muted-foreground">#{selecionada.numero}</span>}
-                  {selecionada.tipo === "CLIENTE" && selecionada.status && <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold", statusBadge[selecionada.status])}>{CHAMADO_STATUS_LABEL[selecionada.status]}</span>}
-                  {selecionada.tipo === "CLIENTE" && selecionada.prioridade === "ALTA" && <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-destructive"><Flag className="h-3 w-3" /> Alta</span>}
+                  {selecionada.tipo === "CLIENTE" && selecionada.status && <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", statusBadge[selecionada.status])}>{CHAMADO_STATUS_LABEL[selecionada.status]}</span>}
+                  {selecionada.tipo === "CLIENTE" && selecionada.prioridade === "ALTA" && <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-destructive"><Flag className="h-3 w-3" /> Alta</span>}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
                   {selecionada.tipo === "GRUPO" ? `${selecionada.membros} participantes` : selecionada.tipo === "CLIENTE" ? selecionada.assunto || (selecionada.categoria === "lead" ? "Chamado — lead" : "Chamado — cliente") : "Conversa direta"}
@@ -355,7 +360,7 @@ export function MensagensPage() {
                 )
               )}
               {selecionada.tipo !== "INDIVIDUAL" && (
-                <Button size="icon" variant="ghost" onClick={() => setInfo(true)} title="Detalhes">
+                <Button size="icon" variant="ghost" onClick={() => setInfo(true)} title="Detalhes" aria-label="Detalhes da conversa">
                   <Info className="h-4 w-4" />
                 </Button>
               )}
@@ -363,9 +368,15 @@ export function MensagensPage() {
 
             <div className="flex-1 overflow-auto bg-muted/30 p-4">
               {mensagens.isLoading ? (
-                <div className="flex h-full items-center justify-center">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <div className="space-y-3">
+                  {[1, 0, 1, 1, 0].map((mine, i) => (
+                    <div key={i} className={cn("flex", mine ? "justify-end" : "justify-start")}>
+                      <Skeleton className={cn("h-10 rounded-2xl", mine ? "w-1/3" : "w-2/5")} />
+                    </div>
+                  ))}
                 </div>
+              ) : mensagens.isError ? (
+                <QueryError onRetry={() => mensagens.refetch()} message="Não foi possível carregar as mensagens." />
               ) : mensagens.data && mensagens.data.length === 0 ? (
                 <p className="py-10 text-center text-sm text-muted-foreground">Nenhuma mensagem ainda. Diga olá! 👋</p>
               ) : null}
@@ -391,17 +402,17 @@ export function MensagensPage() {
                   <Fragment key={m.id}>
                     {novoDia && (
                       <div className="flex justify-center py-3">
-                        <span className="rounded-full border bg-card px-3 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm">{diaLabel(m.createdAt)}</span>
+                        <span className="rounded-full border bg-card px-3 py-0.5 text-xs font-medium text-muted-foreground shadow-sm">{diaLabel(m.createdAt)}</span>
                       </div>
                     )}
                     <div className={cn("group/msg flex items-end gap-2", minha ? "justify-end" : "justify-start", agrupaPrev ? "mt-0.5" : "mt-2")}>
                       {minha && !apagada && !editando && (
                         <div className="flex gap-0.5 self-center opacity-0 transition-opacity group-hover/msg:opacity-100">
-                          <button onClick={() => (setEditId(m.id), setEditTexto(m.conteudo))} className="rounded p-1 text-muted-foreground hover:bg-accent" title="Editar"><Pencil className="h-3 w-3" /></button>
-                          <button onClick={() => confirmarApagarMsg(m)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover"><Trash2 className="h-3 w-3" /></button>
+                          <button onClick={() => (setEditId(m.id), setEditTexto(m.conteudo))} className="rounded p-1 text-muted-foreground hover:bg-accent" title="Editar" aria-label="Editar mensagem"><Pencil className="h-3 w-3" /></button>
+                          <button onClick={() => confirmarApagarMsg(m)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover" aria-label="Remover mensagem"><Trash2 className="h-3 w-3" /></button>
                         </div>
                       )}
-                      {!minha && emGrupo && (mostrarAvatar ? <Avatar id={m.autor.id} nome={m.autor.nome} avatarUrl={m.autor.avatarUrl} className="h-6 w-6" text="text-[10px]" /> : <span className="w-6 shrink-0" />)}
+                      {!minha && emGrupo && (mostrarAvatar ? <Avatar id={m.autor.id} nome={m.autor.nome} avatarUrl={m.autor.avatarUrl} className="h-6 w-6" text="text-xs" /> : <span className="w-6 shrink-0" />)}
                       <div
                         className={cn(
                           "max-w-[72%] rounded-2xl px-3.5 py-2 text-sm shadow-sm",
@@ -421,14 +432,14 @@ export function MensagensPage() {
                         ) : editando ? (
                           <div className="flex items-center gap-1">
                             <Input value={editTexto} onChange={(e) => setEditTexto(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") salvarEdicao(); if (e.key === "Escape") setEditId(null); }} className="h-8 min-w-48 bg-card text-foreground" autoFocus />
-                            <button onClick={salvarEdicao} className="rounded p-1 hover:bg-black/10" title="Salvar"><Check className="h-4 w-4" /></button>
-                            <button onClick={() => setEditId(null)} className="rounded p-1 hover:bg-black/10" title="Cancelar"><X className="h-4 w-4" /></button>
+                            <button onClick={salvarEdicao} className="rounded p-1 hover:bg-black/10" title="Salvar" aria-label="Salvar edição da mensagem"><Check className="h-4 w-4" /></button>
+                            <button onClick={() => setEditId(null)} className="rounded p-1 hover:bg-black/10" title="Cancelar" aria-label="Cancelar edição da mensagem"><X className="h-4 w-4" /></button>
                           </div>
                         ) : (
                           <p className="whitespace-pre-wrap">{m.conteudo}</p>
                         )}
                         {!apagada && !editando && (
-                          <div className={cn("mt-0.5 flex items-center justify-end gap-1 text-[10px]", minha ? "text-primary-foreground/70" : "text-muted-foreground")}>
+                          <div className={cn("mt-0.5 flex items-center justify-end gap-1 text-xs", minha ? "text-primary-foreground/70" : "text-muted-foreground")}>
                             {m.editadoEm && <span className="italic">editada</span>}
                             {hora(m.createdAt)}
                           </div>
@@ -444,7 +455,7 @@ export function MensagensPage() {
             {send.error && <p className="border-t bg-destructive/5 px-4 py-1.5 text-xs text-destructive">Não foi possível enviar a mensagem. Tente de novo.</p>}
             <div className="flex items-center gap-2 border-t bg-muted/20 p-3">
               <Input value={texto} onChange={(e) => setTexto(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } }} placeholder="Escreva uma mensagem…" className="rounded-full bg-card" />
-              <Button size="icon" onClick={enviar} disabled={send.isPending || !texto.trim()} className="shrink-0 rounded-full shadow-sm">
+              <Button size="icon" onClick={enviar} disabled={send.isPending || !texto.trim()} className="shrink-0 rounded-full shadow-sm" aria-label="Enviar mensagem">
                 <Send className="h-4 w-4" />
               </Button>
             </div>

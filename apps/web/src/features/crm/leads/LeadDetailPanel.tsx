@@ -141,7 +141,8 @@ export function LeadDetailPanel({
           )}
           <button
             onClick={onClose}
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Fechar"
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             title="Fechar"
           >
             <X className="h-5 w-5" />
@@ -280,7 +281,8 @@ export function LeadDetailPanel({
                                 <button
                                   onClick={() => !p.auto && toggle.mutate({ passoId: p.id })}
                                   disabled={toggle.isPending || p.auto}
-                                  className={cn(p.auto && "cursor-default")}
+                                  aria-label={p.auto ? `"${p.titulo}" é automático` : (p.concluido ? `Reabrir "${p.titulo}"` : `Concluir "${p.titulo}"`)}
+                                  className={cn("flex min-h-11 min-w-11 items-center justify-center", p.auto && "cursor-default")}
                                   title={
                                     p.auto
                                       ? "Automático — o sistema conclui e reabre sozinho conforme os dados do lead"
@@ -355,7 +357,8 @@ export function LeadDetailPanel({
                                       )
                                         removePasso.mutate({ passoId: p.id });
                                     }}
-                                    className="rounded p-1 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                    aria-label={`Remover passo "${p.titulo}"`}
+                                    className="flex min-h-11 min-w-11 items-center justify-center rounded p-1 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive"
                                     title="Remover passo"
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />

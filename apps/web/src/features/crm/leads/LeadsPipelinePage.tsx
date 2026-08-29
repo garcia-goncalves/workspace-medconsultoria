@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import type { LucideIcon } from "lucide-react";
-import { Plus, Users, Wallet, TrendingUp, Link2, Check, Tags, Percent, ThumbsDown, RotateCcw, UserCheck, AlertTriangle, Search, Inbox, X } from "lucide-react";
+import { Plus, Users, Wallet, TrendingUp, Link2, Check, Tags, Percent, ThumbsDown, RotateCcw, UserCheck, AlertTriangle, Search, Inbox, X, ArrowRightLeft } from "lucide-react";
 import { cn } from "@app/ui";
 import { trpc } from "../../../lib/trpc";
 import { formatBRL, formatEstimativaDoFunil } from "../../../lib/masks";
@@ -27,6 +27,8 @@ import { Modal } from "../../../components/ui/modal";
 import { Input } from "../../../components/ui/input";
 import { Select } from "../../../components/ui/select";
 import { QueryError } from "../../../components/ui/query-error";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../../components/ui/tabs";
+import { Popover } from "../../../components/ui/popover";
 import { useConfirm, useConfirmar, usePrompt } from "../../../components/ui/confirm-dialog";
 import { ConviteLinkDialog } from "../../configuracoes/ConviteLinkDialog";
 import type { ConviteResultado } from "../../configuracoes/UsuarioFormDialog";
@@ -138,6 +140,108 @@ function Column({
   );
 }
 
+/** Menu "Mover para…" — a alternativa ao arraste no celular, mesmo padrão do quadro de Projetos. */
+function MoverMenu({ atual, titulo, etapas, onMover }: { atual: string; titulo: string; etapas: Stage[]; onMover: (destino: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel={`Mover "${titulo}" para outra etapa`}
+      trigger={(p) => (
+        <button
+          {...p}
+          aria-label={`Mover "${titulo}" para outra etapa`}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <ArrowRightLeft className="h-4 w-4" />
+        </button>
+      )}
+    >
+      <div className="w-52">
+        <p className="px-2 pb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mover para</p>
+        <div className="space-y-0.5">
+          {etapas.filter((e) => e.id !== atual).map((e) => (
+            <button
+              key={e.id}
+              onClick={() => {
+                onMover(e.id);
+                setOpen(false);
+              }}
+              className="flex min-h-11 w-full items-center rounded-md px-2.5 py-2 text-left text-sm text-foreground hover:bg-accent"
+            >
+              {e.nome}
+            </button>
+          ))}
+        </div>
+      </div>
+    </Popover>
+  );
+}
+
+/**
+ * Uma etapa do funil, no celular: SEM arraste (as colunas lado a lado não cabem a 360px — ver
+ * `docs/UI_GUIDELINES.md` §7), com "Mover para…" no lugar (`MoverMenu`), mesma solução do quadro
+ * de Projetos. O card inteiro continua abrindo com um toque.
+ */
+function ColunaMobile({
+  stage,
+  leads,
+  etapas,
+  filtrando,
+  onOpen,
+  onEdit,
+  onRemove,
+  onConvert,
+  onConvidarPortal,
+  onMover,
+  convertingId,
+  convidandoPortalId,
+}: {
+  stage: Stage;
+  leads: LeadItem[];
+  etapas: Stage[];
+  filtrando: boolean;
+  onOpen: (l: LeadItem) => void;
+  onEdit: (l: LeadItem) => void;
+  onRemove: (l: LeadItem) => void;
+  onConvert: (l: LeadItem) => void;
+  onConvidarPortal: (l: LeadItem) => void;
+  onMover: (leadId: string, destino: string) => void;
+  convertingId: string | undefined;
+  convidandoPortalId: string | undefined;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2.5">
+      {leads.length === 0 ? (
+        <div className="rounded-md border border-dashed border-border/70 px-4 py-6 text-center text-xs text-muted-foreground">
+          {filtrando ? "Sem resultados nesta etapa" : "Nenhum lead nesta etapa"}
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pb-2">
+          {leads.map((lead) => (
+            <div key={lead.id} className="flex items-start gap-2">
+              <LeadCard
+                lead={lead}
+                onOpen={() => onOpen(lead)}
+                onEdit={() => onEdit(lead)}
+                onRemove={() => onRemove(lead)}
+                onConvert={() => onConvert(lead)}
+                onConvidarPortal={() => onConvidarPortal(lead)}
+                converting={convertingId === lead.id}
+                convidandoPortal={convidandoPortalId === lead.id}
+                draggable={false}
+                className="min-w-0 flex-1"
+              />
+              <MoverMenu atual={stage.id} titulo={lead.nome} etapas={etapas} onMover={(destino) => onMover(lead.id, destino)} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LeadsPipelinePage() {
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -153,6 +257,7 @@ export function LeadsPipelinePage() {
 
   const [board, setBoard] = useState<Board>({});
   const [activeLead, setActiveLead] = useState<LeadItem | null>(null);
+  const [abaMobile, setAbaMobile] = useState("");
   const [novo, setNovo] = useState(false);
   const [origensAberto, setOrigensAberto] = useState(false);
   const [leadAberto, setLeadAberto] = useState<string | null>(null);
@@ -193,6 +298,12 @@ export function LeadsPipelinePage() {
     }
     setBoard(next);
   }, [stages.data, leads.data, leadsFiltrados]);
+
+  // Aba ativa das colunas no celular: começa na 1ª etapa e some se a etapa deixar de existir.
+  useEffect(() => {
+    if (!stages.data || stages.data.length === 0) return;
+    if (!stages.data.some((s) => s.id === abaMobile)) setAbaMobile(stages.data[0]!.id);
+  }, [stages.data, abaMobile]);
 
   // A situação do cliente é o placar do funil — toda ação que muda o funil pode mudar a
   // situação de um cliente, então invalidamos as queries de clientes junto.
@@ -552,39 +663,76 @@ export function LeadsPipelinePage() {
             )}
           </div>
 
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCorners}
-            onDragStart={onDragStart}
-            onDragOver={onDragOver}
-            onDragEnd={onDragEnd}
-          >
-            <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:items-stretch">
-              {stages.data?.map((stage) => (
-                <Column
-                  key={stage.id}
-                  stage={stage}
-                  leads={board[stage.id] ?? []}
-                  filtrando={filtrando}
-                  onOpen={(l) => setLeadAberto(l.id)}
-                  onEdit={abrirEdicao}
-                  onRemove={remover}
-                  onConvert={converter}
-                  onConvidarPortal={convidarPortalConfirm}
-                  convertingId={convert.isPending ? convert.variables?.id : undefined}
-                  convidandoPortalId={convidarPortal.isPending ? convidarPortal.variables?.id : undefined}
-                />
-              ))}
-            </div>
+          {/* Desktop/tablet: as colunas lado a lado, com arraste (dnd-kit). */}
+          <div className="hidden min-h-0 flex-1 md:flex">
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragStart={onDragStart}
+              onDragOver={onDragOver}
+              onDragEnd={onDragEnd}
+            >
+              <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:items-stretch">
+                {stages.data?.map((stage) => (
+                  <Column
+                    key={stage.id}
+                    stage={stage}
+                    leads={board[stage.id] ?? []}
+                    filtrando={filtrando}
+                    onOpen={(l) => setLeadAberto(l.id)}
+                    onEdit={abrirEdicao}
+                    onRemove={remover}
+                    onConvert={converter}
+                    onConvidarPortal={convidarPortalConfirm}
+                    convertingId={convert.isPending ? convert.variables?.id : undefined}
+                    convidandoPortalId={convidarPortal.isPending ? convidarPortal.variables?.id : undefined}
+                  />
+                ))}
+              </div>
 
-            <DragOverlay>
-              {activeLead ? (
-                <div className="w-64">
-                  <LeadCard lead={activeLead} overlay />
-                </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
+              <DragOverlay>
+                {activeLead ? (
+                  <div className="w-64">
+                    <LeadCard lead={activeLead} overlay />
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          </div>
+
+          {/* Celular: uma etapa por vez (abas), sem arraste — "Mover para…" no lugar dele. */}
+          <div className="flex min-h-0 flex-1 flex-col md:hidden">
+            <Tabs value={abaMobile} onValueChange={setAbaMobile} className="flex min-h-0 flex-1 flex-col">
+              <TabsList aria-label="Etapas do funil" className="shrink-0">
+                {(stages.data ?? []).map((stage) => (
+                  <TabsTrigger key={stage.id} value={stage.id} contador={(board[stage.id] ?? []).length}>
+                    {stage.nome}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              {(stages.data ?? []).map((stage) => (
+                <TabsContent key={stage.id} value={stage.id} className="mt-3 min-h-0 flex-1">
+                  <ColunaMobile
+                    stage={stage}
+                    leads={board[stage.id] ?? []}
+                    etapas={stages.data ?? []}
+                    filtrando={filtrando}
+                    onOpen={(l) => setLeadAberto(l.id)}
+                    onEdit={abrirEdicao}
+                    onRemove={remover}
+                    onConvert={converter}
+                    onConvidarPortal={convidarPortalConfirm}
+                    onMover={(leadId, destino) => {
+                      const destinoLen = (board[destino] ?? []).length;
+                      move.mutate({ id: leadId, pipelineStageId: destino, ordem: destinoLen });
+                    }}
+                    convertingId={convert.isPending ? convert.variables?.id : undefined}
+                    convidandoPortalId={convidarPortal.isPending ? convidarPortal.variables?.id : undefined}
+                  />
+                </TabsContent>
+              ))}
+            </Tabs>
+          </div>
           </>
           )}
         </>

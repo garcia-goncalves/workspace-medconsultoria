@@ -39,7 +39,8 @@ import { Badge } from "../../components/ui/badge";
 import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { EmptyState } from "../../components/ui/empty-state";
-import { Table, THead, TH, TR, TD } from "../../components/ui/table";
+import { DataTable } from "../../components/ui/data-table";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
 import { AssistenteIADialog } from "../../components/ui/assistente-ia";
 import { toast } from "../../components/ui/toast";
 import { AreaMini, BarraUso } from "./MiniChart";
@@ -90,38 +91,50 @@ export function SistemaPage() {
 
       <HealthBanner />
 
-      <div className="flex flex-wrap gap-1 rounded-xl border bg-card p-1">
-        {ABAS.map((a) => {
-          const ativa = a.id === aba;
-          return (
-            <button
-              key={a.id}
-              onClick={() => setAba(a.id)}
-              className={
-                "flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors " +
-                (ativa
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground")
-              }
-            >
+      <Tabs value={aba} onValueChange={(v) => setAba(v as Aba)}>
+        <TabsList aria-label="Abas do painel Sistema">
+          {ABAS.map((a) => (
+            <TabsTrigger key={a.id} value={a.id}>
               <a.icon className="h-4 w-4" />
               {a.label}
-            </button>
-          );
-        })}
-      </div>
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      {aba === "geral" && <AbaGeral />}
-      {aba === "incidentes" && <AbaIncidentes />}
-      {aba === "desempenho" && <AbaDesempenho />}
-      {aba === "banco" && <AbaBanco />}
-      {aba === "operacao" && <AbaOperacao />}
-      {aba === "erros" && <AbaErros />}
-      {aba === "sessoes" && <AbaSessoes />}
-      {aba === "atividade" && <AbaAtividade />}
-      {aba === "manutencao" && <AbaManutencao />}
-      {aba === "auditoria" && <AbaAuditoria />}
-      {aba === "privacidade" && <AbaPrivacidade />}
+        <TabsContent value="geral" className="pt-6">
+          <AbaGeral />
+        </TabsContent>
+        <TabsContent value="incidentes" className="pt-6">
+          <AbaIncidentes />
+        </TabsContent>
+        <TabsContent value="desempenho" className="pt-6">
+          <AbaDesempenho />
+        </TabsContent>
+        <TabsContent value="banco" className="pt-6">
+          <AbaBanco />
+        </TabsContent>
+        <TabsContent value="operacao" className="pt-6">
+          <AbaOperacao />
+        </TabsContent>
+        <TabsContent value="erros" className="pt-6">
+          <AbaErros />
+        </TabsContent>
+        <TabsContent value="sessoes" className="pt-6">
+          <AbaSessoes />
+        </TabsContent>
+        <TabsContent value="atividade" className="pt-6">
+          <AbaAtividade />
+        </TabsContent>
+        <TabsContent value="manutencao" className="pt-6">
+          <AbaManutencao />
+        </TabsContent>
+        <TabsContent value="auditoria" className="pt-6">
+          <AbaAuditoria />
+        </TabsContent>
+        <TabsContent value="privacidade" className="pt-6">
+          <AbaPrivacidade />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -349,7 +362,13 @@ function BotaoIA({
   const [aberto, setAberto] = useState(false);
   return (
     <>
-      <Button variant={variant} size={size} onClick={() => setAberto(true)} title={title}>
+      <Button
+        variant={variant}
+        size={size}
+        onClick={() => setAberto(true)}
+        title={title}
+        aria-label={iconOnly ? title : undefined}
+      >
         <Sparkles className="h-4 w-4 text-primary" />
         {!iconOnly && (label ?? "IA")}
       </Button>
@@ -590,7 +609,7 @@ function AbaIncidentes() {
                 ))}
               </div>
             )}
-            <div className="mt-2 flex justify-between text-[11px] text-muted-foreground">
+            <div className="mt-2 flex justify-between text-xs text-muted-foreground">
               <span>90 dias atrás</span>
               <span>hoje</span>
             </div>
@@ -761,44 +780,68 @@ function AbaDesempenho() {
           <Timer className="h-4 w-4" />
           Endpoints mais lentos (p95)
         </h2>
-        {d.data.maisLentos.length === 0 ? (
-          <Card>
-            <CardContent className="p-5 text-sm text-muted-foreground">
-              Ainda sem chamadas registradas nesta execução.
-            </CardContent>
-          </Card>
-        ) : (
-          <Table>
-            <THead>
-              <TR>
-                <TH>Endpoint</TH>
-                <TH className="text-right">Chamadas</TH>
-                <TH className="text-right">Média</TH>
-                <TH className="text-right">p95</TH>
-                <TH className="text-right">Máx</TH>
-                <TH className="text-right">Erros</TH>
-              </TR>
-            </THead>
-            <tbody>
-              {d.data.maisLentos.map((e) => (
-                <TR key={e.path}>
-                  <TD className="font-mono text-xs">{e.path}</TD>
-                  <TD className="text-right">{e.count}</TD>
-                  <TD className="text-right">{e.mediaMs}ms</TD>
-                  <TD className="text-right font-medium">{e.p95Ms}ms</TD>
-                  <TD className="text-right text-muted-foreground">{e.maxMs}ms</TD>
-                  <TD className="text-right">
-                    {e.errors > 0 ? (
-                      <Badge variant="danger">{e.taxaErro}%</Badge>
-                    ) : (
-                      <span className="text-muted-foreground">0</span>
-                    )}
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        )}
+        <DataTable
+          dados={d.data.maisLentos}
+          chaveLinha={(e) => e.path}
+          vazio={
+            <Card>
+              <CardContent className="p-5 text-sm text-muted-foreground">
+                Ainda sem chamadas registradas nesta execução.
+              </CardContent>
+            </Card>
+          }
+          colunas={[
+            {
+              chave: "path",
+              cabecalho: "Endpoint",
+              principal: true,
+              render: (e) => <span className="font-mono text-xs">{e.path}</span>,
+              valorOrdenacao: (e) => e.path,
+            },
+            {
+              chave: "count",
+              cabecalho: "Chamadas",
+              alinhamento: "direita",
+              render: (e) => e.count,
+              valorOrdenacao: (e) => e.count,
+            },
+            {
+              chave: "mediaMs",
+              cabecalho: "Média",
+              alinhamento: "direita",
+              ocultaEmCelular: true,
+              render: (e) => `${e.mediaMs}ms`,
+              valorOrdenacao: (e) => e.mediaMs,
+            },
+            {
+              chave: "p95Ms",
+              cabecalho: "p95",
+              alinhamento: "direita",
+              render: (e) => <span className="font-medium">{e.p95Ms}ms</span>,
+              valorOrdenacao: (e) => e.p95Ms,
+            },
+            {
+              chave: "maxMs",
+              cabecalho: "Máx",
+              alinhamento: "direita",
+              ocultaEmCelular: true,
+              render: (e) => <span className="text-muted-foreground">{e.maxMs}ms</span>,
+              valorOrdenacao: (e) => e.maxMs,
+            },
+            {
+              chave: "erros",
+              cabecalho: "Erros",
+              alinhamento: "direita",
+              render: (e) =>
+                e.errors > 0 ? (
+                  <Badge variant="danger">{e.taxaErro}%</Badge>
+                ) : (
+                  <span className="text-muted-foreground">0</span>
+                ),
+              valorOrdenacao: (e) => e.errors,
+            },
+          ]}
+        />
       </section>
 
       {d.data.queriesLentas.length > 0 && (
@@ -893,36 +936,56 @@ function AbaBanco() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">Tabelas por tamanho</h2>
-        {d.tabelas.length === 0 ? (
-          <Card>
-            <CardContent className="p-5 text-sm text-muted-foreground">
-              Não foi possível ler as informações do banco (permissão negada no servidor).
-            </CardContent>
-          </Card>
-        ) : (
-          <Table>
-            <THead>
-              <TR>
-                <TH>Tabela</TH>
-                <TH className="text-right">Linhas (aprox.)</TH>
-                <TH className="text-right">Dados</TH>
-                <TH className="text-right">Índices</TH>
-                <TH className="text-right">Total</TH>
-              </TR>
-            </THead>
-            <tbody>
-              {d.tabelas.map((t) => (
-                <TR key={t.nome}>
-                  <TD className="font-mono text-xs">{t.nome}</TD>
-                  <TD className="text-right">{t.linhas.toLocaleString("pt-BR")}</TD>
-                  <TD className="text-right text-muted-foreground">{t.dadosMB} MB</TD>
-                  <TD className="text-right text-muted-foreground">{t.indiceMB} MB</TD>
-                  <TD className="text-right font-medium">{t.totalMB} MB</TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        )}
+        <DataTable
+          dados={d.tabelas}
+          chaveLinha={(t) => t.nome}
+          vazio={
+            <Card>
+              <CardContent className="p-5 text-sm text-muted-foreground">
+                Não foi possível ler as informações do banco (permissão negada no servidor).
+              </CardContent>
+            </Card>
+          }
+          colunas={[
+            {
+              chave: "nome",
+              cabecalho: "Tabela",
+              principal: true,
+              render: (t) => <span className="font-mono text-xs">{t.nome}</span>,
+              valorOrdenacao: (t) => t.nome,
+            },
+            {
+              chave: "linhas",
+              cabecalho: "Linhas (aprox.)",
+              alinhamento: "direita",
+              render: (t) => t.linhas.toLocaleString("pt-BR"),
+              valorOrdenacao: (t) => t.linhas,
+            },
+            {
+              chave: "dadosMB",
+              cabecalho: "Dados",
+              alinhamento: "direita",
+              ocultaEmCelular: true,
+              render: (t) => <span className="text-muted-foreground">{t.dadosMB} MB</span>,
+              valorOrdenacao: (t) => t.dadosMB,
+            },
+            {
+              chave: "indiceMB",
+              cabecalho: "Índices",
+              alinhamento: "direita",
+              ocultaEmCelular: true,
+              render: (t) => <span className="text-muted-foreground">{t.indiceMB} MB</span>,
+              valorOrdenacao: (t) => t.indiceMB,
+            },
+            {
+              chave: "totalMB",
+              cabecalho: "Total",
+              alinhamento: "direita",
+              render: (t) => <span className="font-medium">{t.totalMB} MB</span>,
+              valorOrdenacao: (t) => t.totalMB,
+            },
+          ]}
+        />
       </section>
     </div>
   );
@@ -1009,7 +1072,7 @@ function AbaErros() {
                 {e.stack && (
                   <details className="text-xs text-muted-foreground">
                     <summary className="cursor-pointer select-none hover:text-foreground">Ver stack trace</summary>
-                    <pre className="mt-1 max-h-56 overflow-auto rounded bg-muted p-2 text-[11px] leading-relaxed">
+                    <pre className="mt-1 max-h-56 overflow-auto rounded bg-muted p-2 text-xs leading-relaxed">
                       {e.stack}
                     </pre>
                   </details>
@@ -1036,6 +1099,7 @@ function AbaErros() {
                         size="sm"
                         className="text-muted-foreground"
                         title="Ocultar (fica em 'Ocultos', reversível)"
+                        aria-label="Ocultar erro (fica em 'Ocultos', reversível)"
                         disabled={ignorar.isPending}
                         onClick={() => ignorar.mutate({ id: e.id })}
                       >
@@ -1079,48 +1143,67 @@ function AbaSessoes() {
   }
 
   return (
-    <Table>
-      <THead>
-        <TR>
-          <TH>Usuário</TH>
-          <TH>Papel</TH>
-          <TH>Dispositivo</TH>
-          <TH>IP</TH>
-          <TH>Início</TH>
-          <TH>Expira</TH>
-          <TH className="text-right">Ação</TH>
-        </TR>
-      </THead>
-      <tbody>
-        {sessoes.data.map((s) => (
-          <TR key={s.id}>
-            <TD className="font-medium">
-              {s.user.nome}
+    <DataTable
+      dados={sessoes.data}
+      chaveLinha={(s) => s.id}
+      acoes={(s) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive hover:bg-destructive/10"
+          disabled={revogar.isPending}
+          onClick={() => revogar.mutate({ id: s.id })}
+        >
+          <Trash2 className="h-4 w-4" />
+          Revogar
+        </Button>
+      )}
+      colunas={[
+        {
+          chave: "usuario",
+          cabecalho: "Usuário",
+          principal: true,
+          render: (s) => (
+            <>
+              <span className="font-medium">{s.user.nome}</span>
               <div className="text-xs text-muted-foreground">{s.user.email}</div>
-            </TD>
-            <TD>
-              <Badge variant={s.user.role === "ROOT" ? "danger" : "default"}>{s.user.role}</Badge>
-            </TD>
-            <TD className="max-w-[220px] truncate text-xs text-muted-foreground">{s.userAgent ?? "—"}</TD>
-            <TD className="text-xs">{s.ip ?? "—"}</TD>
-            <TD className="text-xs text-muted-foreground">{haQuanto(s.createdAt)}</TD>
-            <TD className="text-xs text-muted-foreground">{dataHora(s.expiresAt)}</TD>
-            <TD className="text-right">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:bg-destructive/10"
-                disabled={revogar.isPending}
-                onClick={() => revogar.mutate({ id: s.id })}
-              >
-                <Trash2 className="h-4 w-4" />
-                Revogar
-              </Button>
-            </TD>
-          </TR>
-        ))}
-      </tbody>
-    </Table>
+            </>
+          ),
+          valorOrdenacao: (s) => s.user.nome,
+        },
+        {
+          chave: "papel",
+          cabecalho: "Papel",
+          render: (s) => <Badge variant={s.user.role === "ROOT" ? "danger" : "default"}>{s.user.role}</Badge>,
+          valorOrdenacao: (s) => s.user.role,
+        },
+        {
+          chave: "dispositivo",
+          cabecalho: "Dispositivo",
+          ocultaEmCelular: true,
+          render: (s) => <span className="block max-w-[220px] truncate text-xs text-muted-foreground">{s.userAgent ?? "—"}</span>,
+        },
+        {
+          chave: "ip",
+          cabecalho: "IP",
+          ocultaEmCelular: true,
+          render: (s) => <span className="text-xs">{s.ip ?? "—"}</span>,
+        },
+        {
+          chave: "inicio",
+          cabecalho: "Início",
+          render: (s) => <span className="text-xs text-muted-foreground">{haQuanto(s.createdAt)}</span>,
+          valorOrdenacao: (s) => new Date(s.createdAt),
+        },
+        {
+          chave: "expira",
+          cabecalho: "Expira",
+          ocultaEmCelular: true,
+          render: (s) => <span className="text-xs text-muted-foreground">{dataHora(s.expiresAt)}</span>,
+          valorOrdenacao: (s) => new Date(s.expiresAt),
+        },
+      ]}
+    />
   );
 }
 
@@ -1225,79 +1308,91 @@ function AbaPrivacidade() {
             description="A eliminação só é possível depois de arquivar o cliente. Enquanto ele está ativo, anonimizar apagaria o registro dos médicos no meio de credenciamentos em andamento."
           />
         ) : (
-          <div className="overflow-x-auto rounded-xl border">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2">Cliente</th>
-                  <th className="px-3 py-2">Arquivado em</th>
-                  <th className="px-3 py-2">Pessoas no cadastro</th>
-                  <th className="px-3 py-2">Acervo</th>
-                  <th className="px-3 py-2">Situação</th>
-                  <th className="px-3 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {lista.data.clientes.map((c) => (
-                  <tr key={c.id} className="border-t">
-                    <td className="px-3 py-2">
-                      <div className="font-medium">{c.nome}</div>
-                      {c.cnpj && <div className="text-xs text-muted-foreground">{c.cnpj}</div>}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">{c.arquivadoEm ? dataHora(c.arquivadoEm) : "—"}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{c.pessoas}</td>
-                    <td className="px-3 py-2">
-                      {c.acervoVencido ? (
-                        <span className="text-xs font-medium text-warning">
-                          {c.arquivos} arquivos · passou dos {lista.data.anos} anos
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">{c.arquivos} arquivos</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      {c.anonimizadoEm ? (
-                        <span className="text-xs text-muted-foreground">
-                          Anonimizado em {dataHora(c.anonimizadoEm)}
-                          {c.anonimizadoPor ? ` por ${c.anonimizadoPor}` : ""}
-                        </span>
-                      ) : (
-                        <span className="text-xs">Dados pessoais presentes</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {!c.anonimizadoEm && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-muted-foreground hover:text-destructive"
-                          disabled={anonimizar.isPending}
-                          onClick={async () => {
-                            if (
-                              await confirm({
-                                title: "Anonimizar a pedido do titular",
-                                description:
-                                  `SAI para sempre: nome, CNPJ, e-mail, telefone e observações de "${c.nome}", ` +
-                                  "os dados dos contatos e dos médicos, e o acesso ao Portal (as sessões abertas caem). " +
-                                  "FICA, por obrigação legal de guarda: os contratos e propostas já emitidos, que " +
-                                  "continuam com o nome dentro, as contas do financeiro e o registro de auditoria. " +
-                                  "Não há como desfazer.",
-                                confirmText: "Anonimizar",
-                                variant: "destructive",
-                              })
-                            )
-                              anonimizar.mutate({ id: c.id });
-                          }}
-                        >
-                          Anonimizar
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            dados={lista.data.clientes}
+            chaveLinha={(c) => c.id}
+            colunas={[
+              {
+                chave: "cliente",
+                cabecalho: "Cliente",
+                principal: true,
+                render: (c) => (
+                  <>
+                    <div className="font-medium">{c.nome}</div>
+                    {c.cnpj && <div className="text-xs text-muted-foreground">{c.cnpj}</div>}
+                  </>
+                ),
+                valorOrdenacao: (c) => c.nome,
+              },
+              {
+                chave: "arquivadoEm",
+                cabecalho: "Arquivado em",
+                ocultaEmCelular: true,
+                render: (c) => <span className="text-muted-foreground">{c.arquivadoEm ? dataHora(c.arquivadoEm) : "—"}</span>,
+                valorOrdenacao: (c) => (c.arquivadoEm ? new Date(c.arquivadoEm) : null),
+              },
+              {
+                chave: "pessoas",
+                cabecalho: "Pessoas no cadastro",
+                ocultaEmCelular: true,
+                render: (c) => <span className="text-muted-foreground">{c.pessoas}</span>,
+                valorOrdenacao: (c) => c.pessoas,
+              },
+              {
+                chave: "acervo",
+                cabecalho: "Acervo",
+                render: (c) =>
+                  c.acervoVencido ? (
+                    <span className="text-xs font-medium text-warning">
+                      {c.arquivos} arquivos · passou dos {lista.data!.anos} anos
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">{c.arquivos} arquivos</span>
+                  ),
+              },
+              {
+                chave: "situacao",
+                cabecalho: "Situação",
+                render: (c) =>
+                  c.anonimizadoEm ? (
+                    <span className="text-xs text-muted-foreground">
+                      Anonimizado em {dataHora(c.anonimizadoEm)}
+                      {c.anonimizadoPor ? ` por ${c.anonimizadoPor}` : ""}
+                    </span>
+                  ) : (
+                    <span className="text-xs">Dados pessoais presentes</span>
+                  ),
+              },
+            ]}
+            acoes={(c) =>
+              !c.anonimizadoEm && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-destructive"
+                  disabled={anonimizar.isPending}
+                  onClick={async () => {
+                    if (
+                      await confirm({
+                        title: "Anonimizar a pedido do titular",
+                        description:
+                          `SAI para sempre: nome, CNPJ, e-mail, telefone e observações de "${c.nome}", ` +
+                          "os dados dos contatos e dos médicos, e o acesso ao Portal (as sessões abertas caem). " +
+                          "FICA, por obrigação legal de guarda: os contratos e propostas já emitidos, que " +
+                          "continuam com o nome dentro, as contas do financeiro e o registro de auditoria. " +
+                          "Não há como desfazer.",
+                        confirmText: "Anonimizar",
+                        variant: "destructive",
+                      })
+                    )
+                      anonimizar.mutate({ id: c.id });
+                  }}
+                >
+                  Anonimizar
+                </Button>
+              )
+            }
+          />
         )}
         {anonimizar.error && <p className="text-sm text-destructive">{anonimizar.error.message}</p>}
       </section>

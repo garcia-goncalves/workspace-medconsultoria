@@ -167,6 +167,14 @@ export const clientesRouter = router({
         { id: ctx.user.id },
       ),
     ),
+  /**
+   * O que o cancelamento vai fazer com o dinheiro — lido ANTES do clique, para a confirmação
+   * dizer a verdade. É a MESMA função que o cancelamento executa; separá-las faria a tela
+   * prometer um número e o servidor fazer outro.
+   */
+  previaCancelamento: funcionarioProcedure
+    .input(cancelarServicoClienteSchema)
+    .query(({ input }) => servicosCliente.previaDoCancelamento(input.clienteId, input.servicoId)),
   cancelarServico: funcionarioProcedure
     .input(cancelarServicoClienteSchema)
     .mutation(({ input, ctx }) =>
