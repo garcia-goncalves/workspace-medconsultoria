@@ -24,8 +24,13 @@ export interface PrecoDoServicoNoCatalogo {
   valor: number | null;
   valorRecorrencia: string | null;
   percentual: number | null;
-  /** A marca do credenciamento — ver `ehServicoDeCredenciamento` em `@app/shared`. */
-  ehCredenciamento?: boolean;
+  /**
+   * A marca do credenciamento — ver `ehServicoDeCredenciamento` em `@app/shared`.
+   * OBRIGATÓRIA de propósito: opcional com `?? false` é o padrão silencioso que a assinatura da
+   * régua veio impedir — se o catálogo parar de selecionar o campo, o compilador precisa
+   * reclamar, em vez de o credenciamento voltar a contar como receita prevista do funil.
+   */
+  ehCredenciamento: boolean;
 }
 
 /**
@@ -49,7 +54,7 @@ export function estimativaDoLeadComPreco(
       percentual: preco?.percentual ?? null,
       // A marca vem do catálogo (`servicos.ativos`); sem ela a régua trataria o credenciamento
       // como receita prevista do funil, que é justamente o que a ADR-104 proíbe.
-      ehCredenciamento: preco?.ehCredenciamento ?? false,
+      ehCredenciamento: preco?.ehCredenciamento === true,
     };
   });
   return dividirEstimativaDoLead(servicos, valorEstimado);

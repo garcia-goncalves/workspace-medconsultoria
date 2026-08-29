@@ -461,7 +461,16 @@ async function seedIfEmpty(): Promise<void> {
 
 async function semearCatalogoSeFaltar() {
   const existentes = new Set((await prisma.servico.findMany({ select: { nome: true } })).map((s) => s.nome));
-  const faltando = CONTEUDO_SERVICOS.filter((s) => !existentes.has(s.nome));
+  // ⚠️ O CREDENCIAMENTO SE RECONHECE PELA MARCA TAMBÉM AQUI.
+  // A semeadura procura o catálogo canônico por NOME — e o nome do credenciamento voltou a ser
+  // editável. Renomeado, ele sumiria de `existentes`, e a próxima leitura de catálogo criaria um
+  // SEGUNDO serviço marcado: o clone apareceria no catálogo sem ninguém ter cadastrado, os 14
+  // requisitos passariam a ser sincronizados no serviço errado, e o Portal do cliente que
+  // contratou o original voltaria a dizer "0/0" com a papelada inteira faltando.
+  const jaTemCredenciamento = (await prisma.servico.count({ where: { ehCredenciamento: true } })) > 0;
+  const faltando = CONTEUDO_SERVICOS.filter(
+    (s) => !existentes.has(s.nome) && !(jaTemCredenciamento && s.nome === NOME_SERVICO_CREDENCIAMENTO),
+  );
   if (faltando.length > 0) {
     await prisma.servico.createMany({
       data: faltando.map((s) => ({

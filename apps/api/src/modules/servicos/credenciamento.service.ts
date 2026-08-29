@@ -310,6 +310,9 @@ async function executarSincronizacao(): Promise<SincronizacaoResultado> {
     // Pela MARCA, não pelo nome: o nome pode ser editado na tela, a marca é o que decide
     // regra de dinheiro (ver `ehServicoDeCredenciamento`).
     where: { ehCredenciamento: true },
+    // Se por acidente houver mais de um marcado, o mais antigo é o que tem a papelada e as
+    // contratações — sem `orderBy`, o banco poderia devolver o recém-criado.
+    orderBy: { createdAt: "asc" },
     select: { id: true },
   });
   if (!servico) return { ok: false, motivo: "servico-inexistente" };
@@ -464,7 +467,7 @@ export async function credenciamentoDoCliente(clienteId: string) {
   const [cliente, profissionais, servico] = await Promise.all([
     prisma.cliente.findUnique({ where: { id: clienteId }, select: { id: true, nome: true } }),
     prisma.profissional.findMany({ where: { clienteId, ativo: true }, orderBy: { nome: "asc" } }),
-    prisma.servico.findFirst({ where: { ehCredenciamento: true }, select: { id: true } }),
+    prisma.servico.findFirst({ where: { ehCredenciamento: true }, orderBy: { createdAt: "asc" }, select: { id: true } }),
   ]);
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
 

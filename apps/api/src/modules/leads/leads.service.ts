@@ -1534,8 +1534,28 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
   if (enviarEmail) {
     try {
       const acesso = await garantirAcessoPortal(clienteId, nomeCliente, lead.email, "EQUIPE_COM_AVISO");
-      if (acesso.jaTinhaAcesso && lead.email) {
+      // ⚠️ AS BOAS-VINDAS SAEM TAMBÉM QUANDO O E-MAIL É DE OUTRA CONTA. Enquanto esse caso vinha
+      // marcado como `jaTinhaAcesso`, ele caía aqui por acidente e o cliente recebia a mensagem;
+      // separá-lo (M11) fez o e-mail sumir sem que ninguém pedisse. A mensagem não promete acesso
+      // ao Portal — só dá as boas-vindas —, então mandá-la continua certo; o que NÃO pode é o
+      // cliente ser convertido e não receber nada porque o endereço dele já estava cadastrado.
+      if ((acesso.jaTinhaAcesso || acesso.emailEmUsoPorOutraConta) && lead.email) {
         void enviarEmailTemplate("cliente_boas_vindas", lead.email, { nome: nomeCliente, link: config.WEB_ORIGIN }).catch(() => {});
+      }
+      // E o motivo de o ACESSO não ter sido criado fica registrado — sem isto, a equipe só
+      // descobriria pela ausência do convite, que é como esse defeito viveu até aqui.
+      if (acesso.emailEmUsoPorOutraConta) {
+        void prisma.activityLog
+          .create({
+            data: {
+              userId,
+              acao: "cliente.acesso_portal_nao_criado",
+              entidadeTipo: "cliente",
+              entidadeId: clienteId,
+              dados: { motivo: "e-mail já pertence a outra conta", email: lead.email },
+            },
+          })
+          .catch(() => {});
       }
     } catch {
       /* boas-vindas é best-effort — não bloqueia a conversão */
@@ -1686,16 +1706,17 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
   // boas-vindas COM o link de acesso, para o lead já acompanhar tudo por lá. Best-effort:
   // nunca deixa a captação falhar. Se já houver acesso (e-mail conhecido), manda só a
   // confirmação simples de recebimento.
-  // M20: a tela pública precisa saber se o acesso foi criado E o e-mail com o link
-  // realmente foi ENVIADO — nunca prometer um e-mail que pode não ter saído.
-  let acessoPortalEnviado = false;
+  // ⚠️ A RESPOSTA DESTA ROTA NÃO PODE VARIAR COM O QUE EXISTE NO BANCO. Ela é `publicProcedure`:
+  // devolver "o acesso foi criado agora" só para e-mail inédito transformava a página num
+  // oráculo — um anônimo descobriria, com uma requisição por endereço, se aquele médico já é
+  // cliente da Med. A tela passou a dizer a mesma frase para todo mundo ("se este for seu
+  // primeiro contato, você vai receber..."), e por isso nada sobre o acesso volta daqui.
   try {
     const clienteId = await garantirClienteDoLead(lead, null);
     const acesso = await garantirAcessoPortal(clienteId, lead.nome, lead.email, "AUTOCADASTRO");
     if (!acesso.criou && lead.email) {
       void enviarEmailTemplate("lead_confirmacao", lead.email, { nome: input.nome.trim() }).catch(() => {});
     }
-    acessoPortalEnviado = acesso.criou && acesso.emailEnviado;
   } catch {
     /* provisão de acesso ao Portal é best-effort — a captação do lead não pode falhar */
   }
@@ -1710,7 +1731,7 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
     void notificar(u.id, "lead_novo", { contato }, { entidadeTipo: "lead", entidadeId: lead.id }).catch(() => {});
   }
 
-  return { ok: true, acessoPortalEnviado };
+  return { ok: true };
 }
 
 /**

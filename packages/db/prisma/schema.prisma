@@ -509,8 +509,12 @@ model Servico {
   /// Existe porque até aqui a identificação era por NOME: bastava corrigir um typo em
   /// Ajustes → Serviços para o cliente passar a ser cobrado na conversão e DE NOVO na
   /// aprovação. A ADR-140 chamou isso de remendo assumido e apontou este campo como a cura.
-  /// Padrão `false`: serviço novo nasce comum — errar para este lado deixa de cobrar cedo
-  /// demais, o oposto cobraria duas vezes.
+  /// ⚠️ NÃO EXISTE LADO SEGURO PARA ERRAR AQUI, e o padrão `false` não é um deles: um
+  /// credenciamento marcado como `false` volta a ser cobrado na conversão do lead E na
+  /// aprovação da operadora — as duas cobranças. O padrão é `false` porque serviço novo é
+  /// comum; para o credenciamento, quem garante a marca é a semeadura do catálogo e o backfill
+  /// da migração, e a migração seguinte (`20260829210500`) PARA a publicação se nenhuma linha
+  /// tiver sido marcada, em vez de deixar o dinheiro sair errado em silêncio.
   ehCredenciamento      Boolean          @default(false)
   ativo                 Boolean          @default(true)
   ordem                 Int              @default(0)

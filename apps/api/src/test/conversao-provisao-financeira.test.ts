@@ -28,6 +28,8 @@ const servico = (
   valor: extra.valor ?? null,
   valorRecorrencia: extra.valorRecorrencia ?? null,
   percentual: extra.percentual ?? null,
+  // O default segue o nome só para os casos ANTIGOS deste arquivo continuarem legíveis; os
+  // casos que provam a regra nova passam a marca explicitamente, nos dois sentidos.
   ehCredenciamento: extra.ehCredenciamento ?? nome === CREDENCIAMENTO,
 });
 

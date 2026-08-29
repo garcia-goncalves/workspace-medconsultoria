@@ -27,7 +27,7 @@ describe("sufixoDeRecorrencia", () => {
 describe("estimativaDoLeadComPreco", () => {
   it("lê um serviço 100% percentual do catálogo (Faturamento) e classifica como mensal", () => {
     const catalogo = [
-      { id: "s1", nome: "Faturamento de contas médicas", valor: null, valorRecorrencia: null, percentual: 5 },
+      { id: "s1", nome: "Faturamento de contas médicas", valor: null, valorRecorrencia: null, percentual: 5, ehCredenciamento: false },
     ];
     const r = estimativaDoLeadComPreco([{ id: "s1", nome: "Faturamento de contas médicas" }], catalogo, 6000);
     expect(r).toEqual({ mensal: 6000, avulso: 0 });
@@ -35,7 +35,7 @@ describe("estimativaDoLeadComPreco", () => {
 
   it("lê um serviço de valor fixo AVULSO do catálogo e classifica como avulso", () => {
     const catalogo = [
-      { id: "s2", nome: "Onboarding", valor: 1500, valorRecorrencia: "AVULSO", percentual: null },
+      { id: "s2", nome: "Onboarding", valor: 1500, valorRecorrencia: "AVULSO", percentual: null, ehCredenciamento: false },
     ];
     const r = estimativaDoLeadComPreco([{ id: "s2", nome: "Onboarding" }], catalogo, 1500);
     expect(r).toEqual({ mensal: 0, avulso: 1500 });
