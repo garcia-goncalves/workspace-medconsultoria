@@ -72,7 +72,7 @@ const CLAUSULAS_SERVICOS: Record<string, string> = {
     "A CONTRATADA planejará, configurará e gerenciará campanhas de tráfego pago (anúncios) conforme o plano contratado, com acompanhamento e otimização dos resultados. O investimento em mídia (verba dos anúncios) é custeado diretamente pela CONTRATANTE e não integra os honorários da CONTRATADA. Os resultados dependem das plataformas e do mercado; não há garantia de retorno específico.",
 };
 
-const CONTEUDO_SERVICOS: ServicoSeed[] = [
+export const CONTEUDO_SERVICOS: ServicoSeed[] = [
   {
     nome: "Gestão Operacional",
     categoria: "Gestão",
