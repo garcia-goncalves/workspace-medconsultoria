@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE `LeadPasso` ADD COLUMN `quemFaz` ENUM('MED', 'CLIENTE') NOT NULL DEFAULT 'MED';
+
+-- AlterTable
+ALTER TABLE `ServicoPasso` ADD COLUMN `quemFaz` ENUM('MED', 'CLIENTE') NOT NULL DEFAULT 'MED';

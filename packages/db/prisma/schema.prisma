@@ -757,6 +757,16 @@ model Credenciamento {
   @@index([contaId])
 }
 
+/// De quem o sistema está esperando para o passo andar.
+///
+/// MED = é a nossa vez de agir. CLIENTE = está parado esperando a clínica entregar,
+/// responder ou aprovar. Sem esta distinção, a pergunta que a Thaís faz toda manhã —
+/// *o que está parado esperando o cliente?* — só se responde abrindo lead por lead.
+enum QuemFaz {
+  MED
+  CLIENTE
+}
+
 /// Passo padrão de um serviço, atrelado a uma etapa do funil. Ao um lead escolher
 /// o serviço, estes passos entram no checklist da etapa correspondente. Editável.
 model ServicoPasso {
@@ -765,6 +775,10 @@ model ServicoPasso {
   titulo      String
   obrigatorio Boolean  @default(false)
   etapaChave  String // "novo"|"qualificacao"|"proposta"|"negociacao"|"fechado"
+  // Padrão MED de propósito: passo novo criado à mão pela equipe é trabalho nosso até
+  // alguém dizer o contrário. Errar para este lado mostra um passo a mais na nossa fila;
+  // errar para o outro faria a Thaís achar que está esperando o cliente e não cobrar nada.
+  quemFaz     QuemFaz  @default(MED)
   ordem       Int      @default(0)
   createdAt   DateTime @default(now())
 
@@ -840,6 +854,10 @@ model LeadPasso {
   servicoId      String?
   titulo         String
   obrigatorio    Boolean   @default(false)
+  // Cópia do `quemFaz` do ServicoPasso no momento em que o passo foi materializado.
+  // É cópia, e não um join, porque o passo pode ser criado à mão (sem serviço por trás)
+  // e porque mudar o catálogo depois não deve reescrever o histórico de um lead em curso.
+  quemFaz        QuemFaz   @default(MED)
   // Ação de documento ligada ao passo (briefing|proposta|contrato) + documento gerado.
   acaoDoc        String?
   documentoId    String?

@@ -18,7 +18,18 @@ import { Prisma } from "@prisma/client";
  * junto com os formulários-modelo (`formularios.service`), pois dependem de um formulário.
  */
 type ReqSeed = { titulo: string; tipo: "DOCUMENTO" | "INFORMACAO"; obrigatorio: boolean; descricao?: string };
-type PassoSeed = { titulo: string; etapaChave: string; obrigatorio: boolean };
+/**
+ * `quemFaz` responde "de quem o passo está esperando".
+ *
+ * Antes desta rodada TODO passo era escrito do ponto de vista da Med ("Apresentar proposta",
+ * "Negociar tabelas") — o trabalho da CLÍNICA simplesmente não existia no funil, vivia só na
+ * lista de documentos do Portal. Resultado: a pergunta que a Thaís faz toda manhã — *o que
+ * está parado esperando o cliente?* — não tinha resposta na tela, só abrindo lead por lead.
+ * Agora os dois lados da dança estão no mesmo checklist, e dá para separá-los.
+ *
+ * Omitir o campo vale MED (é o padrão da coluna no banco).
+ */
+type PassoSeed = { titulo: string; etapaChave: string; obrigatorio: boolean; quemFaz?: "MED" | "CLIENTE" };
 type Recorr = "AVULSO" | "MENSAL";
 type ServicoSeed = {
   nome: string;
@@ -80,13 +91,18 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Quais sistemas a clínica usa hoje?", tipo: "INFORMACAO", obrigatorio: false, descricao: "Agenda, prontuário, financeiro — cite os nomes (sem senhas)." },
     ],
     passos: [
+      { titulo: "Clínica enviar a lista da equipe e o organograma", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Mapear os processos atuais da clínica", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Levantar equipe e ferramentas em uso", etapaChave: "qualificacao", obrigatorio: false },
+      { titulo: "Clínica responder o diagnóstico operacional", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Aplicar diagnóstico operacional (da agenda ao pagamento)", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Montar plano de organização operacional", etapaChave: "proposta", obrigatorio: true },
       { titulo: "Apresentar indicadores e metas de melhoria", etapaChave: "proposta", obrigatorio: true },
       { titulo: "Definir escopo e cronograma de implantação", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar o escopo e o cronograma", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Alinhar responsáveis e rotina de acompanhamento", etapaChave: "negociacao", obrigatorio: false },
+      { titulo: "Clínica indicar quem responde pela implantação", etapaChave: "negociacao", obrigatorio: false, quemFaz: "CLIENTE" },
+      { titulo: "Clínica reunir a equipe para o kickoff", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Kickoff de implantação com a equipe", etapaChave: "fechado", obrigatorio: true },
       { titulo: "Configurar a rotina de monitoramento de resultados", etapaChave: "fechado", obrigatorio: false },
     ],
@@ -114,11 +130,15 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Como a equipe acessa os portais das operadoras?", tipo: "INFORMACAO", obrigatorio: false, descricao: "Descreva o acesso aos portais de faturamento (sem senhas por escrito)." },
     ],
     passos: [
+      { titulo: "Clínica enviar os demonstrativos das operadoras (3 meses)", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica informar o faturamento médio mensal", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Analisar histórico de faturamento e glosas", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Auditar uma amostra de guias e glosas", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Apresentar diagnóstico e plano de recuperação de glosas", etapaChave: "proposta", obrigatorio: true },
       { titulo: "Estimar o valor recuperável de glosas", etapaChave: "proposta", obrigatorio: false },
       { titulo: "Definir a rotina de auditoria e relatórios", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar o percentual e a rotina de envio", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica liberar o acesso aos portais das operadoras", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Implantar a conferência pré-envio das guias", etapaChave: "fechado", obrigatorio: true },
       { titulo: "Definir o relatório gerencial mensal", etapaChave: "fechado", obrigatorio: false },
     ],
@@ -144,12 +164,17 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
     ],
     passos: [
       { titulo: "Levantar operadoras de interesse", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica indicar os profissionais a credenciar", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica enviar a documentação de cada profissional", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Coletar documentos do profissional/clínica", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Conferir documentação e apontar pendências", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica regularizar as pendências apontadas", etapaChave: "qualificacao", obrigatorio: false, quemFaz: "CLIENTE" },
       { titulo: "Apresentar proposta de credenciamento", etapaChave: "proposta", obrigatorio: true },
       { titulo: "Definir operadoras-alvo e prioridades", etapaChave: "proposta", obrigatorio: false },
+      { titulo: "Clínica confirmar as operadoras-alvo", etapaChave: "proposta", obrigatorio: false, quemFaz: "CLIENTE" },
       { titulo: "Negociar tabelas e contrato com a operadora", etapaChave: "negociacao", obrigatorio: true },
       { titulo: "Protocolar a solicitação junto às operadoras", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica assinar os contratos exigidos pela operadora", etapaChave: "negociacao", obrigatorio: false, quemFaz: "CLIENTE" },
       { titulo: "Acompanhar a análise e efetivar o credenciamento", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -167,10 +192,13 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Qual seu volume mensal com cada operadora?", tipo: "INFORMACAO", obrigatorio: false },
     ],
     passos: [
+      { titulo: "Clínica enviar os contratos e tabelas vigentes", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Levantar contratos e tabelas vigentes", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Comparar valores com a média de mercado", etapaChave: "qualificacao", obrigatorio: false },
       { titulo: "Apresentar diagnóstico e metas de reajuste", etapaChave: "proposta", obrigatorio: true },
+      { titulo: "Clínica autorizar a Med a representá-la na negociação", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Conduzir a negociação com a operadora", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica assinar o aditivo com a operadora", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Formalizar o aditivo / atualização de tabela", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -187,11 +215,13 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Marcas/concorrentes que você admira", tipo: "INFORMACAO", obrigatorio: false },
     ],
     passos: [
-      { titulo: "Enviar e receber o briefing de identidade", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Enviar o briefing de identidade para a clínica", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica preencher o briefing de identidade", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Analisar posicionamento e público", etapaChave: "qualificacao", obrigatorio: false },
       { titulo: "Apresentar proposta e conceito criativo", etapaChave: "proposta", obrigatorio: true },
-      { titulo: "Aprovar a direção visual (moodboard)", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar a direção visual (moodboard)", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Entregar logo e aplicações finais", etapaChave: "fechado", obrigatorio: true },
+      { titulo: "Clínica confirmar o recebimento dos arquivos finais", etapaChave: "fechado", obrigatorio: false, quemFaz: "CLIENTE" },
     ],
   },
   {
@@ -205,9 +235,10 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Onde a marca será mais usada?", tipo: "INFORMACAO", obrigatorio: false, descricao: "Site, redes, fachada, jaleco, papelaria…" },
     ],
     passos: [
+      { titulo: "Clínica enviar os arquivos da identidade aprovada", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Reunir os elementos da identidade aprovada", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Apresentar a estrutura do manual", etapaChave: "proposta", obrigatorio: true },
-      { titulo: "Aprovar as diretrizes de uso", etapaChave: "negociacao", obrigatorio: false },
+      { titulo: "Clínica aprovar as diretrizes de uso", etapaChave: "negociacao", obrigatorio: false, quemFaz: "CLIENTE" },
       { titulo: "Entregar o manual da marca (PDF)", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -227,10 +258,13 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
     ],
     passos: [
       { titulo: "Entender objetivos de marca e presença digital", etapaChave: "qualificacao", obrigatorio: true },
-      { titulo: "Enviar e receber o briefing de site", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Enviar o briefing de site para a clínica", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica preencher o briefing de site", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica enviar logo, fotos e textos", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Apresentar proposta de site", etapaChave: "proposta", obrigatorio: true },
       { titulo: "Apresentar a estrutura de páginas (sitemap)", etapaChave: "proposta", obrigatorio: false },
-      { titulo: "Aprovar escopo criativo e cronograma", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar o escopo criativo e o cronograma", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica informar domínio e hospedagem", etapaChave: "negociacao", obrigatorio: false, quemFaz: "CLIENTE" },
       { titulo: "Publicar o site e configurar o SEO básico", etapaChave: "fechado", obrigatorio: true },
       { titulo: "Treinar o cliente para atualizar o conteúdo", etapaChave: "fechado", obrigatorio: false },
     ],
@@ -249,10 +283,12 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Frequência de postagem desejada", tipo: "INFORMACAO", obrigatorio: false },
     ],
     passos: [
-      { titulo: "Enviar e receber o briefing de redes", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Enviar o briefing de redes para a clínica", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica preencher o briefing de redes", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Auditar a presença atual nas redes", etapaChave: "qualificacao", obrigatorio: false },
       { titulo: "Apresentar plano de conteúdo e frequência", etapaChave: "proposta", obrigatorio: true },
-      { titulo: "Aprovar a linha editorial e o tom de voz", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar a linha editorial e o tom de voz", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica dar acesso de administrador aos perfis", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Montar o calendário do 1º mês", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -269,9 +305,11 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Cidade/região que você quer atingir", tipo: "INFORMACAO", obrigatorio: true, descricao: "Importante para o SEO local." },
     ],
     passos: [
+      { titulo: "Clínica indicar especialidades e região-alvo", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Levantar palavras-chave e concorrentes", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Apresentar o plano de conteúdo e SEO", etapaChave: "proposta", obrigatorio: true },
-      { titulo: "Aprovar a pauta e o cronograma", etapaChave: "negociacao", obrigatorio: false },
+      { titulo: "Clínica aprovar a pauta e o cronograma", etapaChave: "negociacao", obrigatorio: false, quemFaz: "CLIENTE" },
+      { titulo: "Clínica dar acesso ao site e ao Search Console", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Publicar os primeiros conteúdos otimizados", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -291,9 +329,11 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
     ],
     passos: [
       { titulo: "Definir objetivo e público da campanha", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica definir a verba mensal de anúncios", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Verificar a conformidade com o CFM", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Apresentar o plano de mídia e a verba", etapaChave: "proposta", obrigatorio: true },
-      { titulo: "Aprovar criativos e segmentação", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar criativos e segmentação", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica dar acesso à conta de anúncios", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Subir a campanha e configurar as métricas", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -386,7 +426,41 @@ const ROTEIROS_SERVICO: Record<string, { titulo: string; itens: string[] }[]> = 
  * equipe editou e nunca recria o que foi removido de propósito... — exceto que remover um serviço
  * é `ativo: false` (soft), então o nome continua ocupado e ele não volta.
  */
-async function seedIfEmpty() {
+/**
+ * Memória curta do "catálogo já conferido nesta janela".
+ *
+ * O trabalho abaixo é semeadura: na esmagadora maioria das chamadas ele não faz nada, mas
+ * paga de 4 a 6 idas ao banco (uma delas com dois laços `await` dentro) — e isso rodava em
+ * TODA leitura do catálogo. É a origem medida do `portal.servicosDisponiveis` de 11,9 s em
+ * produção.
+ *
+ * ⚠️ A memória tem PRAZO de propósito, e não é "para sempre". A lição da ADR-139 foi
+ * exatamente esta: `sincronizarRequisitosCredenciamento` memorizava "serviço inexistente"
+ * permanentemente, e nunca mais rodava nem depois de o serviço aparecer. Com prazo, o pior
+ * caso é uma janela de 30 s de defasagem num banco recém-criado — que se cura sozinha.
+ *
+ * Em teste a memória fica desligada: fixture que limpa a tabela e relê no mesmo processo
+ * precisa ver o banco de verdade.
+ */
+const VALIDADE_DA_MEMORIA_MS = 30_000;
+let catalogoConferidoEm = 0;
+let conferindoCatalogo: Promise<void> | null = null;
+
+async function seedIfEmpty(): Promise<void> {
+  if (process.env.NODE_ENV === "test") return semearCatalogoSeFaltar();
+  if (Date.now() - catalogoConferidoEm < VALIDADE_DA_MEMORIA_MS) return;
+  // Chamadas simultâneas esperam a MESMA execução, em vez de semearem em paralelo.
+  conferindoCatalogo ??= semearCatalogoSeFaltar()
+    .then(() => {
+      catalogoConferidoEm = Date.now();
+    })
+    .finally(() => {
+      conferindoCatalogo = null;
+    });
+  return conferindoCatalogo;
+}
+
+async function semearCatalogoSeFaltar() {
   const existentes = new Set((await prisma.servico.findMany({ select: { nome: true } })).map((s) => s.nome));
   const faltando = CONTEUDO_SERVICOS.filter((s) => !existentes.has(s.nome));
   if (faltando.length > 0) {
@@ -434,9 +508,47 @@ async function seedIfEmpty() {
     const def = CONTEUDO_SERVICOS.find((c) => c.nome === s.nome)?.passos;
     if (def?.length) {
       await prisma.servicoPasso.createMany({
-        data: def.map((d, i) => ({ servicoId: s.id, titulo: d.titulo, obrigatorio: d.obrigatorio, etapaChave: d.etapaChave, ordem: i })),
+        data: def.map((d, i) => ({
+          servicoId: s.id,
+          titulo: d.titulo,
+          obrigatorio: d.obrigatorio,
+          etapaChave: d.etapaChave,
+          quemFaz: d.quemFaz ?? "MED",
+          ordem: i,
+        })),
       });
     }
+  }
+
+  // Backfill dos passos DO CLIENTE, para serviços que já existiam antes desta versão.
+  //
+  // ⚠️ A guarda é "este serviço não tem NENHUM passo do cliente" — e é ela que impede o
+  // backfill de virar um zumbi. Um serviço nessas condições é necessariamente anterior à
+  // versão que introduziu o `quemFaz`, porque o catálogo canônico sempre traz pelo menos um
+  // passo do cliente. Depois do primeiro backfill a condição nunca mais é verdadeira, então
+  // um passo que a equipe apagar de propósito NÃO volta — que é o modo de falha clássico
+  // deste tipo de semeadura.
+  const semPassoDoCliente = await prisma.servico.findMany({
+    where: { passos: { some: {} }, NOT: { passos: { some: { quemFaz: "CLIENTE" } } } },
+    select: { id: true, nome: true, passos: { select: { titulo: true, ordem: true } } },
+  });
+  for (const s of semPassoDoCliente) {
+    const doCliente = CONTEUDO_SERVICOS.find((c) => c.nome === s.nome)?.passos.filter((p) => p.quemFaz === "CLIENTE");
+    if (!doCliente?.length) continue;
+    const jaTem = new Set(s.passos.map((p) => p.titulo));
+    const novos = doCliente.filter((p) => !jaTem.has(p.titulo));
+    if (!novos.length) continue;
+    let ordem = Math.max(-1, ...s.passos.map((p) => p.ordem)) + 1;
+    await prisma.servicoPasso.createMany({
+      data: novos.map((d) => ({
+        servicoId: s.id,
+        titulo: d.titulo,
+        obrigatorio: d.obrigatorio,
+        etapaChave: d.etapaChave,
+        quemFaz: "CLIENTE" as const,
+        ordem: ordem++,
+      })),
+    });
   }
 }
 

@@ -204,15 +204,18 @@ async function seedPassosSeVazio(leadId: string, stageId: string, chaveAuto: str
     servicoId: string | null;
     titulo: string;
     obrigatorio: boolean;
+    quemFaz: "MED" | "CLIENTE";
     acaoDoc: string | null;
     autoRegra: string | null;
     ordem: number;
   }[] = [];
 
+  // Os passos gerais da etapa (o PLAYBOOK) são todos trabalho nosso — quem cadastra serviço,
+  // registra valor e emite proposta é a Med. O que é do cliente vem do catálogo do serviço.
   const modelo = PLAYBOOK[chaveAuto];
   if (modelo)
     modelo.forEach((m, i) =>
-      dados.push({ leadId, stageId, servicoId: null, titulo: m.titulo, obrigatorio: m.obrigatorio, acaoDoc: m.acaoDoc ?? null, autoRegra: m.autoRegra ?? null, ordem: i }),
+      dados.push({ leadId, stageId, servicoId: null, titulo: m.titulo, obrigatorio: m.obrigatorio, quemFaz: "MED", acaoDoc: m.acaoDoc ?? null, autoRegra: m.autoRegra ?? null, ordem: i }),
     );
 
   const servicos = await prisma.servico.findMany({
@@ -223,7 +226,7 @@ async function seedPassosSeVazio(leadId: string, stageId: string, chaveAuto: str
   let ordem = dados.length;
   for (const s of servicos) {
     for (const sp of s.passos) {
-      dados.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, acaoDoc: null, autoRegra: null, ordem: ordem++ });
+      dados.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, quemFaz: sp.quemFaz, acaoDoc: null, autoRegra: null, ordem: ordem++ });
     }
   }
 
@@ -266,13 +269,14 @@ async function sincronizarPassosServicos(leadId: string, stageId: string, chaveA
     servicoId: string;
     titulo: string;
     obrigatorio: boolean;
+    quemFaz: "MED" | "CLIENTE";
     acaoDoc: null;
     ordem: number;
   }[] = [];
   for (const s of servicos) {
     for (const sp of s.passos) {
       if (jaTem.has(`${s.id}::${sp.titulo}`)) continue;
-      novos.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, acaoDoc: null, ordem: ordem++ });
+      novos.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, quemFaz: sp.quemFaz, acaoDoc: null, ordem: ordem++ });
     }
   }
   if (novos.length) await prisma.leadPasso.createMany({ data: novos });
@@ -537,6 +541,9 @@ export async function getLeadDetalhe(id: string) {
       titulo: p.titulo,
       obrigatorio: p.obrigatorio,
       concluido: p.concluido,
+      // De quem o passo está esperando: "MED" = nossa vez, "CLIENTE" = parado na clínica.
+      // É o que permite a tela responder *o que está esperando o cliente?* sem abrir lead a lead.
+      quemFaz: p.quemFaz,
       grupo: p.servicoId ? servMap.get(p.servicoId) ?? "Serviço" : "Geral",
       acaoDoc: p.acaoDoc,
       documentoId: p.documentoId,

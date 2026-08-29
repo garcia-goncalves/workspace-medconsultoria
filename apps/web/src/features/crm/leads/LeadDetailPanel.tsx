@@ -240,9 +240,21 @@ export function LeadDetailPanel({
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       Próximos passos · {d.stage.nome}
                     </h3>
-                    {d.faltamObrig > 0 && (
-                      <span className="text-[11px] text-muted-foreground">{d.faltamObrig} obrigatório(s) restante(s)</span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {/* Quantos passos estão parados na clínica. É a pergunta que se faz toda
+                          manhã olhando o funil — antes só dava para responder abrindo lead a lead. */}
+                      {(() => {
+                        const naClinica = d.passos.filter((p) => p.quemFaz === "CLIENTE" && !p.concluido).length;
+                        return naClinica > 0 ? (
+                          <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning ring-1 ring-inset ring-warning/20">
+                            {naClinica} com a clínica
+                          </span>
+                        ) : null;
+                      })()}
+                      {d.faltamObrig > 0 && (
+                        <span className="text-[11px] text-muted-foreground">{d.faltamObrig} obrigatório(s) restante(s)</span>
+                      )}
+                    </div>
                   </div>
                   {d.passos.length === 0 ? (
                     <p className="px-1.5 py-2 text-sm text-muted-foreground">Sem passos nesta etapa. Adicione abaixo.</p>
@@ -283,6 +295,11 @@ export function LeadDetailPanel({
                                 </button>
                                 <span className={cn("flex-1 text-sm", p.concluido && "text-muted-foreground line-through")}>
                                   {p.titulo}
+                                  {p.quemFaz === "CLIENTE" && !p.concluido && (
+                                    <span className="ml-1.5 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning ring-1 ring-inset ring-warning/20">
+                                      com a clínica
+                                    </span>
+                                  )}
                                   {p.obrigatorio && !p.concluido && (
                                     <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
                                       obrigatório
