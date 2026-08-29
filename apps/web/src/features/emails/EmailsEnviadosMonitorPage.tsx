@@ -160,7 +160,15 @@ export function EmailsEnviadosMonitorPage() {
           ))}
         </div>
 
-        <Select value={template} onChange={(e) => trocar(setTemplate, e.target.value)} className="h-11 w-auto">
+        {/* ⚠️ `w-auto` num <select> = largura da OPÇÃO MAIS LONGA. Aqui as opções são nomes de
+            aviso ("Conflito de horário na agenda"), então o campo estourava a janela em 84px a
+            360px — e só com o banco cheio, por isso passou despercebido. No celular ele ocupa a
+            linha inteira; do tablet para cima volta a se ajustar ao conteúdo, com teto. */}
+        <Select
+          value={template}
+          onChange={(e) => trocar(setTemplate, e.target.value)}
+          className="h-11 w-full min-w-0 sm:w-auto sm:max-w-[16rem]"
+        >
           <option value="">Todos os tipos</option>
           {r?.templates.map((t) => (
             <option key={t.chave} value={t.chave}>
@@ -169,7 +177,7 @@ export function EmailsEnviadosMonitorPage() {
           ))}
         </Select>
 
-        <Select value={String(dias)} onChange={(e) => trocar(setDias, Number(e.target.value))} className="h-11 w-auto">
+        <Select value={String(dias)} onChange={(e) => trocar(setDias, Number(e.target.value))} className="h-11 w-auto max-w-full">
           <option value="7">Últimos 7 dias</option>
           <option value="30">Últimos 30 dias</option>
           <option value="90">Últimos 90 dias</option>

@@ -82,7 +82,9 @@ export function PortalMeusDocumentos() {
                     <FileUp className="h-4 w-4" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <ArquivoLink id={a.id} nome={a.nome} className="block max-w-full font-medium" />
+                    {/* `min-h-11`: no Portal o nome do arquivo é um LINK de download, e um link de 20px de
+                        altura não se acerta com o dedo — a régua de toque de 44px reprovava aqui. */}
+                    <ArquivoLink id={a.id} nome={a.nome} className="flex min-h-11 max-w-full items-center font-medium" />
                     <div className="truncate text-xs text-muted-foreground">
                       {contexto} · {data(a.createdAt)}
                     </div>

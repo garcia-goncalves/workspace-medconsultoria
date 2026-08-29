@@ -140,6 +140,11 @@ export function DataTable<T>({
             {linhas.map((item) => (
               <TR
                 key={chaveLinha(item)}
+                // `data-linha`: a MESMA marca nas duas formas (tabela acima de `md`, cartão
+                // abaixo). Sem ela, um teste que procura `role="row"` acha a tabela e não acha
+                // nada no celular — e a diferença entre "não existe" e "virou cartão" é o que
+                // faz alguém desfazer a versão de celular achando que quebrou.
+                data-linha
                 onClick={aoClicarLinha ? () => aoClicarLinha(item) : undefined}
                 className={aoClicarLinha ? "cursor-pointer" : undefined}
               >
@@ -164,6 +169,7 @@ export function DataTable<T>({
         {linhas.map((item) => (
           <div
             key={chaveLinha(item)}
+            data-linha
             onClick={aoClicarLinha ? () => aoClicarLinha(item) : undefined}
             className={cn(
               "rounded-xl border bg-card p-4 shadow-sm",

@@ -41,7 +41,8 @@ test.describe.serial("Cenário 8 — financeiro (ADMIN)", () => {
     await expect(page.getByRole("row").filter({ hasText: desc })).toBeVisible();
 
     // Editar valor → 250,00 e confirmar persistência após refresh
-    await page.getByRole("row").filter({ hasText: desc }).getByTitle("Editar").click();
+    // Os controles da linha trocaram `title` por NOME ACESSIVEL, que ja traz a descricao da conta.
+    await page.getByRole("button", { name: `Editar conta "${desc}"` }).click();
     const d = page.getByRole("dialog", { name: "Editar conta" });
     await d.getByLabel("Valor *").fill("R$ 250,00");
     await d.getByRole("button", { name: /Salvar|Atualizar/ }).click();
@@ -52,7 +53,7 @@ test.describe.serial("Cenário 8 — financeiro (ADMIN)", () => {
     await expect(page.getByRole("row").filter({ hasText: desc })).toContainText("250,00");
 
     // Marcar como paga → aparece em "Pagas", some de "Pendentes"
-    await page.getByRole("row").filter({ hasText: desc }).getByTitle("Marcar como paga").click();
+    await page.getByRole("row").filter({ hasText: desc }).getByRole("button", { name: "Marcar como paga" }).click();
     await page.getByRole("button", { name: "Pagas", exact: true }).click();
     await expect(page.getByRole("row").filter({ hasText: desc })).toBeVisible();
     await page.getByRole("button", { name: "Pendentes", exact: true }).click();
@@ -60,7 +61,7 @@ test.describe.serial("Cenário 8 — financeiro (ADMIN)", () => {
 
     // Excluir (via "Todas") e confirmar remoção após refresh
     await page.getByRole("button", { name: "Todas", exact: true }).click();
-    await page.getByRole("row").filter({ hasText: desc }).getByTitle("Remover").click();
+    await page.getByRole("row").filter({ hasText: desc }).getByRole("button", { name: `Remover conta "${desc}"` }).click();
     await page.getByRole("dialog").filter({ hasText: "Remover conta" }).getByRole("button", { name: "Remover" }).click();
     await page.reload();
     await page.getByRole("button", { name: "Tudo" }).click();
@@ -93,7 +94,7 @@ test.describe.serial("Cenário 8 — financeiro (ADMIN)", () => {
     // Limpeza
     await page.getByRole("button", { name: "Pessoal", exact: true }).click();
     await page.getByRole("button", { name: "A pagar", exact: true }).first().click();
-    await page.getByRole("row").filter({ hasText: desc }).getByTitle("Remover").click();
+    await page.getByRole("row").filter({ hasText: desc }).getByRole("button", { name: `Remover conta "${desc}"` }).click();
     await page.getByRole("dialog").filter({ hasText: "Remover conta" }).getByRole("button", { name: "Remover" }).click();
   });
 });

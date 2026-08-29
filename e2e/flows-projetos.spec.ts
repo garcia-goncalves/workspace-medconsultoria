@@ -22,7 +22,7 @@ async function criarCartao(page: Page) {
   await nc.locator('input[name="titulo"]').fill(CARD);
   await nc.getByRole("button", { name: "Criar cartão" }).click();
   await expect(nc).toHaveCount(0);
-  await expect(page.getByRole("button", { name: new RegExp(CARD) })).toBeVisible();
+  await expect(page.getByRole("button", { name: new RegExp(`^${CARD}`) })).toBeVisible();
 }
 
 test("cartão: checklist + comentário + timer persistem após refresh", async ({ page }) => {
@@ -30,7 +30,7 @@ test("cartão: checklist + comentário + timer persistem após refresh", async (
   await criarCartao(page);
 
   // Abre o painel do cartão (CardPanel = role=dialog após fix de a11y)
-  await page.getByRole("button", { name: new RegExp(CARD) }).click();
+  await page.getByRole("button", { name: new RegExp(`^${CARD}`) }).click();
   const panel = page.getByRole("dialog");
   await expect(panel.getByRole("heading", { name: CARD })).toBeVisible();
 
@@ -55,24 +55,24 @@ test("cartão: checklist + comentário + timer persistem após refresh", async (
   // Fecha, recarrega, reabre → tudo persiste
   await page.keyboard.press("Escape");
   await page.reload();
-  await page.getByRole("button", { name: new RegExp(CARD) }).click();
+  await page.getByRole("button", { name: new RegExp(`^${CARD}`) }).click();
   const p2 = page.getByRole("dialog");
   await expect(p2.getByText(`Item ${RUN}`)).toBeVisible();
   await expect(p2.getByText(`Coment ${RUN}`)).toBeVisible();
   await expect(p2.getByRole("checkbox").first()).toBeChecked();
 
   // Limpeza: remove o cartão (botão do cabeçalho) → confirma
-  await p2.locator('button[title="Remover"]').first().click();
+  await p2.getByRole("button", { name: "Remover cartão" }).click();
   const confirm = page.getByRole("dialog").filter({ hasText: "Remover cartão" });
   await confirm.getByRole("button", { name: "Remover" }).click();
-  await expect(page.getByRole("button", { name: new RegExp(CARD) })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: new RegExp(`^${CARD}`) })).toHaveCount(0);
 });
 
 test("mover cartão entre colunas persiste após refresh", async ({ page }) => {
   await abrirProjeto(page);
   await criarCartao(page);
 
-  const card = page.getByRole("button", { name: new RegExp(CARD) });
+  const card = page.getByRole("button", { name: new RegExp(`^${CARD}`) });
   // Coluna destino "Em andamento" — dropar sobre o cabeçalho da coluna.
   const alvo = page.getByText("Em andamento", { exact: false }).first();
 
@@ -91,13 +91,13 @@ test("mover cartão entre colunas persiste após refresh", async ({ page }) => {
   await page.reload();
   await expect(page.getByRole("button", { name: "Novo cartão" })).toBeVisible();
   // A coluna "Em andamento" agora contém o cartão.
-  const colEmAndamento = page.locator("div").filter({ hasText: "Em andamento" }).filter({ has: page.getByRole("button", { name: new RegExp(CARD) }) });
+  const colEmAndamento = page.locator("div").filter({ hasText: "Em andamento" }).filter({ has: page.getByRole("button", { name: new RegExp(`^${CARD}`) }) });
   await expect(colEmAndamento.first()).toBeVisible();
 
   // Limpeza
-  await page.getByRole("button", { name: new RegExp(CARD) }).click();
+  await page.getByRole("button", { name: new RegExp(`^${CARD}`) }).click();
   const p = page.getByRole("dialog");
-  await p.locator('button[title="Remover"]').first().click();
+  await p.getByRole("button", { name: "Remover cartão" }).click();
   const confirm = page.getByRole("dialog").filter({ hasText: "Remover cartão" });
   await confirm.getByRole("button", { name: "Remover" }).click();
 });

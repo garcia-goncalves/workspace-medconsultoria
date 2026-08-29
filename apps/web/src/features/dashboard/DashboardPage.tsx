@@ -196,7 +196,10 @@ function AttentionChip({ to, icon: Icon, count, label, tone }: { to: string; ico
     <Link
       to={to}
       className={cn(
-        "group flex items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md",
+        // `min-w-0`: item de grid nasce com `min-width:auto` (= min-content dele) e estoura a
+        // trilha. Estes avisos só existem quando há alerta de verdade, então o defeito não aparece
+        // em banco vazio — apareceu na CI, a 360px, com 21px de excesso.
+        "group flex min-w-0 items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md",
         t.box,
       )}
     >

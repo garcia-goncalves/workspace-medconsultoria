@@ -145,6 +145,22 @@ async function verificarSemElementoEstourando(page: Page, url: string, vpNome: s
     // calculado escondia defeito real (cartões de /clientes e /modelos estourando 36px a 360px).
     const dentroDeAlgoQueRola = (el: HTMLElement) => !!el.parentElement?.closest("[data-rolagem-horizontal]");
 
+    // Texto CORTADO COM RETICÊNCIAS (`truncate`) é desenho, não defeito: o `overflow:hidden` do pai
+    // já recorta, e o usuário vê "Clínica São Fran…". Mas os pedaços de texto DENTRO dele continuam
+    // medindo a largura completa — `getBoundingClientRect` ignora o recorte —, e apareciam aqui como
+    // se estourassem a janela. A marca é a combinação exata do `truncate`: `text-overflow: ellipsis`
+    // com `overflow-x: hidden`. ⚠️ Não vale afrouxar para "qualquer ancestral com overflow hidden":
+    // aí o teste pararia de ver conteúdo genuinamente cortado fora da tela.
+    const dentroDeTextoTruncado = (el: HTMLElement) => {
+      let pai = el.parentElement;
+      while (pai && pai !== document.body) {
+        const e = getComputedStyle(pai);
+        if (e.textOverflow === "ellipsis" && e.overflowX === "hidden") return true;
+        pai = pai.parentElement;
+      }
+      return false;
+    };
+
     const todos = document.body.querySelectorAll<HTMLElement>("*");
     for (const el of todos) {
       const estilo = getComputedStyle(el);
@@ -152,7 +168,7 @@ async function verificarSemElementoEstourando(page: Page, url: string, vpNome: s
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) continue;
       if (rect.right > largura + tolerancia) {
-        if (dentroDeAlgoQueRola(el)) continue;
+        if (dentroDeAlgoQueRola(el) || dentroDeTextoTruncado(el)) continue;
         let seletor = el.tagName.toLowerCase();
         if (el.id) seletor += `#${el.id}`;
         const classes = typeof el.className === "string" ? el.className.trim().split(/\s+/).filter(Boolean).slice(0, 3) : [];

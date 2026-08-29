@@ -23,7 +23,8 @@ test.describe("Bloco 1b — Mensagens automáticas (ADMIN)", () => {
     await expect(salvar).toBeEnabled();
 
     // Trocar de categoria com edição pendente → PEDE confirmação.
-    await page.getByRole("button", { name: /Avisos e lembretes/ }).click();
+    // As categorias viraram ABAS (`role="tab"`), nao botoes.
+    await page.getByRole("tab", { name: /Avisos e lembretes/ }).click();
     const aviso = page.getByRole("dialog", { name: "Descartar alterações?" });
     await expect(aviso).toBeVisible();
 
@@ -38,7 +39,7 @@ test.describe("Bloco 1b — Mensagens automáticas (ADMIN)", () => {
     await expect(salvar).toBeDisabled();
 
     // Agora sem pendência: trocar de categoria NÃO pede confirmação.
-    await page.getByRole("button", { name: /Avisos e lembretes/ }).click();
+    await page.getByRole("tab", { name: /Avisos e lembretes/ }).click();
     await expect(page.getByRole("dialog", { name: "Descartar alterações?" })).toHaveCount(0);
   });
 });

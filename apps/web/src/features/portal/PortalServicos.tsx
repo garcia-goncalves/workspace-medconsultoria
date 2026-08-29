@@ -187,7 +187,7 @@ export function PortalServicos() {
                               <ul className="mt-1 space-y-0.5">
                                 {r.arquivos.map((a) => (
                                   <li key={a.id} className="flex items-center gap-1.5 text-xs">
-                                    <ArquivoLink id={a.id} nome={a.nome} className="max-w-[200px]" />
+                                    <ArquivoLink id={a.id} nome={a.nome} className="flex min-h-11 max-w-[200px] items-center" />
                                     {a.enviadoPorTipo === "CLIENTE" && (
                                       <button
                                         onClick={() => onRemover(a.id, a.nome)}

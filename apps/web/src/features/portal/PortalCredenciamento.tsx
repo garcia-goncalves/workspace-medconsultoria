@@ -75,7 +75,7 @@ export function PortalCredenciamento() {
       )}
       {v.arquivo ? (
         <>
-          <ArquivoLink id={v.arquivo.id} nome={v.arquivo.nome} className="max-w-[200px]" />
+          <ArquivoLink id={v.arquivo.id} nome={v.arquivo.nome} className="flex min-h-11 max-w-[200px] items-center" />
           <button
             onClick={() => v.arquivo && onRemover(v.arquivo.id, v.arquivo.nome)}
             aria-label={`Remover ${v.arquivo.nome}`}
