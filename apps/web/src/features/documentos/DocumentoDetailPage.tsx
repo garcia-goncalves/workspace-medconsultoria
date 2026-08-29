@@ -380,7 +380,7 @@ export function DocumentoDetailPage() {
         <Button
           variant="ghost"
           size="icon"
-          className="hover:bg-destructive/10 hover:text-destructive"
+          className="min-h-11 min-w-11 hover:bg-destructive/10 hover:text-destructive"
           onClick={async () => {
             if (
               await confirm({
@@ -392,7 +392,7 @@ export function DocumentoDetailPage() {
             )
               remove.mutate({ id: d.id });
           }}
-          title="Remover"
+          aria-label="Remover documento"
         >
           <Trash2 className="h-4 w-4" />
         </Button>

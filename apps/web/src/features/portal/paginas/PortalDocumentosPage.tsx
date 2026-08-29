@@ -6,6 +6,7 @@ import { dataHora } from "../../../lib/format-date";
 import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { QueryError } from "../../../components/ui/query-error";
+import { Badge } from "../../../components/ui/badge";
 import { PortalDocumentoModal } from "../PortalDocumentoModal";
 import { PortalMeusDocumentos } from "../PortalMeusDocumentos";
 import { ExigenciasPendentes } from "../ExigenciasPendentes";
@@ -67,15 +68,15 @@ export function PortalDocumentosPage() {
               const { key: situacao } = situacaoDocumento(d);
               const selo =
                 situacao === "ACEITA" || situacao === "ASSINADO"
-                  ? { l: situacao === "ACEITA" ? "Aceita" : "Assinado", c: "bg-success/10 text-success" }
+                  ? { l: situacao === "ACEITA" ? "Aceita" : "Assinado", v: "success" as const }
                   : situacao === "RECUSADA"
-                    ? { l: "Recusada", c: "bg-muted text-muted-foreground" }
+                    ? { l: "Recusada", v: "default" as const }
                     : null;
               return (
                 <button
                   key={d.id}
                   onClick={() => setDocId(d.id)}
-                  className="flex w-full items-center gap-3 px-5 py-3.5 text-left text-sm transition-colors hover:bg-accent/40"
+                  className="flex min-h-11 w-full items-center gap-3 px-5 py-3.5 text-left text-sm transition-colors hover:bg-accent/40"
                 >
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/5 text-primary ring-1 ring-inset ring-primary/10">
                     <FileText className="h-4 w-4" />
@@ -84,9 +85,7 @@ export function PortalDocumentosPage() {
                     <div className="font-medium">{d.titulo}</div>
                     <div className="text-xs text-muted-foreground">Disponível desde {dataHora(d.updatedAt)}</div>
                   </div>
-                  {selo && (
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${selo.c}`}>{selo.l}</span>
-                  )}
+                  {selo && <Badge variant={selo.v} className="shrink-0">{selo.l}</Badge>}
                   <span className="text-xs font-medium text-primary">Abrir</span>
                 </button>
               );

@@ -43,7 +43,7 @@ function ProfileMenu({ onEditar, onGuia }: { onEditar: () => void; onGuia: () =>
     <div className="relative" ref={ref}>
       <button
         onClick={() => setAberto((v) => !v)}
-        className="flex items-center gap-2 rounded-full border bg-card py-1 pl-1 pr-2.5 shadow-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="flex min-h-11 items-center gap-2 rounded-full border bg-card py-1 pl-1 pr-2.5 shadow-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary/40"
       >
         <Avatar id={user.id} nome={user.nome} avatarUrl={user.avatarUrl} className="h-8 w-8" text="text-xs" />
         <span className="hidden max-w-[160px] truncate text-sm font-medium sm:block">{user.nome}</span>

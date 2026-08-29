@@ -98,14 +98,14 @@ export function SuporteChat({
                   )}
                 >
                   {!minha && (
-                    <div className="mb-0.5 text-[11px] font-semibold opacity-80">
+                    <div className="mb-0.5 text-xs font-semibold opacity-80">
                       {daEquipe ? (m.autor?.nome ?? "Equipe MedConsultoria") : (m.autor?.nome ?? "Cliente")}
                     </div>
                   )}
                   <p className="whitespace-pre-wrap">{m.conteudo}</p>
                   <div
                     className={cn(
-                      "mt-0.5 text-right text-[10px]",
+                      "mt-0.5 text-right text-xs",
                       minha ? "text-primary-foreground/70" : "text-muted-foreground",
                     )}
                   >
@@ -150,7 +150,13 @@ export function SuporteChat({
           placeholder="Escreva uma mensagem…"
           className="min-h-10 w-full resize-none rounded-2xl border border-input bg-card px-3.5 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
         />
-        <Button type="submit" size="icon" disabled={enviando || !texto.trim()} className="shrink-0 rounded-full">
+        <Button
+          type="submit"
+          size="icon"
+          aria-label="Enviar mensagem"
+          disabled={enviando || !texto.trim()}
+          className="min-h-11 min-w-11 shrink-0 rounded-full"
+        >
           <Send className="h-4 w-4" />
         </Button>
       </form>

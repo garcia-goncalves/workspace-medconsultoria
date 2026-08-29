@@ -4,6 +4,7 @@ import { trpc } from "../../lib/trpc";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
+import { Badge } from "../../components/ui/badge";
 import { data } from "../../lib/format-date";
 import { QueryError } from "../../components/ui/query-error";
 
@@ -45,7 +46,9 @@ export function PortalMeusDocumentos() {
         <span className="text-xs text-muted-foreground">Os documentos que você envia para nós — RG, CPF, CRM, comprovantes…</span>
       </CardHeader>
       <CardContent className="space-y-3">
-        <UploadArquivo label="Enviar um documento" campos={{}} onDone={invalidate} />
+        <div className="[&_button]:min-h-11">
+          <UploadArquivo label="Enviar um documento" campos={{}} onDone={invalidate} />
+        </div>
 
         {/* ⚠️ Erro ANTES de vazio: em falha, a lista dizia "você ainda não enviou nenhum
             documento" e o cliente reenviava tudo o que já tinha mandado. */}
@@ -84,21 +87,19 @@ export function PortalMeusDocumentos() {
                       {contexto} · {data(a.createdAt)}
                     </div>
                   </div>
-                  <span
-                    className={
-                      "inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold " +
-                      (doCliente ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")
-                    }
+                  <Badge
+                    variant={doCliente ? "primary" : "default"}
+                    className="shrink-0"
                     title={doCliente ? "Enviado por você" : "Anexado pela equipe MedConsultoria"}
                   >
                     {doCliente ? <User className="h-3 w-3" /> : <Users className="h-3 w-3" />}
                     {doCliente ? "Você" : "MedConsultoria"}
-                  </span>
+                  </Badge>
                   {doCliente && (
                     <button
                       onClick={() => onRemover(a.id, a.nome)}
-                      title="Remover"
-                      className="shrink-0 rounded p-1 text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      aria-label={`Remover ${a.nome}`}
+                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded p-1 text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>

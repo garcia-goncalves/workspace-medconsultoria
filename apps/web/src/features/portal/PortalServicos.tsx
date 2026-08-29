@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
 import { EmptyState } from "../../components/ui/empty-state";
 import { QueryError } from "../../components/ui/query-error";
+import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { useConfirm, usePrompt } from "../../components/ui/confirm-dialog";
 import { toast } from "../../components/ui/toast";
@@ -114,14 +115,14 @@ export function PortalServicos() {
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-foreground">{s.servico.nome}</span>
               {s.pendentes > 0 ? (
-                <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[11px] font-semibold text-warning">
+                <Badge variant="warning">
                   {/* "Faltam 1 documento" saía errado no singular, e é o cliente quem lê. */}
                   {s.pendentes > 1 ? `Faltam ${s.pendentes} documentos` : "Falta 1 documento"}
-                </span>
+                </Badge>
               ) : (
-                <span className="inline-flex items-center gap-1 rounded bg-success/10 px-1.5 py-0.5 text-[11px] font-semibold text-success">
+                <Badge variant="success">
                   <Check className="h-3 w-3" /> Tudo enviado
-                </span>
+                </Badge>
               )}
               {/* O SERVIÇO CONTINUA VISÍVEL para quem não pode cancelar — a trava é sobre agir,
                   não sobre ver. A secretária precisa saber o que está contratado justamente para
@@ -129,7 +130,7 @@ export function PortalServicos() {
               {cancelamento.pode ? (
                 <button
                   onClick={() => onCancelar(s.servico.id, s.servico.nome)}
-                  className="ml-auto text-xs font-medium text-destructive hover:underline"
+                  className="ml-auto inline-flex min-h-11 items-center text-xs font-medium text-destructive hover:underline"
                 >
                   Cancelar serviço
                 </button>
@@ -164,15 +165,18 @@ export function PortalServicos() {
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="text-sm font-medium text-foreground">{r.titulo}</span>
                           {r.obrigatorio && (
-                            <span className="rounded bg-muted px-1 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
-                              Obrigatório
-                            </span>
+                            <Badge variant="default">Obrigatório</Badge>
                           )}
                         </div>
                         {r.descricao && <p className="text-xs text-muted-foreground">{r.descricao}</p>}
                         {r.tipo !== "DOCUMENTO" ? (
                           <div className="mt-1.5">
-                            <Button size="sm" variant={r.atendido ? "outline" : "default"} onClick={() => setBriefing(r.id)}>
+                            <Button
+                              size="sm"
+                              className="min-h-11"
+                              variant={r.atendido ? "outline" : "default"}
+                              onClick={() => setBriefing(r.id)}
+                            >
                               <PenLine className="h-3.5 w-3.5" />
                               {r.atendido ? "Revisar resposta" : r.tipo === "INFORMACAO" ? "Responder na tela" : "Preencher na tela"}
                             </Button>
@@ -187,17 +191,17 @@ export function PortalServicos() {
                                     {a.enviadoPorTipo === "CLIENTE" && (
                                       <button
                                         onClick={() => onRemover(a.id, a.nome)}
-                                        title="Remover"
-                                        className="text-muted-foreground/60 hover:text-destructive"
+                                        aria-label={`Remover ${a.nome}`}
+                                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground/60 hover:text-destructive"
                                       >
-                                        <Trash2 className="h-3 w-3" />
+                                        <Trash2 className="h-3.5 w-3.5" />
                                       </button>
                                     )}
                                   </li>
                                 ))}
                               </ul>
                             )}
-                            <div className="mt-1.5">
+                            <div className="mt-1.5 [&_button]:min-h-11">
                               <UploadArquivo
                                 size="xs"
                                 label={r.atendido ? "Enviar outro" : "Enviar documento"}

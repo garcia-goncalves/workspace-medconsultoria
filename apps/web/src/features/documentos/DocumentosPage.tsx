@@ -15,8 +15,7 @@ import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { Badge } from "../../components/ui/badge";
 import { EmptyState } from "../../components/ui/empty-state";
-import { Table, THead, TH, TR, TD } from "../../components/ui/table";
-import { TableSkeleton } from "../../components/ui/skeleton";
+import { DataTable, type Coluna } from "../../components/ui/data-table";
 import { QueryError } from "../../components/ui/query-error";
 import { NovoDocumentoDialog } from "./NovoDocumentoDialog";
 import { data } from "../../lib/format-date";
@@ -88,6 +87,51 @@ export function DocumentosPage() {
   }, [lista, busca, fCliente, fTipo, fSit]);
 
   const semNenhum = lista.length === 0;
+  const colunas: Coluna<DocRow>[] = [
+    {
+      chave: "titulo",
+      cabecalho: "Documento",
+      principal: true,
+      valorOrdenacao: (d) => d.titulo,
+      render: (d) => (
+        <Link
+          to="/documentos/$documentoId"
+          params={{ documentoId: d.id }}
+          className="font-medium text-primary hover:underline"
+        >
+          {d.titulo}
+        </Link>
+      ),
+    },
+    {
+      chave: "cliente",
+      cabecalho: "Cliente",
+      valorOrdenacao: (d) => d.cliente?.nome ?? null,
+      render: (d) => <span className="text-muted-foreground">{d.cliente?.nome ?? "—"}</span>,
+    },
+    {
+      chave: "tipo",
+      cabecalho: "Tipo",
+      ocultaEmCelular: true,
+      valorOrdenacao: (d) => (d.modelo ? TIPO_MODELO_LABEL[d.modelo.tipo] : null),
+      render: (d) => <span className="text-muted-foreground">{d.modelo ? TIPO_MODELO_LABEL[d.modelo.tipo] : "—"}</span>,
+    },
+    {
+      chave: "situacao",
+      cabecalho: "Situação",
+      render: (d) => {
+        const s = situacaoDocumento(d);
+        return <Badge variant={s.variant}>{s.label}</Badge>;
+      },
+    },
+    {
+      chave: "atualizado",
+      cabecalho: "Atualizado",
+      ocultaEmCelular: true,
+      valorOrdenacao: (d) => new Date(d.updatedAt),
+      render: (d) => <span className="text-muted-foreground">{data(d.updatedAt)}</span>,
+    },
+  ];
   // Valor do dropdown de situação: só reflete situações granulares (grupos vêm dos pills).
   const dropdownSit = fSit === "REVISAR" || fSit === "AGUARDANDO_CLIENTE" || fSit === "RASCUNHO_PARADO" ? "" : fSit;
   const filtrando = !!busca.trim() || !!fCliente || !!fTipo || !!fSit;
@@ -182,8 +226,8 @@ export function DocumentosPage() {
         {filtrando && (
           <button
             onClick={limpar}
-            className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            title="Limpar busca e filtros"
+            className="inline-flex min-h-11 items-center gap-1 rounded-lg border px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Limpar busca e filtros"
           >
             <X className="h-4 w-4" />
             Limpar
@@ -194,57 +238,30 @@ export function DocumentosPage() {
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
         {docs.isError ? (
           <QueryError onRetry={() => docs.refetch()} />
-        ) : docs.isLoading ? (
-          <TableSkeleton rows={6} cols={5} />
-        ) : filtrados.length > 0 ? (
-          <Table>
-            <THead>
-              <tr>
-                <TH>Documento</TH>
-                <TH>Cliente</TH>
-                <TH>Tipo</TH>
-                <TH>Situação</TH>
-                <TH>Atualizado</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {filtrados.map((d) => {
-                const s = situacaoDocumento(d);
-                return (
-                  <TR key={d.id}>
-                    <TD>
-                      <Link
-                        to="/documentos/$documentoId"
-                        params={{ documentoId: d.id }}
-                        className="font-medium text-primary hover:underline"
-                      >
-                        {d.titulo}
-                      </Link>
-                    </TD>
-                    <TD className="text-muted-foreground">{d.cliente?.nome ?? "—"}</TD>
-                    <TD className="text-muted-foreground">{d.modelo ? TIPO_MODELO_LABEL[d.modelo.tipo] : "—"}</TD>
-                    <TD>
-                      <Badge variant={s.variant}>{s.label}</Badge>
-                    </TD>
-                    <TD className="text-muted-foreground">{data(d.updatedAt)}</TD>
-                  </TR>
-                );
-              })}
-            </tbody>
-          </Table>
-        ) : semNenhum ? (
-          <EmptyState
-            icon={FileText}
-            title="Nenhum documento ainda"
-            description="Gere propostas e documentos na ficha de cada cliente — eles aparecem aqui."
-          />
         ) : (
-          <EmptyState icon={Search} title="Nenhum documento encontrado" description="Ajuste a busca ou os filtros acima.">
-            <Button variant="outline" onClick={limpar}>
-              <X className="h-4 w-4" />
-              Limpar filtros
-            </Button>
-          </EmptyState>
+          <DataTable
+            dados={filtrados}
+            colunas={colunas}
+            chaveLinha={(d) => d.id}
+            carregando={docs.isLoading}
+            linhasEsqueleto={6}
+            vazio={
+              semNenhum ? (
+                <EmptyState
+                  icon={FileText}
+                  title="Nenhum documento ainda"
+                  description="Gere propostas e documentos na ficha de cada cliente — eles aparecem aqui."
+                />
+              ) : (
+                <EmptyState icon={Search} title="Nenhum documento encontrado" description="Ajuste a busca ou os filtros acima.">
+                  <Button variant="outline" onClick={limpar}>
+                    <X className="h-4 w-4" />
+                    Limpar filtros
+                  </Button>
+                </EmptyState>
+              )
+            }
+          />
         )}
       </div>
 

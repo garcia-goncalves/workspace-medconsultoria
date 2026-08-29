@@ -4,7 +4,6 @@ import {
   ChevronRight,
   Plus,
   Video,
-  Loader2,
   Pencil,
   Trash2,
   Repeat,
@@ -33,6 +32,7 @@ import { Card } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
 import { Select } from "../../components/ui/select";
 import { QueryError } from "../../components/ui/query-error";
+import { Skeleton } from "../../components/ui/skeleton";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { AssistenteIADialog } from "../../components/ui/assistente-ia";
 import { EventoFormDialog, type EventoEditavel } from "./EventoFormDialog";
@@ -198,6 +198,9 @@ export function AgendaPage() {
     }
     return { inicio: startOfMonth(ref), fim: endOfMonth(ref) }; // lista
   }, [modo, ref]);
+
+  // Os 7 dias da semana corrente (segunda a domingo) — usados pela grade (`lg`+) e pela lista mobile.
+  const diasDaSemana = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(ref), i)), [ref]);
 
   const eventos = trpc.agenda.list.useQuery({ inicio: range.inicio, fim: range.fim });
   const confirm = useConfirm();
@@ -367,13 +370,21 @@ export function AgendaPage() {
           ))}
         </div>
         <div className="flex items-center rounded-md border bg-card shadow-sm">
-          <button onClick={() => navegar(-1)} className="p-2 text-muted-foreground transition-colors hover:text-foreground" title="Anterior">
+          <button
+            onClick={() => navegar(-1)}
+            aria-label="Período anterior"
+            className="flex h-11 w-11 items-center justify-center text-muted-foreground transition-colors hover:text-foreground md:h-9 md:w-9"
+          >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <button onClick={() => setRef(new Date())} className="border-x px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent">
+          <button onClick={() => setRef(new Date())} className="flex h-11 items-center border-x px-3 text-sm font-medium transition-colors hover:bg-accent md:h-auto md:py-1.5">
             Hoje
           </button>
-          <button onClick={() => navegar(1)} className="p-2 text-muted-foreground transition-colors hover:text-foreground" title="Próximo">
+          <button
+            onClick={() => navegar(1)}
+            aria-label="Próximo período"
+            className="flex h-11 w-11 items-center justify-center text-muted-foreground transition-colors hover:text-foreground md:h-9 md:w-9"
+          >
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
@@ -469,13 +480,21 @@ export function AgendaPage() {
       {eventos.isError ? (
         <QueryError onRetry={() => eventos.refetch()} />
       ) : eventos.isLoading ? (
-        <div className="flex h-full items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        </div>
+        <Skeleton className="h-full rounded-xl" />
       ) : modo === "mes" ? (
         <MesView dataRef={ref} porDia={porDia} hoje={hoje} conflitoIds={conflitoIds} onDia={(d) => (setRef(d), setModo("dia"))} onEvento={abrirEdicao} onCriar={criarEm} onMoverDia={moverEvento} />
       ) : modo === "semana" ? (
-        <TimeGrid dias={Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(ref), i))} porDia={porDia} hoje={hoje} conflitoIds={conflitoIds} onEvento={abrirEdicao} onCriar={criarEm} onMover={moverEvento} semana />
+        <>
+          {/* Grade de horários com 7 colunas: só cabe a partir de `lg` — o excesso medido a 360/390/768
+              vinha exatamente dela (`e2e/responsividade-total.spec.ts`). Abaixo de `lg`, a semana vira
+              uma lista agrupada por dia (mesma linha de evento da visão Lista). */}
+          <div className="hidden h-full lg:block">
+            <TimeGrid dias={diasDaSemana} porDia={porDia} hoje={hoje} conflitoIds={conflitoIds} onEvento={abrirEdicao} onCriar={criarEm} onMover={moverEvento} semana />
+          </div>
+          <div className="h-full lg:hidden">
+            <SemanaLista dias={diasDaSemana} porDia={porDia} hoje={hoje} conflitoIds={conflitoIds} onEvento={abrirEdicao} onRemover={removerEvento} onCriar={criarEm} />
+          </div>
+        </>
       ) : modo === "dia" ? (
         <TimeGrid dias={[startOfDay(ref)]} porDia={porDia} hoje={hoje} conflitoIds={conflitoIds} onEvento={abrirEdicao} onCriar={criarEm} onMover={moverEvento} />
       ) : modo === "ano" ? (
@@ -756,6 +775,65 @@ function TimeGrid({
   );
 }
 
+// ── Semana no celular (lista agrupada por dia, sem grade de horários) ───
+// Abaixo de `lg` as 7 colunas da grade não cabem (medido em `e2e/responsividade-total.spec.ts`:
+// até 173px de excesso a 360px). Reaproveita `EventoLinha` — a mesma linha da visão Lista.
+function SemanaLista({
+  dias,
+  porDia,
+  hoje,
+  conflitoIds,
+  onEvento,
+  onRemover,
+  onCriar,
+}: {
+  dias: Date[];
+  porDia: Map<string, Occ[]>;
+  hoje: string;
+  conflitoIds: Set<string>;
+  onEvento: (ev: Occ) => void;
+  onRemover: (id: string, titulo: string) => void;
+  onCriar: (d: Date) => void;
+}) {
+  return (
+    <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
+      {dias.map((d) => {
+        const lista = porDia.get(dayKey(d)) ?? [];
+        const ehHoje = dayKey(d) === hoje;
+        return (
+          <div key={d.toISOString()}>
+            <div className="sticky top-0 z-10 -mx-1 mb-1.5 flex items-center gap-2 border-b bg-background/95 px-1 py-1.5 text-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
+              <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums", ehHoje ? "bg-primary text-primary-foreground" : "bg-muted text-foreground")}>
+                {d.getDate()}
+              </span>
+              <span className="font-medium capitalize">{d.toLocaleDateString("pt-BR", { weekday: "long" })}</span>
+              {ehHoje && <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">hoje</span>}
+              <button
+                onClick={() => onCriar(d)}
+                aria-label={`Novo evento em ${data(d)}`}
+                className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+            {lista.length === 0 ? (
+              <p className="px-1 py-3 text-sm text-muted-foreground">Nada agendado.</p>
+            ) : (
+              <Card>
+                <div className="divide-y">
+                  {lista.map((ev) => (
+                    <EventoLinha key={ev.occurrenceId} ev={ev} conflito={conflitoIds.has(ev.occurrenceId)} onEditar={() => onEvento(ev)} onRemover={() => onRemover(ev.eventoId, ev.titulo)} />
+                  ))}
+                </div>
+              </Card>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Mês (grade de quadrados) ─────────────────────────────
 function MesView({
   dataRef,
@@ -824,8 +902,8 @@ function MesView({
                 </span>
                 <button
                   onClick={(e) => (e.stopPropagation(), onCriar(d))}
-                  className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100"
-                  title="Novo evento"
+                  aria-label={`Novo evento em ${data(d)}`}
+                  className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent focus-visible:opacity-100 group-hover:opacity-100 max-md:opacity-100"
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
@@ -1000,11 +1078,19 @@ function EventoLinha({ ev, conflito, onEditar, onRemover }: { ev: Occ; conflito?
           <Video className="h-3.5 w-3.5" /> Entrar
         </a>
       )}
-      <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-        <button onClick={onEditar} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="Editar">
+      <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-md:opacity-100">
+        <button
+          onClick={onEditar}
+          aria-label={`Editar "${ev.titulo}"`}
+          className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground md:h-7 md:w-7"
+        >
           <Pencil className="h-3.5 w-3.5" />
         </button>
-        <button onClick={onRemover} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover">
+        <button
+          onClick={onRemover}
+          aria-label={`Remover "${ev.titulo}"`}
+          className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive md:h-7 md:w-7"
+        >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>

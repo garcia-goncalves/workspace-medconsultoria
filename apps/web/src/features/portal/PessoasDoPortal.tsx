@@ -119,7 +119,7 @@ function Linha({
           {!revogado && (
             <Select
               aria-label={`Papel de ${pessoa.nome}`}
-              className="h-8 w-[9.5rem] text-xs"
+              className="min-h-11 w-[9.5rem] text-xs"
               value={pessoa.papel ?? "RESPONSAVEL"}
               disabled={acoes.ocupado}
               onChange={(e) =>
@@ -137,6 +137,7 @@ function Linha({
             <Button
               variant="outline"
               size="sm"
+              className="min-h-11"
               disabled={acoes.ocupado}
               onClick={() => acoes.reenviarConvite(pessoa.id)}
               title="Mandar de novo o e-mail com o link para essa pessoa criar a senha"
@@ -148,6 +149,7 @@ function Linha({
             <Button
               variant="outline"
               size="sm"
+              className="min-h-11"
               disabled={acoes.ocupado}
               onClick={() => acoes.devolver(pessoa.id)}
               title="Devolver o acesso a essa pessoa"
@@ -161,7 +163,7 @@ function Linha({
                 size="sm"
                 disabled={acoes.ocupado}
                 onClick={onRevogar}
-                className="text-destructive hover:bg-destructive/10"
+                className="min-h-11 text-destructive hover:bg-destructive/10"
                 title="Tirar o acesso dessa pessoa ao Portal"
               >
                 <Trash2 className="h-3.5 w-3.5" /> Revogar
@@ -332,6 +334,7 @@ export function PessoasDoPortal({
         <Button
           variant="outline"
           size="sm"
+          className="min-h-11"
           onClick={() => setConvidando(true)}
           disabled={acoes.ocupado}
         >

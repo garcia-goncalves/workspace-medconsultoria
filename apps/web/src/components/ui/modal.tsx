@@ -23,19 +23,28 @@ export function Modal({
   onClose,
   title,
   hint,
+  titleExtra,
+  headerActions,
   children,
   footer,
   size = "md",
+  bodyClassName,
 }: {
   open: boolean;
   onClose: () => void;
-  title: string;
+  title: ReactNode;
   /** "?" de ajuda ao lado do título — mesmo padrão do `hint` de `<Label>`. */
   hint?: ReactNode;
+  /** Conteúdo extra sob o título, dentro do cabeçalho FIXO (ex.: badges/metadados). */
+  titleExtra?: ReactNode;
+  /** Ações extras no cabeçalho, antes do "X" de fechar (ex.: editar/remover). */
+  headerActions?: ReactNode;
   children: ReactNode;
   /** Rodapé fixo (ex.: botões de ação). Fica sempre visível; só o corpo rola. */
   footer?: ReactNode;
   size?: keyof typeof SIZES;
+  /** Classe do corpo — sobrescreve o padding padrão quando o conteúdo gerencia o próprio (ex.: `"p-0"`). */
+  bodyClassName?: string;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const tituloId = useId();
@@ -60,20 +69,26 @@ export function Modal({
         tabIndex={-1}
         className={cn("flex max-h-[95vh] w-full animate-scale-in flex-col rounded-xl border bg-card shadow-lg outline-none", SIZES[size])}
       >
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b px-6 py-4">
-          <h2 id={tituloId} className="inline-flex items-center gap-1.5 text-lg font-semibold text-primary">
-            {title}
-            {hint && <HintIcon text={hint} />}
-          </h2>
-          <button
-            onClick={onClose}
-            className="-mr-1 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            aria-label="Fechar"
-          >
-            <X className="h-5 w-5" />
-          </button>
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b px-6 py-4">
+          <div className="min-w-0">
+            <h2 id={tituloId} className="inline-flex items-center gap-1.5 text-lg font-semibold text-primary">
+              {title}
+              {hint && <HintIcon text={hint} />}
+            </h2>
+            {titleExtra}
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {headerActions}
+            <button
+              onClick={onClose}
+              className="-mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:h-8 md:w-8"
+              aria-label="Fechar"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">{children}</div>
+        <div className={cn("min-h-0 flex-1 overflow-y-auto px-6 py-4", bodyClassName)}>{children}</div>
         {footer && <div className="flex shrink-0 items-center justify-end gap-2 border-t bg-card px-6 py-3.5">{footer}</div>}
       </div>
     </div>

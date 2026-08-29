@@ -508,7 +508,10 @@ export function AppLayout() {
             </div>
           </main>
         ) : (
-          <main className="flex-1">
+          // min-w-0: sem isto, um flex item sem overflow próprio (este <main>) cresce para caber o
+          // min-content dos descendentes — é o que fazia o quadro do Kanban (`/projetos/$id`)
+          // vazar a largura da JANELA em vez de rolar por dentro do próprio `overflow-x-auto`.
+          <main className="min-w-0 flex-1">
             <div className="mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:px-10 lg:py-8">
               <Outlet />
             </div>

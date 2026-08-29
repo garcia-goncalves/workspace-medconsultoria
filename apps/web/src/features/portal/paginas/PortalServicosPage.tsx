@@ -96,7 +96,12 @@ export function PortalServicosPage() {
               </>
             ) : (
               <>
-                <ServicosPicker servicos={disponiveis} value={pedidos} onChange={setPedidos} />
+                {/* `ServicosPicker` é reaproveitado fora do Portal (cadastro de lead, captação
+                    pública, "Nova oportunidade") — não pode ser editado daqui. O seletor
+                    `[&_button]:min-h-11` alcança o alvo de toque sem tocar no componente. */}
+                <div className="[&_button]:min-h-11">
+                  <ServicosPicker servicos={disponiveis} value={pedidos} onChange={setPedidos} />
+                </div>
                 <Textarea
                   value={msgServico}
                   onChange={(e) => setMsgServico(e.target.value)}
@@ -105,6 +110,7 @@ export function PortalServicosPage() {
                 <div className="flex justify-end">
                   <Button
                     size="sm"
+                    className="min-h-11"
                     disabled={pedidos.length === 0 || solicitar.isPending}
                     onClick={() => solicitar.mutate({ servicoIds: pedidos, mensagem: msgServico.trim() || undefined })}
                   >

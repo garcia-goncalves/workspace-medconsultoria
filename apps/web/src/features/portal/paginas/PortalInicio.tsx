@@ -189,10 +189,10 @@ export function PortalInicio() {
         description="Pode ter sido a conexão. Tente de novo — se continuar assim, fale com a nossa equipe pelo Suporte."
       >
         <div className="flex flex-wrap justify-center gap-2">
-          <Button onClick={() => resumo.refetch()} disabled={resumo.isFetching}>
+          <Button className="min-h-11" onClick={() => resumo.refetch()} disabled={resumo.isFetching}>
             Tentar de novo
           </Button>
-          <Button variant="outline" onClick={() => navegar("/portal/suporte")}>
+          <Button variant="outline" className="min-h-11" onClick={() => navegar("/portal/suporte")}>
             Falar com o Suporte
           </Button>
         </div>
@@ -239,7 +239,7 @@ export function PortalInicio() {
                 {p.token ? (
                   <a
                     href={`/proposta/${p.token}`}
-                    className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 sm:w-auto"
+                    className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 sm:w-auto"
                   >
                     <HeartHandshake className="h-3.5 w-3.5" />
                     Ver proposta
@@ -272,7 +272,7 @@ export function PortalInicio() {
                 {d.token ? (
                   <a
                     href={`/assinar/${d.token}`}
-                    className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 sm:w-auto"
+                    className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 sm:w-auto"
                   >
                     <PenLine className="h-3.5 w-3.5" />
                     Assinar
@@ -362,7 +362,7 @@ export function PortalInicio() {
                     type="button"
                     onClick={pedirDesistencia}
                     disabled={desistir.isPending}
-                    className="text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:opacity-50"
+                    className="inline-flex min-h-11 items-center text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:opacity-50"
                   >
                     Não tenho mais interesse
                   </button>
@@ -392,7 +392,7 @@ export function PortalInicio() {
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full shrink-0 sm:w-auto"
+                className="min-h-11 w-full shrink-0 sm:w-auto"
                 onClick={pedirRetomada}
                 disabled={retomar.isPending}
               >
@@ -438,15 +438,15 @@ export function PortalInicio() {
                     <button
                       onClick={() => confirmarReuniao.mutate({ eventoId: ev.id })}
                       disabled={confirmarReuniao.isPending}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-success/40 px-3 py-1.5 text-xs font-semibold text-success transition-colors hover:bg-success/10 disabled:opacity-60"
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-success/40 px-3 py-1.5 text-xs font-semibold text-success transition-colors hover:bg-success/10 disabled:opacity-60"
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar presença
                     </button>
                   )}
                   <button
                     onClick={() => baixarIcs(ev)}
-                    className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    title="Adicionar ao Google/Apple/Outlook"
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    aria-label="Adicionar ao Google/Apple/Outlook"
                   >
                     <CalendarPlus className="h-3.5 w-3.5" /> Adicionar à agenda
                   </button>
@@ -455,7 +455,7 @@ export function PortalInicio() {
                       href={ev.linkReuniao}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-full bg-success px-3.5 py-1.5 text-xs font-semibold text-success-foreground shadow-sm transition-colors hover:bg-success/90"
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-success px-3.5 py-1.5 text-xs font-semibold text-success-foreground shadow-sm transition-colors hover:bg-success/90"
                     >
                       <Video className="h-3.5 w-3.5" /> Entrar
                     </a>

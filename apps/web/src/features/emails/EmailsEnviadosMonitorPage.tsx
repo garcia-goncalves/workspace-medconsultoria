@@ -42,7 +42,7 @@ function StatCard({
       <div className="min-w-0">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
         <div className={cn("truncate text-xl font-semibold tabular-nums", valorCor)}>{value}</div>
-        {hint && <div className="truncate text-[11px] text-muted-foreground">{hint}</div>}
+        {hint && <div className="truncate text-xs text-muted-foreground">{hint}</div>}
       </div>
     </div>
   );
@@ -151,7 +151,7 @@ export function EmailsEnviadosMonitorPage() {
               key={o.v}
               onClick={() => trocar(setStatus, o.v)}
               className={cn(
-                "px-3 py-1.5 text-sm font-medium transition-colors",
+                "min-h-11 px-3 text-sm font-medium transition-colors",
                 status === o.v ? "bg-primary text-primary-foreground" : "bg-card hover:bg-accent",
               )}
             >
@@ -160,7 +160,7 @@ export function EmailsEnviadosMonitorPage() {
           ))}
         </div>
 
-        <Select value={template} onChange={(e) => trocar(setTemplate, e.target.value)} className="h-9 w-auto">
+        <Select value={template} onChange={(e) => trocar(setTemplate, e.target.value)} className="h-11 w-auto">
           <option value="">Todos os tipos</option>
           {r?.templates.map((t) => (
             <option key={t.chave} value={t.chave}>
@@ -169,7 +169,7 @@ export function EmailsEnviadosMonitorPage() {
           ))}
         </Select>
 
-        <Select value={String(dias)} onChange={(e) => trocar(setDias, Number(e.target.value))} className="h-9 w-auto">
+        <Select value={String(dias)} onChange={(e) => trocar(setDias, Number(e.target.value))} className="h-11 w-auto">
           <option value="7">Últimos 7 dias</option>
           <option value="30">Últimos 30 dias</option>
           <option value="90">Últimos 90 dias</option>
@@ -179,21 +179,21 @@ export function EmailsEnviadosMonitorPage() {
         {filtrando && (
           <button
             onClick={limpar}
-            className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            title="Limpar filtros"
+            className="inline-flex min-h-11 items-center gap-1 rounded-lg border px-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Limpar filtros"
           >
             <X className="h-4 w-4" />
             Limpar
           </button>
         )}
 
-        <form onSubmit={submeterBusca} className="relative ml-auto min-w-[180px] flex-1 sm:max-w-xs">
+        <form onSubmit={submeterBusca} className="relative w-full sm:ml-auto sm:min-w-[180px] sm:max-w-xs sm:flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={buscaInput}
             onChange={(e) => setBuscaInput(e.target.value)}
             placeholder="Buscar por destinatário ou assunto…"
-            className="h-9 pl-8"
+            className="h-11 pl-9"
           />
         </form>
       </div>

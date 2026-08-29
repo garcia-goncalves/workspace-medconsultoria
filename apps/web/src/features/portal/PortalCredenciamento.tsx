@@ -69,7 +69,7 @@ export function PortalCredenciamento() {
           precisa ficar colada na vaga a que pertence, senão o cliente manda o mesmo lado duas
           vezes e a barra de progresso não anda. */}
       {v.lado && (
-        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {LADO_ARQUIVO_LABEL[v.lado]}
         </span>
       )}
@@ -78,23 +78,25 @@ export function PortalCredenciamento() {
           <ArquivoLink id={v.arquivo.id} nome={v.arquivo.nome} className="max-w-[200px]" />
           <button
             onClick={() => v.arquivo && onRemover(v.arquivo.id, v.arquivo.nome)}
-            title="Remover"
-            className="text-muted-foreground/60 hover:text-destructive"
+            aria-label={`Remover ${v.arquivo.nome}`}
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground/60 hover:text-destructive"
           >
-            <Trash2 className="h-3 w-3" />
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         </>
       ) : (
-        <UploadArquivo
-          size="xs"
-          label="Enviar"
-          campos={{
-            requisitoId: r.id,
-            ...(v.profissionalId ? { profissionalId: v.profissionalId } : {}),
-            ...(v.lado ? { lado: v.lado } : {}),
-          }}
-          onDone={invalidate}
-        />
+        <div className="[&_button]:min-h-11">
+          <UploadArquivo
+            size="xs"
+            label="Enviar"
+            campos={{
+              requisitoId: r.id,
+              ...(v.profissionalId ? { profissionalId: v.profissionalId } : {}),
+              ...(v.lado ? { lado: v.lado } : {}),
+            }}
+            onDone={invalidate}
+          />
+        </div>
       )}
     </div>
   );
@@ -104,7 +106,7 @@ export function PortalCredenciamento() {
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-sm font-medium text-foreground">{r.titulo}</span>
         {!r.obrigatorio && (
-          <span className="rounded bg-muted px-1 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+          <span className="rounded bg-muted px-1 py-0.5 text-xs font-semibold uppercase text-muted-foreground">
             Se houver
           </span>
         )}
