@@ -7,7 +7,7 @@ import { notificar } from "../notificacoes/notificacoes.service.js";
 import { convidarUsuario, reenviarConvite, garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { acessoAoPortal } from "../../lib/acesso-portal.js";
 import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js";
-import { planejarProvisaoDaConversao } from "../servicos/credenciamento.service.js";
+import { planejarProvisaoDaConversao, garantirCategoriaHonorarios } from "../servicos/credenciamento.service.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { config } from "../../config.js";
 import type { Role } from "@app/shared";
@@ -1469,8 +1469,16 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
     const obsCred = temCredenciamento
       ? " O credenciamento NÃO está neste valor: o honorário dele só vira conta quando a operadora aprova."
       : "";
+    // A CATEGORIA VEM JUNTO (B2). Conta criada por automação nascia sem categoria, e o relatório
+    // por categoria do Financeiro sub-contava exatamente a receita que o sistema gera sozinho.
+    // Esta é a TERCEIRA porta que cria conta automática — as outras duas (contratar pela ficha e
+    // aprovar credenciamento) já passam pela mesma função. Deixá-la de fora repetiria o padrão
+    // que a ADR-140 nomeou: uma segunda porta para o mesmo dado, que não conhece a regra.
+    const categoriaId = await garantirCategoriaHonorarios().catch(() => null);
     const criarConta = (valor: number, recorrencia: "NENHUMA" | "MENSAL", descricao: string, obs: string) =>
-      prisma.conta.create({ data: { tipo: "RECEBER", descricao, valor, vencimento, clienteId, recorrencia, observacoes: obs } });
+      prisma.conta.create({
+        data: { tipo: "RECEBER", descricao, valor, vencimento, clienteId, recorrencia, observacoes: obs, categoriaId },
+      });
 
     if (avulso > 0 || mensal > 0) {
       if (avulso > 0) {

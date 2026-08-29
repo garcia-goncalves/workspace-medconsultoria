@@ -2,6 +2,7 @@ import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { equipeDoCliente } from "../arquivos/arquivos.service.js";
+import { garantirCategoriaHonorarios } from "./credenciamento.service.js";
 import {
   motivoDaTransicaoRecusada,
   proximaTentativa,
@@ -424,12 +425,13 @@ async function avisarEquipeDoDesfecho(
  * silêncio.
  */
 async function criarContaDoHonorario(credenciamentoId: string, clienteId: string, valor: number, ator: { id: string }) {
-  const [cliente, celula] = await Promise.all([
+  const [cliente, celula, categoriaId] = await Promise.all([
     prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
     prisma.credenciamento.findUnique({
       where: { id: credenciamentoId },
       select: { profissional: { select: { nome: true } }, operadora: { select: { nome: true } }, tentativa: true },
     }),
+    garantirCategoriaHonorarios(),
   ]);
 
   const vencimento = new Date();
@@ -447,6 +449,7 @@ async function criarContaDoHonorario(credenciamentoId: string, clienteId: string
       valor,
       vencimento,
       clienteId,
+      categoriaId,
       observacoes: `Honorário no sucesso: a operadora ${onde} aprovou o credenciamento de ${quem}${
         (celula?.tentativa ?? 1) > 1 ? ` (${celula!.tentativa}ª tentativa)` : ""
       }. Cliente: ${cliente?.nome ?? "—"}. Revise o vencimento.`,

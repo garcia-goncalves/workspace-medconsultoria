@@ -309,6 +309,7 @@ function DetalhesPanel({
       percentualRecorrencia: servico.percentualRecorrencia,
       clausulasContrato: servico.clausulasContrato ?? "",
       condicaoPagamento: servico.condicaoPagamento ?? "",
+      ehCredenciamento: servico.ehCredenciamento,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [servico.id, reset]);
@@ -364,6 +365,23 @@ function DetalhesPanel({
           placeholder="Ex.: O recebimento do Repasse será sempre feito após o crédito na conta da Clínica."
           {...register("condicaoPagamento")}
         />
+      </div>
+      {/*
+        A MARCA DO CREDENCIAMENTO. Ela decide QUANDO este serviço vira dinheiro, e por isso está
+        aqui, à vista, e não escondida no banco: se ficar errada, o conserto tem de caber num
+        clique de quem administra — antes disso, a única saída era mexer no banco de produção.
+      */}
+      <div className="space-y-1.5">
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 h-4 w-4" {...register("ehCredenciamento")} />
+          <span>
+            <span className="font-medium text-foreground">Este é o serviço de credenciamento</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              O honorário dele só vira conta a receber quando a operadora aprova — nunca ao contratar nem ao
+              converter o lead. Só um serviço do catálogo pode estar marcado.
+            </span>
+          </span>
+        </label>
       </div>
       <div className="space-y-1.5">
         <Label

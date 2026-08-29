@@ -648,6 +648,33 @@ export async function listServicosAtivos() {
   return servicos.map(mapServico);
 }
 
+/**
+ * DOIS SERVIÇOS MARCADOS COMO CREDENCIAMENTO É UM ESTADO SEM RESPOSTA CERTA.
+ *
+ * Os consumidores procuram o credenciamento com `findFirst({ where: { ehCredenciamento: true } })`
+ * — com dois marcados, um deles é escolhido, e a partir daí os 14 requisitos passam a ser
+ * sincronizados no serviço errado e o Portal do cliente mostra a papelada do outro.
+ *
+ * A recusa diz QUAL já está marcado, em vez de desmarcar o primeiro em silêncio: trocar qual
+ * serviço rege a cobrança do credenciamento é decisão de negócio, não efeito colateral de salvar
+ * um formulário.
+ */
+async function recusarSegundaMarcaDeCredenciamento(idSendoEditado: string | null) {
+  const outro = await prisma.servico.findFirst({
+    where: { ehCredenciamento: true, ...(idSendoEditado ? { id: { not: idSendoEditado } } : {}) },
+    orderBy: { createdAt: "asc" },
+    select: { nome: true },
+  });
+  if (outro) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `O serviço “${outro.nome}” já está marcado como o credenciamento, e só pode haver um. ` +
+        "Desmarque-o antes, se a intenção é trocar qual serviço rege essa cobrança.",
+    });
+  }
+}
+
 export async function criarServico(input: {
   nome: string;
   descricao?: string | null;
@@ -656,7 +683,9 @@ export async function criarServico(input: {
   valorRecorrencia?: "AVULSO" | "MENSAL";
   percentual?: number | null;
   percentualRecorrencia?: "AVULSO" | "MENSAL";
+  ehCredenciamento?: boolean;
 }) {
+  if (input.ehCredenciamento) await recusarSegundaMarcaDeCredenciamento(null);
   const max = await prisma.servico.aggregate({ _max: { ordem: true } });
   return mapServico(
     await prisma.servico.create({
@@ -668,6 +697,7 @@ export async function criarServico(input: {
         valorRecorrencia: input.valorRecorrencia ?? "AVULSO",
         percentual: input.percentual ?? null,
         percentualRecorrencia: input.percentualRecorrencia ?? "MENSAL",
+        ehCredenciamento: input.ehCredenciamento ?? false,
         ordem: (max._max.ordem ?? -1) + 1,
       },
     }),
@@ -687,8 +717,10 @@ export async function atualizarServico(
     clausulasContrato?: string | null;
     condicaoPagamento?: string | null;
     ativo?: boolean;
+    ehCredenciamento?: boolean;
   },
 ) {
+  if (dados.ehCredenciamento) await recusarSegundaMarcaDeCredenciamento(id);
   // ⚠️ **A TRAVA PRECISA SER AQUI, não só no Zod (ADR-137).** O `refine` do schema só vê o que
   // veio no pedido, e a edição é parcial: mandar só `percentual` num serviço que já tem `valor`
   // gravado passaria batido e deixaria o serviço com as duas cobranças — que é o estado que
@@ -729,6 +761,7 @@ export async function atualizarServico(
   if (dados.clausulasContrato !== undefined) data.clausulasContrato = dados.clausulasContrato?.trim() || null;
   if (dados.condicaoPagamento !== undefined) data.condicaoPagamento = dados.condicaoPagamento?.trim() || null;
   if (dados.ativo !== undefined) data.ativo = dados.ativo;
+  if (dados.ehCredenciamento !== undefined) data.ehCredenciamento = dados.ehCredenciamento;
   try {
     return mapServico(await prisma.servico.update({ where: { id }, data }));
   } catch {
