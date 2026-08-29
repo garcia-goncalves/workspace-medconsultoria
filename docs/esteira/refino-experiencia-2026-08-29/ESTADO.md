@@ -97,3 +97,56 @@ deram 10 nas três, sem crescer.
 **O que fazer:** com **nada mais rodando neste checkout**, um único
 `pnpm db:limpar --apply && pnpm db:demo:rica`. Depois, conferir que dá 10 credenciamentos,
 3 deles com o alerta âmbar aceso.
+
+---
+
+# MEDIÇÃO FINAL DE RESPONSIVIDADE (29/08, ~04h) — o que exatamente falta
+
+Rodado com o banco de demonstração já correto. **Portal: 5/5 tamanhos APROVADO.**
+Área interna: reprova nos 5. Mas os achados se dividem em duas naturezas, e a
+distinção importa:
+
+## (1) FALSO POSITIVO DO TESTE — elemento dentro de contêiner que rola de propósito
+
+O teste reprova qualquer elemento cujo `getBoundingClientRect().right` passe da
+largura da janela. **Isso é errado para filho de um contêiner com `overflow-x: auto`**:
+ele legitimamente se estende além do recorte, porque é para rolar. É exatamente o
+caso da barra de abas nova e da tabela dentro do `Table` (que já embrulha em
+`overflow-x-auto`).
+
+Casos assim, todos provavelmente inofensivos — **conferir na tela antes de "corrigir"**:
+- `/emails`, `/leads`, `/projetos/$id` → `button#…-tab-….relative.flex.shrink-0`
+  (as abas de `tabs.tsx`, que rolam na horizontal por desenho)
+- `/documentos @ 768` → `table.w-full.text-sm` (+67px)
+- `/financeiro @ 768` → `table.w-full.text-sm` (+245px)
+
+**Correção certa:** em `e2e/responsividade-total.spec.ts`, na função
+`verificarSemElementoEstourando`, **ignorar elemento que tenha ancestral com
+`overflow-x` = `auto` ou `scroll`**. Sem isso o teste vai reprovar para sempre e
+alguém vai "consertar" tirando a rolagem horizontal — que é justamente a solução.
+
+## (2) DEFEITOS REAIS que sobraram (4)
+
+| Rota | Tamanho | Elemento | Excesso |
+|---|---|---|---|
+| `/leads` | **1366** | `div.flex.min-h-0.flex-1` (o quadro do funil no computador) | **+385px** |
+| `/email` | 768 | `p.m-auto.text-sm.text-muted-foreground` ("Escolha um e-mail para ler.") | +179px |
+| `/modelos` | 360 / 390 | `div.group.flex.items-start` (cartão do modelo, título sem truncar) | +135 / +105 |
+| `/clientes` | 360 | `div.group.flex.cursor-pointer` (cartão do cliente) | +36px |
+
+⚠️ O de `/leads @ 1366` é o mesmo modo de falha que o quadro de projetos tinha: o
+board empurrando a janela em vez de rolar dentro de si. A solução já existe e está
+aplicada em `ProjetoDetailPage.tsx` (grid que se contém, `grid-cols-[minmax(0,1fr)]`)
+— **copiar de lá.**
+⚠️ O de `/clientes @ 360` foi "corrigido" com `min-w-0`, mas **continua**. Reconferir:
+o nome no teste isolado é longo (`Cliente E2E (e-mail na ficha)`), então pode ser
+outro elemento da mesma linha que não encolhe.
+
+## (3) Ruído de ambiente que JÁ FOI RESOLVIDO
+
+O `412 Precondition Failed` do `/email` sumiu: era a `CaixaEmail` semeada pedindo
+reconexão, e a limpeza não a apagava. Corrigido no commit `bbc84ff`.
+
+Ainda aparece nos logs: `ECONNREFUSED 127.0.0.1:587` (a máquina não tem servidor
+de e-mail — **é o esperado**, não é defeito) e `Target page/browser has been closed`
+(instabilidade do Chromium no teste, some no retry).
