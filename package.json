@@ -28,6 +28,7 @@
     "db:migrate": "pnpm --filter @app/db migrate",
     "db:seed": "pnpm --filter @app/db seed",
     "db:demo": "pnpm --filter @app/db demo",
+    "db:demo:rica": "pnpm --filter @app/api exec tsx src/scripts/demo-rica.ts",
     "db:studio": "pnpm --filter @app/db studio",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
