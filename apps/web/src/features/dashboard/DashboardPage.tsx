@@ -51,7 +51,7 @@ import { PageHeader } from "../../components/ui/page-header";
 import { Badge, type BadgeProps } from "../../components/ui/badge";
 import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
-import { formatBRL, formatBRLCompact } from "../../lib/masks";
+import { formatBRL, formatEstimativaDoFunil } from "../../lib/masks";
 import { hora, dataUTC, haQuanto, diaSemana } from "../../lib/format-date";
 
 const diaCurto = (d: Date) =>
@@ -657,7 +657,7 @@ export function DashboardPage() {
         />
         {g ? (
           <>
-            <StatCard to="/leads" icon={Filter} label="Leads no funil" value={g.funil.total} sub={`${formatBRL(g.funil.valor)} estimado`} />
+            <StatCard to="/leads" icon={Filter} label="Leads no funil" value={g.funil.total} sub={formatEstimativaDoFunil(g.funil) || "sem valor estimado"} />
             <StatCard to="/projetos" icon={FolderKanban} label="Projetos ativos" value={g.projetos.ativos} sub={g.projetos.parados > 0 ? `${g.projetos.parados} parado(s)` : "em movimento"} />
           </>
         ) : (
@@ -848,12 +848,12 @@ export function DashboardPage() {
           ) : (
             <div className="space-y-2">
               {g.funil.etapas.map((e) => (
-                <BarRow key={e.nome} label={e.nome} value={e.count} max={Math.max(1, ...g.funil.etapas.map((x) => x.count))} sub={e.valor > 0 ? formatBRLCompact(e.valor) : undefined} />
+                <BarRow key={e.nome} label={e.nome} value={e.count} max={Math.max(1, ...g.funil.etapas.map((x) => x.count))} sub={formatEstimativaDoFunil(e, { compacto: true }) || undefined} />
               ))}
             </div>
           )}
           <div className="flex flex-wrap gap-4 border-t pt-3 text-xs text-muted-foreground">
-            <span>Valor estimado: <strong>{formatBRL(g.funil.valor)}</strong></span>
+            <span>Previsto: <strong>{formatEstimativaDoFunil(g.funil) || "—"}</strong></span>
             <span>Novos (7d): <strong>{g.funil.novos7}</strong></span>
             <span>Convertidos (30d): <strong className="text-success">{g.funil.convertidos30}</strong></span>
           </div>

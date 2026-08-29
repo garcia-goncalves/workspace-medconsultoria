@@ -17,7 +17,7 @@ import type { LucideIcon } from "lucide-react";
 import { Plus, Users, Wallet, TrendingUp, Link2, Check, Tags, Percent, ThumbsDown, RotateCcw, UserCheck, AlertTriangle, Search, Inbox, X } from "lucide-react";
 import { cn } from "@app/ui";
 import { trpc } from "../../../lib/trpc";
-import { formatBRL, formatBRLCompact } from "../../../lib/masks";
+import { formatBRL, formatEstimativaDoFunil } from "../../../lib/masks";
 import { dataHora } from "../../../lib/format-date";
 import { Button } from "../../../components/ui/button";
 import { PageHeader } from "../../../components/ui/page-header";
@@ -83,7 +83,14 @@ function Column({
   convidandoPortalId: string | undefined;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
-  const totalCol = leads.reduce((s, l) => s + (l.valorEstimado ?? 0), 0);
+  // O total da coluna somava mensalidade com cobrança única e mostrava um número que não
+  // responde nem "por mês" nem "no total" (F8). Quem separa os dois é o servidor, com a MESMA
+  // régua do painel do Início (`dividirEstimativaDoLead`, em `@app/shared`).
+  const totalCol = leads.reduce(
+    (acc, l) => ({ mensal: acc.mensal + (l.estimativa?.mensal ?? 0), avulso: acc.avulso + (l.estimativa?.avulso ?? 0) }),
+    { mensal: 0, avulso: 0 },
+  );
+  const totalColTexto = formatEstimativaDoFunil(totalCol, { compacto: true });
   return (
     <div className="flex flex-col rounded-xl bg-muted/40 lg:h-full lg:min-w-0 lg:flex-1">
       <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-3.5 py-2.5">
@@ -93,10 +100,8 @@ function Column({
         />
         <div className="min-w-0">
           <div className="truncate text-sm font-medium leading-tight">{stage.nome}</div>
-          {totalCol > 0 && (
-            <div className="text-[11px] tabular-nums text-muted-foreground">
-              {formatBRLCompact(totalCol)}
-            </div>
+          {totalColTexto && (
+            <div className="text-[11px] tabular-nums text-muted-foreground">{totalColTexto}</div>
           )}
         </div>
         <Badge className="ml-auto shrink-0">{leads.length}</Badge>

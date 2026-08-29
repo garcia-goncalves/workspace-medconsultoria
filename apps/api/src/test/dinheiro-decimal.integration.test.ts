@@ -157,15 +157,27 @@ describe("ADR-118 — o dinheiro guardado em Decimal e entregue em number", () =
     expect(editado.valorEstimado).toBe(8888.88);
   });
 
-  /** O `_sum` de um agregado também vem Decimal — o Início somava isso. */
-  it("o total do funil no Início é número", async () => {
+  /**
+   * O dinheiro dos leads vem `Decimal` do banco — o Início somava isso.
+   *
+   * O funil devolve DOIS totais desde o F8 (recorrente × avulso), porque somar mensalidade com
+   * cobrança única dava um número que não responde nem "por mês" nem "no total". Os dois passam
+   * pela mesma exigência de sempre: chegam à tela como `number`.
+   */
+  it("os totais do funil no Início são números", async () => {
     const d = await dashboard(atorId, "ADMIN");
     const funil = d.gestao?.funil;
     expect(funil).toBeTruthy();
     expect(funil!.etapas.length).toBeGreaterThan(0);
-    for (const e of funil!.etapas) expect(typeof e.valor).toBe("number");
+    for (const e of funil!.etapas) {
+      expect(typeof e.mensal).toBe("number");
+      expect(typeof e.avulso).toBe("number");
+    }
     // O total é a SOMA das etapas — se uma delas viesse Decimal, o `+` daria string.
-    expect(typeof funil!.valor).toBe("number");
-    expect(funil!.valor).toBeGreaterThan(0);
+    expect(typeof funil!.mensal).toBe("number");
+    expect(typeof funil!.avulso).toBe("number");
+    // O lead deste teste tem R$ 12.000,99 de estimativa e nenhum serviço com preço: cai no
+    // avulso, que é o que a conversão provisionaria (conta única).
+    expect(funil!.avulso).toBeGreaterThan(0);
   });
 });

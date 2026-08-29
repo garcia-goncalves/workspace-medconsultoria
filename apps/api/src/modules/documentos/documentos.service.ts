@@ -627,14 +627,34 @@ export async function contextoClienteDoc(input: ContextoClienteDocInput) {
   const { itens, origem } = await itensDoCliente(input.clienteId);
 
   // Totais agregados (para sugerir valor/mensalidade e o resumo de investimento).
+  //
+  // ⚠️ **O PERCENTUAL PRECISA ENTRAR AQUI, SENÃO O RESUMO MENTE R$ 0,00 (F9).** Esta soma olhava
+  // só o valor FIXO, e o cliente de Faturamento não tem valor fixo nenhum: ele paga um percentual
+  // do que fatura (ADR-125/127). Para o serviço que é o carro-chefe da Med, o "Novo documento"
+  // abria dizendo **R$ 0,00** de investimento. O corpo do documento sempre esteve certo
+  // (`montarServicos` já escreve a linha do percentual) — quem mentia era o resumo que a Thaís lê
+  // antes de gerar, e é ele que decide se ela confere ou aprova no automático.
+  //
+  // O percentual **não vira reais aqui**: ele depende do faturamento do mês, que o documento não
+  // conhece. Vai em campo próprio, para quem desenha dizer "5% do faturamento/mês".
   let totalAvulso = 0;
   let totalMensal = 0;
+  let percentualMensal = 0;
   for (const it of itens) {
     const sub = (it.valor ?? 0) * (it.quantidade ?? 1);
     if (it.recorrencia === "MENSAL") totalMensal += sub;
     else totalAvulso += sub;
+    if (it.percentual != null && it.percentual > 0) percentualMensal += it.percentual;
   }
   const nomes = itens.map((i) => i.nome);
+
+  // O investimento em uma linha, pronto para a tela mostrar em vez de um número solto que não
+  // sabe dizer "por mês" nem "do faturamento".
+  const partesDoInvestimento: string[] = [];
+  if (totalMensal > 0) partesDoInvestimento.push(`${brl(totalMensal)}/mês`);
+  if (totalAvulso > 0) partesDoInvestimento.push(`${brl(totalAvulso)} à vista`);
+  if (percentualMensal > 0) partesDoInvestimento.push(`${fmtPct(percentualMensal)} do faturamento/mês`);
+  const investimentoEmTexto = partesDoInvestimento.join(" + ") || "A combinar";
 
   // Proposta aceita mais recente (referência comercial do que foi fechado).
   const propostaAceita = await prisma.documento.findFirst({
@@ -649,8 +669,12 @@ export async function contextoClienteDoc(input: ContextoClienteDocInput) {
     servicos: nomes.length ? nomes.map((n) => `- ${n}`).join("\n") : "",
     // "referente": nomes em linha (recibo).
     referente: nomes.join(", "),
-    // "valor"/"mensalidade": prioriza o mensal; senão o à vista.
+    // "valor"/"mensalidade": prioriza o mensal; senão o à vista. Continua sendo só o valor FIXO —
+    // percentual não cabe num campo de reais, e preencher 0 faria alguém aceitar um recibo de
+    // R$ 0,00 sem reparar. Quem paga só percentual não tem número aqui, e é o certo.
     valor: totalMensal > 0 ? totalMensal : totalAvulso,
+    // O investimento por extenso, que diz o que o número sozinho não consegue.
+    investimento: investimentoEmTexto,
   };
 
   // O que o funil já sabe deste cliente (ADR-126): o faturamento mensal estimado e os convênios
@@ -675,7 +699,7 @@ export async function contextoClienteDoc(input: ContextoClienteDocInput) {
     origem, // CONTRATADO | LEAD | VAZIO — o dialog explica de onde veio
     faturamentoMensal: emReais(leadEmNegociacao?.faturamentoMensalEstimado ?? null),
     conveniosAtuais,
-    investimento: { avulso: totalAvulso, mensal: totalMensal },
+    investimento: { avulso: totalAvulso, mensal: totalMensal, percentualMensal },
     propostaAceita: propostaAceita
       ? { id: propostaAceita.id, titulo: propostaAceita.titulo, em: propostaAceita.propostaRespondidaEm }
       : null,

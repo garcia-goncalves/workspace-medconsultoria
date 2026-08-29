@@ -102,6 +102,25 @@ export async function servicosDoCliente(clienteId: string) {
   });
 }
 
+/**
+ * A CONVERSÃO DO LEAD AINDA VAI COBRAR POR ESTE CLIENTE?
+ *
+ * É a guarda contra cobrar duas vezes, e ela é **uma só** para todas as portas que provisionam
+ * cobrança fora da conversão (contratar pela ficha, aceitar proposta de upsell). Havendo lead não
+ * convertido e não perdido, quem cobra é a conversão, que soma os serviços contratados; sem lead
+ * ativo, a porta que está sendo usada é a única que sobrou e precisa cobrar — senão ninguém cobra.
+ *
+ * Lead **convertido** e lead **perdido** não seguram nada: o primeiro já cobrou, o segundo nunca
+ * vai converter.
+ */
+async function aConversaoAindaVaiCobrar(clienteId: string): Promise<boolean> {
+  const leadAtivo = await prisma.lead.findFirst({
+    where: { clienteId, deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
+    select: { id: true },
+  });
+  return leadAtivo !== null;
+}
+
 /** Liga (contrata) um serviço para o cliente — pela equipe (origem MANUAL). Idempotente. */
 export async function ativarServicoCliente(
   clienteId: string,
@@ -161,12 +180,20 @@ export async function ativarServicoCliente(
   // guarda olhava o preço de catálogo — serviço sem preço de tabela, contratado por um valor
   // combinado, não gerava conta NENHUMA e o dinheiro simplesmente não era cobrado. Ler de `cs`,
   // que é a linha que a ficha mostra, faz os dois números baterem por construção.
+  //
+  // ⚠️ **E A CONVERSÃO DO LEAD NÃO PODE COBRAR O MESMO SERVIÇO DE NOVO (M1).** Todo lead tem um
+  // `Cliente` PROSPECT por trás (ADR-132), e a ficha desse prospect já deixa contratar. Quem
+  // contratava ali gerava a conta aqui, e a conversão — que provisiona a partir dos serviços
+  // contratados — gerava a segunda. Eram DUAS PORTAS para o mesmo dinheiro, e só uma conhecia a
+  // regra. A guarda é a MESMA de `provisionarUpsellAceito`, chamada de propósito: inventar uma
+  // segunda régua para a mesma pergunta é como as duas respostas começam a divergir.
   const valorContratado = emReaisOu(cs.valor);
   if (
     !jaContratado &&
     (opts.origem ?? "MANUAL") === "MANUAL" &&
     !ehServicoDeCredenciamento(servico?.nome) &&
-    valorContratado > 0
+    valorContratado > 0 &&
+    !(await aConversaoAindaVaiCobrar(clienteId))
   ) {
     try {
       const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } });
@@ -302,11 +329,7 @@ async function provisionarUpsellAceito(
   ator: { id: string },
 ) {
   try {
-    const leadAtivo = await prisma.lead.findFirst({
-      where: { clienteId, deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
-      select: { id: true },
-    });
-    if (leadAtivo) return; // a conversão cobra — cobrar aqui também seria cobrar duas vezes.
+    if (await aConversaoAindaVaiCobrar(clienteId)) return; // a conversão cobra; aqui seria a 2ª vez.
 
     const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } });
 

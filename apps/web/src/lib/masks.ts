@@ -75,6 +75,27 @@ export function formatBRLCompact(valor: number | null | undefined): string {
   return brlFmt.format(valor);
 }
 
+/**
+ * O VALOR PREVISTO DO FUNIL, ESCRITO SEM SOMAR O QUE NÃO SE SOMA (F8).
+ *
+ * O board e o Início mostravam um total só, com R$ 3.500/mês e R$ 1.500 avulso dentro — "R$
+ * 5.000" que não responde nem "por mês" nem "no total". Aqui os dois saem lado a lado:
+ * `"R$ 3,5k/mês + R$ 1,5k avulso"`. Quem separa os números é o servidor
+ * (`dividirEstimativaDoLead`, em `@app/shared`); aqui só se escreve o que ele já separou.
+ *
+ * `compacto` é para o espaço apertado do card de etapa; o rodapé do widget usa o valor cheio.
+ */
+export function formatEstimativaDoFunil(
+  d: { mensal: number; avulso: number },
+  opts: { compacto?: boolean } = {},
+): string {
+  const fmt = opts.compacto ? formatBRLCompact : formatBRL;
+  const partes: string[] = [];
+  if (d.mensal > 0) partes.push(`${fmt(d.mensal)}/mês`);
+  if (d.avulso > 0) partes.push(`${fmt(d.avulso)} avulso`);
+  return partes.join(" + ");
+}
+
 /** Percentual pt-BR: 5 → "5%"; 2.5 → "2,5%". */
 export function formatPct(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "";

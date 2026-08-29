@@ -16,6 +16,12 @@ export interface LeadItem {
   telefone: string | null;
   origem: string | null;
   valorEstimado: number | null;
+  /**
+   * O mesmo valor, separado pelo que ele significa: o que se repete todo mês e o que se cobra
+   * uma vez só (F8). Somar os dois dá um número que não responde nem "por mês" nem "no total";
+   * quem os separa é o servidor, com a régua de `dividirEstimativaDoLead` (`@app/shared`).
+   */
+  estimativa: { mensal: number; avulso: number };
   /** Base do cálculo quando o negócio é 100% percentual (ADR-125). */
   faturamentoMensalEstimado: number | null;
   observacoes: string | null;

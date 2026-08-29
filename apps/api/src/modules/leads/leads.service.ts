@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import type { CreateLeadInput, UpdateLeadInput, MoveLeadInput, CapturaLeadInput } from "@app/shared";
-import { situacaoDocumento, planejarEstimativaDoLead, tituloDoPassoDeEstimativa, AVISO_PRIVACIDADE_VERSAO } from "@app/shared";
+import { situacaoDocumento, planejarEstimativaDoLead, dividirEstimativaDoLead, tituloDoPassoDeEstimativa, AVISO_PRIVACIDADE_VERSAO } from "@app/shared";
 import { listStages } from "../pipeline/pipeline.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { convidarUsuario, reenviarConvite, garantirAcessoPortal } from "../usuarios/usuarios.service.js";
@@ -736,7 +736,15 @@ export async function listLeads() {
     orderBy: [{ pipelineStageId: "asc" }, { ordem: "asc" }],
     include: {
       responsavel: { select: { nome: true } },
-      servicos: { select: { id: true, nome: true }, orderBy: { ordem: "asc" } },
+      // O PREÇO dos serviços vem junto por causa do F8: é ele — nunca a categoria — que diz se o
+      // valor do lead é receita que se repete todo mês ou cobrança de uma vez só. A conta é feita
+      // AQUI e não na tela, por duas razões: `valor` e `percentual` são `Decimal` e um `Decimal`
+      // atravessando o tRPC vira "R$ NaN" na tela sem erro nenhum (ADR-118); e o preço de cada
+      // serviço não é assunto do board — o que ele precisa é do total já classificado.
+      servicos: {
+        select: { id: true, nome: true, valor: true, valorRecorrencia: true, percentual: true },
+        orderBy: { ordem: "asc" },
+      },
       // A CONTA de Portal em si, não só a contagem (ADR-128): o card precisa dos TRÊS estados
       // — sem acesso / convidado e ainda não entrou / entrou —, e para isso precisa saber
       // quando a conta nasceu e quando o cliente entrou pela última vez.
@@ -751,11 +759,31 @@ export async function listLeads() {
       },
     },
   });
-  return leads.map(({ clientePortal, ...l }) => {
+  return leads.map(({ clientePortal, servicos, ...l }) => {
     const portal = acessoAoPortal(clientePortal?.usuariosPortal);
+    // O valor do lead separado pelo que ele significa (F8): o board somava R$ 3.500/mês com
+    // R$ 1.500 avulso e mostrava R$ 5.000, um número que não responde nem "por mês" nem "no
+    // total". A régua é a mesma do painel do Início (`dividirEstimativaDoLead`, em `@app/shared`).
+    const estimativa = dividirEstimativaDoLead(
+      servicos.map((s) => ({
+        nome: s.nome,
+        valor: emReais(s.valor),
+        valorRecorrencia: s.valorRecorrencia,
+        percentual: emReais(s.percentual),
+      })),
+      emReais(l.valorEstimado),
+    );
     // `portalAtivo` continua existindo com o MESMO significado de antes (entra de verdade) —
     // várias telas já leem esse nome, e trocá-lo por prazer seria quebrar o que funciona.
-    return { ...mapLead(l), portalAtivo: portal.estado === "ATIVO", portal };
+    return {
+      ...mapLead(l),
+      // O board só precisa de id e nome; preço de serviço não é assunto dele (e `Decimal` não
+      // atravessa o tRPC — ADR-118).
+      servicos: servicos.map((s) => ({ id: s.id, nome: s.nome })),
+      estimativa,
+      portalAtivo: portal.estado === "ATIVO",
+      portal,
+    };
   });
 }
 
