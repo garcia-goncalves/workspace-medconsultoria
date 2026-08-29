@@ -4508,3 +4508,48 @@ nuláveis, duas com padrão, uma FK `SET NULL`; reverter é `DROP COLUMN`).
   migração própria e não entraram neste lote.
 - **M1, C10, M15, F8, F9** (dinheiro) e **C1, C2, M6, M8** (trabalho invisível) seguem abertos: são
   regra de negócio, não conformidade legal.
+
+---
+
+## ADR-142 — Dois números que se contradiziam e um rótulo que mentia, na mesma página
+
+**Data:** 28/08/2026 · **Contexto:** conferência da v1.3.0 em produção, antes do dado real.
+
+### O problema
+
+Na página **Clientes** de produção apareciam, lado a lado, **"Total de clientes 0"** e
+**"Com Portal ativo 1"**. Dois números que não podem ser verdade juntos — e que, para quem bate o
+olho, se leem como sistema quebrado.
+
+A contagem não estava errada: ela contava **outro universo**. `total`, `ativos` e `inativos`
+respeitam a ADR-24 e **excluem o PROSPECT** (que vive no Funil, não aqui); `portaisAtivos` contava
+**toda** conta de Portal, inclusive a do prospect, criada pelo acesso ao Portal do prospect
+(ADR-128). O comentário da própria função já prometia *"só ativos/inativos"* — quem não obedecia
+era o quarto indicador.
+
+⚠️ **A correção certa era estreitar a contagem, não trocar o rótulo.** Renomear para "Portais
+ativos (inclui prospects)" resolveria a contradição no texto e deixaria a página com um indicador
+que fala de um conjunto que ela não lista — o leitor procuraria na tabela abaixo o cliente que o
+número promete e não acharia.
+
+### O rótulo que mentia
+
+No mesmo trabalho, achado ao investigar a pergunta do dono *"no lead tem NOME e CLÍNICA, no cliente
+só tem NOME — é assim mesmo?"*. **É assim de propósito** e está certo: todo cliente da Med é pessoa
+jurídica (ADR-119), então `Cliente.nome` **é o nome da clínica**, e as pessoas vivem em `Contato`
+(a do lead vira contato principal na conversão). O Lead tem os dois campos porque no primeiro
+contato se fala com uma pessoa antes de saber a empresa.
+
+⚠️ **Mas o formulário não dizia isso.** O campo se chamava só **"Nome *"** e — pior — estava
+declarado como `autoComplete="name"`, ou seja, **campo de nome de PESSOA**: o preenchimento
+automático do Chrome oferecia ali o nome do próprio operador. Quem cadastra com pressa digita
+"Dr. Carlos" e o cliente nasce com nome de gente, quebrando a premissa da ADR-119 em silêncio —
+e é esse nome que sai impresso no contrato. Hoje: **"Nome da clínica *"**, com `autoComplete="organization"`,
+exemplo no campo e a explicação no "?" apontando para os Contatos.
+
+### Prova
+
+typecheck 6/6 · lint limpo · **729 testes** do `@app/api` (**3 novos de integração, vistos
+reprovando antes** — o primeiro falhou com `expected 1 to be +0`, que é exatamente o número da
+tela de produção) · 171 do `@app/web` · na tela local, "Nome da clínica" com o exemplo e os quatro
+indicadores coerentes, **zero erro de console**. **Zero migração.**

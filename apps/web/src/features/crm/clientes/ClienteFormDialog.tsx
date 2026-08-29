@@ -140,8 +140,19 @@ export function ClienteFormDialog({
     >
       <form id="cliente-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         <div className="space-y-1.5">
-          <Label htmlFor="nome">Nome *</Label>
-          <Input id="nome" autoFocus autoComplete="name" {...register("nome")} />
+          <Label
+            htmlFor="nome"
+            hint="É o nome da CLÍNICA, não o do médico — todo cliente da Med é pessoa jurídica. As pessoas com quem você fala entram logo abaixo, em Contatos."
+          >
+            Nome da clínica *
+          </Label>
+          <Input
+            id="nome"
+            autoFocus
+            autoComplete="organization"
+            placeholder="Ex.: Clínica Vida Plena"
+            {...register("nome")}
+          />
           {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
         </div>
 
