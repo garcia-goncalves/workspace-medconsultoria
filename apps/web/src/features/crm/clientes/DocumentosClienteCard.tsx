@@ -16,8 +16,33 @@ export function DocumentosClienteCard({ clienteId }: { clienteId: string }) {
   const utils = trpc.useUtils();
   const confirm = useConfirm();
   const q = trpc.clientes.arquivos.useQuery({ id: clienteId });
+  // ⚠️ `cancelRefetch: true` NÃO É DETALHE — é o que faz o arquivo recém-enviado aparecer.
+  //
+  // A ficha carrega tudo num lote só de tRPC. Anexar um documento logo depois de abrir a página
+  // termina o upload com esse lote AINDA NO AR (medido: 117 ms depois de ele começar), e o
+  // `invalidate` do React Query, no padrão, **não reinicia uma busca em andamento**: a resposta
+  // antiga — de antes do upload — chega e é aceita como boa. O arquivo some da lista até alguém
+  // recarregar a página, e nada indica erro.
+  //
+  // Foi assim que o e2e `flows-documentos-ui` passou a reprovar: o upload respondeu 200, e a
+  // única releitura da página era anterior ao envio.
   const invalidate = () => {
-    utils.clientes.arquivos.invalidate({ id: clienteId });
+    // `refetch()` DIRETO, não `invalidate()` — e a diferença é o arquivo aparecer ou não.
+    // `invalidate` marca a consulta como velha e deixa o React Query decidir; com a carga
+    // inicial da ficha AINDA NO AR (medido: o upload termina 117 ms depois de ela começar),
+    // ele reaproveita a busca em andamento e aceita a resposta ANTERIOR ao envio. O arquivo
+    // some da lista até alguém recarregar a página, sem nenhum sinal de erro.
+    void (async () => {
+      // A PRIMEIRA espera o que já estava no ar; a SEGUNDA é a que traz o arquivo novo.
+      // Parece redundante e não é: se a carga inicial da ficha ainda não terminou (o upload
+      // costuma acabar ~120 ms depois de ela começar), o React Query REAPROVEITA a busca em
+      // andamento — pedir "busque de novo" ali devolve a resposta ANTERIOR ao envio, e nem
+      // chega a sair uma requisição. Medido no trace do Playwright: depois do upload não havia
+      // nenhuma leitura da lista. Sem isto o arquivo só aparece recarregando a página, e nada
+      // indica erro.
+      await q.refetch().catch(() => {});
+      await q.refetch().catch(() => {});
+    })();
     utils.clientes.servicos.invalidate({ id: clienteId });
   };
   const remover = trpc.clientes.removerArquivo.useMutation({ onSuccess: invalidate });
