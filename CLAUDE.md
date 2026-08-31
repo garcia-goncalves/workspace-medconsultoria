@@ -13,10 +13,14 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-29 · tarde · ADR-144 na branch `fix/divida-tecnica-e-avisos` — NÃO publicado, NÃO mesclado)
+## Estado atual (2026-08-31 · ADR-143 + ADR-144 MESCLADAS na `main` (PR #159, commit `eccb0e9`) — AGUARDANDO PUBLICAÇÃO)
 
-> **Leia a ADR-144 em `docs/DECISIONS.md`.** Nada aqui está no ar: a **v1.3.0** continua sendo o
-> que roda em produção, e a ADR-143 (mesclada hoje) também espera publicação.
+> **Leia a ADR-144 em `docs/DECISIONS.md`.** Nada aqui está no ar: a **v1.3.0** (28/08) continua
+> sendo o que roda em produção. As ADR-143 **e** ADR-144 estão na `main` esperando o mesmo lote de
+> publicação.
+>
+> **⚠️ QUANDO PUBLICAR, DUAS MIGRAÇÕES RODAM NO BANCO DE PRODUÇÃO** — a `20260829203721` (aditiva,
+> com backfill) e a `20260829210500` (a guarda). Ver "O que falta" abaixo.
 
 - **🔑 A MARCA DO CREDENCIAMENTO EXISTE NO BANCO, e o "casa por nome" morreu.** `ehServicoDeCredenciamento`
   comparava o **nome** com uma constante, e três regras de dinheiro dependiam disso (ADR-104/108) —
@@ -58,13 +62,39 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ### O que falta nesta esteira
 
-- **`@@unique(nome)` em `Servico`** — a criação do índice **falha** se produção tiver nome duplicado, e
-  a conferência não saiu: a extensão do navegador não abriu a aplicação de produção nesta sessão.
+- ~~**Abrir o PR** e esperar a CI.~~ **FEITO em 31/08: PR #159, CI 3/3 verde, mesclado em `eccb0e9`.**
+- ~~⚠️ Conferir em produção o **nome do serviço de credenciamento**.~~ **FEITO em 31/08**, lendo a
+  página pública `/comecar` de produção: o serviço se chama exatamente **"Credenciamento médico e
+  odontológico"**, o canônico. A guarda deixa passar. ⚠️ E se houver divergência **invisível** (um
+  espaço não-ASCII colado de documento), a guarda **para a publicação com erro 3819** em vez de
+  deixar o dinheiro sair errado calado — que é justamente para o que ela existe.
+- ~~**O defeito que travava o PR**~~ **FECHADO em 31/08.** Anexar um documento logo depois de abrir a
+  ficha do cliente deixava o arquivo **fora da lista até recarregar a página**, sem sinal de erro. A
+  ficha carrega tudo num lote único de tRPC e o upload termina ~120 ms depois de esse lote começar;
+  ⚠️ **pedir "busque de novo" a uma consulta EM ANDAMENTO faz o React Query reaproveitar a busca** e
+  aceitar a resposta **anterior** ao envio — nenhuma requisição chega a sair. Não adianta
+  `invalidate(..., { cancelRefetch: true })` (o `invalidate` do tRPC recebe as opções na **terceira**
+  posição) nem um `refetch()` único (também é deduplicado; o link de lote do tRPC não aborta por
+  consulta). A correção é **`await q.refetch()` duas vezes**: a primeira espera o que estava no ar, a
+  segunda é a que sai. ⚠️ **Tirar uma delas devolve o defeito.**
+- **Publicar** — falta só o disparo, que é do dono (o `gh workflow run` **foi barrado para mim de
+  novo** em 31/08). Ele cola `! gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR`.
+- ⚠️ **PENDÊNCIA HERDADA DA ADR-143, a conferir depois de publicar:** a correção **C10** mudou o
+  significado de "parcela apagada". Se houver em produção parcela apagada por reversão antiga, ela
+  passará a ser lida como *excluída de propósito* e aquele mês será **pulado**.
+- **`@@unique(nome)` em `Servico`** — fora deste lote. A criação do índice **falha** se produção tiver
+  nome duplicado, e a lista de serviços de produção só é visível pela página pública, que mostra nome
+  mas não prova unicidade.
 - **Consentimento da assinatura** (LGPD) — pede migração própria e a decisão do texto, que é do dono.
-- **Abrir o PR** e esperar a CI (3 verificações; a `main` só aceita PR).
-- ⚠️ **ANTES DE PUBLICAR:** conferir em produção o **nome do serviço de credenciamento** (a guarda barra
-  a publicação se ele divergir) e a pendência da **C10** herdada da ADR-143 (parcela apagada por
-  reversão antiga passa a ser lida como excluída de propósito, e aquele mês é pulado).
+
+### Higiene do repositório, feita em 31/08
+
+- **PR #119 FECHADO** (documentação de 22/08, em conflito, descrevendo ADR-123/124 já superadas).
+- **Três PRs do Renovate seguem abertos de propósito** (#157, #158, #124): são atualização de
+  biblioteca, e mesclá-los mudaria o artefato que acabou de ser provado verde. ⚠️ **Nenhuma das 18
+  vulnerabilidades do aviso do GitHub alcança produção** — `pnpm audit --prod` em 31/08:
+  *"No known vulnerabilities found"*. É a ADR-115 de novo: o Dependabot lê o `pnpm-lock.yaml` e não
+  entende workspaces do pnpm.
 
 ## Estado anterior (2026-08-29 · madrugada · ADR-143 — MESCLADA na `main` (PR #156, commit `e737b40`), NÃO publicada)
 
