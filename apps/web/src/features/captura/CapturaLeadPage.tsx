@@ -61,6 +61,18 @@ export function CapturaLeadPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             Obrigado pelo interesse. Nossa equipe vai analisar e retornar em breve.
           </p>
+          {/*
+            ⚠️ ESTA FRASE É INCONDICIONAL DE PROPÓSITO — e a versão condicional foi um defeito.
+            Mostrá-la só quando o acesso tinha acabado de ser criado fazia a página PÚBLICA
+            responder se um e-mail já era conhecido pelo sistema: bastava enviar o formulário com
+            o endereço de um médico e ver se a frase aparecia para saber se ele já é cliente da
+            Med — dado sensível, e um oráculo servido a qualquer anônimo, uma requisição por
+            alvo. A resposta ao visitante não pode depender do que existe no banco.
+          */}
+          <p className="mt-3 text-sm text-muted-foreground">
+            Se este for seu primeiro contato, você vai receber um e-mail com o acesso ao seu Portal do Cliente —
+            procure por ele na caixa de entrada e, se não achar, olhe também o spam/lixo eletrônico.
+          </p>
         </div>
       </AuthShell>
     );

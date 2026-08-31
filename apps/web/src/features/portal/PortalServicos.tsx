@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, Circle, Package, PenLine, Trash2 } from "lucide-react";
 import { trpc } from "../../lib/trpc";
+import { formatPreco } from "../../lib/masks";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { Skeleton } from "../../components/ui/skeleton";
 import { EmptyState } from "../../components/ui/empty-state";
@@ -114,6 +115,11 @@ export function PortalServicos() {
           <div key={s.servico.id} className="rounded-lg border p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-foreground">{s.servico.nome}</span>
+              {/* F20 — quanto está sendo cobrado, sem precisar perguntar. Some quando o preço
+                  ainda não foi combinado (ex.: credenciamento "a combinar"). */}
+              {formatPreco(s.preco ?? {}) && (
+                <span className="text-xs text-muted-foreground">{formatPreco(s.preco ?? {})}</span>
+              )}
               {s.pendentes > 0 ? (
                 <Badge variant="warning">
                   {/* "Faltam 1 documento" saía errado no singular, e é o cliente quem lê. */}

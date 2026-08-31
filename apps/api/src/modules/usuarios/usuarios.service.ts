@@ -59,8 +59,21 @@ export async function garantirAcessoPortal(
   nome: string,
   email: string | null,
   origem: OrigemDoAcesso,
-): Promise<{ criou: boolean; jaTinhaAcesso: boolean; emailEnviado: boolean; conviteUrl: string | null }> {
-  const nada = { criou: false, jaTinhaAcesso: false, emailEnviado: false, conviteUrl: null };
+): Promise<{
+  criou: boolean;
+  jaTinhaAcesso: boolean;
+  /**
+   * M11: o e-mail já é usado por OUTRA conta (outra clínica ou uma conta interna) — bem
+   * diferente de "este cliente já tinha acesso". Continua recusando criar (um e-mail não pode
+   * abrir o Portal de duas clínicas — ADR-128/ADR-131), mas agora DIZ qual dos dois motivos foi:
+   * `jaTinhaAcesso` (nada a fazer, é o mesmo cliente) ou este campo (o convite não sai porque o
+   * e-mail pertence a outro cadastro, e é isso que quem convidou precisa descobrir na tela).
+   */
+  emailEmUsoPorOutraConta: boolean;
+  emailEnviado: boolean;
+  conviteUrl: string | null;
+}> {
+  const nada = { criou: false, jaTinhaAcesso: false, emailEmUsoPorOutraConta: false, emailEnviado: false, conviteUrl: null };
   if (!email) return nada;
 
   // Já existe conta de Portal para este cliente? (continuidade lead → cliente)
@@ -70,9 +83,16 @@ export async function garantirAcessoPortal(
   });
   if (doCliente) return { ...nada, jaTinhaAcesso: true };
 
-  // Já existe QUALQUER usuário com este e-mail? Não duplica acesso.
-  const doEmail = await prisma.user.findFirst({ where: { email, deletedAt: null }, select: { id: true } });
-  if (doEmail) return { ...nada, jaTinhaAcesso: true };
+  // Já existe QUALQUER usuário com este e-mail? Não duplica acesso — mas o motivo importa:
+  // se for de OUTRO cliente (ou conta interna), não é "já tinha acesso", é "e-mail em uso".
+  const doEmail = await prisma.user.findFirst({
+    where: { email, deletedAt: null },
+    select: { id: true, clienteId: true },
+  });
+  if (doEmail) {
+    if (doEmail.clienteId !== clienteId) return { ...nada, emailEmUsoPorOutraConta: true };
+    return { ...nada, jaTinhaAcesso: true };
+  }
 
   const usuario = await prisma.user.create({
     data: {
@@ -92,9 +112,10 @@ export async function garantirAcessoPortal(
   });
   // Cadastro feito pela EQUIPE sem pedir aviso: a conta nasce, o e-mail NÃO sai. O cliente é
   // avisado quando a Thaís quiser, pelo botão "Enviar acesso" do card.
-  if (origem === "EQUIPE") return { criou: true, jaTinhaAcesso: false, emailEnviado: false, conviteUrl: null };
+  if (origem === "EQUIPE")
+    return { criou: true, jaTinhaAcesso: false, emailEmUsoPorOutraConta: false, emailEnviado: false, conviteUrl: null };
   const r = await gerarConvite(usuario.id, usuario.nome, usuario.email, "CLIENTE");
-  return { criou: true, jaTinhaAcesso: false, ...r };
+  return { criou: true, jaTinhaAcesso: false, emailEmUsoPorOutraConta: false, ...r };
 }
 
 /** Campos públicos de um usuário (nunca expõe passwordHash). */

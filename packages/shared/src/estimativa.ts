@@ -21,12 +21,29 @@
  * discordariam no primeiro caso de borda.
  */
 
-/** O serviço de credenciamento, identificado pelo nome do catálogo. */
+/**
+ * O nome do credenciamento no catálogo semeado. Serve para SEMEAR e para o backfill da
+ * migração `20260829203721` — nunca para decidir regra de dinheiro em tempo de execução.
+ * Quem decide é a marca `Servico.ehCredenciamento`; ver `ehServicoDeCredenciamento`.
+ */
 export const NOME_SERVICO_CREDENCIAMENTO = "Credenciamento médico e odontológico";
 
-/** Este serviço é o credenciamento? (honorário só no sucesso — fora de toda estimativa) */
-export function ehServicoDeCredenciamento(nome: string | null | undefined): boolean {
-  return !!nome && nome.trim().toLowerCase() === NOME_SERVICO_CREDENCIAMENTO.toLowerCase();
+/**
+ * Este serviço é o credenciamento? (honorário só no sucesso — fora de toda estimativa)
+ *
+ * ⚠️ LÊ A MARCA, NUNCA O NOME. Até a ADR-140 isto comparava `nome` com a constante acima, e a
+ * ADR chamou o arranjo de remendo assumido: corrigir um typo em Ajustes → Serviços religava a
+ * cobrança antecipada, e o cliente era cobrado na conversão do lead E de novo na aprovação da
+ * operadora. As duas metades dessa porta estão travadas por teste
+ * (`conversao-provisao-financeira.test.ts`): nome mudado não desliga a regra, nome copiado não
+ * a liga.
+ *
+ * O parâmetro exige o campo de propósito — assim o compilador cobra o `select` de quem
+ * escrever a próxima consulta. Esquecer de selecionar devolveria `false` calado, que é
+ * justamente o lado que cobra cedo demais.
+ */
+export function ehServicoDeCredenciamento(servico: { ehCredenciamento: boolean } | null | undefined): boolean {
+  return servico?.ehCredenciamento === true;
 }
 
 /** Um serviço do lead, só com o que decide a estimativa. */
@@ -34,6 +51,8 @@ export interface ServicoParaEstimativa {
   nome: string | null;
   valor: number | null;
   percentual: number | null;
+  /** A marca do credenciamento (`Servico.ehCredenciamento`) — ver `ehServicoDeCredenciamento`. */
+  ehCredenciamento: boolean;
 }
 
 /**
@@ -79,7 +98,7 @@ export function planejarEstimativaDoLead(
   let percentualTotal = 0;
 
   for (const s of servicos) {
-    if (ehServicoDeCredenciamento(s.nome)) continue;
+    if (ehServicoDeCredenciamento(s)) continue;
     if (s.valor != null && s.valor > 0) temFixo = true;
     if (s.percentual != null && s.percentual > 0) percentualTotal += s.percentual;
   }
@@ -201,7 +220,7 @@ export function dividirEstimativaDoLead(
   let temOutroServico = false;
 
   for (const s of servicos) {
-    if (ehServicoDeCredenciamento(s.nome)) {
+    if (ehServicoDeCredenciamento(s)) {
       temCredenciamento = true;
       continue;
     }

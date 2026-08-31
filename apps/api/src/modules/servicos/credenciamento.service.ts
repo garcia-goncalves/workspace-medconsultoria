@@ -39,12 +39,42 @@ import { NOME_SERVICO_CREDENCIAMENTO, ehServicoDeCredenciamento, planejarEstimat
 import { garantirCatalogoDeServicos } from "./servicos.service.js";
 export { NOME_SERVICO_CREDENCIAMENTO, ehServicoDeCredenciamento };
 
+/**
+ * B2 — A CATEGORIA DA RECEITA QUE NASCE SOZINHA.
+ *
+ * Contratar serviço na ficha, aceitar upsell e a operadora aprovar um credenciamento criam
+ * conta a receber **sem `categoriaId`** — e o relatório por categoria do Financeiro sub-conta
+ * exatamente essas contas. `Categoria` já tem semente própria (`categorias.service.ts`,
+ * `DEFAULTS_EMPRESA`), mas ela só nasce quando alguém ABRE a tela de Categorias — e a primeira
+ * conta automática pode nascer antes disso, num banco novo.
+ *
+ * "Honorários" é a semente de RECEITA já pensada para isto — é a mesma palavra que os
+ * comentários deste arquivo usam para o honorário do credenciamento (§3.3). Não é categoria
+ * nova: é a categoria que a Thaís já veria se tivesse aberto a tela primeiro. `findFirst` +
+ * `create` (sem `upsert`, sem índice único em `Categoria.nome`) porque duas chamadas
+ * concorrentes na pior hipótese criam duas linhas "Honorários" — feio, não incorreto — e uma
+ * migração para o índice único está fora do escopo autorizado desta correção.
+ */
+export async function garantirCategoriaHonorarios(): Promise<string | null> {
+  const existente = await prisma.categoria.findFirst({
+    where: { nome: "Honorários", tipo: "RECEITA", escopo: "EMPRESA" },
+    select: { id: true },
+  });
+  if (existente) return existente.id;
+  return prisma.categoria
+    .create({ data: { nome: "Honorários", tipo: "RECEITA", escopo: "EMPRESA", cor: "#30AD73" }, select: { id: true } })
+    .then((c) => c.id)
+    .catch(() => null);
+}
+
 /** Um serviço do lead, só com o que decide cobrança. */
 export type ServicoParaProvisao = {
   nome: string | null;
   valor: number | null;
   valorRecorrencia: string | null;
   percentual: number | null;
+  /** A marca do credenciamento — ver `ehServicoDeCredenciamento` em `@app/shared`. */
+  ehCredenciamento: boolean;
 };
 
 export type ProvisaoDaConversao = {
@@ -88,7 +118,7 @@ export function planejarProvisaoDaConversao(
   let temOutroServico = false;
 
   for (const s of servicos) {
-    if (ehServicoDeCredenciamento(s.nome)) {
+    if (ehServicoDeCredenciamento(s)) {
       temCredenciamento = true;
       continue;
     }
@@ -305,7 +335,12 @@ export function sincronizarRequisitosCredenciamento(forcar = false): Promise<Sin
 
 async function executarSincronizacao(): Promise<SincronizacaoResultado> {
   const servico = await prisma.servico.findFirst({
-    where: { nome: NOME_SERVICO_CREDENCIAMENTO },
+    // Pela MARCA, não pelo nome: o nome pode ser editado na tela, a marca é o que decide
+    // regra de dinheiro (ver `ehServicoDeCredenciamento`).
+    where: { ehCredenciamento: true },
+    // Se por acidente houver mais de um marcado, o mais antigo é o que tem a papelada e as
+    // contratações — sem `orderBy`, o banco poderia devolver o recém-criado.
+    orderBy: { createdAt: "asc" },
     select: { id: true },
   });
   if (!servico) return { ok: false, motivo: "servico-inexistente" };
@@ -457,12 +492,22 @@ export async function credenciamentoDoCliente(clienteId: string) {
   await garantirCatalogoDeServicos().catch(() => {});
   await sincronizarRequisitosCredenciamento().catch(() => {});
 
-  const [cliente, profissionais, servico] = await Promise.all([
+  const [cliente, profissionaisTodos, servico] = await Promise.all([
     prisma.cliente.findUnique({ where: { id: clienteId }, select: { id: true, nome: true } }),
-    prisma.profissional.findMany({ where: { clienteId, ativo: true }, orderBy: { nome: "asc" } }),
-    prisma.servico.findFirst({ where: { nome: NOME_SERVICO_CREDENCIAMENTO }, select: { id: true } }),
+    // ⚠️ M13: busca TODOS (ativos e inativos), não só os ativos. Desativar um médico com
+    // papelada faltando não pode ENCOLHER o denominador do progresso — senão "X de Y enviados"
+    // sobe sozinho, sem nada ter sido enviado, só porque alguém desativou o médico. A ADR-105 já
+    // tomou esta mesma decisão para a GRADE (médico desativado fica visível, "fora da lista");
+    // aqui é o mesmo princípio aplicado à conta da papelada.
+    prisma.profissional.findMany({ where: { clienteId }, orderBy: { nome: "asc" } }),
+    prisma.servico.findFirst({ where: { ehCredenciamento: true }, orderBy: { createdAt: "asc" }, select: { id: true } }),
   ]);
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
+
+  // A ficha, o painel do lead e o Portal só mostram e triam quem está ATIVO — um médico que
+  // saiu da clínica não deve aparecer pedindo documento a um cliente, nem travar a triagem por
+  // um ano de formatura que já não importa mais. Só o PROGRESSO (abaixo) usa a lista inteira.
+  const profissionais = profissionaisTodos.filter((p) => p.ativo);
 
   // O credenciamento só existe para quem contratou o serviço — senão a papelada dele
   // apareceria na ficha (e no Portal) de todo cliente da casa, pedindo alvará a quem só
@@ -509,10 +554,21 @@ export async function credenciamentoDoCliente(clienteId: string) {
       })
     : [];
 
-  // Uma trava está satisfeita quando QUALQUER exigência marcada com ela já tem arquivo.
+  // Uma trava DA CLÍNICA está satisfeita quando QUALQUER exigência marcada com ela já tem
+  // arquivo — não há vínculo com médico, então "qualquer arquivo" já é "por médico".
   const entregue = new Set(arquivos.map((a) => a.requisitoId));
   const travaAtendida = (trava: TravaElegibilidade) =>
     requisitos.some((r) => r.travaElegibilidade === trava && entregue.has(r.id));
+
+  // ⚠️ M17: a trava TITULO_ESPECIALISTA é POR MÉDICO (a exigência "Especializações" repete por
+  // profissional, ADR-103) — reusar `travaAtendida` aqui seria o defeito oposto: o diploma que o
+  // Dr. A mandou passaria a "provar" o título da Dra. B, só porque as duas exigências têm o
+  // mesmo `requisitoId`. Por isso o par (requisitoId, profissionalId), não só o requisitoId.
+  const requisitosTituloEspecialista = requisitos.filter((r) => r.travaElegibilidade === "TITULO_ESPECIALISTA");
+  const comprovanteTituloEspecialista = (profissionalId: string) =>
+    arquivos.some(
+      (a) => a.profissionalId === profissionalId && requisitosTituloEspecialista.some((r) => r.id === a.requisitoId),
+    );
 
   const triagem = triarCredenciamento({
     clinica: {
@@ -524,10 +580,19 @@ export async function credenciamentoDoCliente(clienteId: string) {
       id: p.id,
       nome: p.nome,
       anoFormatura: p.anoFormatura,
-      tituloEspecialista: p.tituloEspecialista,
+      // A R6 é satisfeita pelo QUE JÁ SE SABE (o "declarado" marcado no cadastro do médico, para
+      // a triagem não ficar refém do ritmo de upload do cliente no Portal) OU pelo QUE JÁ FOI
+      // PROVADO (o documento "Especializações" entregue) — o mesmo médico não pode ficar
+      // PENDENTE numa triagem enquanto o comprovante já está na papelada, só porque ninguém
+      // voltou à ficha para marcar a caixinha depois do envio.
+      tituloEspecialista: p.tituloEspecialista || comprovanteTituloEspecialista(p.id),
     })),
   });
 
+  // ⚠️ M13: o PROGRESSO usa `profissionaisTodos` (ativos + inativos), não `profissionais`
+  // (só ativos). Desativar um médico com papelada faltando não pode encolher o total de vagas —
+  // senão "X de Y enviados" sobe sozinho sem ninguém ter enviado nada. Os `arquivos` já vinham
+  // sem filtro de médico ativo (linha acima), então só o denominador precisava da lista inteira.
   const progresso = progressoCredenciamento({
     requisitos: requisitos.map((r) => ({
       id: r.id,
@@ -535,7 +600,7 @@ export async function credenciamentoDoCliente(clienteId: string) {
       frenteVerso: r.frenteVerso,
       obrigatorio: r.obrigatorio,
     })),
-    profissionais: profissionais.map((p) => ({ id: p.id })),
+    profissionais: profissionaisTodos.map((p) => ({ id: p.id })),
     enviados: arquivos
       .filter((a): a is typeof a & { requisitoId: string } => !!a.requisitoId)
       .map((a) => ({

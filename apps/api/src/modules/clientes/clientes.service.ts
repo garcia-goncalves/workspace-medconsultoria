@@ -302,10 +302,33 @@ export async function createCliente(
   // confirmação, que hoje nasce **desmarcada** (ADR-128). Sem marcar, nada é criado e nada é
   // enviado; a Thaís avisa o cliente quando quiser, pelo botão "Enviar acesso" da ficha.
   // Best-effort: a criação do cliente não falha se o acesso não puder ser provido.
+  //
+  // ⚠️ O QUE NÃO PODE VOLTAR A SER SILÊNCIO: marcar a caixa e não receber nada era
+  // indistinguível de "deu tudo certo" — o `catch` engolia tudo, e quem cadastrou ficava
+  // esperando um convite que nunca sairia. São TRÊS caminhos que terminam sem e-mail, e o mais
+  // provável não é o duplicado: é o servidor de e-mail fora do ar, que não lança exceção nenhuma
+  // (devolve `emailEnviado: false`) e já ficou meses assim em produção sem ninguém notar
+  // (ADR-122). O cadastro continua valendo nos três; o que muda é que o motivo CHEGA.
+  let avisoDoAcessoPortal: string | null = null;
   if (enviarAcessoPortal && cliente.email) {
-    await garantirAcessoPortal(cliente.id, cliente.nome, cliente.email, "EQUIPE_COM_AVISO").catch(() => {});
+    const acesso = await garantirAcessoPortal(cliente.id, cliente.nome, cliente.email, "EQUIPE_COM_AVISO").catch(
+      () => null,
+    );
+    const comoReenviar = ' Use o botão "Enviar acesso" na ficha quando quiser tentar de novo.';
+    if (acesso === null) {
+      avisoDoAcessoPortal =
+        "O cliente foi cadastrado, mas o acesso ao Portal não pôde ser criado agora." + comoReenviar;
+    } else if (acesso.emailEmUsoPorOutraConta) {
+      avisoDoAcessoPortal =
+        `O cliente foi cadastrado, mas o acesso ao Portal NÃO foi enviado: o e-mail ${cliente.email} ` +
+        "já pertence a outra conta do sistema. Use um e-mail próprio desta clínica e envie o acesso pela ficha.";
+    } else if (acesso.criou && !acesso.emailEnviado) {
+      avisoDoAcessoPortal =
+        "O cliente foi cadastrado e o acesso ao Portal foi criado, mas o e-mail com o link NÃO saiu — " +
+        "o servidor de e-mail não respondeu." + comoReenviar;
+    }
   }
-  return cliente;
+  return { ...cliente, avisoDoAcessoPortal };
 }
 
 export async function updateCliente(input: UpdateClienteInput) {

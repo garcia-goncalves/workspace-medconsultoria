@@ -6,6 +6,7 @@ import type { AcessoAoPortal } from "@app/shared";
 import { formatBRL } from "../../../lib/masks";
 import { Badge } from "../../../components/ui/badge";
 import { AcessoPortalBotao } from "../AcessoPortalBotao";
+import { sufixoDeRecorrencia } from "./estimativa-do-lead";
 
 export interface LeadItem {
   id: string;
@@ -129,7 +130,10 @@ export function LeadCard({
           )}
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {lead.valorEstimado != null && (
-              <Badge variant="success">{formatBRL(lead.valorEstimado)}</Badge>
+              <Badge variant="success">
+                {formatBRL(lead.valorEstimado)}
+                {sufixoDeRecorrencia(lead.estimativa)}
+              </Badge>
             )}
             {lead.origem && <Badge>{lead.origem}</Badge>}
             {lead.portalAtivo && (

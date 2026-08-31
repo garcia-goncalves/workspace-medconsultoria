@@ -112,6 +112,14 @@ export const createServicoSchema = z.object({
   // Frase de condição de pagamento que a PROPOSTA pré-preenche (ADR-125). Curta de propósito:
   // é uma linha do documento, não um bloco de cláusulas.
   condicaoPagamento: z.string().trim().max(500).optional().or(z.literal("")),
+  /**
+   * Este serviço é O credenciamento? Decide três regras de dinheiro (ADR-104/108): ficar fora da
+   * estimativa do funil, ficar fora do provisionamento da conversão do lead, e ter o honorário
+   * nascendo só quando a operadora aprova. Só UM serviço pode estar marcado — o servidor recusa
+   * o segundo. Editável para que uma marca errada tenha conserto pela tela, e não por SQL no
+   * banco de produção.
+   */
+  ehCredenciamento: z.boolean().optional(),
 }).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
   message: PRECO_VALOR_E_PERCENTUAL,
   path: ["percentual"],
@@ -132,6 +140,14 @@ export const updateServicoSchema = z.object({
   // é uma linha do documento, não um bloco de cláusulas.
   condicaoPagamento: z.string().trim().max(500).optional().or(z.literal("")),
   ativo: z.boolean().optional(),
+  /**
+   * Este serviço é O credenciamento? Decide três regras de dinheiro (ADR-104/108): ficar fora da
+   * estimativa do funil, ficar fora do provisionamento da conversão do lead, e ter o honorário
+   * nascendo só quando a operadora aprova. Só UM serviço pode estar marcado — o servidor recusa
+   * o segundo. Editável para que uma marca errada tenha conserto pela tela, e não por SQL no
+   * banco de produção.
+   */
+  ehCredenciamento: z.boolean().optional(),
 }).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
   message: PRECO_VALOR_E_PERCENTUAL,
   path: ["percentual"],

@@ -19,9 +19,10 @@ import {
   tituloDoPassoDeEstimativa,
 } from "@app/shared";
 
-const FATURAMENTO = { nome: "Faturamento", valor: null, percentual: 5 };
-const GESTAO = { nome: "Gestão Operacional", valor: 3500, percentual: null };
-const CREDENCIAMENTO = { nome: NOME_SERVICO_CREDENCIAMENTO, valor: 1500, percentual: null };
+const FATURAMENTO = { nome: "Faturamento", valor: null, percentual: 5, ehCredenciamento: false };
+const GESTAO = { nome: "Gestão Operacional", valor: 3500, percentual: null, ehCredenciamento: false };
+// A marca, não o nome — é ela que tira o credenciamento da estimativa (ver `ehServicoDeCredenciamento`).
+const CREDENCIAMENTO = { nome: NOME_SERVICO_CREDENCIAMENTO, valor: 1500, percentual: null, ehCredenciamento: true };
 
 describe("planejarEstimativaDoLead", () => {
   it("só Faturamento → pergunta o faturamento mensal, não o valor", () => {
@@ -58,13 +59,13 @@ describe("planejarEstimativaDoLead", () => {
   });
 
   it("percentual zerado não vira modo percentual", () => {
-    const r = planejarEstimativaDoLead([{ nome: "X", valor: null, percentual: 0 }], 200000);
+    const r = planejarEstimativaDoLead([{ nome: "X", valor: null, percentual: 0, ehCredenciamento: false }], 200000);
     expect(r.modo).toBe("VALOR_FIXO");
   });
 
   it("soma os percentuais quando há mais de um serviço percentual", () => {
     const r = planejarEstimativaDoLead(
-      [FATURAMENTO, { nome: "Outro percentual", valor: null, percentual: 2.5 }],
+      [FATURAMENTO, { nome: "Outro percentual", valor: null, percentual: 2.5, ehCredenciamento: false }],
       100000,
     );
     expect(r.percentualTotal).toBe(7.5);
@@ -72,12 +73,12 @@ describe("planejarEstimativaDoLead", () => {
   });
 
   it("arredonda em centavos, sem o erro de ponto flutuante", () => {
-    const r = planejarEstimativaDoLead([{ nome: "F", valor: null, percentual: 3.33 }], 1234.56);
+    const r = planejarEstimativaDoLead([{ nome: "F", valor: null, percentual: 3.33, ehCredenciamento: false }], 1234.56);
     expect(r.valorEstimadoCalculado).toBe(41.11);
   });
 
   it("a regra não casa por nome: serviço percentual de qualquer nome funciona igual", () => {
-    const r = planejarEstimativaDoLead([{ nome: "Serviço inventado amanhã", valor: null, percentual: 8 }], 50000);
+    const r = planejarEstimativaDoLead([{ nome: "Serviço inventado amanhã", valor: null, percentual: 8, ehCredenciamento: false }], 50000);
     expect(r.modo).toBe("PERCENTUAL");
     expect(r.valorEstimadoCalculado).toBe(4000);
   });

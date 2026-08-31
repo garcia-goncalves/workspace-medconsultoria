@@ -503,6 +503,19 @@ model Servico {
   /// mesmo motivo de `clausulasContrato`: quem escreve o texto comercial é a Thaís, na tela de
   /// Serviços, sem precisar de uma publicação para mudar uma vírgula. Ver ADR-125.
   condicaoPagamento     String?          @db.Text
+  /// ESTE SERVIÇO É O CREDENCIAMENTO? É a marca que decide TRÊS regras de dinheiro: ficar fora
+  /// da estimativa do funil, ficar fora do provisionamento da conversão do lead, e ter o
+  /// honorário nascendo só quando a operadora APROVA (ADR-104/108).
+  /// Existe porque até aqui a identificação era por NOME: bastava corrigir um typo em
+  /// Ajustes → Serviços para o cliente passar a ser cobrado na conversão e DE NOVO na
+  /// aprovação. A ADR-140 chamou isso de remendo assumido e apontou este campo como a cura.
+  /// ⚠️ NÃO EXISTE LADO SEGURO PARA ERRAR AQUI, e o padrão `false` não é um deles: um
+  /// credenciamento marcado como `false` volta a ser cobrado na conversão do lead E na
+  /// aprovação da operadora — as duas cobranças. O padrão é `false` porque serviço novo é
+  /// comum; para o credenciamento, quem garante a marca é a semeadura do catálogo e o backfill
+  /// da migração, e a migração seguinte (`20260829210500`) PARA a publicação se nenhuma linha
+  /// tiver sido marcada, em vez de deixar o dinheiro sair errado em silêncio.
+  ehCredenciamento      Boolean          @default(false)
   ativo                 Boolean          @default(true)
   ordem                 Int              @default(0)
   createdAt             DateTime         @default(now())

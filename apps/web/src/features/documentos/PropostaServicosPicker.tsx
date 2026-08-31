@@ -57,7 +57,7 @@ export function PropostaServicosPicker({
     const todos = servicos.data ?? [];
     if (escopo === "FATURAMENTO") return todos.filter((s) => ehServicoSomentePercentual(s));
     if (escopo === "COMERCIAL")
-      return todos.filter((s) => !ehServicoSomentePercentual(s) && !ehServicoDeCredenciamento(s.nome));
+      return todos.filter((s) => !ehServicoSomentePercentual(s) && !ehServicoDeCredenciamento(s));
     return todos;
   }, [servicos.data, escopo]);
 

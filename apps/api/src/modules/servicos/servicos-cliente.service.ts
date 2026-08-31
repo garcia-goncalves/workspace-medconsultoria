@@ -4,7 +4,7 @@ import { notificar } from "../notificacoes/notificacoes.service.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { equipeDoCliente } from "../arquivos/arquivos.service.js";
 import { seedRequisitosSeVazio } from "./servicos.service.js";
-import { ehServicoDeCredenciamento, sincronizarRequisitosCredenciamento } from "./credenciamento.service.js";
+import { ehServicoDeCredenciamento, garantirCategoriaHonorarios, sincronizarRequisitosCredenciamento } from "./credenciamento.service.js";
 import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js";
 import { garantirAcessoPortal } from "../usuarios/usuarios.service.js";
 import { config } from "../../config.js";
@@ -144,7 +144,7 @@ export function sufixoDaCobrancaDoServico(servicoNome: string, clienteNome: stri
 async function levantarCobrancaDoServico(clienteId: string, servicoId: string): Promise<PlanoDeEncerramento> {
   const [cliente, servico] = await Promise.all([
     prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
-    prisma.servico.findUnique({ where: { id: servicoId }, select: { nome: true } }),
+    prisma.servico.findUnique({ where: { id: servicoId }, select: { nome: true, ehCredenciamento: true } }),
   ]);
   if (!cliente || !servico) return { series: [], encerrar: [], mantidas: [], valorEncerrado: 0 };
 
@@ -188,7 +188,7 @@ export async function ativarServicoCliente(
   // Ao contratar, herda a precificação de referência do serviço (editável depois na ficha).
   const servico = await prisma.servico.findUnique({
     where: { id: servicoId },
-    select: { nome: true, valor: true, valorRecorrencia: true, percentual: true, percentualRecorrencia: true },
+    select: { nome: true, valor: true, valorRecorrencia: true, percentual: true, percentualRecorrencia: true, ehCredenciamento: true },
   });
   const jaContratado = await prisma.clienteServico.findUnique({
     where: { clienteId_servicoId: { clienteId, servicoId } },
@@ -248,12 +248,15 @@ export async function ativarServicoCliente(
   if (
     !jaContratado &&
     (opts.origem ?? "MANUAL") === "MANUAL" &&
-    !ehServicoDeCredenciamento(servico?.nome) &&
+    !ehServicoDeCredenciamento(servico) &&
     valorContratado > 0 &&
     !(await aConversaoAindaVaiCobrar(clienteId))
   ) {
     try {
-      const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } });
+      const [cliente, categoriaId] = await Promise.all([
+        prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
+        garantirCategoriaHonorarios(),
+      ]);
       const vencimento = new Date();
       vencimento.setDate(vencimento.getDate() + 30);
       vencimento.setHours(12, 0, 0, 0);
@@ -265,6 +268,7 @@ export async function ativarServicoCliente(
           valor: valorContratado,
           vencimento,
           clienteId,
+          categoriaId,
           recorrencia: mensal ? "MENSAL" : "NENHUMA",
           observacoes: "Provisionado ao contratar o serviço pela ficha do cliente. Revise o valor e o vencimento.",
         },
@@ -388,7 +392,10 @@ async function provisionarUpsellAceito(
   try {
     if (await aConversaoAindaVaiCobrar(clienteId)) return; // a conversão cobra; aqui seria a 2ª vez.
 
-    const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } });
+    const [cliente, categoriaId] = await Promise.all([
+      prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
+      garantirCategoriaHonorarios(),
+    ]);
 
     for (const it of itens) {
       if (!it.servicoId) continue;
@@ -397,9 +404,9 @@ async function provisionarUpsellAceito(
 
       const servico = await prisma.servico.findUnique({
         where: { id: it.servicoId },
-        select: { nome: true },
+        select: { nome: true, ehCredenciamento: true },
       });
-      if (ehServicoDeCredenciamento(servico?.nome)) continue;
+      if (ehServicoDeCredenciamento(servico)) continue;
 
       // Já existe conta deste serviço para este cliente? Reaceitar a mesma proposta (ou aceitar
       // duas que repetem um serviço) não pode lançar a cobrança de novo.
@@ -420,6 +427,7 @@ async function provisionarUpsellAceito(
           valor,
           vencimento,
           clienteId,
+          categoriaId,
           recorrencia: mensal ? "MENSAL" : "NENHUMA",
           observacoes: "Provisionado quando o cliente aceitou a proposta. Revise o valor e o vencimento.",
         },
@@ -611,6 +619,18 @@ export async function servicosDoClientePortal(clienteId: string) {
         // Os convênios atendidos neste serviço (ADR-126). O cliente precisa poder conferir a
         // lista que combinamos — é a lista sobre a qual o faturamento é apurado.
         convenios: s.contratacao?.convenios ?? [],
+        // F20 — o cliente que paga 5% do faturamento não conferia isso em lugar nenhum do
+        // Portal. `s.contratacao` já vem em número (`emReais`, ADR-118) desde `servicosDoCliente`
+        // — nunca `Decimal` cru atravessando o tRPC. Formato pronto para `formatPreco`
+        // (`apps/web/src/lib/masks.ts`), o mesmo formatador que a ficha interna usa.
+        preco: s.contratacao
+          ? {
+              valor: s.contratacao.valor,
+              valorRecorrencia: s.contratacao.valorRecorrencia,
+              percentual: s.contratacao.percentual,
+              percentualRecorrencia: s.contratacao.percentualRecorrencia,
+            }
+          : null,
       };
     });
 }
