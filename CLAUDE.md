@@ -13,14 +13,36 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-31 · ADR-143 + ADR-144 MESCLADAS na `main` (PR #159, commit `eccb0e9`) — AGUARDANDO PUBLICAÇÃO)
+## Estado atual (2026-08-31 · **v1.4.0 NO AR** — ADR-143 + ADR-144 publicadas)
 
-> **Leia a ADR-144 em `docs/DECISIONS.md`.** Nada aqui está no ar: a **v1.3.0** (28/08) continua
-> sendo o que roda em produção. As ADR-143 **e** ADR-144 estão na `main` esperando o mesmo lote de
-> publicação.
->
-> **⚠️ QUANDO PUBLICAR, DUAS MIGRAÇÕES RODAM NO BANCO DE PRODUÇÃO** — a `20260829203721` (aditiva,
-> com backfill) e a `20260829210500` (a guarda). Ver "O que falta" abaixo.
+> **Leia a ADR-144 em `docs/DECISIONS.md`.**
+
+- **✅ NO AR DESDE 31/08/2026 às 20:26 no servidor (23:26 aqui) — a v1.4.0**, com as ADR-143 **e**
+  ADR-144 no mesmo lote. Publicação `33448407974` no commit `02a46a1`, por `workflow_dispatch`
+  (o `gh workflow run` **foi barrado para mim de novo** — quem colou o comando foi o dono). A suíte
+  completa rodou **antes** de tocar no servidor (`build-test` + `integration` + `e2e`, os três
+  verdes), depois: `node_modules preservado`, **`found 0 vulnerabilities`**, **`All migrations have
+  been successfully applied.`** (as duas novas), ensaio de boot com **16 portas ouvindo**,
+  `restart.txt marcado em 2026-08-31 20:25:59`, `/health` = `{"status":"ok"}`, `/` e
+  `/credenciamentos` = **200**. Etiqueta **`v1.4.0`** criada e enviada à mão (o `deploy.yml`
+  continua não criando).
+- **🔑 A PROVA QUE IMPORTAVA, VISTA NA TELA DE PRODUÇÃO COMO ROOT:** em *Ajustes → Serviços →
+  Credenciamento médico e odontológico → Configurar*, a caixa **"Este é o serviço de
+  credenciamento" está MARCADA**, com a consequência escrita ao lado. Isso prova que **o backfill
+  da migração acertou o alvo em produção** — era o único jeito de saber, porque o estado errado
+  (nenhum marcado) **não produz erro nenhum**, e é o lado que cobra duas vezes.
+- **🩺 SETE ERROS ABERTOS, E OS SETE SÃO DE HOSPEDAGEM** — seis `Can't reach database server at
+  localhost:3306` e um esgotamento do pool (limite 13, timeout 10s). ⚠️ **O mais recente é de 2
+  HORAS ANTES da publicação: nenhum erro novo nasceu com este lote.** O banco de produção segue
+  caindo, e segue intocado por ordem do dono.
+- **✅ ADR-142 CONFIRMADA NA TELA:** a página Clientes mostra *Total 0* e *Com Portal ativo 0* — os
+  dois números concordando. Antes diziam 0 e 1, se contradizendo (o único cliente é PROSPECT, que
+  a página não lista por projeto).
+- **Zero erro de console** em Credenciamentos, Clientes e Financeiro de produção.
+- ⚠️ **NÃO CONFERIDO NA TELA: o comportamento no celular.** A extensão do navegador aceitou o
+  pedido de redimensionar a janela do dono mas a tela não mudou de tamanho, então a prova de
+  responsividade continua sendo a suíte (`responsividade-total.spec.ts`, 30 telas × 5 tamanhos,
+  verde), não a tela de produção. Quem tiver um telefone à mão, olhe.
 
 - **🔑 A MARCA DO CREDENCIAMENTO EXISTE NO BANCO, e o "casa por nome" morreu.** `ehServicoDeCredenciamento`
   comparava o **nome** com uma constante, e três regras de dinheiro dependiam disso (ADR-104/108) —
@@ -77,8 +99,9 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   posição) nem um `refetch()` único (também é deduplicado; o link de lote do tRPC não aborta por
   consulta). A correção é **`await q.refetch()` duas vezes**: a primeira espera o que estava no ar, a
   segunda é a que sai. ⚠️ **Tirar uma delas devolve o defeito.**
-- **Publicar** — falta só o disparo, que é do dono (o `gh workflow run` **foi barrado para mim de
-  novo** em 31/08). Ele cola `! gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR`.
+- ~~**Publicar**~~ **FEITO em 31/08 às 23:26 — é a v1.4.0.** ⚠️ O `gh workflow run` **foi barrado
+  para mim de novo**: conte com pedir ao dono que cole `! gh workflow run deploy.yml --ref main -f
+  confirmar=PUBLICAR`. Do disparo em diante (acompanhar, etiquetar, conferir) é tudo comigo.
 - ⚠️ **PENDÊNCIA HERDADA DA ADR-143, a conferir depois de publicar:** a correção **C10** mudou o
   significado de "parcela apagada". Se houver em produção parcela apagada por reversão antiga, ela
   passará a ser lida como *excluída de propósito* e aquele mês será **pulado**.
