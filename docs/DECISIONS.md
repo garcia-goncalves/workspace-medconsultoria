@@ -4919,3 +4919,92 @@ verdade, **vistos reprovando antes**: com a trava desligada, 4 dos 9 reprovam. N
 Credenciamento dizendo *"Cobrado por valor fixo — avulso (1x) ou mensal"* sem botão de percentual;
 Faturamento com a marca e o interruptor; a ficha do cliente idem; o Recibo com *"Forma de pagamento:
 PIX"* fixo; e o contrato com a frase do PIX. **Zero erro de console.**
+
+---
+
+## ADR-146 — A subida de uma dependencia mudou, em silencio, de onde vem o `req.ip` ✅
+
+**Contexto.** Tres PRs do Renovate estavam abertos desde 25–31/08 (`#124` vitest 3 por seguranca, `#157`
+ferramentas de desenvolvimento, `#158` atualizacoes menores). O `#158` reprovava a CI com quatro erros de
+tipo em `apps/api/src/server.ts`, todos parecendo o mesmo aborrecimento de tipagem do Fastify. Nao era.
+
+O `#158` sobe o **Fastify 5.9.0 → 5.12.1**, e a 5.12 **aposentou o formato numerico do `trustProxy`**.
+Nos usavamos `trustProxy: 1` desde a ADR-140, que o pos no lugar de `true` justamente por seguranca.
+O erro de tipo (`Type 'number' is not assignable…`) e so a ponta: quando a sobrecarga falha, o TypeScript
+cai na ultima (`Http2SecureServer`) e envenena o tipo do `app` — dai os outros tres erros, que somem
+sozinhos quando o primeiro e resolvido.
+
+**⚠️ O perigo nao era o erro de tipo, era o conserto obvio dele.** Calar o compilador mantendo o `1`
+compila e sobe — e muda o comportamento. Esta escrito no codigo do Fastify 5.12:
+
+> *Hop-count-only trust cannot validate the immediate peer. Fail closed so direct clients cannot spoof
+> X-Forwarded-\* values by supplying enough hops.*
+
+Ou seja: `trustProxy: <numero>` passou a **nao confiar em ninguem**. Atras do LiteSpeed, o `X-Forwarded-For`
+seria descartado e **todo visitante viraria o mesmo IP** (o da propria maquina). O `req.ip` e a chave dos
+**tres freios da casa** — 300 requisicoes/min, 8 tentativas de senha por conta, e o freio do formulario
+publico de leads — e e a **prova gravada** em `Assinatura.ip` e `Documento.propostaRespIp`. Um visitante
+sozinho passaria a trancar o site para todos os outros, e a assinatura de contrato gravaria o IP do servidor.
+**Nada disso da erro, log ou sintoma** — e o mesmo modo de falha da ADR-144: o estado errado e silencioso.
+
+**Opcoes.**
+
+1. *Deixar o `#158` de lado e ficar no Fastify 5.9.* Adia sem resolver: o proximo PR do robo reprova igual,
+   e a equipe aprende a ignorar CI vermelha de dependencia — que e como uma falha real passa despercebida.
+2. *Trocar por `true`.* Recusada com todas as letras. E exatamente o que a ADR-140 corrigiu: `true` confia
+   na cadeia inteira, e quem escreve a entrada mais a esquerda do cabecalho e o proprio visitante.
+3. *Uma funcao `(_addr, hop) => hop === 0`.* Reproduz o `1` letra por letra — inclusive o buraco que o
+   Fastify fechou de proposito. Seria contornar a correcao de seguranca de terceiro para preservar o defeito.
+4. **Descrever QUEM e o proxy, em vez de contar quantos sao.** Escolhida.
+
+**Decisao.** Nasceu `apps/api/src/lib/proxy-confiavel.ts`, com a regua `PROXY_CONFIAVEL =
+["loopback", "uniquelocal"]` e o porque inteiro escrito ao lado:
+
+- `loopback` (127.0.0.0/8, ::1) e a topologia real da TineHost — o LiteSpeed roda na **mesma maquina** que
+  o Node (o mesmo motivo pelo qual `SMTP_HOST=localhost` funciona la, ADR-122). E tambem o caso do
+  desenvolvimento local.
+- `uniquelocal` cobre rede privada, para o dia em que a hospedagem mudar de forma.
+
+**⚠️ Isto e ESTRITAMENTE MAIS SEGURO que o antigo `1`.** O `1` confiava em quem quer que estivesse do outro
+lado da conexao, **inclusive um cliente publico direto**; a regua nova recusa confiar em endereco publico,
+entao cabecalho forjado por quem chega de fora e simplesmente ignorado.
+
+**A regua ganhou teste, e ele exercita o Fastify de verdade** (`proxy-confiavel.test.ts`, 6 casos) — nao uma
+reimplementacao da regra, porque o que mordeu foi justamente o Fastify mudar o significado do valor por
+baixo. Um dos seis e a **prova da regressao**: com `trustProxy: 1` na versao atual, o IP do visitante real
+e descartado. Se um dia esse teste passar a ver o visitante, o Fastify voltou atras e a regua pode ser revista.
+
+**⚠️ CONFERIR DEPOIS DE PUBLICAR, E A LINHA DE BASE JA FOI MEDIDA.** Em 01/09/2026, com a v1.5.0 no ar
+(Fastify 5.9 + `trustProxy: 1`), `SISTEMA → Sessoes` de producao mostrava **enderecos publicos de gente**:
+`187.35.35.2` (o dono) e `153.67.105.122` (o Andre). **Isso prova que o `X-Forwarded-For` chega e que a
+cadeia do proxy funciona hoje.** Depois de publicar, os IPs dessa tabela tem de **continuar publicos**. Se
+virarem `127.0.0.1` para todo mundo, o LiteSpeed nao fala com o Node por loopback e a regua precisa da
+faixa daquela conversa — e ate la os tres freios da casa estao compartilhados entre todos os visitantes.
+
+**Junto no mesmo lote, porque um PR de dependencia ja dispara a suite inteira** (a cota de Actions foi o
+motivo de os tres virarem um so — ADR-121): o `@vitest/coverage-v8` ficou preso na 2 enquanto o `vitest`
+subiu para a 3 (o robo so bumpa o que ele mesmo abre), e **dois defeitos de tela** que a regua de
+responsividade da ADR-143 pegou:
+
+- **`/projetos` a 360px vazava 26px em TODOS os cartoes.** A grade nao declarava coluna no celular, e a
+  trilha implicita `auto` e o **min-content do cartao mais largo**: medida no navegador, a coluna tinha
+  **369,8px dentro de um recipiente de 324px**. E o mesmo `min-width:auto` que a ADR-143 matou em
+  `/clientes` e `/modelos`; `/projetos` escapou porque **o banco da CI nao tem projeto nenhum**, e a tela
+  nascia vazia. Cura: `grid-cols-[minmax(0,1fr)]` (a trilha do `md:`/`xl:` ja vinha certa do Tailwind).
+- **O link "Fale com a gente pelo Suporte" tinha 31px de altura** onde a regua exige 44 — no celular era
+  preciso mirar numa fita fina de texto no meio de um paragrafo. A pergunta ficou numa linha e o link virou
+  linha propria.
+
+**⚠️ A LICAO DOS DOIS: os dois so apareceram com BANCO CHEIO.** A CI semeia um banco novo, e tela que nasce
+vazia nao desenha o bloco que quebra. Regua verde na CI **nao e** regua exercida.
+
+**Consequencias.**
+
+- Zero migracao. Reverter e `git revert` — nada foi convertido no banco.
+- Provas: typecheck 6/6 · lint limpo · **839 testes do `@app/api`** (103 arquivos, suite completa) ·
+  **220 do `@app/web`** · **109 de ponta a ponta, os 109 verdes** (reprovavam 3 antes das correcoes de tela)
+  · `pnpm audit --prod` = *No known vulnerabilities found* · artefato de publicacao montado com sucesso.
+- **Observacao, NAO regressao deste lote:** ao montar o artefato, o npm avisa que `sanitize-html@2.17.7` e
+  `cookie@2.0.1` pedem **Node ≥ 22** e nos rodamos Node 20. Vem de faixa aberta (`^2.17.6`) resolvida na
+  hora, entao **ja acontecia na `main`** — inclusive na publicacao da v1.5.0. E aviso, nao erro, e a v1.5.0
+  esta no ar funcionando. Fica anotado para o dia de subir o Node.

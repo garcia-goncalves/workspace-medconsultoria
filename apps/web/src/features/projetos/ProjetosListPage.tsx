@@ -313,13 +313,17 @@ export function ProjetosListPage() {
           </Button>
         </div>
       ) : visao === "cards" ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        // ⚠️ `grid-cols-[minmax(0,1fr)]` no CELULAR não é enfeite (ADR-143). Sem coluna declarada,
+        // a trilha implícita é `auto` — e esse `auto` é o MIN-CONTENT do cartão mais largo, que aqui
+        // media 370px dentro de um recipiente de 324px: os oito cartões vazavam 26px da tela a 360px.
+        // As trilhas do `md:`/`xl:` já vêm do Tailwind como `minmax(0,1fr)`; a que faltava era esta.
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filtrados.map((p) => {
             const r = resumo(p);
             return (
               <div
                 key={p.id}
-                className="group relative flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md focus-within:ring-2 focus-within:ring-primary/40"
+                className="group relative flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md focus-within:ring-2 focus-within:ring-primary/40"
               >
                 <div className="flex items-start gap-2">
                   {/* Botão-título com área clicável esticada (padrão de card acessível: um único

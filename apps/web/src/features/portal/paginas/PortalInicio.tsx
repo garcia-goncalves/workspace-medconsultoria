@@ -312,13 +312,20 @@ export function PortalInicio() {
           </div>
           {/* O Suporte deixou de ficar "aqui embaixo" nesta página: agora é uma seção com
               endereço próprio, e a frase vira o caminho até ela. */}
-          <p className="px-4 pb-4 pt-1 text-xs text-muted-foreground sm:px-5">
-            Precisa de ajuda com algum item?{" "}
-            <a href="/portal/suporte" onClick={irParaOSuporte} className="font-medium text-primary underline-offset-2 hover:underline">
+          {/* ⚠️ O link é um ALVO DE TOQUE, não um trecho de frase. Enquanto ele viveu no meio do
+              parágrafo tinha 31px de altura — abaixo dos 44px que a régua da ADR-143 exige — e no
+              celular era preciso mirar numa fita fina de texto. Por isso a pergunta ficou numa
+              linha e o link virou uma linha própria, alta o bastante para o dedo. */}
+          <div className="px-4 pb-4 pt-1 sm:px-5">
+            <p className="text-xs text-muted-foreground">Precisa de ajuda com algum item?</p>
+            <a
+              href="/portal/suporte"
+              onClick={irParaOSuporte}
+              className="inline-flex min-h-11 items-center text-xs font-medium text-primary underline-offset-2 hover:underline"
+            >
               Fale com a gente pelo Suporte
             </a>
-            .
-          </p>
+          </div>
         </Card>
       )}
 

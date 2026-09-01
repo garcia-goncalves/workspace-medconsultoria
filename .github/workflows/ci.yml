@@ -71,10 +71,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: 10.34.4 }
+        with: { version: 10.34.5 }
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.2"
+          node-version: "20.20.2"
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       # Portão de segurança de dependências (ADR-107). `--prod` olha SÓ o que é empacotado e
@@ -154,10 +154,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: 10.34.4 }
+        with: { version: 10.34.5 }
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.2"
+          node-version: "20.20.2"
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @app/db exec prisma generate
@@ -258,10 +258,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with: { version: 10.34.4 }
+        with: { version: 10.34.5 }
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.2"
+          node-version: "20.20.2"
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @app/db exec prisma generate

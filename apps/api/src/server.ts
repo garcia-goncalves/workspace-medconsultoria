@@ -24,24 +24,20 @@ import { startMonitor } from "./observability/monitor.js";
 import { startAlertas } from "./observability/alertas.js";
 import { registrarErro } from "./modules/sistema/sistema.service.js";
 import { marcarCspLigada } from "./lib/seguranca-http.js";
+import { PROXY_CONFIAVEL } from "./lib/proxy-confiavel.js";
 import type { Context } from "./trpc/context.js";
 
-// trustProxy: 1, NUNCA `true`.
-//
-// ⚠️ `true` quer dizer "confie na cadeia inteira do X-Forwarded-For" — e quem escreve a entrada
-// MAIS À ESQUERDA desse cabeçalho é o próprio visitante. O LiteSpeed acrescenta o IP real à
-// direita; não substitui a esquerda. Com `true`, qualquer um trocava de IP a cada requisição só
-// mandando um cabeçalho, e o `req.ip` é a chave de TODOS os freios desta casa: o limite geral de
-// 300/min, as 8 tentativas de login por conta e o freio do formulário público de leads. Pior:
-// é o mesmo `req.ip` gravado como prova em `Assinatura.ip` e em `Documento.propostaRespIp` — o
-// "de onde veio a assinatura" passava a ser o que o assinante quisesse escrever.
-//
-// `1` confia só no salto mais próximo (o nosso proxy), que é a topologia real da TineHost.
+// trustProxy: quem é o nosso proxy — a régua mora em `lib/proxy-confiavel.ts`, com o porquê
+// inteiro escrito lá (NUNCA `true`, e NUNCA MAIS o número `1`, que o Fastify 5.12 aposentou).
 //
 // maxParamLength: o tRPC httpBatchLink junta as procedures no path (`/trpc/a,b,c,…`);
 // com o batch cheio (ex.: a ficha do cliente) o path passa de 100 chars e o find-my-way
 // do Fastify devolveria 414. 5000 cobre qualquer batch com folga.
-const app = Fastify({ logger: true, trustProxy: 1, maxParamLength: 5000 });
+const app = Fastify({
+  logger: true,
+  trustProxy: [...PROXY_CONFIAVEL],
+  maxParamLength: 5000,
+});
 
 await app.register(cookie, { secret: config.SESSION_SECRET });
 await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true });
