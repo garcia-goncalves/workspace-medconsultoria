@@ -15,8 +15,8 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ## Estado atual (2026-09-01 · noite · ADR-146 — as tres atualizacoes de biblioteca num lote so, e o defeito silencioso que vinha junto)
 
-> **Leia a ADR-146 em `docs/DECISIONS.md`.** **A v1.5.0 continua sendo o que roda em producao** — este
-> lote esta na branch `chore/dependencias-2026-09-01`, nao publicado.
+> **Leia a ADR-146 em `docs/DECISIONS.md`.** **MESCLADA na `main`** (PR #164, squash, CI 3/3 verde,
+> commit `8398a28`). ⚠️ **NAO esta no ar — a v1.5.0 continua sendo o que roda em producao.**
 
 - **Ordem do dono:** *"faca tudo o que for necessario pra deixar 100%"*. Os tres PRs do Renovate (#124
   vitest 3 por seguranca, #157 ferramentas, #158 atualizacoes menores) viraram **UM** PR. ⚠️ **Nao foi
@@ -54,7 +54,10 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ### O que falta nesta esteira
 
-- **Abrir o PR e esperar a CI**, depois fechar os tres PRs do Renovate apontando para ele.
+- ~~**Abrir o PR e esperar a CI.**~~ **FEITO: PR #164, CI 3/3 verde, mesclado em `8398a28`.**
+- ~~**Fechar os tres PRs do Renovate.**~~ **FEITO: #124, #157 e #158 fechados apontando para o #164.**
+  Um quarto (#165, pnpm 10.34.5) nasceu de base anterior ao merge e foi fechado por redundancia.
+  **A fila do Renovate esta VAZIA** — zero PRs abertos no repositorio.
 - ⚠️ **CONFERIR DEPOIS DE PUBLICAR — a linha de base JA FOI MEDIDA em 01/09.** Com a v1.5.0 no ar,
   `SISTEMA → Sessoes` de producao mostra **enderecos publicos de gente**: `187.35.35.2` (o dono) e
   `153.67.105.122` (o Andre). **Isso prova que o `X-Forwarded-For` chega hoje.** Depois de publicar, esses
