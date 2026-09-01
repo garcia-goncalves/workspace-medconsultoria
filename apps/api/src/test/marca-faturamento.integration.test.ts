@@ -8,7 +8,11 @@ import {
 } from "@app/shared";
 import { exigirBancoDeTeste } from "./guarda-banco-de-teste.js";
 import { criarServico, atualizarServico } from "../modules/servicos/servicos.service.js";
-import { ativarServicoCliente, atualizarContratacaoCliente } from "../modules/servicos/servicos-cliente.service.js";
+import {
+  ativarServicoCliente,
+  atualizarContratacaoCliente,
+  sincronizarServicosContratados,
+} from "../modules/servicos/servicos-cliente.service.js";
 
 /**
  * SÓ O FATURAMENTO MÉDICO É COBRADO POR PERCENTUAL — ordem do dono, 31/08/2026.
@@ -148,6 +152,30 @@ describe("⚠️ A SEGUNDA PORTA: o preço na ficha do cliente", () => {
     await expect(
       atualizarContratacaoCliente(clienteId, fixoId, { valor: null, percentual: 5 }),
     ).rejects.toThrow(PRECO_PERCENTUAL_SO_NO_FATURAMENTO);
+  });
+
+  it("⚠️ A TERCEIRA PORTA: o aceite da proposta recusa item percentual em serviço sem a marca", async () => {
+    // Achado pelos revisores: o aceite copia o item do documento para `ClienteServico` sem passar
+    // por trava nenhuma. Travar o catálogo e o editor da ficha e deixar esta aberta é o modo de
+    // falha da "segunda porta" (ADR-140) outra vez — e por aqui o preço errado entra vindo do
+    // papel que o cliente assinou.
+    await expect(
+      sincronizarServicosContratados(clienteId, [{ servicoId: fixoId, valor: 0, percentual: 5 }], { id: atorId }),
+    ).rejects.toThrow(PRECO_PERCENTUAL_SO_NO_FATURAMENTO);
+  });
+
+  it("o aceite continua funcionando para o serviço marcado e para valor fixo", async () => {
+    await sincronizarServicosContratados(
+      clienteId,
+      [
+        { servicoId: marcadoId, valor: 0, recorrencia: "MENSAL", percentual: 5 },
+        { servicoId: fixoId, valor: 3500, recorrencia: "MENSAL" },
+      ],
+      { id: atorId },
+    );
+    const linhas = await prisma.clienteServico.findMany({ where: { clienteId } });
+    expect(linhas.find((l) => l.servicoId === marcadoId)?.percentual?.toString()).toBe("5");
+    expect(linhas.find((l) => l.servicoId === fixoId)?.percentual).toBeNull();
   });
 
   it("no serviço marcado, a mesma ficha aceita o percentual", async () => {

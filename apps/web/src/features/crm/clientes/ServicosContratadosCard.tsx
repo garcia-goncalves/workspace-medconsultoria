@@ -12,7 +12,7 @@ import { Button } from "../../../components/ui/button";
 import { Label } from "../../../components/ui/label";
 import { Select } from "../../../components/ui/select";
 import { MoneyInput } from "../../../components/ui/money-input";
-import { formatPreco, formatBRL } from "../../../lib/masks";
+import { formatPreco, formatBRL, formatPct } from "../../../lib/masks";
 import { ConveniosPicker } from "../../documentos/ConveniosPicker";
 import { RespostaBriefingDialog } from "./RespostaBriefingDialog";
 
@@ -36,6 +36,22 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
   // SEGUNDA PORTA para o mesmo estado que a tela de Serviços passou a recusar (ADR-140): a ficha
   // faria, cliente por cliente, o que o catálogo já não deixa fazer.
   const podeSerPercentual = ehServicoDeFaturamento(item.servico);
+  /**
+   * ⚠️ O CLIENTE QUE PAGA PERCENTUAL NUM SERVIÇO QUE DEIXOU DE SER PERCENTUAL.
+   *
+   * A migração marca o CATÁLOGO; ela nunca olha o que cada cliente já contratou. Então pode
+   * existir `ClienteServico.percentual > 0` num serviço sem a marca — foi gravado quando a tela
+   * oferecia os dois botões a todo mundo.
+   *
+   * Sem este tratamento, abrir este modal só para CONFERIR o preço e clicar em Salvar mandava
+   * `percentual: null` e apagava a cobrança daquele cliente: sem erro, sem aviso, e o servidor
+   * aceita, porque REMOVER percentual não viola trava nenhuma. Um cliente que rendia todo mês
+   * simplesmente ficaria sem preço.
+   */
+  const percentualOrfao = !podeSerPercentual && (c?.percentual ?? 0) > 0;
+  // Só dá para sair do órfão informando o valor fixo que o substitui — e aí a troca é uma
+  // decisão explícita de quem clicou, dita na faixa amarela, não um efeito de salvar.
+  const bloqueadoPeloOrfao = percentualOrfao && !(valor && valor > 0);
   const [porPercentual, setPorPercentual] = useState(
     podeSerPercentual &&
       ehServicoSomentePercentual({ valor: c?.valor, percentual: c?.percentual ?? item.servico.percentual }),
@@ -63,13 +79,16 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
             Cancelar
           </Button>
           <Button
-            disabled={salvar.isPending}
+            disabled={salvar.isPending || bloqueadoPeloOrfao}
             onClick={() =>
               salvar.mutate({
                 clienteId,
                 servicoId: item.servico.id,
                 valor: porPercentual ? null : valor ?? null,
                 valorRecorrencia,
+                // `percentual: null` só sai quando ELE é o que está sendo trocado. No caso órfão,
+                // sair daqui é o que apagava a cobrança em silêncio — e agora o botão só libera
+                // depois de a pessoa informar o valor que entra no lugar.
                 percentual: porPercentual ? percentual ?? null : null,
                 // Só manda a lista quando o campo aparece — proposta/serviço sem convênio não
                 // pode zerar de passagem o que já estava gravado.
@@ -97,6 +116,18 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
                 % do faturamento
               </Button>
             </div>
+          </div>
+        ) : percentualOrfao ? (
+          <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+            <p className="font-medium">
+              Este cliente paga {formatPct(c?.percentual ?? 0)} do faturamento neste serviço.
+            </p>
+            <p>
+              Mas <strong>{item.servico.nome}</strong> não é o serviço de faturamento médico, e só ele é cobrado por
+              percentual. Informe abaixo o <strong>valor fixo</strong> que passa a valer: ao salvar, ele substitui o
+              percentual atual. Enquanto o valor estiver em branco, não dá para salvar — para o percentual não ser
+              apagado sem alguém decidir isso.
+            </p>
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">

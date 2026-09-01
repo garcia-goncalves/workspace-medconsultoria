@@ -4871,9 +4871,50 @@ modelos que ninguém editou à mão, então a mudança chega a produção sozinh
 **Fica como está, de propósito:** a categoria *"Cartão de crédito"* do Financeiro — é **despesa**,
 dinheiro que a Med paga, e não tem relação com o que o cliente pode usar para pagar a Med.
 
+### 🕳️ O que a REVISÃO pegou — e os três achados vieram da própria correção
+
+Três revisores especialistas rodaram sobre o commit; dois deles acharam **independentemente** os
+dois primeiros itens, o que é o sinal de que não eram estilo.
+
+1. **O editor de preço da ficha apagava dinheiro contratado, em silêncio** — e a regressão nasceu
+   deste lote. A migração marca o **catálogo**; ela nunca olha o que cada cliente já contratou.
+   Existindo `ClienteServico.percentual > 0` num serviço sem a marca (gravável até ontem), abrir o
+   modal só para **conferir** e clicar em Salvar mandava `percentual: null` — e o servidor aceita,
+   porque **remover** percentual não viola trava nenhuma. O cliente ficava sem preço, sem aviso.
+   Hoje há faixa âmbar dizendo o que está gravado, e **o Salvar só libera depois de informar o
+   valor fixo que entra no lugar**.
+2. **A TERCEIRA PORTA: o aceite da proposta.** `sincronizarServicosContratados` copia o item do
+   documento para `ClienteServico` sem passar por trava nenhuma — travar o catálogo e o editor da
+   ficha e deixar esta aberta é o modo de falha da ADR-140 mais uma vez, e por aqui o preço errado
+   entra vindo do papel que o cliente assinou. ⚠️ **Recusa, e não "descarta o percentual em
+   silêncio"**: descartar deixaria a proposta ser aceita cobrando outro preço que não o do papel.
+3. **O contrato gerado pelo painel do lead sairia com "(a preencher)".** `gerarParaLead` monta o
+   corpo por um mapa de variáveis, e `render` troca marcador desconhecido por *(a preencher)* — o
+   contrato nasce por **duas portas**, e só uma resolvia o `{{dadosPagamento}}` novo. Exatamente o
+   "veja abaixo com nada abaixo" que esta ADR dizia querer evitar.
+
+Mais: **o formulário de serviço recusava sem mostrar mensagem** (as duas travas apontam o erro para
+`percentual`, que é justamente o campo escondido no estado que elas reprovam — Salvar ficava inerte
+e ninguém descobria por quê); o botão *"% do faturamento"* **não acendia** em serviço sem percentual
+(`temPercentual` exige `> 0`); o construtor da proposta de faturamento filtrava por **preço** e
+abriria vazio no dia em que o percentual ficasse "a combinar"; e o rótulo fixo do recibo era um
+`<label>` **órfão**, sem campo a que se associar.
+
+### ⚖️ Onde discordei do revisor, e por quê
+
+Um revisor pediu que a **unicidade da marca** fosse conferida a **todo salvamento**, e não só na
+transição desmarcado→marcado — o argumento sendo que dois marcados virariam estado permanente e
+mudo. A preocupação é certa; a cura é pior que a doença: com dois marcados, os **dois** ficariam
+impossíveis de salvar pela tela, **inclusive para desmarcar um deles**, e a Thaís ficaria trancada
+do lado de fora de um conserto que só sairia por SQL no banco de produção.
+
+Quem impede o estado de existir é a **migração `20260901010500`**, que **PARA a publicação** se o
+backfill não deixar **exatamente um** marcado (molde da `20260829210500`, da ADR-144). Acontece
+antes, uma vez, e no único caminho pelo qual o estado poderia nascer de verdade.
+
 ### Provas
 
-typecheck 6/6 · lint limpo · **604 testes de unidade** e **9 de integração novos**, contra o MySQL de
+typecheck 6/6 · lint limpo · **604 testes de unidade** e **11 de integração novos**, contra o MySQL de
 verdade, **vistos reprovando antes**: com a trava desligada, 4 dos 9 reprovam. Na tela, como ROOT:
 Credenciamento dizendo *"Cobrado por valor fixo — avulso (1x) ou mensal"* sem botão de percentual;
 Faturamento com a marca e o interruptor; a ficha do cliente idem; o Recibo com *"Forma de pagamento:

@@ -60,18 +60,44 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   atualizável** (`listModelos` reescreve o que ninguém editou à mão), então chega a produção sozinho.
 - **Fica como está, de propósito:** a categoria *"Cartão de crédito"* do Financeiro — é **despesa**,
   dinheiro que a Med paga.
-- **Provas:** typecheck 6/6 · lint limpo · **604 testes de unidade** · **9 de integração novos**
-  contra o MySQL de verdade, **vistos reprovando antes** (com a trava desligada, 4 dos 9 reprovam) ·
+- **Provas:** typecheck 6/6 · lint limpo · **suíte COMPLETA do `@app/api` verde: 833 testes em 102
+  arquivos** (11 de integração novos, **vistos reprovando antes** — com a trava desligada, 4 deles
+  reprovam) · **220 do `@app/web`** ·
   na tela, como ROOT: Credenciamento sem botão de percentual, Faturamento com a marca e o
   interruptor, a ficha do cliente idem, o Recibo com *"Forma de pagamento: PIX"* fixo e o contrato
   com a frase do PIX. **Zero erro de console.**
 
+- **🕳️ OS TRÊS ACHADOS DA REVISÃO VIERAM DA PRÓPRIA CORREÇÃO — a lição da rodada, de novo.** Três
+  revisores especialistas rodaram; **dois acharam os mesmos dois itens, independentemente**.
+  (1) ⚠️ **O editor de preço da ficha apagava dinheiro contratado, em silêncio**: a migração marca o
+  CATÁLOGO e nunca olha o que cada cliente contratou, então abrir o modal só para **conferir** e
+  clicar em Salvar mandava `percentual: null` — e o servidor aceita, porque **remover** percentual
+  não viola trava nenhuma. Hoje há faixa âmbar com o que está gravado, e o **Salvar só libera
+  depois de informar o valor fixo que entra no lugar**. (2) ⚠️ **A TERCEIRA PORTA: o aceite da
+  proposta** copiava o item do documento para `ClienteServico` sem trava — e **recusa**, não
+  "descarta em silêncio", porque descartar deixaria a proposta ser aceita cobrando outro preço que
+  não o do papel assinado. (3) ⚠️ **O contrato gerado pelo painel do lead sairia com
+  "(a preencher)"**: ele nasce por **duas portas**, e só uma resolvia o `{{dadosPagamento}}` novo.
+- **Mais quatro, menores:** o formulário de serviço **recusava sem mostrar mensagem** (as travas
+  apontam o erro para `percentual`, que é o campo escondido no estado que elas reprovam — Salvar
+  ficava inerte e ninguém descobria por quê) · o botão *"% do faturamento"* **não acendia** em
+  serviço sem percentual · o construtor da proposta de faturamento filtrava por **preço** e abriria
+  vazio no dia em que o percentual ficasse "a combinar" · e o rótulo fixo do recibo era um `<label>`
+  **órfão**.
+- **⚖️ ONDE DISCORDEI DO REVISOR:** ele pediu conferir a **marca única a todo salvamento**, e não só
+  na transição. A preocupação é certa, a cura é pior: com dois marcados, os **dois** ficariam
+  impossíveis de salvar pela tela — **inclusive para desmarcar um** —, e a Thaís ficaria trancada
+  fora de um conserto que só sairia por SQL em produção. Quem impede o estado é a migração
+  **`20260901010500`**, que **PARA a publicação** se o backfill não deixar exatamente um marcado
+  (molde da `20260829210500`, ADR-144).
+
 ### O que falta nesta esteira
 
-- **Revisão dos especialistas, PR e CI.** Depois, o sinal do dono para publicar (ele já disse
-  *"depois de tudo 100% pronto, pode publicar"*).
-- ⚠️ **`email-caixa.integration.test.ts` é intermitente** — falha na suíte cheia e passa 16/16
-  sozinho (76 s de rede contra caixa IMAP real). Não é defeito de aplicação.
+- **PR e CI.** Depois, o sinal do dono para publicar (ele já disse *"depois de tudo 100% pronto,
+  pode publicar"*).
+- ⚠️ **`email-caixa.integration.test.ts` é intermitente** — reprovou uma vez na suíte cheia e passou
+  16/16 sozinho e na rodada final (são 76 s de rede contra caixa IMAP real). Não é defeito de
+  aplicação; se a CI reclamar dele, reexecute antes de investigar.
 - **Segue valendo tudo o que está abaixo**, inclusive as pendências herdadas da ADR-143/144.
 
 ## Estado anterior (2026-08-31 · **v1.4.0 NO AR** — ADR-143 + ADR-144 publicadas)

@@ -790,11 +790,11 @@ export async function criarContrato(input: CriarContratoInput, userId: string) {
   // (`montarDadosPagamento`), e uma tabela pela metade no contrato do cliente é pior que tabela
   // nenhuma. Frase que aponta para um bloco que pode não existir é a forma de o papel do cliente
   // sair dizendo "veja abaixo" com nada abaixo.
-  const dadosBancariosContrato = await prisma.identidadeInstitucional.findUnique({
-    where: { id: "default" },
-    select: { bancoNome: true, bancoAgencia: true, bancoConta: true, bancoTitular: true, pixChave: true },
-  });
-  const tabelaPagamentoContrato = dadosBancariosContrato ? montarDadosPagamento(dadosBancariosContrato) : "";
+  //
+  // ⚠️ SAI DE `identidade`, que já foi carregada acima: `getIdentidade` é um `upsert` do mesmo
+  // registro e já traz os cinco campos bancários. Uma segunda consulta seria um round-trip a
+  // mais e um ramo morto ("e se a linha não existir?" — depois do upsert ela existe sempre).
+  const tabelaPagamentoContrato = montarDadosPagamento(identidade);
 
   const comMarcadores = modelo.corpo
     .replace(/\{\{\s*objeto\s*\}\}/g, objeto)
@@ -1057,6 +1057,11 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
     const identidade = await getIdentidade();
     variaveis.foro = identidade.foro?.trim() || "da comarca do domicílio da CONTRATANTE";
     variaveis.contratada = qualificacaoContratada(identidade);
+    // ⚠️ O CONTRATO NASCE POR DUAS PORTAS, e esta é a segunda: o botão "Gerar contrato" do painel
+    // do lead. `render` troca marcador desconhecido por *(a preencher)*, então sem esta linha o
+    // papel entregue sairia dizendo "Os pagamentos serão realizados exclusivamente por PIX"
+    // seguido de "(a preencher)" — a frase apontando para um bloco que ninguém resolveu.
+    variaveis.dadosPagamento = montarDadosPagamento(identidade);
   }
 
   const conteudo = render(modelo.corpo, variaveis, cliente);

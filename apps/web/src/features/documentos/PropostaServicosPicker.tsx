@@ -1,5 +1,10 @@
 import { useEffect, useMemo, type Dispatch, type SetStateAction } from "react";
-import { ehServicoDeCredenciamento, ehServicoSomentePercentual, temPercentual } from "@app/shared";
+import {
+  ehServicoDeCredenciamento,
+  ehServicoDeFaturamento,
+  ehServicoSomentePercentual,
+  temPercentual,
+} from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -55,9 +60,16 @@ export function PropostaServicosPicker({
 
   const doEscopo = useMemo(() => {
     const todos = servicos.data ?? [];
-    if (escopo === "FATURAMENTO") return todos.filter((s) => ehServicoSomentePercentual(s));
+    // ⚠️ O ESCOPO FATURAMENTO FILTRA PELA MARCA, NÃO PELO PREÇO (ADR-145).
+    //
+    // Antes filtrava por `ehServicoSomentePercentual`, que lê o preço — e o percentual varia por
+    // cliente, então a Thaís pode marcar o serviço e deixar o campo em branco ("a combinar"). Nesse
+    // dia o construtor da proposta de faturamento abriria SEM NENHUM serviço para escolher, e a
+    // tela pareceria quebrada. A identidade do serviço agora tem lugar próprio; é ela que responde
+    // "qual proposta é esta?".
+    if (escopo === "FATURAMENTO") return todos.filter((s) => ehServicoDeFaturamento(s));
     if (escopo === "COMERCIAL")
-      return todos.filter((s) => !ehServicoSomentePercentual(s) && !ehServicoDeCredenciamento(s));
+      return todos.filter((s) => !ehServicoDeFaturamento(s) && !ehServicoDeCredenciamento(s));
     return todos;
   }, [servicos.data, escopo]);
 

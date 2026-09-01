@@ -18,6 +18,7 @@ import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { HintIcon } from "../../components/ui/tooltip";
 import { Textarea } from "../../components/ui/textarea";
 import { Select } from "../../components/ui/select";
 import { Combobox } from "../../components/ui/combobox";
@@ -991,10 +992,24 @@ export function NovoDocumentoDialog({
                 <MoneyInput id="rec-valor" value={reciboValor} onChange={(v) => setReciboValor(v ?? 0)} className="h-9" />
               </div>
               <div className="space-y-1">
-                <Label hint="A MedConsultoria recebe somente por PIX. O recibo sai sempre com esta forma de pagamento — não há o que escolher.">
-                  Forma de pagamento
-                </Label>
-                <p className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm">{FORMA_PAGAMENTO_RECIBO}</p>
+                {/*
+                  ⚠️ `<Label>` aqui viraria um rótulo ÓRFÃO: não há campo para ele apontar, e o
+                  leitor de tela não associaria nem o texto nem a ajuda a coisa nenhuma. Como o
+                  valor é fixo, isto é um par rótulo/valor — e a ligação é feita à mão, por
+                  `aria-labelledby`.
+                */}
+                <div className="flex items-center gap-1.5">
+                  <span id="rec-forma-rotulo" className="text-sm font-medium">
+                    Forma de pagamento
+                  </span>
+                  <HintIcon text="A MedConsultoria recebe somente por PIX. O recibo sai sempre com esta forma de pagamento — não há o que escolher." />
+                </div>
+                <p
+                  aria-labelledby="rec-forma-rotulo"
+                  className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm"
+                >
+                  {FORMA_PAGAMENTO_RECIBO}
+                </p>
               </div>
             </div>
             {reciboValor > 0 && (

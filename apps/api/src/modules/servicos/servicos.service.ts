@@ -115,7 +115,8 @@ export const CONTEUDO_SERVICOS: ServicoSeed[] = [
     nome: "Faturamento",
     categoria: "Faturamento",
     // Faturamento de contas médicas: normalmente um % sobre o valor faturado, cobrado por mês.
-    // (É o único serviço com opção de %.) A Med pode ajustar para valor fixo + % se quiser.
+    // (É o único serviço cobrado por % — a marca `ehFaturamento`, ADR-145. Valor fixo junto
+    // com percentual é recusado pelo servidor desde a ADR-138.)
     valor: null,
     percentual: 5,
     percentualRecorrencia: "MENSAL",
@@ -736,6 +737,9 @@ export async function criarServico(input: {
   ehCredenciamento?: boolean;
   ehFaturamento?: boolean;
 }) {
+  if (input.ehCredenciamento && input.ehFaturamento) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_E_CREDENCIAMENTO });
+  }
   if (input.ehCredenciamento) await recusarSegundaMarcaDeCredenciamento(null);
   if (input.ehFaturamento) {
     await recusarMarcaDeFaturamentoInvalida(null, input.ehCredenciamento === true);
@@ -781,6 +785,12 @@ export async function atualizarServico(
     ehFaturamento?: boolean;
   },
 ) {
+  // ⚠️ A COMBINAÇÃO IMPOSSÍVEL É CONFERIDA ANTES DE TUDO, para a mensagem ser a certa. Sem isto,
+  // um pedido que marque as duas coisas num catálogo que já tem credenciamento respondia "já
+  // existe um credenciamento marcado" — verdadeiro, mas não é o que a pessoa precisa saber.
+  if (dados.ehCredenciamento && dados.ehFaturamento) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_E_CREDENCIAMENTO });
+  }
   if (dados.ehCredenciamento) await recusarSegundaMarcaDeCredenciamento(id);
   // ⚠️ **A TRAVA PRECISA SER AQUI, não só no Zod (ADR-137).** O `refine` do schema só vê o que
   // veio no pedido, e a edição é parcial: mandar só `percentual` num serviço que já tem `valor`
@@ -807,6 +817,18 @@ export async function atualizarServico(
   const marcaDepois = dados.ehFaturamento !== undefined ? dados.ehFaturamento : antes.ehFaturamento;
   const credenciamentoDepois =
     dados.ehCredenciamento !== undefined ? dados.ehCredenciamento : antes.ehCredenciamento;
+  // ⚠️ A UNICIDADE É CONFERIDA NA TRANSIÇÃO desmarcado→marcado, e NÃO a cada salvamento — e a
+  // escolha é deliberada, contra a recomendação de um dos revisores.
+  //
+  // A preocupação dele é real: se DOIS serviços ficassem marcados, conferir só na transição
+  // deixaria o estado proibido virar permanente e mudo, porque salvar qualquer um dos dois
+  // passaria batido. Mas conferir sempre tem um preço pior: com dois marcados, os DOIS ficam
+  // impossíveis de salvar pela tela — inclusive para desmarcar um deles —, e a Thaís fica
+  // trancada do lado de fora de um conserto que só sairia por SQL no banco de produção.
+  //
+  // Quem impede o estado de existir é a migração `20260901010500`, que PARA a publicação se o
+  // backfill não deixar exatamente um marcado. Essa é a defesa certa: acontece antes, uma vez, e
+  // no único caminho pelo qual o estado poderia nascer de verdade.
   if (marcaDepois && !antes.ehFaturamento) {
     await recusarMarcaDeFaturamentoInvalida(id, credenciamentoDepois);
   } else if (marcaDepois && credenciamentoDepois) {

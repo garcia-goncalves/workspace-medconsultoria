@@ -333,6 +333,29 @@ export async function sincronizarServicosContratados(
   }[],
   ator: { id: string },
 ) {
+  // ⚠️ A TERCEIRA PORTA PARA O PERCENTUAL, e a que vem do papel do cliente (ADR-145).
+  //
+  // O aceite copia o item do documento para `ClienteServico`. Travar o catálogo e o editor da
+  // ficha e deixar esta passar seria o modo de falha da ADR-140 outra vez: o cliente passaria a
+  // ser cobrado por percentual num serviço que as duas telas juram ser de valor fixo.
+  //
+  // ⚠️ RECUSA, e não "descarta o percentual em silêncio". Descartar deixaria a proposta ser
+  // aceita cobrando outro preço que não o do papel que o cliente assinou — pior que falhar. Uma
+  // consulta só para o lote, e não uma por item.
+  const marcados = new Set(
+    (
+      await prisma.servico.findMany({
+        where: { id: { in: itens.map((i) => i.servicoId).filter(Boolean) }, ehFaturamento: true },
+        select: { id: true },
+      })
+    ).map((s) => s.id),
+  );
+  for (const it of itens) {
+    if (!it.servicoId) continue;
+    if (percentualForaDoFaturamento({ valor: it.valor, percentual: it.percentual }, marcados.has(it.servicoId))) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
+    }
+  }
   for (const it of itens) {
     if (!it.servicoId) continue;
     // A lista de convênios aceita SUBSTITUI a anterior (`set`), não soma: o cliente que deixou

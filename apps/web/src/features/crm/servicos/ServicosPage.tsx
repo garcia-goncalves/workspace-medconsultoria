@@ -114,15 +114,28 @@ function RecorrenciaSelect({ control, name }: { control: Control<CreateServicoIn
 function PrecoFields({
   control,
   setValue,
+  erroPreco,
 }: {
   control: Control<CreateServicoInput>;
   setValue: UseFormSetValue<CreateServicoInput>;
+  /** A recusa das travas de preço, em português. ⚠️ Ver por que ela é desenhada aqui, abaixo. */
+  erroPreco?: string;
 }) {
   const valor = useWatch({ control, name: "valor" });
   const percentual = useWatch({ control, name: "percentual" });
   const ehFaturamento = useWatch({ control, name: "ehFaturamento" }) === true;
+  /**
+   * ⚠️ A INTENÇÃO DE QUEM CLICOU, separada do preço já digitado.
+   *
+   * Derivar o botão aceso só do preço (`ehServicoSomentePercentual`) tem um furo: num serviço
+   * sem percentual, clicar em "% do faturamento" grava `0`, e `temPercentual` exige `> 0` — o
+   * destaque não mudava, o campo não aparecia, e a tela parecia travada. Com a caixinha nova
+   * isso ficou mais visível, porque o par de botões só existe depois de marcar a marca.
+   */
+  const [querPercentual, setQuerPercentual] = useState(false);
   // Sem a marca, não há escolha a fazer: o serviço é valor fixo, e é só isso que a tela mostra.
-  const mostrarPercentual = ehFaturamento && ehServicoSomentePercentual({ valor, percentual });
+  const mostrarPercentual =
+    ehFaturamento && (querPercentual || ehServicoSomentePercentual({ valor, percentual }));
   // Trocar de forma LIMPA a outra: sem isso o campo escondido continuaria gravado, e o serviço
   // ficaria com as duas cobranças — exatamente o estado que a trava do servidor recusa.
   // Marcar/desmarcar a marca do faturamento. Desmarcar LIMPA o percentual pelo mesmo motivo que
@@ -130,9 +143,13 @@ function PrecoFields({
   // não mostra e o servidor recusa.
   const marcarFaturamento = (marcado: boolean) => {
     setValue("ehFaturamento", marcado, { shouldDirty: true });
-    if (!marcado) setValue("percentual", null, { shouldDirty: true });
+    if (!marcado) {
+      setValue("percentual", null, { shouldDirty: true });
+      setQuerPercentual(false);
+    }
   };
   const trocarPara = (pct: boolean) => {
+    setQuerPercentual(pct);
     if (pct) {
       setValue("valor", null, { shouldDirty: true });
       setValue("percentual", percentual ?? 0, { shouldDirty: true });
@@ -167,6 +184,15 @@ function PrecoFields({
           </span>
         </label>
       </div>
+
+      {/*
+        ⚠️ A RECUSA PRECISA APARECER FORA DO CAMPO, e este é o motivo: as duas travas de preço
+        (valor + percentual juntos, e percentual fora do faturamento) apontam o erro para
+        `percentual` — e `percentual` é justamente o campo que fica ESCONDIDO no estado que elas
+        reprovam. Sem esta linha, o Salvar ficava inerte e a Thaís não descobria por quê: o
+        formulário recusava em silêncio, que é o pior desfecho possível para uma tela de preço.
+      */}
+      {erroPreco && <p className="text-xs text-destructive">{erroPreco}</p>}
 
       {ehFaturamento ? (
         <div className="space-y-1.5">
@@ -310,7 +336,7 @@ function NovoServicoDialog({ open, onClose }: { open: boolean; onClose: () => vo
             ))}
           </Select>
         </div>
-        <PrecoFields control={control} setValue={setValue} />
+        <PrecoFields control={control} setValue={setValue} erroPreco={errors.percentual?.message} />
         <div className="space-y-1.5">
           <Label htmlFor="s-desc">Descrição</Label>
           <Textarea id="s-desc" rows={3} placeholder="O que este serviço inclui…" {...register("descricao")} />
@@ -394,7 +420,7 @@ function DetalhesPanel({
           ))}
         </Select>
       </div>
-      <PrecoFields control={control} setValue={setValue} />
+      <PrecoFields control={control} setValue={setValue} erroPreco={errors.percentual?.message} />
       <div className="space-y-1.5">
         <Label htmlFor="d-desc">Descrição</Label>
         <Textarea id="d-desc" rows={3} placeholder="O que este serviço inclui…" {...register("descricao")} />
