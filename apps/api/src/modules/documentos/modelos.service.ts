@@ -219,6 +219,10 @@ As condições específicas de **cada serviço contratado** estão detalhadas na
 ## 4. Valor e forma de pagamento
 {{valor}}
 
+Os pagamentos serão realizados exclusivamente por **PIX**.
+
+{{dadosPagamento}}
+
 Os valores serão reajustados a cada 12 (doze) meses pela variação acumulada do IPCA/IBGE (ou índice que venha a substituí-lo).
 
 ## 5. Prazo e vigência

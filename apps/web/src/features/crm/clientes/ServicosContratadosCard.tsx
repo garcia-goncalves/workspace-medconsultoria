@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Check, Circle, Loader2, Package, Pencil, PenLine, Plus, Trash2, X } from "lucide-react";
-import { hasRoleLevel, ehServicoSomentePercentual } from "@app/shared";
+import { hasRoleLevel, ehServicoSomentePercentual, ehServicoDeFaturamento } from "@app/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -12,7 +12,7 @@ import { Button } from "../../../components/ui/button";
 import { Label } from "../../../components/ui/label";
 import { Select } from "../../../components/ui/select";
 import { MoneyInput } from "../../../components/ui/money-input";
-import { formatPreco, formatBRL } from "../../../lib/masks";
+import { formatPreco, formatBRL, formatPct } from "../../../lib/masks";
 import { ConveniosPicker } from "../../documentos/ConveniosPicker";
 import { RespostaBriefingDialog } from "./RespostaBriefingDialog";
 
@@ -31,8 +31,30 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
   const [valorRecorrencia, setValorRecorrencia] = useState<"AVULSO" | "MENSAL">(c?.valorRecorrencia ?? "AVULSO");
   const [percentual, setPercentual] = useState<number | undefined>(c?.percentual ?? undefined);
   // O que vale HOJE decide como o modal abre; o botão decide daí em diante.
+  // ⚠️ **QUEM PODE SER PERCENTUAL É A MARCA `Servico.ehFaturamento`** (ordem do dono, 31/08/2026):
+  // só o faturamento médico. Sem a marca não há escolha a oferecer — e oferecê-la aqui seria a
+  // SEGUNDA PORTA para o mesmo estado que a tela de Serviços passou a recusar (ADR-140): a ficha
+  // faria, cliente por cliente, o que o catálogo já não deixa fazer.
+  const podeSerPercentual = ehServicoDeFaturamento(item.servico);
+  /**
+   * ⚠️ O CLIENTE QUE PAGA PERCENTUAL NUM SERVIÇO QUE DEIXOU DE SER PERCENTUAL.
+   *
+   * A migração marca o CATÁLOGO; ela nunca olha o que cada cliente já contratou. Então pode
+   * existir `ClienteServico.percentual > 0` num serviço sem a marca — foi gravado quando a tela
+   * oferecia os dois botões a todo mundo.
+   *
+   * Sem este tratamento, abrir este modal só para CONFERIR o preço e clicar em Salvar mandava
+   * `percentual: null` e apagava a cobrança daquele cliente: sem erro, sem aviso, e o servidor
+   * aceita, porque REMOVER percentual não viola trava nenhuma. Um cliente que rendia todo mês
+   * simplesmente ficaria sem preço.
+   */
+  const percentualOrfao = !podeSerPercentual && (c?.percentual ?? 0) > 0;
+  // Só dá para sair do órfão informando o valor fixo que o substitui — e aí a troca é uma
+  // decisão explícita de quem clicou, dita na faixa amarela, não um efeito de salvar.
+  const bloqueadoPeloOrfao = percentualOrfao && !(valor && valor > 0);
   const [porPercentual, setPorPercentual] = useState(
-    ehServicoSomentePercentual({ valor: c?.valor, percentual: c?.percentual ?? item.servico.percentual }),
+    podeSerPercentual &&
+      ehServicoSomentePercentual({ valor: c?.valor, percentual: c?.percentual ?? item.servico.percentual }),
   );
   const trocarPara = (pct: boolean) => {
     setPorPercentual(pct);
@@ -57,13 +79,16 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
             Cancelar
           </Button>
           <Button
-            disabled={salvar.isPending}
+            disabled={salvar.isPending || bloqueadoPeloOrfao}
             onClick={() =>
               salvar.mutate({
                 clienteId,
                 servicoId: item.servico.id,
                 valor: porPercentual ? null : valor ?? null,
                 valorRecorrencia,
+                // `percentual: null` só sai quando ELE é o que está sendo trocado. No caso órfão,
+                // sair daqui é o que apagava a cobrança em silêncio — e agora o botão só libera
+                // depois de a pessoa informar o valor que entra no lugar.
                 percentual: porPercentual ? percentual ?? null : null,
                 // Só manda a lista quando o campo aparece — proposta/serviço sem convênio não
                 // pode zerar de passagem o que já estava gravado.
@@ -78,19 +103,38 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
     >
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">O que este cliente paga por este serviço. Começa com o valor de referência; ajuste como quiser.</p>
-        <div className="space-y-1.5">
-          <Label hint="Valor fixo: um preço em reais, avulso ou mensal. Percentual: uma fatia do que o cliente fatura, cobrada todo mês. Um serviço é de um jeito ou do outro, nunca dos dois.">
-            Como este cliente paga
-          </Label>
-          <div className="flex gap-2">
-            <Button type="button" size="sm" variant={porPercentual ? "outline" : "default"} onClick={() => trocarPara(false)}>
-              Valor fixo
-            </Button>
-            <Button type="button" size="sm" variant={porPercentual ? "default" : "outline"} onClick={() => trocarPara(true)}>
-              % do faturamento
-            </Button>
+        {podeSerPercentual ? (
+          <div className="space-y-1.5">
+            <Label hint="Valor fixo: um preço em reais, avulso ou mensal. Percentual: uma fatia do que o cliente fatura, cobrada todo mês. Um serviço é de um jeito ou do outro, nunca dos dois.">
+              Como este cliente paga
+            </Label>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant={porPercentual ? "outline" : "default"} onClick={() => trocarPara(false)}>
+                Valor fixo
+              </Button>
+              <Button type="button" size="sm" variant={porPercentual ? "default" : "outline"} onClick={() => trocarPara(true)}>
+                % do faturamento
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : percentualOrfao ? (
+          <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+            <p className="font-medium">
+              Este cliente paga {formatPct(c?.percentual ?? 0)} do faturamento neste serviço.
+            </p>
+            <p>
+              Mas <strong>{item.servico.nome}</strong> não é o serviço de faturamento médico, e só ele é cobrado por
+              percentual. Informe abaixo o <strong>valor fixo</strong> que passa a valer: ao salvar, ele substitui o
+              percentual atual. Enquanto o valor estiver em branco, não dá para salvar — para o percentual não ser
+              apagado sem alguém decidir isso.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Cobrado por <strong className="text-foreground">valor fixo</strong> — avulso (1x) ou mensal. Só o serviço
+            de faturamento médico é cobrado por percentual.
+          </p>
+        )}
         {!porPercentual && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">

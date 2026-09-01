@@ -4774,3 +4774,148 @@ auditorias já estava fechada, e a documentação é que estava velha.
 typecheck 6/6 · lint limpo · **814 testes** do `@app/api` (eram 785; suíte inteira, não
 `test:unit`) · **220** do `@app/web` (eram 213) · cada correção com o teste visto reprovando
 antes, e a migração-guarda provada nos três cenários.
+
+## ADR-145 — Só o faturamento médico é percentual: a marca que decide quem pode, e o fim do cartão no recibo
+
+**Data:** 31/08/2026 · **Origem:** o dono, olhando *Ajustes → Serviços → Credenciamento → Configurar*:
+*"está mostrando PORCENTAGEM e somente o serviço de FATURAMENTO nós recebemos apenas a porcentagem.
+O restante dos serviços são 100% valor fixo (pode ser pagamento avulso ou mensal)"* — e, junto:
+*"não aceitamos cartão (aceitamos somente PIX e essa informação já está nas propostas)"*.
+
+### O problema, e por que ele não dá erro
+
+O preço gravado do credenciamento estava **certo** (R$ 1.500,00 fixo). O que estava errado é que a
+tela **oferecia** o botão *"% do faturamento"* — e oferecia nos **dez** serviços do catálogo, mais
+uma vez em cada ficha de cliente. Trocar a forma de cobrança de um serviço por engano **não produz
+erro nenhum**: muda o preço que sai no papel do cliente, muda a conta a receber, muda a estimativa
+do funil, e os três em silêncio.
+
+O credenciamento é o caso mais caro de errar, porque ele é o único serviço **cobrado só no
+sucesso**: a Med faz o processo inteiro na operadora sem cobrar nada, e o honorário — valor fixo —
+só nasce quando a operadora aprova (ADR-104/108). Um credenciamento marcado como percentual seria
+uma cobrança mensal sobre faturamento por um serviço que pode nunca ser aprovado.
+
+### A decisão: uma MARCA, `Servico.ehFaturamento`
+
+O conserto óbvio seria `categoria === "Faturamento"`. Essa comparação já foi escrita e removida
+**cinco vezes** neste código (ADR-125/126/127/137/138), e a rodada anterior — a ADR-144, de ontem —
+existiu justamente para matar o "casa por nome" no credenciamento. Repeti-la aqui seria reintroduzir
+o defeito recém-pago: bastaria a Thaís corrigir um acento em Ajustes para o dinheiro mudar de regra.
+
+Então é o **mesmo molde da ADR-144**: uma coluna `Servico.ehFaturamento`, com caixinha na tela, que
+responde *"quem PODE ser cobrado por percentual?"*. Migração `20260901010000`, **aditiva**, com o
+backfill na mesma transação; reverter é `DROP COLUMN`.
+
+⚠️ **O backfill NÃO casa por nome — casa por PREÇO.** Marca quem hoje já é cobrado exclusivamente
+por percentual (`percentual > 0 AND (valor IS NULL OR valor = 0)`), que é a mesma pergunta que
+`ehServicoSomentePercentual` faz na aplicação. Assim a marca nasce descrevendo a realidade do banco,
+e não uma suposição sobre como o serviço se chama — que é exatamente o erro que a coluna existe para
+não repetir.
+
+### ⚠️ Duas perguntas diferentes que não podem virar uma
+
+- **`ehServicoDeFaturamento(servico)`** — *quem PODE ser percentual*. Identidade, vem do banco.
+- **`ehServicoSomentePercentual(preço)`** — *como ESTA linha está sendo cobrada*. Vem do registro,
+  e **não mudou uma linha**.
+
+Misturá-las faria a linha de uma proposta antiga trocar de forma sozinha no dia em que alguém
+desmarcasse o serviço. A separação está travada por teste.
+
+### As portas travadas, e por que são quatro
+
+A régua é uma função pura (`percentualForaDoFaturamento`, em `@app/shared`), lida por:
+
+1. **O Zod da criação** — o pedido traz tudo, então o schema já basta.
+2. **O servidor, na criação** — segunda camada, para quem chama a API direto.
+3. **O servidor, na edição** — ⚠️ e aqui o Zod **não serve**: a edição é parcial, e um pedido com
+   só `percentual` não diz se o serviço é o faturamento. A conferência é sobre o **ANTES + o
+   DEPOIS**, mesma forma da trava de `temValorEPercentual` (ADR-138).
+4. **⚠️ A ficha do cliente** (`atualizarContratacaoCliente`) — a **segunda porta** (ADR-140).
+   Travar só o catálogo deixaria a ficha fazer, cliente por cliente, exatamente o que a tela de
+   Serviços passou a recusar.
+
+E duas guardas de estado: **só um serviço marcado** (dois marcados = dois serviços percentuais no
+catálogo, que é o estado que a ordem proíbe) e **nunca faturamento + credenciamento no mesmo
+serviço** (um é percentual todo mês, o outro é fixo pago só no sucesso — não há lado certo para
+errar). ⚠️ **Desmarcar sem limpar o percentual é recusado**, senão o dado ficaria preso: a tela o
+mostraria como valor fixo e o servidor recusaria editá-lo.
+
+### 🕳️ O defeito de brinde: o item do documento não tinha trava nenhuma
+
+A ADR-138 pôs o `refine` de "valor E percentual juntos" nos três schemas de **preço** e deixou de
+fora justamente o `documentoServicoItemSchema` — o que grava a linha da proposta/contrato que vai
+ao cliente e que o **aceite copia** para `ClienteServico`. Um item com os dois imprimiria
+"R$ 3.500,00/mês" e "5% do faturamento" na mesma linha, e faria `ehServicoSomentePercentual` virar
+`false` na contratação: o serviço percentual passaria a ser cobrado por valor fixo, sem erro nenhum.
+Fechado nesta rodada.
+
+### O cartão: a última tela que contradizia o PIX
+
+A ADR-127 tirou "Condições de pagamento" das propostas com a razão de que **não há o que negociar —
+é sempre PIX**. Sobrou uma tela: o **Recibo** oferecia um seletor com *PIX, Dinheiro, Cartão de
+crédito, Cartão de débito, Transferência e Boleto*, e a opção escolhida saía **impressa no papel
+timbrado entregue ao cliente**, dizendo que a Med aceita forma de pagamento que ela não aceita.
+
+Virou constante (`FORMA_PAGAMENTO_RECIBO = "PIX"`), e **não um `<Select>` de um item só**: escolha
+que não existe não é campo de formulário, é informação. Voltar a ter opções significa a empresa
+passar a aceitar outra forma — decisão do dono, não de quem preenche o recibo.
+
+E o **contrato** ganhou o que lhe faltava: a seção *"4. Valor e forma de pagamento"* prometia a
+forma no título e não dizia nenhuma. Agora diz *"Os pagamentos serão realizados exclusivamente por
+**PIX**"* e traz o bloco bancário, como as propostas. ⚠️ **A frase é autossuficiente de propósito**
+— ela não diz "nos dados abaixo", porque o bloco some inteiro quando Ajustes está em branco
+(`montarDadosPagamento`), e frase que aponta para um bloco inexistente é o papel do cliente saindo
+com "veja abaixo" sem nada abaixo. ⚠️ O modelo é **semente atualizável**: `listModelos` reescreve os
+modelos que ninguém editou à mão, então a mudança chega a produção sozinha.
+
+**Fica como está, de propósito:** a categoria *"Cartão de crédito"* do Financeiro — é **despesa**,
+dinheiro que a Med paga, e não tem relação com o que o cliente pode usar para pagar a Med.
+
+### 🕳️ O que a REVISÃO pegou — e os três achados vieram da própria correção
+
+Três revisores especialistas rodaram sobre o commit; dois deles acharam **independentemente** os
+dois primeiros itens, o que é o sinal de que não eram estilo.
+
+1. **O editor de preço da ficha apagava dinheiro contratado, em silêncio** — e a regressão nasceu
+   deste lote. A migração marca o **catálogo**; ela nunca olha o que cada cliente já contratou.
+   Existindo `ClienteServico.percentual > 0` num serviço sem a marca (gravável até ontem), abrir o
+   modal só para **conferir** e clicar em Salvar mandava `percentual: null` — e o servidor aceita,
+   porque **remover** percentual não viola trava nenhuma. O cliente ficava sem preço, sem aviso.
+   Hoje há faixa âmbar dizendo o que está gravado, e **o Salvar só libera depois de informar o
+   valor fixo que entra no lugar**.
+2. **A TERCEIRA PORTA: o aceite da proposta.** `sincronizarServicosContratados` copia o item do
+   documento para `ClienteServico` sem passar por trava nenhuma — travar o catálogo e o editor da
+   ficha e deixar esta aberta é o modo de falha da ADR-140 mais uma vez, e por aqui o preço errado
+   entra vindo do papel que o cliente assinou. ⚠️ **Recusa, e não "descarta o percentual em
+   silêncio"**: descartar deixaria a proposta ser aceita cobrando outro preço que não o do papel.
+3. **O contrato gerado pelo painel do lead sairia com "(a preencher)".** `gerarParaLead` monta o
+   corpo por um mapa de variáveis, e `render` troca marcador desconhecido por *(a preencher)* — o
+   contrato nasce por **duas portas**, e só uma resolvia o `{{dadosPagamento}}` novo. Exatamente o
+   "veja abaixo com nada abaixo" que esta ADR dizia querer evitar.
+
+Mais: **o formulário de serviço recusava sem mostrar mensagem** (as duas travas apontam o erro para
+`percentual`, que é justamente o campo escondido no estado que elas reprovam — Salvar ficava inerte
+e ninguém descobria por quê); o botão *"% do faturamento"* **não acendia** em serviço sem percentual
+(`temPercentual` exige `> 0`); o construtor da proposta de faturamento filtrava por **preço** e
+abriria vazio no dia em que o percentual ficasse "a combinar"; e o rótulo fixo do recibo era um
+`<label>` **órfão**, sem campo a que se associar.
+
+### ⚖️ Onde discordei do revisor, e por quê
+
+Um revisor pediu que a **unicidade da marca** fosse conferida a **todo salvamento**, e não só na
+transição desmarcado→marcado — o argumento sendo que dois marcados virariam estado permanente e
+mudo. A preocupação é certa; a cura é pior que a doença: com dois marcados, os **dois** ficariam
+impossíveis de salvar pela tela, **inclusive para desmarcar um deles**, e a Thaís ficaria trancada
+do lado de fora de um conserto que só sairia por SQL no banco de produção.
+
+Quem impede o estado de existir é a **migração `20260901010500`**, que **PARA a publicação** se o
+backfill não deixar **exatamente um** marcado (molde da `20260829210500`, da ADR-144). Acontece
+antes, uma vez, e no único caminho pelo qual o estado poderia nascer de verdade.
+
+### Provas
+
+typecheck 6/6 · lint limpo · **604 testes de unidade** e **11 de integração novos**, contra o MySQL de
+verdade, **vistos reprovando antes**: com a trava desligada, 4 dos 9 reprovam. Na tela, como ROOT:
+Credenciamento dizendo *"Cobrado por valor fixo — avulso (1x) ou mensal"* sem botão de percentual;
+Faturamento com a marca e o interruptor; a ficha do cliente idem; o Recibo com *"Forma de pagamento:
+PIX"* fixo; e o contrato com a frase do PIX. **Zero erro de console.**

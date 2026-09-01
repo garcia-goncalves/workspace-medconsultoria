@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { celulaGradeSchema } from "./credenciamento.js";
+import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "../estimativa.js";
 
 // ── Assinatura eletrônica (Fase 3) ───────────────────────
 export const assinarSchema = z
@@ -279,6 +280,15 @@ export const documentoServicoItemSchema = z.object({
    * convênios junto, sem uma segunda costura que pudesse ficar para trás.
    */
   conveniosIds: z.array(z.string().min(1)).max(80).optional(),
+}).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
+  // ⚠️ ESTA ERA A PORTA SEM TRAVA. A ADR-138 pôs o `refine` nos três schemas de PREÇO (criar
+  // serviço, editar serviço, contratação do cliente) e deixou este de fora — e ele é o que
+  // grava a linha do documento que vai ao cliente e que o ACEITE copia para `ClienteServico`.
+  // Um item com valor E percentual imprime "R$ 3.500,00/mês" e "5% do faturamento" na mesma
+  // linha da proposta, e faz `ehServicoSomentePercentual` virar `false` na contratação — o
+  // serviço percentual passa a ser cobrado por valor fixo, sem erro nenhum.
+  message: PRECO_VALOR_E_PERCENTUAL,
+  path: ["percentual"],
 });
 export type DocumentoServicoItem = z.infer<typeof documentoServicoItemSchema>;
 

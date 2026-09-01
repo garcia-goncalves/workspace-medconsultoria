@@ -779,9 +779,27 @@ export async function criarContrato(input: CriarContratoInput, userId: string) {
   if (!modelo) throw new TRPCError({ code: "NOT_FOUND", message: "Nenhum modelo de contrato cadastrado." });
 
   // Injeta os blocos ricos (Markdown preservado) e depois resolve {{cliente.*}}/{{data}}.
+  // DADOS PARA PAGAMENTO NO CONTRATO. A seção "Valor e forma de pagamento" prometia a forma de
+  // pagamento no título e não dizia nenhuma: `{{valor}}` traz só o investimento. A Med recebe
+  // **somente por PIX** (ADR-127 — foi por isso que "Condições de pagamento" saiu das
+  // propostas), e o contrato era o único papel que ficava calado sobre isso.
+  //
+  // ⚠️ A frase do PIX está no MODELO, não aqui, e é INCONDICIONAL e AUTOSSUFICIENTE de propósito:
+  // ela não pode dizer "nos dados abaixo", porque o bloco com banco/agência/conta/chave some
+  // inteiro quando não há nada cadastrado em Ajustes — a mesma regra da proposta
+  // (`montarDadosPagamento`), e uma tabela pela metade no contrato do cliente é pior que tabela
+  // nenhuma. Frase que aponta para um bloco que pode não existir é a forma de o papel do cliente
+  // sair dizendo "veja abaixo" com nada abaixo.
+  //
+  // ⚠️ SAI DE `identidade`, que já foi carregada acima: `getIdentidade` é um `upsert` do mesmo
+  // registro e já traz os cinco campos bancários. Uma segunda consulta seria um round-trip a
+  // mais e um ramo morto ("e se a linha não existir?" — depois do upsert ela existe sempre).
+  const tabelaPagamentoContrato = montarDadosPagamento(identidade);
+
   const comMarcadores = modelo.corpo
     .replace(/\{\{\s*objeto\s*\}\}/g, objeto)
     .replace(/\{\{\s*clausulas_servicos\s*\}\}/g, clausulasServicos)
+    .replace(/\{\{\s*dadosPagamento\s*\}\}/g, tabelaPagamentoContrato)
     .replace(/\{\{\s*valor\s*\}\}/g, valorBloco)
     .replace(/\{\{\s*prazo\s*\}\}/g, prazoTxt)
     .replace(/\{\{\s*foro\s*\}\}/g, foroTxt)
@@ -1039,6 +1057,11 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
     const identidade = await getIdentidade();
     variaveis.foro = identidade.foro?.trim() || "da comarca do domicílio da CONTRATANTE";
     variaveis.contratada = qualificacaoContratada(identidade);
+    // ⚠️ O CONTRATO NASCE POR DUAS PORTAS, e esta é a segunda: o botão "Gerar contrato" do painel
+    // do lead. `render` troca marcador desconhecido por *(a preencher)*, então sem esta linha o
+    // papel entregue sairia dizendo "Os pagamentos serão realizados exclusivamente por PIX"
+    // seguido de "(a preencher)" — a frase apontando para um bloco que ninguém resolveu.
+    variaveis.dadosPagamento = montarDadosPagamento(identidade);
   }
 
   const conteudo = render(modelo.corpo, variaveis, cliente);

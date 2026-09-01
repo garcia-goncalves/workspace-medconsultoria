@@ -52,7 +52,13 @@ beforeAll(async () => {
 
   const s = await criarServico({ nome: `${PFX}-servico`, valor: 1234.56, categoria: "Gestão" });
   servicoId = s.id;
-  const sPct = await criarServico({ nome: `${PFX}-servico-pct`, percentual: 7.5, categoria: "Faturamento" });
+  // ⚠️ CRIADO DIRETO NO BANCO, JÁ MARCADO, e de propósito: desde 31/08/2026 só o serviço marcado
+  // como faturamento médico pode ter percentual, e `criarServico` recusa o resto — a porta do
+  // catálogo é justamente o que está travado. Este teste não é sobre a trava (ela tem teste
+  // próprio em `preco-do-servico.test.ts`); é sobre o caminho do dado depois dela.
+  const sPct = await prisma.servico.create({
+    data: { nome: `${PFX}-servico-pct`, percentual: 7.5, categoria: "Faturamento", ehFaturamento: true },
+  });
   servicoPctId = sPct.id;
 
   const stage =

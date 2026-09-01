@@ -11,7 +11,12 @@ import { config } from "../../config.js";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 import { hojeBRT } from "../../lib/datas.js";
 import { planejarEncerramentoDaCobranca, type PlanoDeEncerramento } from "./encerrar-cobranca.js";
-import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "@app/shared";
+import {
+  temValorEPercentual,
+  PRECO_VALOR_E_PERCENTUAL,
+  percentualForaDoFaturamento,
+  PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
+} from "@app/shared";
 
 /**
  * Visão agregada dos serviços de um cliente (ficha): o catálogo ativo, com o status
@@ -80,6 +85,10 @@ export async function servicosDoCliente(clienteId: string) {
         descricao: s.descricao,
         categoria: s.categoria,
         percentual: emReais(s.percentual),
+        // A marca do faturamento: é ela que decide se o editor de preço desta ficha pode sequer
+        // oferecer "% do faturamento". Sem ela na carga, a tela cairia no percentual do catálogo
+        // e voltaria a oferecer a forma de cobrança que o servidor recusa gravar.
+        ehFaturamento: s.ehFaturamento,
       },
       contratado: c?.status === "ATIVO",
       contratacao: c
@@ -324,6 +333,29 @@ export async function sincronizarServicosContratados(
   }[],
   ator: { id: string },
 ) {
+  // ⚠️ A TERCEIRA PORTA PARA O PERCENTUAL, e a que vem do papel do cliente (ADR-145).
+  //
+  // O aceite copia o item do documento para `ClienteServico`. Travar o catálogo e o editor da
+  // ficha e deixar esta passar seria o modo de falha da ADR-140 outra vez: o cliente passaria a
+  // ser cobrado por percentual num serviço que as duas telas juram ser de valor fixo.
+  //
+  // ⚠️ RECUSA, e não "descarta o percentual em silêncio". Descartar deixaria a proposta ser
+  // aceita cobrando outro preço que não o do papel que o cliente assinou — pior que falhar. Uma
+  // consulta só para o lote, e não uma por item.
+  const marcados = new Set(
+    (
+      await prisma.servico.findMany({
+        where: { id: { in: itens.map((i) => i.servicoId).filter(Boolean) }, ehFaturamento: true },
+        select: { id: true },
+      })
+    ).map((s) => s.id),
+  );
+  for (const it of itens) {
+    if (!it.servicoId) continue;
+    if (percentualForaDoFaturamento({ valor: it.valor, percentual: it.percentual }, marcados.has(it.servicoId))) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
+    }
+  }
   for (const it of itens) {
     if (!it.servicoId) continue;
     // A lista de convênios aceita SUBSTITUI a anterior (`set`), não soma: o cliente que deixou
@@ -572,6 +604,16 @@ export async function atualizarContratacaoCliente(
   };
   if (temValorEPercentual(depois)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_VALOR_E_PERCENTUAL });
+  }
+  // ⚠️ E A MESMA TRAVA DA MARCA: o preço DESTE cliente é a segunda porta para um serviço virar
+  // percentual. Travar só o catálogo deixaria a ficha do cliente fazer, um a um, exatamente o
+  // que a tela de Serviços passou a recusar — o modo de falha da "segunda porta" (ADR-140).
+  const servicoDoContrato = await prisma.servico.findUnique({
+    where: { id: servicoId },
+    select: { ehFaturamento: true },
+  });
+  if (percentualForaDoFaturamento(depois, servicoDoContrato?.ehFaturamento)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
   }
   const data: Record<string, unknown> = {};
   if (dados.valor !== undefined) data.valor = dados.valor ?? null;

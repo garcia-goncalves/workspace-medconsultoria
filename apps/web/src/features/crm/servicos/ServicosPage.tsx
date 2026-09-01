@@ -95,11 +95,18 @@ function RecorrenciaSelect({ control, name }: { control: Control<CreateServicoIn
 /**
  * Preço de REFERÊNCIA de um serviço (ponto de partida editável na proposta e no contrato).
  *
- * ⚠️ **QUEM DECIDE A FORMA DE COBRANÇA É ESTE INTERRUPTOR, NUNCA O NOME DA CATEGORIA (ADR-137).**
- * Aqui morava `categoria === "Faturamento"` — a QUINTA aparição dessa comparação, e a mais a
- * montante de todas: ela impedia um segundo serviço percentual de existir, sumia com o % no dia
- * em que alguém renomeasse a categoria na tela ao lado, e deixava o campo Valor visível
- * justamente no serviço que não tem valor.
+ * ⚠️ **PERCENTUAL SÓ EXISTE NO FATURAMENTO MÉDICO** — ordem do dono (31/08/2026). Todo o resto
+ * do catálogo é valor fixo, avulso ou mensal, **inclusive o credenciamento**, que é valor fixo
+ * cobrado só quando a operadora aprova (ADR-104/108). Até aqui a tela oferecia o botão
+ * "% do faturamento" nos dez serviços, e trocar a forma de cobrança por engano não dá erro
+ * nenhum: muda o preço no papel do cliente, na conta a receber e na estimativa do funil, tudo
+ * em silêncio.
+ *
+ * ⚠️ **QUEM LIBERA O PERCENTUAL É A MARCA `Servico.ehFaturamento`, NUNCA A CATEGORIA.** Aqui
+ * morava `categoria === "Faturamento"` — a QUINTA aparição dessa comparação, e a mais a montante
+ * de todas: bastava renomear a categoria na tela ao lado para o dinheiro mudar de regra. A marca
+ * é o mesmo molde de `ehCredenciamento` (ADR-144), e a caixinha dela mora AQUI DENTRO, colada ao
+ * preço, porque é isto que ela decide — e não numa aba distante onde a consequência não se vê.
  *
  * As duas formas são EXCLUDENTES por construção, porque é isso que a régua do resto da
  * aplicação (`ehServicoSomentePercentual`) assume — e o servidor recusa o contrário.
@@ -107,16 +114,42 @@ function RecorrenciaSelect({ control, name }: { control: Control<CreateServicoIn
 function PrecoFields({
   control,
   setValue,
+  erroPreco,
 }: {
   control: Control<CreateServicoInput>;
   setValue: UseFormSetValue<CreateServicoInput>;
+  /** A recusa das travas de preço, em português. ⚠️ Ver por que ela é desenhada aqui, abaixo. */
+  erroPreco?: string;
 }) {
   const valor = useWatch({ control, name: "valor" });
   const percentual = useWatch({ control, name: "percentual" });
-  const mostrarPercentual = ehServicoSomentePercentual({ valor, percentual });
+  const ehFaturamento = useWatch({ control, name: "ehFaturamento" }) === true;
+  /**
+   * ⚠️ A INTENÇÃO DE QUEM CLICOU, separada do preço já digitado.
+   *
+   * Derivar o botão aceso só do preço (`ehServicoSomentePercentual`) tem um furo: num serviço
+   * sem percentual, clicar em "% do faturamento" grava `0`, e `temPercentual` exige `> 0` — o
+   * destaque não mudava, o campo não aparecia, e a tela parecia travada. Com a caixinha nova
+   * isso ficou mais visível, porque o par de botões só existe depois de marcar a marca.
+   */
+  const [querPercentual, setQuerPercentual] = useState(false);
+  // Sem a marca, não há escolha a fazer: o serviço é valor fixo, e é só isso que a tela mostra.
+  const mostrarPercentual =
+    ehFaturamento && (querPercentual || ehServicoSomentePercentual({ valor, percentual }));
   // Trocar de forma LIMPA a outra: sem isso o campo escondido continuaria gravado, e o serviço
   // ficaria com as duas cobranças — exatamente o estado que a trava do servidor recusa.
+  // Marcar/desmarcar a marca do faturamento. Desmarcar LIMPA o percentual pelo mesmo motivo que
+  // `trocarPara` limpa a outra forma: campo escondido que continua gravado é um preço que a tela
+  // não mostra e o servidor recusa.
+  const marcarFaturamento = (marcado: boolean) => {
+    setValue("ehFaturamento", marcado, { shouldDirty: true });
+    if (!marcado) {
+      setValue("percentual", null, { shouldDirty: true });
+      setQuerPercentual(false);
+    }
+  };
   const trocarPara = (pct: boolean) => {
+    setQuerPercentual(pct);
     if (pct) {
       setValue("valor", null, { shouldDirty: true });
       setValue("percentual", percentual ?? 0, { shouldDirty: true });
@@ -128,22 +161,61 @@ function PrecoFields({
     <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Preço de referência</p>
 
+      {/*
+        A MARCA DO FATURAMENTO. Está aqui, colada ao preço, porque é exatamente isto que ela
+        decide: sem ela, o serviço é valor fixo e não há botão nenhum a apertar. Desmarcá-la
+        limpa o percentual — deixá-lo gravado num serviço que a tela mostra como "valor fixo"
+        prenderia o dado num estado que o servidor recusa editar.
+      */}
       <div className="space-y-1.5">
-        <Label
-          className="text-xs font-normal text-muted-foreground"
-          hint="Valor fixo: um preço em reais, avulso ou mensal. Percentual: uma fatia do que o cliente fatura, cobrada todo mês. Um serviço é de um jeito ou do outro, nunca dos dois."
-        >
-          Como este serviço é cobrado
-        </Label>
-        <div className="flex gap-2">
-          <Button type="button" size="sm" variant={mostrarPercentual ? "outline" : "default"} onClick={() => trocarPara(false)}>
-            Valor fixo
-          </Button>
-          <Button type="button" size="sm" variant={mostrarPercentual ? "default" : "outline"} onClick={() => trocarPara(true)}>
-            % do faturamento
-          </Button>
-        </div>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4"
+            checked={ehFaturamento}
+            onChange={(e) => marcarFaturamento(e.target.checked)}
+          />
+          <span>
+            <span className="font-medium text-foreground">Este é o serviço de faturamento médico</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              É o único que pode ser cobrado por <strong>percentual</strong> do que a clínica fatura. Todos os
+              outros serviços têm valor fixo, avulso ou mensal. Só um serviço do catálogo pode estar marcado.
+            </span>
+          </span>
+        </label>
       </div>
+
+      {/*
+        ⚠️ A RECUSA PRECISA APARECER FORA DO CAMPO, e este é o motivo: as duas travas de preço
+        (valor + percentual juntos, e percentual fora do faturamento) apontam o erro para
+        `percentual` — e `percentual` é justamente o campo que fica ESCONDIDO no estado que elas
+        reprovam. Sem esta linha, o Salvar ficava inerte e a Thaís não descobria por quê: o
+        formulário recusava em silêncio, que é o pior desfecho possível para uma tela de preço.
+      */}
+      {erroPreco && <p className="text-xs text-destructive">{erroPreco}</p>}
+
+      {ehFaturamento ? (
+        <div className="space-y-1.5">
+          <Label
+            className="text-xs font-normal text-muted-foreground"
+            hint="Valor fixo: um preço em reais, avulso ou mensal. Percentual: uma fatia do que o cliente fatura, cobrada todo mês. Um serviço é de um jeito ou do outro, nunca dos dois."
+          >
+            Como este serviço é cobrado
+          </Label>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" variant={mostrarPercentual ? "outline" : "default"} onClick={() => trocarPara(false)}>
+              Valor fixo
+            </Button>
+            <Button type="button" size="sm" variant={mostrarPercentual ? "default" : "outline"} onClick={() => trocarPara(true)}>
+              % do faturamento
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Cobrado por <strong className="text-foreground">valor fixo</strong> — avulso (1x) ou mensal.
+        </p>
+      )}
 
       {!mostrarPercentual && (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -224,7 +296,7 @@ function NovoServicoDialog({ open, onClose }: { open: boolean; onClose: () => vo
 
   useEffect(() => {
     if (open)
-      reset({ nome: "", descricao: "", categoria: "", valor: undefined, valorRecorrencia: "AVULSO", percentual: undefined, percentualRecorrencia: "MENSAL" });
+      reset({ nome: "", descricao: "", categoria: "", valor: undefined, valorRecorrencia: "AVULSO", percentual: undefined, percentualRecorrencia: "MENSAL", ehFaturamento: false });
   }, [open, reset]);
 
   const criar = trpc.servicos.criar.useMutation({ onSuccess: () => (utils.servicos.list.invalidate(), onClose()) });
@@ -264,7 +336,7 @@ function NovoServicoDialog({ open, onClose }: { open: boolean; onClose: () => vo
             ))}
           </Select>
         </div>
-        <PrecoFields control={control} setValue={setValue} />
+        <PrecoFields control={control} setValue={setValue} erroPreco={errors.percentual?.message} />
         <div className="space-y-1.5">
           <Label htmlFor="s-desc">Descrição</Label>
           <Textarea id="s-desc" rows={3} placeholder="O que este serviço inclui…" {...register("descricao")} />
@@ -310,6 +382,7 @@ function DetalhesPanel({
       clausulasContrato: servico.clausulasContrato ?? "",
       condicaoPagamento: servico.condicaoPagamento ?? "",
       ehCredenciamento: servico.ehCredenciamento,
+      ehFaturamento: servico.ehFaturamento,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [servico.id, reset]);
@@ -347,7 +420,7 @@ function DetalhesPanel({
           ))}
         </Select>
       </div>
-      <PrecoFields control={control} setValue={setValue} />
+      <PrecoFields control={control} setValue={setValue} erroPreco={errors.percentual?.message} />
       <div className="space-y-1.5">
         <Label htmlFor="d-desc">Descrição</Label>
         <Textarea id="d-desc" rows={3} placeholder="O que este serviço inclui…" {...register("descricao")} />
