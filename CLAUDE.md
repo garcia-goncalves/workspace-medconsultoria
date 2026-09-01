@@ -13,9 +13,26 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-01 · madrugada · ADR-145 — só o faturamento é percentual, e o cartão saiu do recibo · **NÃO publicado**)
+## Estado atual (2026-09-01 · **v1.5.0 NO AR** — ADR-145 publicada e conferida na tela de produção)
 
 > **Leia a ADR-145 em `docs/DECISIONS.md`.**
+
+- **✅ NO AR DESDE 01/09/2026 às 01:55 (22:55 no servidor) — a v1.5.0.** Publicação `33458713500` no
+  commit `dc1c20a`, por `workflow_dispatch` (o `gh workflow run` **foi barrado para mim de novo**;
+  quem colou o comando foi o dono). CI 3/3 verde **antes** de tocar no servidor, depois 7/7 no
+  deploy: `node_modules preservado` · **`found 0 vulnerabilities`** · **`All migrations have been
+  successfully applied.`** (as duas novas) · boot com **16 portas ouvindo** ·
+  `restart.txt marcado em 2026-08-31 22:55:40` · `/health` = `{"status":"ok"}` · `/` e
+  `/credenciamentos` = **200**. Etiqueta **`v1.5.0`** criada e enviada à mão.
+- **🔑 A PROVA QUE IMPORTAVA, VISTA NA TELA DE PRODUÇÃO COMO ROOT.** Em *Ajustes → Serviços*:
+  **Credenciamento** com a caixa *"Este é o serviço de faturamento médico"* **DESMARCADA** e o texto
+  *"Cobrado por valor fixo — avulso (1x) ou mensal"*, **sem botão nem campo de percentual**; e
+  **Faturamento** com a caixa **MARCADA**, *"% do faturamento"* aceso e **3,5%** (a Thaís ajustou de
+  5% para 3,5%). ⚠️ **A guarda `20260901010500` ter passado é prova por si só**: ela PARA a
+  publicação se o backfill não deixar exatamente um marcado — passou, logo acertou o alvo.
+- **💳 O RECIBO DE PRODUÇÃO ESTÁ FIXO EM PIX**, conferido na tela: o campo mostra `PIX` sem lista
+  para escolher, e a prévia imprime *"**Forma de pagamento:** PIX · **Data:** 31/08/2026"*.
+- **Zero erro de console** nas telas conferidas.
 
 - **Ordem do dono (31/08):** *"em AJUSTES → SERVIÇOS → CREDENCIAMENTO está mostrando PORCENTAGEM, e
   somente o FATURAMENTO nós recebemos apenas a porcentagem. O restante dos serviços são 100% valor
@@ -93,8 +110,13 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ### O que falta nesta esteira
 
-- **PR e CI.** Depois, o sinal do dono para publicar (ele já disse *"depois de tudo 100% pronto,
-  pode publicar"*).
+- ~~**PR e CI.**~~ **FEITO: PR #162, CI 3/3 verde, mesclado em `dc1c20a`.**
+- ~~**Publicar.**~~ **FEITO em 01/09 às 01:55 — é a v1.5.0.**
+- ⚠️ **DOCUMENTO JÁ GERADO NÃO SE CORRIGE SOZINHO.** O modelo do Contrato passou a trazer
+  *"exclusivamente por PIX"* + os dados bancários, e `listModelos` atualiza em produção o que
+  ninguém editou à mão — mas **contrato já emitido guarda o texto de quando foi gerado**. Se um
+  contrato antigo for usado, tem de ser gerado de novo. Hoje só existe **uma** proposta em produção
+  (Clínica na Mooca, 27/08), nenhum contrato.
 - ⚠️ **`email-caixa.integration.test.ts` é intermitente** — reprovou uma vez na suíte cheia e passou
   16/16 sozinho e na rodada final (são 76 s de rede contra caixa IMAP real). Não é defeito de
   aplicação; se a CI reclamar dele, reexecute antes de investigar.
