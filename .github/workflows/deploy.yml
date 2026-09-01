@@ -65,7 +65,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.2"
+          node-version: "20.20.2"
           cache: "pnpm"
 
       - name: 1/7 · Build de produção + bundle auto-contido
