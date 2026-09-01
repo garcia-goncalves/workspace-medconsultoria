@@ -13,7 +13,54 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-01 · **v1.5.0 NO AR** — ADR-145 publicada e conferida na tela de produção)
+## Estado atual (2026-09-01 · noite · ADR-146 — as tres atualizacoes de biblioteca num lote so, e o defeito silencioso que vinha junto)
+
+> **Leia a ADR-146 em `docs/DECISIONS.md`.** **A v1.5.0 continua sendo o que roda em producao** — este
+> lote esta na branch `chore/dependencias-2026-09-01`, nao publicado.
+
+- **Ordem do dono:** *"faca tudo o que for necessario pra deixar 100%"*. Os tres PRs do Renovate (#124
+  vitest 3 por seguranca, #157 ferramentas, #158 atualizacoes menores) viraram **UM** PR. ⚠️ **Nao foi
+  economia de digitacao: cada PR dispara a suite inteira**, e a cota de Actions ja estourou uma vez por
+  causa deste repositorio sozinho (ADR-121).
+- **🔴 O `#158` REPROVAVA A CI, E O MOTIVO NAO ERA O QUE PARECIA.** Quatro erros de tipo em `server.ts`,
+  todos filhos de **um**: o Fastify 5.12 **aposentou o formato numerico do `trustProxy`**, e nos usavamos
+  `trustProxy: 1` desde a ADR-140. ⚠️ **O perigo era o conserto obvio:** calar o compilador mantendo o `1`
+  compila, sobe, e **muda o comportamento em silencio** — na 5.12 o numero passou a **nao confiar em
+  ninguem**, entao atras do LiteSpeed **todo visitante viraria o mesmo IP**. O `req.ip` e a chave dos tres
+  freios da casa (300/min, 8 tentativas de senha, formulario publico) e a **prova gravada** em
+  `Assinatura.ip`: um visitante sozinho trancaria o site para os outros, e a assinatura registraria o IP do
+  servidor. **Sem erro, sem log, sem sintoma.**
+- **🔑 A CURA DESCREVE QUEM E O PROXY, em vez de contar quantos sao.** Nasceu
+  `apps/api/src/lib/proxy-confiavel.ts` com `PROXY_CONFIAVEL = ["loopback", "uniquelocal"]` — loopback
+  porque o LiteSpeed roda na **mesma maquina** que o Node (o mesmo motivo do `SMTP_HOST=localhost`, ADR-122).
+  ⚠️ **E ESTRITAMENTE MAIS SEGURO que o antigo `1`**, que confiava em quem quer que estivesse do outro lado,
+  inclusive um cliente publico direto. **6 testes que exercitam o Fastify de verdade**, um deles sendo a
+  **prova da regressao** (com `1`, o visitante real vira `127.0.0.1`).
+- **🕳️ DOIS DEFEITOS DE TELA QUE SO APARECEM COM BANCO CHEIO** — e essa e a licao da rodada. A regua de
+  responsividade da ADR-143 esta verde na CI porque **a CI semeia um banco novo e a tela nasce vazia**:
+  (1) **`/projetos` a 360px vazava 26px em TODOS os cartoes** — a grade nao declarava coluna no celular, e
+  a trilha implicita `auto` e o min-content do cartao; medido no navegador, **369,8px dentro de 324px**. E o
+  mesmo `min-width:auto` que a ADR-143 matou em `/clientes` e `/modelos`. (2) o link **"Fale com a gente
+  pelo Suporte"** tinha **31px** de altura onde a regua exige 44.
+- **🧩 O ROBO SO ATUALIZA O QUE ELE MESMO ABRE:** o `vitest` subiu para 3 e o `@vitest/coverage-v8` ficou
+  na 2. Alinhado a mao.
+- **Provas:** typecheck 6/6 · lint limpo · **839 testes do `@app/api`** (103 arquivos, suite COMPLETA) ·
+  **220 do `@app/web`** · **109 de ponta a ponta, os 109 verdes** (reprovavam **3** antes das correcoes de
+  tela) · `pnpm audit --prod` = **No known vulnerabilities found** · **artefato de publicacao montado** ·
+  aplicacao local subindo (`/health` = ok).
+- ⚠️ **OBSERVACAO, NAO REGRESSAO:** ao montar o artefato o npm avisa que `sanitize-html@2.17.7` e
+  `cookie@2.0.1` pedem **Node ≥ 22** e rodamos Node 20. Vem de faixa aberta resolvida na hora, entao **ja
+  acontecia na `main`** — inclusive na v1.5.0, que esta no ar funcionando. Anotado para o dia de subir o Node.
+
+### O que falta nesta esteira
+
+- **Abrir o PR e esperar a CI**, depois fechar os tres PRs do Renovate apontando para ele.
+- ⚠️ **CONFERIR DEPOIS DE PUBLICAR:** em `SISTEMA → Sessoes`, os IPs tem de continuar sendo **enderecos
+  publicos de gente**. Se virarem `127.0.0.1` para todo mundo, o LiteSpeed nao fala com o Node por loopback
+  e a regua precisa da faixa daquela conversa.
+- **Publicar so com o sinal do dono.** O `gh workflow run` costuma ser barrado para mim.
+
+## Estado anterior (2026-09-01 · **v1.5.0 NO AR** — ADR-145 publicada e conferida na tela de produção)
 
 > **Leia a ADR-145 em `docs/DECISIONS.md`.**
 

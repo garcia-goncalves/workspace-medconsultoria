@@ -2,7 +2,7 @@
   "name": "workspace-medconsultoria",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@10.34.4",
+  "packageManager": "pnpm@10.34.5",
   "engines": {
     "node": ">=20"
   },
@@ -37,19 +37,19 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
-    "@eslint/js": "9.17.0",
-    "@playwright/test": "1.49.1",
+    "@eslint/js": "9.39.5",
+    "@playwright/test": "1.62.1",
     "@types/node": "^22.10.2",
-    "eslint": "9.17.0",
-    "eslint-config-prettier": "9.1.0",
-    "eslint-plugin-react-hooks": "5.1.0",
-    "eslint-plugin-react-refresh": "0.4.16",
-    "esbuild": "0.28.1",
-    "globals": "15.14.0",
-    "prettier": "3.4.2",
+    "eslint": "9.39.5",
+    "eslint-config-prettier": "9.1.2",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "eslint-plugin-react-refresh": "0.5.5",
+    "esbuild": "0.28.2",
+    "globals": "15.15.0",
+    "prettier": "3.9.6",
     "turbo": "^2.3.3",
     "typescript": "^5.7.2",
-    "typescript-eslint": "8.19.0"
+    "typescript-eslint": "8.69.0"
   },
   "dependencies": {
     "@prisma/client": "6.19.3"
