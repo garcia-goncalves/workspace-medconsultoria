@@ -779,9 +779,27 @@ export async function criarContrato(input: CriarContratoInput, userId: string) {
   if (!modelo) throw new TRPCError({ code: "NOT_FOUND", message: "Nenhum modelo de contrato cadastrado." });
 
   // Injeta os blocos ricos (Markdown preservado) e depois resolve {{cliente.*}}/{{data}}.
+  // DADOS PARA PAGAMENTO NO CONTRATO. A seção "Valor e forma de pagamento" prometia a forma de
+  // pagamento no título e não dizia nenhuma: `{{valor}}` traz só o investimento. A Med recebe
+  // **somente por PIX** (ADR-127 — foi por isso que "Condições de pagamento" saiu das
+  // propostas), e o contrato era o único papel que ficava calado sobre isso.
+  //
+  // ⚠️ A frase do PIX está no MODELO, não aqui, e é INCONDICIONAL e AUTOSSUFICIENTE de propósito:
+  // ela não pode dizer "nos dados abaixo", porque o bloco com banco/agência/conta/chave some
+  // inteiro quando não há nada cadastrado em Ajustes — a mesma regra da proposta
+  // (`montarDadosPagamento`), e uma tabela pela metade no contrato do cliente é pior que tabela
+  // nenhuma. Frase que aponta para um bloco que pode não existir é a forma de o papel do cliente
+  // sair dizendo "veja abaixo" com nada abaixo.
+  const dadosBancariosContrato = await prisma.identidadeInstitucional.findUnique({
+    where: { id: "default" },
+    select: { bancoNome: true, bancoAgencia: true, bancoConta: true, bancoTitular: true, pixChave: true },
+  });
+  const tabelaPagamentoContrato = dadosBancariosContrato ? montarDadosPagamento(dadosBancariosContrato) : "";
+
   const comMarcadores = modelo.corpo
     .replace(/\{\{\s*objeto\s*\}\}/g, objeto)
     .replace(/\{\{\s*clausulas_servicos\s*\}\}/g, clausulasServicos)
+    .replace(/\{\{\s*dadosPagamento\s*\}\}/g, tabelaPagamentoContrato)
     .replace(/\{\{\s*valor\s*\}\}/g, valorBloco)
     .replace(/\{\{\s*prazo\s*\}\}/g, prazoTxt)
     .replace(/\{\{\s*foro\s*\}\}/g, foroTxt)

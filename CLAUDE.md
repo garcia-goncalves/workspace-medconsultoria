@@ -13,7 +13,68 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-31 · **v1.4.0 NO AR** — ADR-143 + ADR-144 publicadas)
+## Estado atual (2026-09-01 · madrugada · ADR-145 — só o faturamento é percentual, e o cartão saiu do recibo · **NÃO publicado**)
+
+> **Leia a ADR-145 em `docs/DECISIONS.md`.**
+
+- **Ordem do dono (31/08):** *"em AJUSTES → SERVIÇOS → CREDENCIAMENTO está mostrando PORCENTAGEM, e
+  somente o FATURAMENTO nós recebemos apenas a porcentagem. O restante dos serviços são 100% valor
+  fixo (avulso ou mensal)"* · *"não aceitamos cartão (aceitamos somente PIX)"*. E, sobre o
+  credenciamento: *"é o único serviço que recebemos somente após o sucesso (a operadora aprovar) —
+  fazemos todo o serviço sem cobrar nada"*. ⚠️ **Essa última regra JÁ estava certa no código**
+  (ADR-104/108) e foi reconferida: a conta a receber nasce em
+  `credenciamento-grade.service.ts:331-351`, e a conversão do lead, a contratação pela ficha e o
+  aceite de proposta **excluem o credenciamento explicitamente**. Nada foi mexido lá.
+- **🏷️ O PREÇO GRAVADO DO CREDENCIAMENTO SEMPRE ESTEVE CERTO (R$ 1.500 fixo).** O defeito era a tela
+  **oferecer** o botão *"% do faturamento"* — nos **dez** serviços do catálogo, e de novo em cada
+  ficha de cliente. ⚠️ **Trocar a forma de cobrança por engano não dá erro nenhum:** muda o preço no
+  papel do cliente, a conta a receber e a estimativa do funil, os três em silêncio.
+- **🔑 A CURA É UMA MARCA, `Servico.ehFaturamento` — o mesmo molde da ADR-144, de ontem.**
+  `categoria === "Faturamento"` já foi escrita e removida **cinco vezes** (ADR-125/126/127/137/138);
+  usá-la aqui reintroduziria o "casa por nome" que a rodada anterior pagou para matar. Migração
+  `20260901010000`, **aditiva**, backfill na mesma transação; reverter é `DROP COLUMN`.
+  ⚠️ **O backfill casa por PREÇO, não por nome** (`percentual > 0 AND (valor IS NULL OR valor = 0)`)
+  — a marca nasce descrevendo o banco, não uma suposição sobre como o serviço se chama.
+- **⚠️ SÃO DUAS PERGUNTAS DIFERENTES E NÃO PODEM VIRAR UMA.** `ehServicoDeFaturamento` diz **quem
+  PODE** ser percentual (identidade, do banco); `ehServicoSomentePercentual` diz **como ESTA linha
+  está cobrada** (preço, do registro) e **não mudou uma linha**. Misturá-las faria a linha de uma
+  proposta antiga trocar de forma sozinha no dia em que alguém desmarcasse o serviço.
+- **🚪 QUATRO PORTAS TRAVADAS, e a quarta é a que quase escapa:** o Zod da criação · o servidor na
+  criação · o servidor na **edição** (⚠️ o Zod **não serve** ali: a edição é parcial, e a
+  conferência é sobre o **ANTES + o DEPOIS**) · e **a ficha do cliente**, a *segunda porta* da
+  ADR-140 — travar só o catálogo deixaria a ficha fazer, cliente por cliente, o que a tela de
+  Serviços passou a recusar. Mais duas guardas: **só um serviço marcado** e **nunca faturamento +
+  credenciamento no mesmo serviço**. ⚠️ **Desmarcar sem limpar o percentual é recusado** — senão o
+  dado fica preso: a tela o mostra como valor fixo e o servidor recusa editá-lo.
+- **🕳️ DEFEITO DE BRINDE, achado pela varredura:** o `documentoServicoItemSchema` **não tinha trava
+  nenhuma** contra valor + percentual juntos. A ADR-138 pôs o `refine` nos três schemas de preço e
+  deixou de fora justamente o que grava a linha da proposta/contrato que vai ao cliente — e que o
+  **aceite copia** para `ClienteServico`. Fechado.
+- **💳 O CARTÃO SAIU DO RECIBO.** Era a última tela que contradizia a ADR-127 ("é sempre PIX"): o
+  Recibo oferecia *PIX, Dinheiro, Cartão de crédito, Cartão de débito, Transferência e Boleto*, e a
+  escolha saía **impressa no papel timbrado do cliente**. Virou constante, **não um `<Select>` de um
+  item só** — escolha que não existe é informação, não campo de formulário.
+- **📄 O CONTRATO PASSOU A DIZER PIX.** A seção *"4. Valor e forma de pagamento"* prometia a forma no
+  título e não dizia nenhuma. ⚠️ **A frase é autossuficiente de propósito** — não diz "nos dados
+  abaixo", porque o bloco bancário some inteiro com Ajustes em branco. ⚠️ O modelo é **semente
+  atualizável** (`listModelos` reescreve o que ninguém editou à mão), então chega a produção sozinho.
+- **Fica como está, de propósito:** a categoria *"Cartão de crédito"* do Financeiro — é **despesa**,
+  dinheiro que a Med paga.
+- **Provas:** typecheck 6/6 · lint limpo · **604 testes de unidade** · **9 de integração novos**
+  contra o MySQL de verdade, **vistos reprovando antes** (com a trava desligada, 4 dos 9 reprovam) ·
+  na tela, como ROOT: Credenciamento sem botão de percentual, Faturamento com a marca e o
+  interruptor, a ficha do cliente idem, o Recibo com *"Forma de pagamento: PIX"* fixo e o contrato
+  com a frase do PIX. **Zero erro de console.**
+
+### O que falta nesta esteira
+
+- **Revisão dos especialistas, PR e CI.** Depois, o sinal do dono para publicar (ele já disse
+  *"depois de tudo 100% pronto, pode publicar"*).
+- ⚠️ **`email-caixa.integration.test.ts` é intermitente** — falha na suíte cheia e passa 16/16
+  sozinho (76 s de rede contra caixa IMAP real). Não é defeito de aplicação.
+- **Segue valendo tudo o que está abaixo**, inclusive as pendências herdadas da ADR-143/144.
+
+## Estado anterior (2026-08-31 · **v1.4.0 NO AR** — ADR-143 + ADR-144 publicadas)
 
 > **Leia a ADR-144 em `docs/DECISIONS.md`.**
 

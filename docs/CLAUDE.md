@@ -385,10 +385,26 @@ jurídica" em lugar nenhum: `Cliente.tipo` e o enum `ClienteTipo` foram removido
   campos um a um e descartavam o `cnpj` **em silêncio**.
 
 
-## 12.7. O dinheiro que é percentual (ADR-125)
+## 12.7. O dinheiro que é percentual (ADR-125, e a trava da ADR-145)
 
-**Só o Faturamento de contas médicas é 100% percentual hoje** — confirmado pelo dono. Mas
-**nenhuma regra deste projeto casa por esse nome**: quem decide é o preço do serviço
+**Só o faturamento médico é percentual — e desde a ADR-145 isso é uma REGRA, não um retrato.**
+Ordem do dono (31/08/2026): todo o resto do catálogo é valor fixo, avulso ou mensal. Quem libera o
+percentual é a marca **`Servico.ehFaturamento`** (`ehServicoDeFaturamento`, no `shared`), com
+caixinha em Ajustes → Serviços; **só um serviço pode estar marcado**, e nenhum pode ser faturamento
+**e** credenciamento ao mesmo tempo. A trava vale em quatro portas: o Zod da criação, o servidor na
+criação, o servidor na **edição** (sobre o ANTES + o DEPOIS — a edição é parcial) e **a ficha do
+cliente**, que é a segunda porta.
+
+⚠️ **`ehServicoDeFaturamento` e `ehServicoSomentePercentual` respondem perguntas DIFERENTES.** A
+primeira diz *quem pode* ser percentual (identidade, vem do banco); a segunda diz *como esta linha
+está cobrada* (preço, vem do registro) — e **continua igual**. Misturá-las faria a linha de uma
+proposta antiga trocar de forma sozinha no dia em que alguém desmarcasse o serviço.
+
+⚠️ **A marca NÃO é a categoria.** `categoria === "Faturamento"` já foi escrita e removida cinco
+vezes neste código; a marca existe justamente para o nome voltar a ser rótulo editável.
+
+O resto abaixo continua valendo: **nenhuma regra de ESTIMATIVA casa por nome** — quem decide é o
+preço do serviço
 (`valor` × `percentual`), em `planejarEstimativaDoLead` (`packages/shared/src/estimativa.ts`),
 pura e usada pelos DOIS lados — o servidor decide o passo obrigatório do funil, a tela decide qual
 campo mostrar. Duas implementações discordariam no primeiro caso de borda.
@@ -403,6 +419,11 @@ campo mostrar. Duas implementações discordariam no primeiro caso de borda.
   serviço, editável em Serviços — nunca no código, pelo mesmo motivo de `clausulasContrato`.
 - ⚠️ **O total do funil soma mensal com avulso.** Já era assim antes desta mudança (Gestão
   Operacional é R$ 3.500/mês); não foi criado aqui e continua em aberto.
+- **A forma de pagamento é sempre PIX (ADR-127/145).** Não há cartão, boleto nem parcelamento em
+  lugar nenhum que vá ao cliente: a proposta traz `{{dadosPagamento}}`, o contrato diz
+  *"exclusivamente por PIX"* e o **recibo** tem a forma fixa em `PIX` (era um seletor de seis
+  opções que imprimia "Cartão de crédito" no papel timbrado). ⚠️ A categoria *"Cartão de crédito"*
+  do Financeiro é **despesa** — dinheiro que a Med paga — e não tem relação com isto.
 
 ---
 

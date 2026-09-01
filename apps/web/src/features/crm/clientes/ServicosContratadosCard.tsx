@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Check, Circle, Loader2, Package, Pencil, PenLine, Plus, Trash2, X } from "lucide-react";
-import { hasRoleLevel, ehServicoSomentePercentual } from "@app/shared";
+import { hasRoleLevel, ehServicoSomentePercentual, ehServicoDeFaturamento } from "@app/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -31,8 +31,14 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
   const [valorRecorrencia, setValorRecorrencia] = useState<"AVULSO" | "MENSAL">(c?.valorRecorrencia ?? "AVULSO");
   const [percentual, setPercentual] = useState<number | undefined>(c?.percentual ?? undefined);
   // O que vale HOJE decide como o modal abre; o botão decide daí em diante.
+  // ⚠️ **QUEM PODE SER PERCENTUAL É A MARCA `Servico.ehFaturamento`** (ordem do dono, 31/08/2026):
+  // só o faturamento médico. Sem a marca não há escolha a oferecer — e oferecê-la aqui seria a
+  // SEGUNDA PORTA para o mesmo estado que a tela de Serviços passou a recusar (ADR-140): a ficha
+  // faria, cliente por cliente, o que o catálogo já não deixa fazer.
+  const podeSerPercentual = ehServicoDeFaturamento(item.servico);
   const [porPercentual, setPorPercentual] = useState(
-    ehServicoSomentePercentual({ valor: c?.valor, percentual: c?.percentual ?? item.servico.percentual }),
+    podeSerPercentual &&
+      ehServicoSomentePercentual({ valor: c?.valor, percentual: c?.percentual ?? item.servico.percentual }),
   );
   const trocarPara = (pct: boolean) => {
     setPorPercentual(pct);
@@ -78,19 +84,26 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
     >
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">O que este cliente paga por este serviço. Começa com o valor de referência; ajuste como quiser.</p>
-        <div className="space-y-1.5">
-          <Label hint="Valor fixo: um preço em reais, avulso ou mensal. Percentual: uma fatia do que o cliente fatura, cobrada todo mês. Um serviço é de um jeito ou do outro, nunca dos dois.">
-            Como este cliente paga
-          </Label>
-          <div className="flex gap-2">
-            <Button type="button" size="sm" variant={porPercentual ? "outline" : "default"} onClick={() => trocarPara(false)}>
-              Valor fixo
-            </Button>
-            <Button type="button" size="sm" variant={porPercentual ? "default" : "outline"} onClick={() => trocarPara(true)}>
-              % do faturamento
-            </Button>
+        {podeSerPercentual ? (
+          <div className="space-y-1.5">
+            <Label hint="Valor fixo: um preço em reais, avulso ou mensal. Percentual: uma fatia do que o cliente fatura, cobrada todo mês. Um serviço é de um jeito ou do outro, nunca dos dois.">
+              Como este cliente paga
+            </Label>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant={porPercentual ? "outline" : "default"} onClick={() => trocarPara(false)}>
+                Valor fixo
+              </Button>
+              <Button type="button" size="sm" variant={porPercentual ? "default" : "outline"} onClick={() => trocarPara(true)}>
+                % do faturamento
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Cobrado por <strong className="text-foreground">valor fixo</strong> — avulso (1x) ou mensal. Só o serviço
+            de faturamento médico é cobrado por percentual.
+          </p>
+        )}
         {!porPercentual && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">

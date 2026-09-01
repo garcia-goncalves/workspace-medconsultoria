@@ -18,7 +18,11 @@ import { describe, it, expect } from "vitest";
 import {
   atualizarContratacaoClienteSchema,
   createServicoSchema,
+  documentoServicoItemSchema,
+  ehServicoDeFaturamento,
   ehServicoSomentePercentual,
+  percentualForaDoFaturamento,
+  PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
   PRECO_VALOR_E_PERCENTUAL,
   temPercentual,
   temValorEPercentual,
@@ -181,9 +185,89 @@ describe("temValorEPercentual — a trava das duas cobranças juntas", () => {
   });
 
   it("os três schemas aceitam cada cobrança sozinha", () => {
-    expect(createServicoSchema.safeParse({ nome: "Faturamento", percentual: 5 }).success).toBe(true);
+    // ⚠️ O percentual agora exige a MARCA do faturamento (ordem do dono, 31/08/2026). Sem ela,
+    // este mesmo pedido é recusado — é o caso do bloco seguinte.
+    expect(createServicoSchema.safeParse({ nome: "Faturamento", percentual: 5, ehFaturamento: true }).success).toBe(true);
     expect(createServicoSchema.safeParse({ nome: "Gestão", valor: 3500 }).success).toBe(true);
     expect(updateServicoSchema.safeParse({ id: "s1", percentual: 5 }).success).toBe(true);
     expect(atualizarContratacaoClienteSchema.safeParse({ clienteId: "c1", servicoId: "s1", valor: 2500 }).success).toBe(true);
+  });
+});
+
+/**
+ * A MARCA DO FATURAMENTO — quem PODE ser cobrado por percentual.
+ *
+ * Ordem do dono (31/08/2026): a Med recebe percentual do que a clínica fatura **somente** no
+ * faturamento médico; todo o resto do catálogo é valor fixo, avulso ou mensal — inclusive o
+ * credenciamento, que é valor fixo cobrado só quando a operadora aprova.
+ *
+ * O caso que originou: em Ajustes → Serviços, o botão "% do faturamento" aparecia nos DEZ
+ * serviços. Trocar a forma de cobrança de um serviço por engano não produz erro nenhum — muda o
+ * preço no papel do cliente, na conta a receber e na estimativa do funil, tudo em silêncio.
+ *
+ * O que estes testes guardam, e não pode regredir:
+ *  - quem libera é a MARCA (`ehFaturamento`), nunca a categoria nem o nome — a comparação
+ *    `categoria === "Faturamento"` já voltou cinco vezes;
+ *  - a pergunta "quem pode ser percentual" (identidade, do banco) é DIFERENTE de "como esta
+ *    linha está sendo cobrada" (preço, do registro): `ehServicoSomentePercentual` não mudou.
+ */
+describe("percentualForaDoFaturamento — só o faturamento médico é percentual", () => {
+  it("recusa percentual em serviço sem a marca, e aceita com ela", () => {
+    expect(percentualForaDoFaturamento({ valor: null, percentual: 5 }, false)).toBe(true);
+    expect(percentualForaDoFaturamento({ valor: null, percentual: 5 }, true)).toBe(false);
+  });
+
+  it("marca ausente vale como NÃO — o lado que recusa", () => {
+    // `undefined` acontece de verdade: é o que chega quando alguém esquece o campo no `select`.
+    // Errar para o lado de recusar devolve uma mensagem em português; errar para o outro deixa
+    // um serviço virar percentual sem ninguém ter decidido isso.
+    expect(percentualForaDoFaturamento({ valor: null, percentual: 5 }, undefined)).toBe(true);
+    expect(percentualForaDoFaturamento({ valor: null, percentual: 5 }, null)).toBe(true);
+  });
+
+  it("serviço de valor fixo não é afetado, marcado ou não", () => {
+    expect(percentualForaDoFaturamento({ valor: 1500, percentual: null }, false)).toBe(false);
+    expect(percentualForaDoFaturamento({ valor: 1500, percentual: 0 }, false)).toBe(false);
+    expect(percentualForaDoFaturamento({ valor: 1500, percentual: null }, true)).toBe(false);
+  });
+
+  it("a marca lê o campo, nunca o nome nem a categoria", () => {
+    expect(ehServicoDeFaturamento({ ehFaturamento: true })).toBe(true);
+    expect(ehServicoDeFaturamento({ ehFaturamento: false })).toBe(false);
+    expect(ehServicoDeFaturamento(null)).toBe(false);
+    expect(ehServicoDeFaturamento(undefined)).toBe(false);
+  });
+
+  it("o schema de criação recusa percentual sem a marca, em português", () => {
+    const r = createServicoSchema.safeParse({ nome: "Credenciamento médico e odontológico", percentual: 5 });
+    expect(r.success).toBe(false);
+    expect(r.success === false && r.error.issues[0]?.message).toBe(PRECO_PERCENTUAL_SO_NO_FATURAMENTO);
+  });
+
+  it("⚠️ a régua do PREÇO não mudou: quem já é percentual continua sendo lido como percentual", () => {
+    // Esta é a separação que não pode ser perdida. `ehServicoSomentePercentual` responde COMO a
+    // linha está cobrada e continua olhando só o preço — misturá-la com a marca faria a linha de
+    // uma proposta antiga mudar de forma sozinha no dia em que alguém desmarcasse o serviço.
+    expect(ehServicoSomentePercentual({ valor: null, percentual: 5 })).toBe(true);
+    expect(ehServicoSomentePercentual({ valor: 3500, percentual: null })).toBe(false);
+  });
+});
+
+/**
+ * O ITEM DA PROPOSTA/CONTRATO ERA A PORTA SEM TRAVA.
+ *
+ * A ADR-138 pôs o `refine` nos três schemas de PREÇO e deixou de fora justamente o schema que
+ * grava a linha do documento que vai ao cliente — e que o ACEITE copia para `ClienteServico`.
+ */
+describe("documentoServicoItemSchema — valor e percentual juntos no papel do cliente", () => {
+  it("recusa o item com as duas cobranças, em português", () => {
+    const r = documentoServicoItemSchema.safeParse({ servicoId: "s1", valor: 3500, percentual: 5 });
+    expect(r.success).toBe(false);
+    expect(r.success === false && r.error.issues[0]?.message).toBe(PRECO_VALOR_E_PERCENTUAL);
+  });
+
+  it("aceita cada cobrança sozinha", () => {
+    expect(documentoServicoItemSchema.safeParse({ servicoId: "s1", valor: 3500 }).success).toBe(true);
+    expect(documentoServicoItemSchema.safeParse({ servicoId: "s1", valor: 0, percentual: 5 }).success).toBe(true);
   });
 });

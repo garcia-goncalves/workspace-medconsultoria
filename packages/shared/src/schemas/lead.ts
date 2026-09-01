@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { cnpjOpcional } from "./cliente.js";
-import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "../estimativa.js";
+import {
+  temValorEPercentual,
+  PRECO_VALOR_E_PERCENTUAL,
+  percentualForaDoFaturamento,
+  PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
+} from "../estimativa.js";
 
 const emailOpcional = z.union([z.string().trim().toLowerCase().email("E-mail inválido"), z.literal("")]);
 const textoOpcional = z.string().trim().max(2000).optional().or(z.literal(""));
@@ -120,8 +125,21 @@ export const createServicoSchema = z.object({
    * banco de produção.
    */
   ehCredenciamento: z.boolean().optional(),
+  /**
+   * Este serviço é O faturamento médico? É a marca que decide QUEM PODE ser cobrado por
+   * percentual do que a clínica fatura — ordem do dono (31/08/2026): só ele; todo o resto do
+   * catálogo é valor fixo, avulso ou mensal. Só UM serviço pode estar marcado, e nenhum pode ser
+   * faturamento E credenciamento ao mesmo tempo — o servidor recusa as duas coisas.
+   */
+  ehFaturamento: z.boolean().optional(),
 }).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
   message: PRECO_VALOR_E_PERCENTUAL,
+  path: ["percentual"],
+}).refine((v) => !percentualForaDoFaturamento({ valor: v.valor, percentual: v.percentual }, v.ehFaturamento), {
+  // Na CRIAÇÃO o pedido traz tudo, então o Zod já basta. Na edição, não: ela é parcial, e um
+  // pedido com só `percentual` não diz se o serviço é o faturamento — lá quem confere é o
+  // servidor, sobre o ANTES + o DEPOIS. Mesma dupla de camadas de `temValorEPercentual`.
+  message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
   path: ["percentual"],
 });
 export type CreateServicoInput = z.infer<typeof createServicoSchema>;
@@ -148,6 +166,13 @@ export const updateServicoSchema = z.object({
    * banco de produção.
    */
   ehCredenciamento: z.boolean().optional(),
+  /**
+   * Este serviço é O faturamento médico? É a marca que decide QUEM PODE ser cobrado por
+   * percentual do que a clínica fatura — ordem do dono (31/08/2026): só ele; todo o resto do
+   * catálogo é valor fixo, avulso ou mensal. Só UM serviço pode estar marcado, e nenhum pode ser
+   * faturamento E credenciamento ao mesmo tempo — o servidor recusa as duas coisas.
+   */
+  ehFaturamento: z.boolean().optional(),
 }).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
   message: PRECO_VALOR_E_PERCENTUAL,
   path: ["percentual"],

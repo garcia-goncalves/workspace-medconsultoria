@@ -5,7 +5,7 @@ import { UMA_OPERADORA_POR_PROPOSTA } from "@app/shared";
 import { hashPassword } from "../lib/password.js";
 import { criarOperadora, listOperadoras, atualizarOperadora, removerOperadora } from "../modules/documentos/operadoras.service.js";
 import { criarProposta, contextoClienteDoc } from "../modules/documentos/documentos.service.js";
-import { criarServico } from "../modules/servicos/servicos.service.js";
+
 import { sincronizarServicosContratados, servicosDoCliente } from "../modules/servicos/servicos-cliente.service.js";
 import { createLead } from "../modules/leads/leads.service.js";
 
@@ -54,12 +54,19 @@ beforeAll(async () => {
   });
   clienteId = cliente.id;
 
-  const servico = await criarServico({
-    nome: `${PFX}-faturamento`,
-    valor: null,
-    percentual: 5,
-    percentualRecorrencia: "MENSAL",
-    categoria: "Faturamento",
+  // ⚠️ CRIADO DIRETO NO BANCO, JÁ MARCADO, e de propósito: desde 31/08/2026 só o serviço marcado
+  // como faturamento médico pode ter percentual, e `criarServico` recusa o resto — a porta do
+  // catálogo é justamente o que está travado. Este teste não é sobre a trava (ela tem teste
+  // próprio em `preco-do-servico.test.ts`); é sobre o caminho do dado depois dela.
+  const servico = await prisma.servico.create({
+    data: {
+      nome: `${PFX}-faturamento`,
+      valor: null,
+      percentual: 5,
+      percentualRecorrencia: "MENSAL",
+      categoria: "Faturamento",
+      ehFaturamento: true,
+    },
   });
   servicoPercentualId = servico.id;
 

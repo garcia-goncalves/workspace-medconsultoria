@@ -48,7 +48,13 @@ beforeAll(async () => {
   atorId = u.id;
 
   // Um serviço 100% percentual (o formato do Faturamento de contas médicas) e um de preço fixo.
-  const percentual = await criarServico({ nome: `${PFX}-percentual`, valor: null, percentual: 5, categoria: "Faturamento" });
+  // ⚠️ CRIADO DIRETO NO BANCO, JÁ MARCADO, e de propósito: desde 31/08/2026 só o serviço marcado
+  // como faturamento médico pode ter percentual, e `criarServico` recusa o resto — a porta do
+  // catálogo é justamente o que está travado. Este teste não é sobre a trava (ela tem teste
+  // próprio em `preco-do-servico.test.ts`); é sobre o caminho do dado depois dela.
+  const percentual = await prisma.servico.create({
+    data: { nome: `${PFX}-percentual`, valor: null, percentual: 5, percentualRecorrencia: "MENSAL", categoria: "Faturamento", ehFaturamento: true },
+  });
   servicoPercentualId = percentual.id;
   const fixo = await criarServico({ nome: `${PFX}-fixo`, valor: 3500, valorRecorrencia: "MENSAL", categoria: "Gestão" });
   servicoFixoId = fixo.id;

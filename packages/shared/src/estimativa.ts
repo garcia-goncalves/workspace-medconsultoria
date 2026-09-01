@@ -46,6 +46,58 @@ export function ehServicoDeCredenciamento(servico: { ehCredenciamento: boolean }
   return servico?.ehCredenciamento === true;
 }
 
+/**
+ * O nome do faturamento médico no catálogo semeado. Serve para SEMEAR — nunca para decidir
+ * regra de dinheiro em tempo de execução. Quem decide é a marca `Servico.ehFaturamento`.
+ */
+export const NOME_SERVICO_FATURAMENTO = "Faturamento";
+
+/**
+ * Este serviço é o faturamento médico — o ÚNICO que pode ser cobrado por percentual?
+ *
+ * Ordem do dono (31/08/2026): a Med recebe percentual do que a clínica fatura **somente** no
+ * faturamento médico. Todo o resto do catálogo é valor fixo, avulso ou mensal — inclusive o
+ * credenciamento, que é valor fixo cobrado só quando a operadora aprova (ADR-104/108).
+ *
+ * ⚠️ LÊ A MARCA, NUNCA A CATEGORIA. `categoria === "Faturamento"` já foi escrita e removida
+ * CINCO vezes neste código (ADR-125/126/127/137/138): bastava renomear a categoria na tela ao
+ * lado para a forma de cobrança mudar em silêncio. O parâmetro exige o campo de propósito, para
+ * o compilador cobrar o `select` de quem escrever a próxima consulta — esquecê-lo devolveria
+ * `false` calado, e `false` aqui é "este serviço não pode ter percentual".
+ *
+ * ⚠️ NÃO CONFUNDIR COM `ehServicoSomentePercentual`, que responde outra pergunta. Esta diz
+ * QUEM PODE ser percentual (identidade, vem do banco); aquela diz COMO ESTA LINHA está sendo
+ * cobrada (preço, vem do registro). Trocar uma pela outra faria a linha de uma proposta antiga
+ * mudar de forma sozinha.
+ */
+export function ehServicoDeFaturamento(servico: { ehFaturamento: boolean } | null | undefined): boolean {
+  return servico?.ehFaturamento === true;
+}
+
+/**
+ * PERCENTUAL EM SERVIÇO QUE NÃO É O FATURAMENTO — a trava que faltava.
+ *
+ * Devolve `true` quando o estado é proibido: há percentual a cobrar e o serviço não é o
+ * faturamento médico. Os quatro lugares que gravam preço (os dois schemas de serviço, a
+ * contratação do cliente e as duas telas) leem esta mesma função; quatro cópias divergiriam, e
+ * a divergência apareceria como um serviço que a tela mostra por percentual e o servidor grava
+ * como valor fixo.
+ */
+export function percentualForaDoFaturamento(p: PrecoDoServico, ehFaturamento: boolean | null | undefined): boolean {
+  return temPercentual(p) && ehFaturamento !== true;
+}
+
+/** A recusa, escrita para a Thaís ler — nunca "validation error". */
+export const PRECO_PERCENTUAL_SO_NO_FATURAMENTO =
+  "Só o serviço de faturamento médico é cobrado por percentual. Os demais têm valor fixo (avulso ou mensal). Para cobrar este por percentual, marque-o antes como o serviço de faturamento médico, em Ajustes → Serviços.";
+
+/** A recusa de marcar um segundo serviço, ou de marcar o mesmo serviço como as duas coisas. */
+export const MARCA_FATURAMENTO_UNICA = (nomeJaMarcado: string) =>
+  `Já existe um serviço marcado como faturamento médico: "${nomeJaMarcado}". Só pode haver um — desmarque aquele antes de marcar este.`;
+
+export const MARCA_FATURAMENTO_E_CREDENCIAMENTO =
+  "Um serviço não pode ser o faturamento médico e o credenciamento ao mesmo tempo: um é cobrado por percentual todo mês, o outro é valor fixo pago só quando a operadora aprova.";
+
 /** Um serviço do lead, só com o que decide a estimativa. */
 export interface ServicoParaEstimativa {
   nome: string | null;

@@ -11,7 +11,12 @@ import { config } from "../../config.js";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 import { hojeBRT } from "../../lib/datas.js";
 import { planejarEncerramentoDaCobranca, type PlanoDeEncerramento } from "./encerrar-cobranca.js";
-import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "@app/shared";
+import {
+  temValorEPercentual,
+  PRECO_VALOR_E_PERCENTUAL,
+  percentualForaDoFaturamento,
+  PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
+} from "@app/shared";
 
 /**
  * Visão agregada dos serviços de um cliente (ficha): o catálogo ativo, com o status
@@ -80,6 +85,10 @@ export async function servicosDoCliente(clienteId: string) {
         descricao: s.descricao,
         categoria: s.categoria,
         percentual: emReais(s.percentual),
+        // A marca do faturamento: é ela que decide se o editor de preço desta ficha pode sequer
+        // oferecer "% do faturamento". Sem ela na carga, a tela cairia no percentual do catálogo
+        // e voltaria a oferecer a forma de cobrança que o servidor recusa gravar.
+        ehFaturamento: s.ehFaturamento,
       },
       contratado: c?.status === "ATIVO",
       contratacao: c
@@ -572,6 +581,16 @@ export async function atualizarContratacaoCliente(
   };
   if (temValorEPercentual(depois)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_VALOR_E_PERCENTUAL });
+  }
+  // ⚠️ E A MESMA TRAVA DA MARCA: o preço DESTE cliente é a segunda porta para um serviço virar
+  // percentual. Travar só o catálogo deixaria a ficha do cliente fazer, um a um, exatamente o
+  // que a tela de Serviços passou a recusar — o modo de falha da "segunda porta" (ADR-140).
+  const servicoDoContrato = await prisma.servico.findUnique({
+    where: { id: servicoId },
+    select: { ehFaturamento: true },
+  });
+  if (percentualForaDoFaturamento(depois, servicoDoContrato?.ehFaturamento)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
   }
   const data: Record<string, unknown> = {};
   if (dados.valor !== undefined) data.valor = dados.valor ?? null;

@@ -516,6 +516,20 @@ model Servico {
   /// da migração, e a migração seguinte (`20260829210500`) PARA a publicação se nenhuma linha
   /// tiver sido marcada, em vez de deixar o dinheiro sair errado em silêncio.
   ehCredenciamento      Boolean          @default(false)
+  /// ESTE SERVIÇO É O FATURAMENTO MÉDICO? É a marca que decide QUEM PODE SER COBRADO POR
+  /// PERCENTUAL do que a clínica fatura. Ordem do dono (31/08/2026): **só o faturamento médico
+  /// é percentual; todo o resto do catálogo é valor fixo**, avulso ou mensal.
+  /// Existe porque a tela oferecia o botão "% do faturamento" nos DEZ serviços — inclusive no
+  /// credenciamento, que é valor fixo cobrado só no sucesso da operadora. Trocar a forma de
+  /// cobrança de um serviço por engano não dá erro nenhum: muda o preço no papel do cliente, na
+  /// conta a receber e na estimativa do funil, todos em silêncio.
+  /// ⚠️ É uma MARCA, e não `categoria === "Faturamento"`: essa comparação já foi escrita e
+  /// removida CINCO vezes (ADR-125/126/127/137/138) porque bastava renomear a categoria em
+  /// Ajustes para o dinheiro mudar de regra. Mesmo molde de `ehCredenciamento` (ADR-144).
+  /// ⚠️ Só UM serviço pode estar marcado, e nenhum serviço pode ser as DUAS marcas ao mesmo
+  /// tempo — o servidor recusa, dizendo qual já está marcado.
+  /// ⚠️ Quem NÃO está marcado não pode ter `percentual`; o servidor recusa gravar.
+  ehFaturamento         Boolean          @default(false)
   ativo                 Boolean          @default(true)
   ordem                 Int              @default(0)
   createdAt             DateTime         @default(now())

@@ -34,7 +34,21 @@ import { formatBRL, valorPorExtenso } from "../../lib/masks";
 import { data as fmtData } from "../../lib/format-date";
 import { useAuth } from "../../lib/auth-context";
 
-const FORMAS_PAGAMENTO = ["PIX", "Dinheiro", "Cartão de crédito", "Cartão de débito", "Transferência", "Boleto"] as const;
+/**
+ * A FORMA DE PAGAMENTO DO RECIBO É FIXA — a MedConsultoria recebe **somente por PIX**.
+ *
+ * Aqui havia uma lista de seis opções (Dinheiro, Cartão de crédito, Cartão de débito,
+ * Transferência, Boleto), e quem gerasse o recibo podia escolher qualquer uma delas: o texto
+ * escolhido saía impresso no papel timbrado entregue ao cliente, dizendo que a Med aceita uma
+ * forma de pagamento que ela não aceita. O resto da aplicação já assumia PIX-só desde a ADR-127
+ * ("Condições de pagamento" saiu das propostas justamente porque não há o que negociar); a tela
+ * do recibo era a última que contradizia isso.
+ *
+ * É constante, e não um `<Select>` de um item só, porque escolha que não existe não é campo de
+ * formulário — é informação. Voltar a ter opções significa a empresa passar a aceitar outra
+ * forma, e aí a decisão é do dono, não de quem preenche o recibo.
+ */
+const FORMA_PAGAMENTO_RECIBO = "PIX";
 
 /** O que o documento faz na prática (matriz de interação) — chip na prévia. */
 function papelModelo(tipo: TipoModelo): { texto: string; Icon: typeof FileText } {
@@ -131,7 +145,6 @@ export function NovoDocumentoDialog({
   // Recibo
   const [reciboValor, setReciboValor] = useState(0);
   const [reciboReferente, setReciboReferente] = useState("");
-  const [reciboForma, setReciboForma] = useState<string>(FORMAS_PAGAMENTO[0]);
   // Plano de ação
   const [planoObjetivo, setPlanoObjetivo] = useState("");
   const [planoAcoes, setPlanoAcoes] = useState<AcaoLinha[]>([{ acao: "", resp: "", prazo: "" }]);
@@ -167,7 +180,6 @@ export function NovoDocumentoDialog({
     setTopicos("");
     setReciboValor(0);
     setReciboReferente("");
-    setReciboForma(FORMAS_PAGAMENTO[0]);
     setPlanoObjetivo("");
     setPlanoAcoes([{ acao: "", resp: "", prazo: "" }]);
     setPlanoIndicadores("");
@@ -531,7 +543,7 @@ export function NovoDocumentoDialog({
         .replace(/\{\{\s*valor\s*\}\}/g, reciboValor > 0 ? formatBRL(reciboValor) : "_______")
         .replace(/\{\{\s*valor_extenso\s*\}\}/g, valorPorExtenso(reciboValor) || "_______")
         .replace(/\{\{\s*referente\s*\}\}/g, reciboReferente.trim() || "_______")
-        .replace(/\{\{\s*forma_pagamento\s*\}\}/g, reciboForma);
+        .replace(/\{\{\s*forma_pagamento\s*\}\}/g, FORMA_PAGAMENTO_RECIBO);
     }
     if (modo === "PLANO") {
       corpo = corpo
@@ -678,7 +690,7 @@ export function NovoDocumentoDialog({
           valor: formatBRL(reciboValor),
           valor_extenso: valorPorExtenso(reciboValor),
           referente: reciboReferente.trim(),
-          forma_pagamento: reciboForma,
+          forma_pagamento: FORMA_PAGAMENTO_RECIBO,
         },
       });
     } else if (modo === "PLANO") {
@@ -979,14 +991,10 @@ export function NovoDocumentoDialog({
                 <MoneyInput id="rec-valor" value={reciboValor} onChange={(v) => setReciboValor(v ?? 0)} className="h-9" />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="rec-forma">Forma de pagamento</Label>
-                <Select id="rec-forma" value={reciboForma} onChange={(e) => setReciboForma(e.target.value)}>
-                  {FORMAS_PAGAMENTO.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </Select>
+                <Label hint="A MedConsultoria recebe somente por PIX. O recibo sai sempre com esta forma de pagamento — não há o que escolher.">
+                  Forma de pagamento
+                </Label>
+                <p className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm">{FORMA_PAGAMENTO_RECIBO}</p>
               </div>
             </div>
             {reciboValor > 0 && (

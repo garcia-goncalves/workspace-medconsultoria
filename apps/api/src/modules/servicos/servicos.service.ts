@@ -5,6 +5,11 @@ import {
   temValorEPercentual,
   PRECO_VALOR_E_PERCENTUAL,
   NOME_SERVICO_CREDENCIAMENTO,
+  NOME_SERVICO_FATURAMENTO,
+  percentualForaDoFaturamento,
+  PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
+  MARCA_FATURAMENTO_UNICA,
+  MARCA_FATURAMENTO_E_CREDENCIAMENTO,
 } from "@app/shared";
 import { Prisma } from "@prisma/client";
 
@@ -467,9 +472,16 @@ async function semearCatalogoSeFaltar() {
   // SEGUNDO serviço marcado: o clone apareceria no catálogo sem ninguém ter cadastrado, os 14
   // requisitos passariam a ser sincronizados no serviço errado, e o Portal do cliente que
   // contratou o original voltaria a dizer "0/0" com a papelada inteira faltando.
+  //
+  // ⚠️ Vale IGUAL para o faturamento: renomeado na tela, a semeadura criaria um clone marcado, e
+  // aí haveria DOIS serviços percentuais no catálogo — o estado que a ordem do dono proíbe.
   const jaTemCredenciamento = (await prisma.servico.count({ where: { ehCredenciamento: true } })) > 0;
+  const jaTemFaturamento = (await prisma.servico.count({ where: { ehFaturamento: true } })) > 0;
   const faltando = CONTEUDO_SERVICOS.filter(
-    (s) => !existentes.has(s.nome) && !(jaTemCredenciamento && s.nome === NOME_SERVICO_CREDENCIAMENTO),
+    (s) =>
+      !existentes.has(s.nome) &&
+      !(jaTemCredenciamento && s.nome === NOME_SERVICO_CREDENCIAMENTO) &&
+      !(jaTemFaturamento && s.nome === NOME_SERVICO_FATURAMENTO),
   );
   if (faltando.length > 0) {
     await prisma.servico.createMany({
@@ -488,6 +500,10 @@ async function semearCatalogoSeFaltar() {
         // nome canônico para decidi-la, e de propósito: depois disso quem manda é a marca, e o
         // nome vira rótulo editável. Ver `ehServicoDeCredenciamento` em `@app/shared`.
         ehCredenciamento: s.nome === NOME_SERVICO_CREDENCIAMENTO,
+        // A MARCA do faturamento nasce aqui pelo mesmo motivo e com a mesma ressalva: semear é o
+        // único momento em que o nome canônico decide algo. Depois disso quem manda é a marca —
+        // e é ela que libera o percentual deste serviço, e só dele.
+        ehFaturamento: s.nome === NOME_SERVICO_FATURAMENTO,
         // Mantém a ordem canônica do catálogo, independente do que já houvesse no banco.
         ordem: CONTEUDO_SERVICOS.findIndex((c) => c.nome === s.nome),
       })),
@@ -643,6 +659,9 @@ export async function listServicosAtivos() {
       // A marca do credenciamento: a tela usa a MESMA régua do servidor para decidir o campo da
       // estimativa e o que o construtor da proposta oferece (ver `ehServicoDeCredenciamento`).
       ehCredenciamento: true,
+      // A marca do faturamento: decide QUEM PODE ser cobrado por percentual. A tela lê esta
+      // mesma marca para mostrar (ou esconder) o botão "% do faturamento".
+      ehFaturamento: true,
     },
   });
   return servicos.map(mapServico);
@@ -675,6 +694,37 @@ async function recusarSegundaMarcaDeCredenciamento(idSendoEditado: string | null
   }
 }
 
+/**
+ * DOIS SERVIÇOS MARCADOS COMO FATURAMENTO, OU UM SERVIÇO MARCADO COMO AS DUAS COISAS.
+ *
+ * A marca responde "quem pode ser cobrado por percentual?", e a resposta tem de ser uma só: com
+ * dois marcados, a Thaís acabaria com dois serviços percentuais no catálogo — que é exatamente
+ * o que a ordem do dono proíbe — e o segundo passaria a cobrar percentual sem ninguém ter
+ * decidido isso.
+ *
+ * A segunda metade é a combinação impossível: faturamento é percentual todo mês; credenciamento
+ * é valor fixo pago só quando a operadora aprova (ADR-104/108). Um serviço marcado como os dois
+ * ficaria fora da estimativa do funil (regra do credenciamento) E cobrando percentual (regra do
+ * faturamento) — sem lado certo para errar.
+ *
+ * Recusa em vez de desmarcar o outro em silêncio: trocar qual serviço é o faturamento é decisão
+ * de negócio, não efeito colateral de salvar um formulário.
+ */
+async function recusarMarcaDeFaturamentoInvalida(
+  idSendoEditado: string | null,
+  tambemCredenciamento: boolean,
+) {
+  if (tambemCredenciamento) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_E_CREDENCIAMENTO });
+  }
+  const outro = await prisma.servico.findFirst({
+    where: { ehFaturamento: true, ...(idSendoEditado ? { id: { not: idSendoEditado } } : {}) },
+    orderBy: { createdAt: "asc" },
+    select: { nome: true },
+  });
+  if (outro) throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_UNICA(outro.nome) });
+}
+
 export async function criarServico(input: {
   nome: string;
   descricao?: string | null;
@@ -684,8 +734,17 @@ export async function criarServico(input: {
   percentual?: number | null;
   percentualRecorrencia?: "AVULSO" | "MENSAL";
   ehCredenciamento?: boolean;
+  ehFaturamento?: boolean;
 }) {
   if (input.ehCredenciamento) await recusarSegundaMarcaDeCredenciamento(null);
+  if (input.ehFaturamento) {
+    await recusarMarcaDeFaturamentoInvalida(null, input.ehCredenciamento === true);
+  }
+  // Percentual só existe no faturamento médico. O Zod já recusa na criação (o pedido traz tudo);
+  // esta é a segunda camada, para quem chamar a API direto.
+  if (percentualForaDoFaturamento({ valor: input.valor, percentual: input.percentual }, input.ehFaturamento)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
+  }
   const max = await prisma.servico.aggregate({ _max: { ordem: true } });
   return mapServico(
     await prisma.servico.create({
@@ -698,6 +757,7 @@ export async function criarServico(input: {
         percentual: input.percentual ?? null,
         percentualRecorrencia: input.percentualRecorrencia ?? "MENSAL",
         ehCredenciamento: input.ehCredenciamento ?? false,
+        ehFaturamento: input.ehFaturamento ?? false,
         ordem: (max._max.ordem ?? -1) + 1,
       },
     }),
@@ -718,6 +778,7 @@ export async function atualizarServico(
     condicaoPagamento?: string | null;
     ativo?: boolean;
     ehCredenciamento?: boolean;
+    ehFaturamento?: boolean;
   },
 ) {
   if (dados.ehCredenciamento) await recusarSegundaMarcaDeCredenciamento(id);
@@ -726,7 +787,10 @@ export async function atualizarServico(
   // gravado passaria batido e deixaria o serviço com as duas cobranças — que é o estado que
   // reconfigura preço, proposta, funil e provisão em silêncio. Aqui a conferência é sobre o
   // ANTES + o DEPOIS, que é o que de fato vai ficar na linha.
-  const antes = await prisma.servico.findUnique({ where: { id }, select: { valor: true, percentual: true } });
+  const antes = await prisma.servico.findUnique({
+    where: { id },
+    select: { valor: true, percentual: true, ehCredenciamento: true, ehFaturamento: true },
+  });
   if (!antes) throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado." });
   const depois = {
     valor: dados.valor !== undefined ? dados.valor : emReais(antes.valor),
@@ -734,6 +798,22 @@ export async function atualizarServico(
   };
   if (temValorEPercentual(depois)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_VALOR_E_PERCENTUAL });
+  }
+
+  // ⚠️ MESMA RAZÃO, MESMO LUGAR: a marca do faturamento também é conferida sobre o ANTES + o
+  // DEPOIS. Desmarcar o faturamento sem limpar o percentual, ou pôr percentual num serviço que
+  // já era fixo, são dois pedidos parciais que o `refine` do Zod não consegue ver — e os dois
+  // deixam o catálogo num estado que a tela não sabe desenhar.
+  const marcaDepois = dados.ehFaturamento !== undefined ? dados.ehFaturamento : antes.ehFaturamento;
+  const credenciamentoDepois =
+    dados.ehCredenciamento !== undefined ? dados.ehCredenciamento : antes.ehCredenciamento;
+  if (marcaDepois && !antes.ehFaturamento) {
+    await recusarMarcaDeFaturamentoInvalida(id, credenciamentoDepois);
+  } else if (marcaDepois && credenciamentoDepois) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_E_CREDENCIAMENTO });
+  }
+  if (percentualForaDoFaturamento(depois, marcaDepois)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
   }
 
   // O NOME DO SERVIÇO DE CREDENCIAMENTO DEIXOU DE SER REGRA DE COBRANÇA — e por isso não há
@@ -762,6 +842,7 @@ export async function atualizarServico(
   if (dados.condicaoPagamento !== undefined) data.condicaoPagamento = dados.condicaoPagamento?.trim() || null;
   if (dados.ativo !== undefined) data.ativo = dados.ativo;
   if (dados.ehCredenciamento !== undefined) data.ehCredenciamento = dados.ehCredenciamento;
+  if (dados.ehFaturamento !== undefined) data.ehFaturamento = dados.ehFaturamento;
   try {
     return mapServico(await prisma.servico.update({ where: { id }, data }));
   } catch {
