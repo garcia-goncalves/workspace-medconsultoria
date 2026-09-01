@@ -69,6 +69,13 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   Um quarto (#165, pnpm 10.34.5) nasceu de base anterior ao merge e foi fechado por redundancia.
   **A fila do Renovate esta VAZIA** — zero PRs abertos no repositorio.
 - ~~**Publicar.**~~ **FEITO em 01/09 as 21:47 — e a v1.6.0.**
+- ~~**A documentacao do estado.**~~ **FEITO: PR #167, CI verde, mesclado em `919ade2`.**
+- ⚠️ **A "VERIFICACAO VERMELHA DO GITHUB" DE 01/09 E FALSO ALARME, nao investigue de novo.** O unico
+  run reprovado recente e a CI do PR do Renovate `renovate/atualizacoes-menores` (#158, run
+  `33554176740`, 20:14) — **e esse PR foi FECHADO**, substituido pelo #164. Ele reprovava exatamente
+  pelo defeito de tipo do `trustProxy` que a ADR-146 consertou. **A regra que fica: antes de caçar
+  defeito, olhe a BRANCH e o estado do PR daquele run** — painel de repositorio mostra run de branch
+  morta como se fosse a `main`.
 - ~~**Revisao especialista.**~~ **FEITA: `security-reviewer` e `typescript-reviewer`, os dois com
   veredito "pode mergear", zero achado bloqueante.** O de seguranca confirmou, lendo o codigo instalado,
   que **NAO existe segunda porta lendo IP**: os 5 consumidores reais (`Assinatura.ip`,
