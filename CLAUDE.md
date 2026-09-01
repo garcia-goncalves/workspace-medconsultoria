@@ -13,10 +13,20 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-01 · noite · ADR-146 — as tres atualizacoes de biblioteca num lote so, e o defeito silencioso que vinha junto)
+## Estado atual (2026-09-01 · noite · **v1.6.0 NO AR** — ADR-146 publicada)
 
-> **Leia a ADR-146 em `docs/DECISIONS.md`.** **MESCLADA na `main`** (PR #164, squash, CI 3/3 verde,
-> commit `8398a28`). ⚠️ **NAO esta no ar — a v1.5.0 continua sendo o que roda em producao.**
+> **Leia a ADR-146 em `docs/DECISIONS.md`.**
+
+- **✅ NO AR DESDE 01/09/2026 as 21:47 (18:47 no servidor) — a v1.6.0.** Publicacao `33559992003` no
+  commit `225197a`. ⚠️ **O `gh workflow run` PASSOU para mim desta vez** — o placar esta em 2 passagens
+  (26/08, 01/09) contra 2 recusas (27/08, 31/08): **e sorteio, sempre tente**. Suite 3/3 verde **antes**
+  de tocar no servidor, depois no deploy: **`found 0 vulnerabilities`** · **`No pending migrations to
+  apply.`** (correto — o lote **nao tem migracao**) · **`boot OK (16 portas ouvindo)`** ·
+  `restart.txt marcado em 2026-09-01 18:47:40` · `/health` = `{"status":"ok"}` · `/` e
+  `/credenciamentos` = **200**. Etiqueta **`v1.6.0`** criada e enviada a mao.
+- **🖥️ CONFERIDO NA TELA DE PRODUCAO como ROOT:** **uptime de 1m20s**, provando o reinicio; banco
+  **Online, latencia 2ms**; `/projetos` desenhando; **zero erro de console**. Os **7 erros nao
+  resolvidos** seguem sendo os de hospedagem, intocados por ordem do dono.
 
 - **Ordem do dono:** *"faca tudo o que for necessario pra deixar 100%"*. Os tres PRs do Renovate (#124
   vitest 3 por seguranca, #157 ferramentas, #158 atualizacoes menores) viraram **UM** PR. ⚠️ **Nao foi
@@ -58,7 +68,42 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - ~~**Fechar os tres PRs do Renovate.**~~ **FEITO: #124, #157 e #158 fechados apontando para o #164.**
   Um quarto (#165, pnpm 10.34.5) nasceu de base anterior ao merge e foi fechado por redundancia.
   **A fila do Renovate esta VAZIA** — zero PRs abertos no repositorio.
-- ⚠️ **CONFERIR DEPOIS DE PUBLICAR — a linha de base JA FOI MEDIDA em 01/09.** Com a v1.5.0 no ar,
+- ~~**Publicar.**~~ **FEITO em 01/09 as 21:47 — e a v1.6.0.**
+- ~~**Revisao especialista.**~~ **FEITA: `security-reviewer` e `typescript-reviewer`, os dois com
+  veredito "pode mergear", zero achado bloqueante.** O de seguranca confirmou, lendo o codigo instalado,
+  que **NAO existe segunda porta lendo IP**: os 5 consumidores reais (`Assinatura.ip`,
+  `Documento.propostaRespIp`, login, aceite/redefinicao, formulario publico) e o rate-limit global
+  entram todos por `ctx.req.ip`.
+
+### ⚠️ AS TRES PENDENCIAS QUE O REVISOR DE SEGURANCA DEIXOU — a proxima rodada de blindagem
+
+1. **Falta o teste do caso REAL de producao:** peer `127.0.0.1` + `x-forwarded-for:
+   "198.51.100.9, 203.0.113.7"` (forja a esquerda + append do LiteSpeed a direita) tem de devolver
+   `203.0.113.7`. **Os 6 testes atuais usam cabecalho de UM elemento so**, e a regra de precedencia com
+   varios nunca foi travada.
+2. **⚠️ E O LIMITE DA REGUA, QUE NINGUEM TINHA NOTADO:** o `@fastify/proxy-addr` **pula TODOS os
+   privados consecutivos**, nao apenas um — entao `"198.51.100.9, 10.0.0.5"` devolve o valor **forjado**
+   (o `1` antigo pulava so um). **A regua nova so e solida enquanto o LiteSpeed anexar o IP real A
+   DIREITA.** Escrever um teste com esse resultado esperado deixa a dependencia explicita; sem ele,
+   mudar a topologia muda o `req.ip` **em silencio** — o mesmo modo de falha que a ADR-146 veio consertar.
+3. **O teste protege a CONSTANTE, nao o PONTO DE USO.** Quem escrever `trustProxy: true` direto no
+   `Fastify({...})` de `server.ts` nao e reprovado por nada. A casa ja tem o molde: teste que le o TEXTO
+   do arquivo (`apps/web/src/lib/paginas.test.ts:15-20`).
+
+⚠️ **OBSERVACAO DE INFRA, do dono, NAO deste commit:** a API escuta em `0.0.0.0:4319`. Em revenda
+DirectAdmin, se um processo de outro cliente da mesma maquina alcancar essa porta, ele fala como peer
+loopback e o `X-Forwarded-For` dele e aceito. **Nao e regressao** — o `trustProxy: 1` tinha a mesma
+exposicao **e mais uma** (confiava tambem em peer publico, que a regua nova recusa). A cura nao e mexer
+no `trustProxy`: e o LiteSpeed **reescrever** o cabecalho em vez de anexar, ou um cabecalho secreto
+entre proxy e app.
+- 🔴 **A UNICA PROVA QUE FALTA, E ELA PRECISA DE UM LOGIN NOVO.** `SISTEMA → Sessoes` grava o IP **no
+  momento do login**, entao as linhas de la sao todas ANTERIORES a publicacao — elas provam a linha de
+  base, nao o comportamento novo. **Na proxima vez que alguem (o dono ou a Thais) entrar no sistema,
+  abra `SISTEMA → Sessoes` e olhe a linha MAIS NOVA:** o IP tem de ser **publico**. Se vier
+  `127.0.0.1`, o LiteSpeed nao fala com o Node por loopback e os tres freios da casa estao
+  compartilhados entre todos os visitantes. Nao da para eu provar sozinho: entrar exige digitar senha,
+  que e barrado para mim em producao.
+- ⚠️ **A linha de base, para comparar:** Com a v1.5.0 no ar,
   `SISTEMA → Sessoes` de producao mostra **enderecos publicos de gente**: `187.35.35.2` (o dono) e
   `153.67.105.122` (o Andre). **Isso prova que o `X-Forwarded-For` chega hoje.** Depois de publicar, esses
   IPs tem de **continuar publicos**; se virarem `127.0.0.1` para todo mundo, o LiteSpeed nao fala com o
