@@ -4974,9 +4974,12 @@ reimplementacao da regra, porque o que mordeu foi justamente o Fastify mudar o s
 baixo. Um dos seis e a **prova da regressao**: com `trustProxy: 1` na versao atual, o IP do visitante real
 e descartado. Se um dia esse teste passar a ver o visitante, o Fastify voltou atras e a regua pode ser revista.
 
-**⚠️ CONFERIR DEPOIS DE PUBLICAR.** A prova de que a regua acertou o alvo em producao e olhar
-`SISTEMA → Sessoes`: os IPs tem de continuar sendo **enderecos publicos de gente**. Se virarem `127.0.0.1`
-para todo mundo, o LiteSpeed nao fala com o Node por loopback e a regua precisa da faixa daquela conversa.
+**⚠️ CONFERIR DEPOIS DE PUBLICAR, E A LINHA DE BASE JA FOI MEDIDA.** Em 01/09/2026, com a v1.5.0 no ar
+(Fastify 5.9 + `trustProxy: 1`), `SISTEMA → Sessoes` de producao mostrava **enderecos publicos de gente**:
+`187.35.35.2` (o dono) e `153.67.105.122` (o Andre). **Isso prova que o `X-Forwarded-For` chega e que a
+cadeia do proxy funciona hoje.** Depois de publicar, os IPs dessa tabela tem de **continuar publicos**. Se
+virarem `127.0.0.1` para todo mundo, o LiteSpeed nao fala com o Node por loopback e a regua precisa da
+faixa daquela conversa — e ate la os tres freios da casa estao compartilhados entre todos os visitantes.
 
 **Junto no mesmo lote, porque um PR de dependencia ja dispara a suite inteira** (a cota de Actions foi o
 motivo de os tres virarem um so — ADR-121): o `@vitest/coverage-v8` ficou preso na 2 enquanto o `vitest`

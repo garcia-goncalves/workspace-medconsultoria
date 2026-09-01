@@ -55,10 +55,33 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 ### O que falta nesta esteira
 
 - **Abrir o PR e esperar a CI**, depois fechar os tres PRs do Renovate apontando para ele.
-- ⚠️ **CONFERIR DEPOIS DE PUBLICAR:** em `SISTEMA → Sessoes`, os IPs tem de continuar sendo **enderecos
-  publicos de gente**. Se virarem `127.0.0.1` para todo mundo, o LiteSpeed nao fala com o Node por loopback
-  e a regua precisa da faixa daquela conversa.
+- ⚠️ **CONFERIR DEPOIS DE PUBLICAR — a linha de base JA FOI MEDIDA em 01/09.** Com a v1.5.0 no ar,
+  `SISTEMA → Sessoes` de producao mostra **enderecos publicos de gente**: `187.35.35.2` (o dono) e
+  `153.67.105.122` (o Andre). **Isso prova que o `X-Forwarded-For` chega hoje.** Depois de publicar, esses
+  IPs tem de **continuar publicos**; se virarem `127.0.0.1` para todo mundo, o LiteSpeed nao fala com o
+  Node por loopback e a regua precisa da faixa daquela conversa.
 - **Publicar so com o sinal do dono.** O `gh workflow run` costuma ser barrado para mim.
+
+### Conferido em producao nesta janela (01/09, como ROOT), fechando pendencias antigas
+
+- ✅ **`@@unique(nome)` em `Servico` DEIXOU DE SER UM RISCO DESCONHECIDO.** A duvida registrada era que a
+  lista de producao "so e visivel pela pagina publica, que mostra nome mas nao prova unicidade". Lida agora
+  em *Ajustes → Servicos* como ROOT: os **10 servicos tem nomes todos DIFERENTES** (Gestao Operacional ·
+  Faturamento · Credenciamento medico e odontologico · Negociacao com operadoras · Identidade visual
+  (Branding) · Manual da marca · Desenvolvimento de site · Gestao de redes sociais · Conteudo & SEO ·
+  Trafego pago). O indice **nao quebraria a publicacao**. ⚠️ Ressalva honesta: isto e o que a tela mostra;
+  se houver servico arquivado que ela nao lista, ele nao foi visto.
+- ✅ **A PENDENCIA HERDADA C10 E INOFENSIVA HOJE, e da para parar de carrega-la.** O risco era "parcela
+  apagada por reversao antiga passa a ser lida como excluida de proposito". Conferido no Financeiro de
+  producao, nas duas carteiras (Empresa e Pessoal) e com o filtro **Todas**: **R$ 0,00 em tudo e "Nenhuma
+  conta a receber"**. Nao ha conta nenhuma para ser afetada.
+- ❌ **O CELULAR EM PRODUCAO CONTINUA SEM PROVA, e o motivo e o mesmo de 31/08.** O `resize_window` da
+  extensao **responde "sucesso" e a janela NAO muda de tamanho** — a captura seguinte volta 1568x744. A
+  prova de responsividade segue sendo a suite (`responsividade-total.spec.ts`), agora com **dois defeitos
+  reais a menos**. Quem tiver um telefone a mao, olhe.
+- ℹ️ Producao saudavel no momento da conferencia: **uptime 18h22m**, banco **Online com latencia de 1ms**,
+  taxa de erro 0%, **zero erro de console** em Servicos e Financeiro. Os **7 erros nao resolvidos** seguem
+  sendo os de hospedagem, intocados por ordem do dono.
 
 ## Estado anterior (2026-09-01 · **v1.5.0 NO AR** — ADR-145 publicada e conferida na tela de produção)
 
