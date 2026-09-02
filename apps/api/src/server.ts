@@ -18,6 +18,7 @@ import { registrarRotasArquivos } from "./http/uploads.js";
 import { registrarRotaCorpoEmail } from "./http/email-corpo.js";
 import { registrarRotaLinkDeAssinatura } from "./http/link-de-assinatura.js";
 import { registrarRotaAnexoEmail, iniciarLimpezaAnexosTemp } from "./http/email-anexo.js";
+import { registrarRotasDoAgente } from "./http/agent-v1.js";
 import { iniciarExpurgoDeRetencao } from "./modules/sistema/retencao.service.js";
 import { aquecerDefesaDeTempo } from "./modules/auth/auth.service.js";
 import { validarPastaUploads } from "./lib/storage.js";
@@ -131,6 +132,10 @@ registrarRotaLinkDeAssinatura(app);
 // Anexo de e-mail: baixar (stream) e anexar ao escrever (arquivo temporário). Depende do
 // @fastify/multipart registrado dentro de `registrarRotasArquivos`, acima.
 registrarRotaAnexoEmail(app);
+
+// API DO AGENTE (ADR-149): a porta versionada por onde a Cora fala com o Workspace. Fora do
+// tRPC, com contrato OpenAPI publicado, autenticação de serviço + delegação revogável.
+registrarRotasDoAgente(app);
 
 // Em produção, o mesmo processo serve o SPA buildado (copiado para dist/public no build).
 const here = dirname(fileURLToPath(import.meta.url));

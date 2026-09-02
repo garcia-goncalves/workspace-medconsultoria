@@ -127,6 +127,9 @@ model User {
   caixasEmail          CaixaEmail[]
   convidadoPor         User?                  @relation("ConvitePortal", fields: [convidadoPorId], references: [id], onDelete: SetNull)
   convidou             User[]                 @relation("ConvitePortal")
+  // API DO AGENTE (ADR-149): delegações emitidas EM NOME desta pessoa, e as que ela emitiu.
+  delegacoesDeAgente   AgentDelegation[]      @relation("DelegacaoDoUsuario")
+  delegacoesEmitidas   AgentDelegation[]      @relation("DelegacaoEmitidaPor")
 
   @@index([role])
   @@index([clienteId])
@@ -1717,4 +1720,52 @@ model EmailAnexo {
   mensagem EmailMensagem @relation(fields: [mensagemId], references: [id], onDelete: Cascade)
 
   @@index([mensagemId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// API DO AGENTE (ADR-149) — como a Cora fala com o Workspace
+// ─────────────────────────────────────────────────────────────
+
+/// IDENTIDADE DO SERVIÇO que chama a API do agente (hoje: a Cora).
+///
+/// ⚠️ É a metade que responde "QUEM É O PROGRAMA", nunca "QUEM É A PESSOA". As duas coisas são
+/// separadas de propósito: um segredo de serviço vazado não pode virar acesso ao dado de
+/// ninguém sem a delegação da pessoa, e uma delegação vazada não serve a outro programa
+/// (ela é presa a este `AgentClient`).
+model AgentClient {
+  id         String    @id @default(cuid())
+  nome       String    @unique
+  /// SHA-256 do segredo. NUNCA o segredo. Ver o comentário sobre argon2 no serviço.
+  segredoHash String   @unique
+  ativo      Boolean   @default(true)
+  revogadoEm DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  delegacoes AgentDelegation[]
+}
+
+/// DELEGAÇÃO REVOGÁVEL: a pessoa autoriza o serviço a agir em nome dela, por um prazo e com
+/// escopos declarados. É daqui que sai o `requesterUserId` — nunca do corpo da requisição.
+model AgentDelegation {
+  id          String    @id @default(cuid())
+  clientId    String
+  userId      String
+  /// SHA-256 do token. O valor bruto existe só uma vez, na saída do comando que o emitiu.
+  tokenHash   String    @unique
+  /// Escopos separados por espaço (ex.: "tasks:read"). Padrão NEGAR: sem o escopo, 403.
+  escopos     String    @db.Text
+  expiraEm    DateTime
+  revogadaEm  DateTime?
+  criadaPorId String?
+  ultimoUsoEm DateTime?
+  createdAt   DateTime  @default(now())
+
+  client      AgentClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user        User        @relation("DelegacaoDoUsuario", fields: [userId], references: [id], onDelete: Cascade)
+  criadaPor   User?       @relation("DelegacaoEmitidaPor", fields: [criadaPorId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([clientId])
+  @@index([expiraEm])
 }

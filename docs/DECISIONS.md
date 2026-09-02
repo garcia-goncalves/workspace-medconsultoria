@@ -5244,3 +5244,78 @@ apareceu de novo, agora comigo:
     lados. O porquê está escrito no código, onde alguém tentaria de novo.
   - ⚠️ **Isto é a própria lição da rodada aplicada a mim:** a suíte verde não prova que o sistema está certo,
     mas a suíte **vermelha** provou que a minha correção estava.
+
+---
+
+## ADR-149 — A porta por onde a Cora fala com o Workspace: contrato próprio, e delegação que se revoga
+
+**Data:** 02/09/2026 · **Estado:** implementada na branch `feat/api-do-agente-cora-001`, **não publicada** ·
+**Pedido:** ticket `CORA-001` em `med-coordination`, seção 7 do briefing `CORA-MED-START-HERE.md`.
+
+**O contexto.** Está nascendo a **Cora**, uma assistente que a Thaís vai usar por voz e por celular. A Cora é
+outro programa, em outro repositório, escrito por outra sessão. Ela precisa ler as tarefas internas da pessoa
+que está falando com ela — e essa é a primeira vez que algo **de fora** lê dado do Workspace.
+
+**A decisão que veio antes de tudo: NÃO expor o tRPC.** O tRPC daqui é o transporte do nosso próprio navegador
+— fala `superjson`, agrupa chamadas em lote, muda de forma quando refatoramos e não tem contrato publicável.
+Entregá-lo à Cora amarraria os dois sistemas: uma refatoração interna quebraria a assistente, e o nosso
+compilador não avisaria, porque o outro lado nem compila junto. Nasceu `/api/agent/v1`, REST/JSON, com contrato
+OpenAPI versionado em arquivo — e é **o arquivo** que é o contrato, não este código.
+
+**🔑 SÃO DUAS IDENTIDADES, E JUNTÁ-LAS SERIA O DEFEITO.** `AgentClient` responde *"que programa está
+chamando"*; `AgentDelegation` responde *"em nome de que pessoa"*. Com uma coisa só, o segredo do serviço
+viraria, sozinho, acesso ao dado de gente. Separadas: um segredo de serviço vazado não lê a caixa de ninguém
+sem a delegação, e **a delegação é presa ao serviço que a recebeu** — token da Cora não vale para outro
+programa. Migração `20260902200000`, **duas tabelas novas**; reverter são dois `DROP TABLE`.
+
+**⚠️ `userId` NO PAYLOAD NÃO AUTENTICA NADA — e a trava é estrutural, não uma conferência.** O
+`requesterUserId` sai do token e de lugar nenhum mais: a função que lista tarefas recebe o id que a
+autenticação devolveu, e **não existe caminho** para o pedido escolher a pessoa. É a mesma escolha do
+`clienteId` do `portalProcedure` (ADR-128), pelo mesmo motivo: quem pede é a parte interessada em mentir.
+
+**⚠️ A PESSOA É REVALIDADA A CADA CHAMADA, não só na emissão.** Delegação de duas horas emitida de manhã não
+pode continuar valendo depois de o acesso da pessoa cair ao meio-dia. Conferimos, por requisição: delegação
+viva, não revogada, não expirada · usuário ativo, não excluído, sem acesso revogado · papel interno (conta de
+Portal não lê tarefa da equipe) · escopo `tasks:read` presente, com **padrão NEGAR** — escopo novo nasce
+fechado.
+
+**🔐 SHA-256 E NÃO argon2 NOS SEGREDOS — e a escolha é filha direta da ADR-148.** Lá, pôr argon2 no caminho de
+uma conta inexistente transformou uma defesa de privacidade no jeito mais barato de derrubar o processo. Aqui o
+risco seria pior: a API do agente é chamada **em laço por um programa**, não uma vez por dia por uma pessoa. E
+não há o que argon2 resolveria: estes dois segredos são 32 bytes sorteados por nós (256 bits), sem dicionário a
+percorrer. O que protege é a entropia, não a lentidão. **Nenhum dos dois é guardado** — só o hash; o valor
+bruto existe uma vez, na saída do comando que o emitiu.
+
+**🧭 `scope=mine` É "SOU RESPONSÁVEL", NUNCA "TUDO QUE EU POSSO VER".** É a mesma régua da aba *Comigo* da tela
+humana. A diferença importa para ADMIN e ROOT: com a leitura larga, um assistente pessoal despejaria a fila da
+casa inteira na cara de quem só perguntou "o que eu tenho para hoje?".
+
+**📄 CURSOR OPACO E ASSINADO, não base64.** O contrato promete que o cursor é opaco e que adulterá-lo responde
+`400` — e só dá para **recusar** o que dá para **detectar**. Base64 sozinho não detecta nada: todo palpite é
+"válido". O cursor carrega `(createdAt, id)` — par **total**, porque `id` é único — assinado por HMAC com o
+segredo de sessão. Paginação por chave, não por deslocamento: com `skip`, uma tarefa criada entre duas páginas
+empurra a lista e a página seguinte **pula uma linha**, em silêncio.
+
+**⚠️ `limit` FORA DA FAIXA É ERRO, NÃO É APARADO.** Aparar em silêncio faz o consumidor acreditar que recebeu
+500 itens quando recebeu 100 — e a diferença aparece como "sumiu tarefa", muito longe da causa.
+
+**🚨 INDISPONIBILIDADE NUNCA VIRA LISTA VAZIA, e este é o item de maior consequência humana.** `{"items":[]}`
+se lê como *"você não tem nada pendente"* — a frase mais perigosa que um assistente pode dizer errado. Banco
+fora do ar é `503 UPSTREAM_UNAVAILABLE`, e a Cora tem de dizer "não consegui consultar". Há teste que derruba o
+banco de propósito e exige o `503`; com a correção desligada, ele reprova.
+
+**⚖️ USUÁRIO DESATIVADO É `403`, NÃO `401` — e o ticket deixou a escolha comigo.** `401` significa "sua
+credencial não serve, consiga outra", e é o que a Cora faria: pediria renovação, em laço. Mas delegação nova
+para uma pessoa desativada também não vai existir, então o laço nunca fecha. `403` diz a coisa certa: a
+credencial está boa, quem não pode mais é a **pessoa** — pare e avise gente. Fixado no contrato.
+
+**🕳️ O QUE FICOU DE FORA, DE PROPÓSITO:** não há escrita (criar/editar tarefa) — é a Fase 2 do briefing da
+Cora, e ela pede prévia com aprovação e idempotência; não há tela de gestão de delegações (o comando
+`pnpm agente listar/revogar` cobre o desenvolvimento, e a tela entra com o pareamento de dispositivo da Fase
+4); e `Tarefa.descricao` **não** é exposta — é texto livre que pode conter dado de cliente, e minimização de
+dado é a regra da ADR-141.
+
+**Provas:** typecheck 6/6 · lint limpo · **28 testes de integração novos** exercendo o Fastify de verdade
+(`app.inject`) contra o MySQL `_test`, cobrindo os doze casos que o CORA-001 exige · **7 deles vistos
+reprovando** com as travas sabotadas (isolamento e o `503`) · e a rota exercida por **HTTP real** contra a
+aplicação local, com `200`, `401` e `400` conferidos por `curl`.
