@@ -135,6 +135,16 @@ export function PrivacidadePage() {
             daqui.
           </p>
           <p className="mt-2">
+            {/* ⚠️ A peneira de dado pessoal age sobre TEXTO. A transcrição de áudio é uma segunda
+                porta para a OpenAI por natureza — não há como redigir o que ainda não foi
+                transcrito —, e omiti-la faria esta página prometer mais do que o sistema
+                cumpre. Ver ADR-141. */}
+            Nossa equipe também pode transcrever a gravação de uma reunião usando o mesmo
+            fornecedor. Nesse caso o áudio é enviado <strong>como está</strong>: a substituição
+            automática descrita acima age sobre texto e não alcança o que ainda está falado.
+            Gravar uma reunião é decisão de quem participa dela.
+          </p>
+          <p className="mt-2">
             Não vendemos dado pessoal, nem o cedemos para publicidade de terceiros.
           </p>
         </Bloco>

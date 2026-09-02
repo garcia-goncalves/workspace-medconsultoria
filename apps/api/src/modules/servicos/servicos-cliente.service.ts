@@ -442,9 +442,24 @@ async function provisionarUpsellAceito(
 
       // Já existe conta deste serviço para este cliente? Reaceitar a mesma proposta (ou aceitar
       // duas que repetem um serviço) não pode lançar a cobrança de novo.
+      //
+      // ⚠️ A CONFERÊNCIA OLHA DUAS COISAS, e cada uma cobre um período. O `origemServicoId` é o
+      // elo confiável e vale das contas novas em diante. A comparação por TEXTO continua para
+      // as contas ANTIGAS, que nasceram antes da coluna existir — tirá-la abriria justamente a
+      // janela de cobrar duas vezes quem já é cliente há mais tempo.
+      //
+      // E o texto sozinho não bastava: ele embute o nome do cliente, então renomear a clínica
+      // na ficha fazia a conferência deixar de casar com as cobranças anteriores. A segunda
+      // proposta lançava tudo de novo, e duas contas com descrições diferentes não se parecem
+      // com duplicata para quem olha o Financeiro.
       const descricaoBase = sufixoDaCobrancaDoServico(servico?.nome ?? "Serviço", cliente?.nome ?? "cliente");
       const jaTem = await prisma.conta.count({
-        where: { clienteId, tipo: "RECEBER", deletedAt: null, descricao: { endsWith: descricaoBase } },
+        where: {
+          clienteId,
+          tipo: "RECEBER",
+          deletedAt: null,
+          OR: [{ origemServicoId: it.servicoId }, { descricao: { endsWith: descricaoBase } }],
+        },
       });
       if (jaTem > 0) continue;
 
@@ -461,6 +476,7 @@ async function provisionarUpsellAceito(
           clienteId,
           categoriaId,
           recorrencia: mensal ? "MENSAL" : "NENHUMA",
+          origemServicoId: it.servicoId,
           observacoes: "Provisionado quando o cliente aceitou a proposta. Revise o valor e o vencimento.",
         },
       });

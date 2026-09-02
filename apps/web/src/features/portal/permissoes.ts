@@ -23,6 +23,14 @@ const SO_RESPONSAVEL_FAZ: Record<string, string> = {
   retomar: "Só o responsável pela clínica retoma o atendimento",
   solicitarServicos: "Só o responsável pela clínica solicita serviços",
   cancelarServico: "Só o responsável pela clínica cancela um serviço",
+  // Dar e tirar acesso é falar pela clínica: quem entra no Portal enxerga contrato, preço e
+  // documento. `pessoas.*` nunca esteve em `ACOES_LIBERADAS_PARA_EQUIPE` — o servidor sempre
+  // recusou. O que faltava era a tela saber disso ANTES do clique.
+  "pessoas.convidar": "Só o responsável pela clínica convida outras pessoas",
+  "pessoas.alterarPapel": "Só o responsável pela clínica muda o papel de alguém",
+  "pessoas.revogar": "Só o responsável pela clínica revoga um acesso",
+  "pessoas.devolver": "Só o responsável pela clínica devolve um acesso",
+  "pessoas.reenviarConvite": "Só o responsável pela clínica reenvia um convite",
 };
 
 /** Em sessão de suporte a frase é outra: quem está vendo não é da clínica, é da Med. */

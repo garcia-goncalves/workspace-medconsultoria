@@ -132,13 +132,26 @@ function AssinaturasCard({
                       {a.ip ? ` · IP ${a.ip}` : ""}
                       {!a.integro && <span className="text-destructive"> · integridade divergente</span>}
                     </div>
+                  ) : null}
+                  {/* A PROVA DO CONSENTIMENTO. Antes a caixa "li e concordo" era exigida e não
+                      ficava registrada em lugar nenhum — numa assinatura contestada não havia o
+                      que mostrar. "Não registrado" aparece nas assinaturas anteriores a esta
+                      coluna, e é a verdade: elas consentiram, mas a prova não foi guardada. */}
+                  {a.status === "ASSINADO" ? (
+                    <div className="text-xs text-muted-foreground">
+                      {a.consentimentoEm ? (
+                        <>Consentimento registrado em {dataHora(a.consentimentoEm)} · texto v{a.consentimentoVersao}</>
+                      ) : (
+                        <span className="text-warning">Consentimento não registrado (assinatura anterior a este registro)</span>
+                      )}
+                    </div>
                   ) : (
                     <div className="text-xs text-muted-foreground">Aguardando assinatura</div>
                   )}
                 </div>
                 {a.status !== "ASSINADO" && (
                   <a
-                    href={`/assinar/${a.token}`}
+                    href={`/ir/assinar/${a.id}`}
                     target="_blank"
                     rel="noreferrer"
                     className="ml-auto inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/5"

@@ -4,6 +4,7 @@ import { trpc } from "../../lib/trpc";
 import { dataHora } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
 import { SignaturePad, type AssinaturaValor } from "./SignaturePad";
+import { TEXTO_CONSENTIMENTO_ASSINATURA } from "@app/shared";
 
 function Casca({ children }: { children: React.ReactNode }) {
   return (
@@ -188,10 +189,9 @@ export function AssinarPage({ token }: { token: string }) {
                   onChange={(e) => setConsentiu(e.target.checked)}
                   className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
                 />
-                <span className="text-muted-foreground">
-                  Li o documento e concordo em assiná-lo eletronicamente. Entendo que esta assinatura tem validade
-                  jurídica (Lei 14.063/2020).
-                </span>
+                {/* O texto vem do `@app/shared` porque é ELE que fica gravado como prova, por
+                    versão. Escrito aqui, a frase lida e a frase provada podiam divergir. */}
+                <span className="text-muted-foreground">{TEXTO_CONSENTIMENTO_ASSINATURA}</span>
               </label>
 
               {assinar.error && <p className="mt-2 text-sm text-destructive">{assinar.error.message}</p>}

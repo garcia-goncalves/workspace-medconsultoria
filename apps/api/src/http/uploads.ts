@@ -167,10 +167,22 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
     return reply.send({ avatarUrl: salvo.caminho });
   });
 
-  // Serve a foto de perfil de qualquer usuário (aparece em toda a app). Requer login.
+  /**
+   * Serve a foto de perfil (ela aparece em toda a app interna). Requer login.
+   *
+   * ⚠️ **CLIENTE do Portal só enxerga a própria foto.** A app interna mostra avatar de colega
+   * em toda lista — para quem é da casa, isso é o funcionamento normal. Já o cliente de uma
+   * clínica não tem por que alcançar a foto de gente de OUTRA clínica, e a rota devolvia
+   * qualquer uma a qualquer sessão autenticada. É pouco (uma foto, e é preciso ter o id), mas é
+   * dado pessoal atravessando a fronteira que o resto do Portal fecha — e fechar aqui custa
+   * três linhas.
+   */
   app.get<{ Params: { userId: string } }>("/avatar/:userId", async (req, reply) => {
     const user = await usuarioDaRequest(req);
     if (!user) return reply.code(401).send({ error: "Não autenticado." });
+    if (user.role === "CLIENTE" && user.id !== req.params.userId) {
+      return reply.code(403).send({ error: "Sem acesso." });
+    }
     const alvo = await prisma.user.findUnique({ where: { id: req.params.userId }, select: { avatarUrl: true } });
     if (!alvo?.avatarUrl) return reply.code(404).send({ error: "Sem foto." });
     let stream;

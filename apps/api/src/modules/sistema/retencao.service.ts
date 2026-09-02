@@ -42,7 +42,18 @@ export async function expurgarDadosVencidos(agora = new Date()) {
     data: { stack: null },
   });
 
-  return { dias, limite, emails: emails.count, erros: erros.count };
+  // O RASTRO DE ATIVIDADE TAMBÉM PRECISA DE TETO — ele era a única tabela que crescia para
+  // sempre. `ActivityLog` guarda o histórico de quem fez o quê, e boa parte dele nasce de
+  // caminho anônimo (o diagnóstico de login barrado no navegador). Sem expurgo, a tabela cresce
+  // sem limite num MySQL de revenda que já cai por esgotamento de pool — e o painel do ROOT,
+  // que mostra as 60 mais recentes, fica cada vez mais lento para responder a mesma pergunta.
+  //
+  // ⚠️ O prazo é o MESMO do corpo dos e-mails, e isso é deliberado: os dois são registro de
+  // operação, não documento com dever de guarda. Contrato, nota e processo de credenciamento
+  // continuam intocados aqui (ver o aviso no alto deste arquivo).
+  const atividade = await prisma.activityLog.deleteMany({ where: { createdAt: { lt: limite } } });
+
+  return { dias, limite, emails: emails.count, erros: erros.count, atividade: atividade.count };
 }
 
 let intervalo: NodeJS.Timeout | null = null;

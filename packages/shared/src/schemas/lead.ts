@@ -76,8 +76,10 @@ export const capturaLeadSchema = z.object({
   telefone: z.string().trim().max(40).optional().or(z.literal("")),
   empresa: z.string().trim().max(120).optional().or(z.literal("")),
   mensagem: z.string().trim().max(2000).optional().or(z.literal("")),
-  // Serviços marcados no formulário público.
-  servicoIds: z.array(z.string()).optional(),
+  // Serviços marcados no formulário público. O `.max` é o teto: a lista vira `connect` no
+  // `prisma.lead.create`, e sem limite um anônimo mandava um array arbitrário por requisição.
+  // O catálogo real tem uma dezena de itens; 50 é folga larga e ainda assim um teto.
+  servicoIds: z.array(z.string()).max(50).optional(),
   // Rastreamento de atribuição (preenchido automaticamente pelo formulário).
   utmSource: z.string().max(200).optional(),
   utmMedium: z.string().max(200).optional(),

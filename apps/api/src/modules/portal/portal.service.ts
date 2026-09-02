@@ -65,7 +65,7 @@ export async function resumo(
   const podeAssinar = podeAssinarPelaClinica(sessao).pode;
   const agora = new Date();
   const [cliente, projetos, documentos, reunioes, leadAtivo, totalEtapas, paraAssinar, leadPerdido, cardsAguardando, propostasPendentes] = await Promise.all([
-    prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
+    prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true, situacaoComercial: true } }),
     prisma.projeto.findMany({
       where: { clienteId, deletedAt: null },
       select: {
@@ -193,9 +193,16 @@ export async function resumo(
     reunioes,
     atendimento,
     // O prospect pode desistir enquanto há atendimento ativo; se já desistiu (e não há
-    // atendimento ativo), pode retomar. Cliente pleno (sem lead no funil) não vê nada disso.
-    podeDesistir: !!leadAtivo,
-    atendimentoEncerrado: !leadAtivo && !!leadPerdido,
+    // atendimento ativo), pode retomar.
+    //
+    // ⚠️ **CLIENTE JÁ ATIVO NÃO DESISTE — ele cancela um serviço.** `leadAtivo` sozinho não
+    // distingue os dois casos: um cliente que já paga também aparece no funil quando há um
+    // UPSELL em negociação. Para ele, "Não tenho mais interesse" fica ao lado da barra de
+    // etapas do upsell mas encerra o LEAD — e a frase, lida por quem já é cliente, promete
+    // encerrar o atendimento inteiro. Cancelar o que está contratado tem porta própria, em
+    // "Meus serviços", com aviso e confirmação.
+    podeDesistir: !!leadAtivo && cliente?.situacaoComercial !== "ATIVO",
+    atendimentoEncerrado: !leadAtivo && !!leadPerdido && cliente?.situacaoComercial !== "ATIVO",
     // Serviços que o cliente já pediu (pré-marca no autosserviço e mostra no atendimento).
     servicosAtuais: leadAtivo?.servicos ?? [],
     podeAssinar,

@@ -16,6 +16,7 @@ import { createContext } from "./trpc/context.js";
 import { initRealtime } from "./realtime/socket.js";
 import { registrarRotasArquivos } from "./http/uploads.js";
 import { registrarRotaCorpoEmail } from "./http/email-corpo.js";
+import { registrarRotaLinkDeAssinatura } from "./http/link-de-assinatura.js";
 import { registrarRotaAnexoEmail, iniciarLimpezaAnexosTemp } from "./http/email-anexo.js";
 import { iniciarExpurgoDeRetencao } from "./modules/sistema/retencao.service.js";
 import { validarPastaUploads } from "./lib/storage.js";
@@ -124,6 +125,7 @@ await registrarRotasArquivos(app);
 // Corpo do e-mail em documento próprio, com CSP própria (o `srcdoc` herdaria a CSP da app e
 // bloquearia a imagem remota mesmo depois de a pessoa clicar em "Mostrar imagens").
 registrarRotaCorpoEmail(app);
+registrarRotaLinkDeAssinatura(app);
 
 // Anexo de e-mail: baixar (stream) e anexar ao escrever (arquivo temporário). Depende do
 // @fastify/multipart registrado dentro de `registrarRotasArquivos`, acima.

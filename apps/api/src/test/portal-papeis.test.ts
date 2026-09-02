@@ -208,6 +208,34 @@ describe("podeAgirNoPortal — papel x ação x sessão de suporte", () => {
     }
   });
 
+  it("dar e tirar acesso é do RESPONSAVEL, e a sessão de suporte não faz nem isso", () => {
+    // A tela "Quem da clínica entra aqui" mostrava "Convidar pessoa" e "Revogar" olhando SÓ o
+    // papel (`papelPortal !== "EQUIPE"`) — e a sessão de suporte da Med entra justamente como
+    // RESPONSAVEL da clínica. O servidor recusava (as ações `pessoas.*` nunca estiveram na
+    // lista de liberações), mas a recusa chegava depois do clique e do modal: do lado de quem
+    // usa, isso se lê como sistema quebrado. Quem entra no Portal enxerga contrato, preço e
+    // documento — dar esse acesso é falar pela clínica.
+    const AS_ACOES_DE_PESSOAS = [
+      "pessoas.convidar",
+      "pessoas.alterarPapel",
+      "pessoas.revogar",
+      "pessoas.devolver",
+      "pessoas.reenviarConvite",
+    ] as const;
+
+    for (const acao of AS_ACOES_DE_PESSOAS) {
+      expect(podeAgirNoPortal({ papelPortal: "RESPONSAVEL", operador: null }, acao).pode, acao).toBe(true);
+
+      const equipe = podeAgirNoPortal({ papelPortal: "EQUIPE", operador: null }, acao);
+      expect(equipe.pode, acao).toBe(false);
+      expect(equipe.pode === false && equipe.motivo, acao).toBe("SO_RESPONSAVEL");
+
+      const suporte = podeAgirNoPortal({ papelPortal: "RESPONSAVEL", operador: { id: "u1" } }, acao);
+      expect(suporte.pode, acao).toBe(false);
+      expect(suporte.pode === false && suporte.motivo, acao).toBe("SUPORTE_SO_LEITURA");
+    }
+  });
+
   it("a sessão de suporte vence o papel: mesmo sendo EQUIPE, o motivo é o suporte", () => {
     // A ordem importa para a MENSAGEM: quem está no painel do cliente precisa ler "modo de
     // suporte", não "peça ao responsável da clínica" — o responsável não resolveria nada.

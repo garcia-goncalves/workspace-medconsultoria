@@ -7,6 +7,8 @@ import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
 import { Badge } from "../../components/ui/badge";
 import { data } from "../../lib/format-date";
 import { QueryError } from "../../components/ui/query-error";
+import { recarregarAposEnvio } from "../../lib/recarregar-apos-envio";
+import { Skeleton } from "../../components/ui/skeleton";
 
 /**
  * "Seus documentos" no Portal: os arquivos que o CLIENTE envia (RG, CPF, CRM, comprovantes…)
@@ -19,7 +21,10 @@ export function PortalMeusDocumentos() {
   const confirm = useConfirm();
   const q = trpc.portal.arquivos.useQuery();
   const invalidate = () => {
-    utils.portal.arquivos.invalidate();
+    // `q` é a lista que ESTA tela desenha: ela precisa do recarregamento duplo, não de um
+    // `invalidate` (ver `recarregarAposEnvio`). As outras consultas são de telas vizinhas e
+    // não estão no ar agora, então marcar como velha basta.
+    recarregarAposEnvio(q);
     utils.portal.meusServicos.invalidate();
   };
   const remover = trpc.portal.removerArquivo.useMutation({ onSuccess: invalidate });
@@ -52,7 +57,16 @@ export function PortalMeusDocumentos() {
 
         {/* ⚠️ Erro ANTES de vazio: em falha, a lista dizia "você ainda não enviou nenhum
             documento" e o cliente reenviava tudo o que já tinha mandado. */}
-        {q.isError ? (
+        {/* ⚠️ CARREGANDO vem antes de VAZIO pelo mesmo motivo do erro: enquanto a lista não
+            chega, `arquivos` é `[]` — e a tela afirmava "você ainda não enviou nenhum
+            documento" a quem tinha enviado. É uma fração de segundo, mas é a frase que faz o
+            cliente reenviar tudo. */}
+        {q.isLoading ? (
+          <div className="space-y-1.5">
+            <Skeleton className="h-11 w-full" />
+            <Skeleton className="h-11 w-full" />
+          </div>
+        ) : q.isError ? (
           <QueryError
             onRetry={() => void q.refetch()}
             message="Não conseguimos carregar os seus documentos. Tente de novo — nada do que você enviou se perdeu."

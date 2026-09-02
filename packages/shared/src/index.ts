@@ -21,4 +21,5 @@ export * from "./estimativa.js";
 export * from "./pagamento.js";
 export * from "./portal-papeis.js";
 export * from "./dado-pessoal.js";
+export * from "./consentimento-assinatura.js";
 export * from "./link-publico.js";

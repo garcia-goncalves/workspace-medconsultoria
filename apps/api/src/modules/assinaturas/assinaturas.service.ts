@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { mensagemDeLinkExpirado, situacaoDoLinkPublico } from "@app/shared";
+import { mensagemDeLinkExpirado, situacaoDoLinkPublico, VERSAO_CONSENTIMENTO_ASSINATURA } from "@app/shared";
 import { prisma } from "@app/db";
 import { destinatarioDeAssinatura } from "../documentos/destinatario-de-assinatura.js";
 import type { AssinarInput } from "@app/shared";
@@ -127,7 +127,14 @@ export async function listarDoDocumento(documentoId: string) {
     metodo: a.metodo,
     assinadoEm: a.assinadoEm,
     ip: a.ip,
-    token: a.token,
+    consentimentoEm: a.consentimentoEm,
+    consentimentoVersao: a.consentimentoVersao,
+    // ⚠️ O TOKEN NÃO VOLTA MAIS AQUI. Ele é a chave de uma rota pública que ASSINA, e vinha em
+    // claro para qualquer FUNCIONARIO. Quem quisesse podia abri-lo numa janela anônima e
+    // assinar pelo cliente: como o signatário legítimo também assina deslogado
+    // (`assinadoPorId: null`), as duas assinaturas ficavam indistinguíveis. Entregar o link
+    // continua sendo função da tela — agora por `/ir/assinar/:id`, que exige sessão e registra
+    // quem abriu.
     hashDocumento: a.hashDocumento,
     integro: a.status === "ASSINADO" ? a.hashDocumento === hashAtual : true,
   }));
@@ -209,6 +216,11 @@ export async function assinar(
       nomeDigitado: input.metodo === "DIGITADO" ? input.nomeDigitado?.trim() ?? null : null,
       ip: ip ?? null,
       userAgent: userAgent ?? null,
+      // A PROVA DO CONSENTIMENTO. O Zod já recusa `consentimento` diferente de `true`, então
+      // chegar aqui É ter consentido — o que faltava era o sistema GUARDAR isso. A versão diz
+      // com que texto, porque o texto muda e a data sozinha não identificaria qual ela era.
+      consentimentoEm: new Date(),
+      consentimentoVersao: VERSAO_CONSENTIMENTO_ASSINATURA,
       // Quem clicou, se estava logado (ADR-137). Nulo no link de e-mail, que é anônimo.
       assinadoPorId: assinadoPorId ?? null,
       assinadoEm: new Date(),

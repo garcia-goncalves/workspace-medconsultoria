@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import type { LoginInput, SessionUser } from "@app/shared";
@@ -92,8 +93,41 @@ async function registrarTentativaFalha(email: string, motivo: string, userAgent?
   }
 }
 
+/**
+ * FREIO PRÓPRIO DESTA ROTA — o rate-limit global não segura sozinho.
+ *
+ * `registrarBloqueioNoNavegador` é pública, anônima, e cada chamada GRAVA uma linha no
+ * `ActivityLog` com texto escolhido por quem chama. O teto global é de 300 requisições HTTP por
+ * minuto e por IP — mas o cliente fala por LOTE (`httpBatchLink`), então uma requisição carrega
+ * dezenas de chamadas: o teto real de gravações era ordens de grandeza maior do que parecia.
+ *
+ * O estrago não é derrubar o servidor, é APAGAR O RASTRO: `SISTEMA → Atividade` mostra as 60
+ * linhas mais recentes, e é onde a casa responde "quem viu o quê" (quem entrou no painel do
+ * cliente, quem removeu arquivo, quem assinou). Enchendo a tabela, tudo isso sai da tela.
+ *
+ * 60 por hora e por IP é largo para o diagnóstico (é gente errando a senha, não um robô) e
+ * estreito para o abuso. Mesmo molde do freio do formulário público em `leads.service.ts`.
+ */
+const BLOQUEIO_MAX_POR_HORA = 60;
+const BLOQUEIO_JANELA_MS = 60 * 60 * 1000;
+const bloqueiosPorIp = new Map<string, { count: number; ate: number }>();
+
+function diagnosticoBloqueado(ip: string): boolean {
+  const reg = bloqueiosPorIp.get(ip);
+  const agora = Date.now();
+  if (!reg || agora >= reg.ate) {
+    bloqueiosPorIp.set(ip, { count: 1, ate: agora + BLOQUEIO_JANELA_MS });
+    return false;
+  }
+  reg.count += 1;
+  return reg.count > BLOQUEIO_MAX_POR_HORA;
+}
+
 /** Idem, para o caso em que o NAVEGADOR barrou antes de enviar (validação do formulário). */
-export async function registrarBloqueioCliente(email: string, motivo: string, userAgent?: string) {
+export async function registrarBloqueioCliente(email: string, motivo: string, userAgent?: string, ip?: string) {
+  // Silencioso de propósito: isto é diagnóstico, não uma resposta que alguém espera. Devolver
+  // erro ensinaria o teto a quem está testando o teto.
+  if (ip && diagnosticoBloqueado(ip)) return;
   try {
     await prisma.activityLog.create({
       data: {
@@ -105,6 +139,22 @@ export async function registrarBloqueioCliente(email: string, motivo: string, us
   } catch {
     /* diagnóstico não pode quebrar nada */
   }
+}
+
+/**
+ * O HASH CONTRA O QUAL SE QUEIMA TEMPO quando a conta não existe.
+ *
+ * É o hash argon2id de um valor aleatório sorteado no primeiro uso: ninguém sabe a senha dele,
+ * nenhuma senha real bate com ele, e ele não abre nada. Serve só para que conferir a senha de
+ * uma conta INEXISTENTE custe o mesmo que conferir a de uma conta que existe.
+ *
+ * Sorteado em memória, e não escrito no código, porque valor fixo em repositório é a coisa que
+ * um dia alguém copia achando que é senha de exemplo.
+ */
+let hashDeDescarte: Promise<string> | null = null;
+function hashParaQueimarTempo(): Promise<string> {
+  hashDeDescarte ??= hashPassword(randomBytes(32).toString("hex"));
+  return hashDeDescarte;
 }
 
 /** Autentica por e-mail/senha, cria sessão e retorna o usuário público. */
@@ -119,6 +169,15 @@ export async function login(
   const user = await prisma.user.findUnique({ where: { email: input.email } });
   // Sem passwordHash = convite ainda não aceito → não pode logar.
   if (!user || !user.ativo || user.deletedAt || !user.passwordHash) {
+    // ⚠️ QUEIMA O MESMO TEMPO DE QUEM EXISTE — senão o relógio conta o que a mensagem cala.
+    //
+    // A mensagem de erro é a mesma para conta que existe e conta que não existe, de propósito.
+    // Mas conferir argon2id custa dezenas a centenas de milissegundos e sair sem conferir custa
+    // ~5 ms: bastava cronometrar UMA tentativa por endereço para descobrir quem tem acesso ao
+    // sistema — sem sequer gastar as 8 tentativas do freio. Isso derrubava, pela segunda porta,
+    // a garantia que `solicitarReset` foi escrito para dar (lá a resposta é igual justamente
+    // para não confirmar endereço).
+    await verifyPassword(await hashParaQueimarTempo(), input.password).catch(() => false);
     registrarFalha(chave);
     await registrarTentativaFalha(
       input.email,

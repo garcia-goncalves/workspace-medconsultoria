@@ -50,12 +50,17 @@ export const authRouter = router({
    * cliente, nenhuma requisição chega ao servidor — logo, não havia registro nenhum e "não
    * consigo entrar" ficava indepurável. Agora fica.
    *
-   * Só grava e-mail e motivo; NUNCA a senha. Protegido pelo rate-limit global do servidor.
+   * Só grava e-mail e motivo; NUNCA a senha.
+   *
+   * ⚠️ Tem FREIO PRÓPRIO por IP (`registrarBloqueioCliente`), e não só o rate-limit global: a
+   * rota é anônima e cada chamada grava uma linha no `ActivityLog`, que o cliente pode disparar
+   * dezenas de vezes numa requisição HTTP só (`httpBatchLink`). Sem o freio, dava para empurrar
+   * para fora da tela do ROOT todo o rastro de quem-fez-o-quê.
    */
   registrarBloqueioNoNavegador: publicProcedure
     .input(z.object({ email: z.string().max(200), motivo: z.string().max(200) }))
     .mutation(async ({ ctx, input }) => {
-      await registrarBloqueioCliente(input.email, input.motivo, ctx.req.headers["user-agent"]);
+      await registrarBloqueioCliente(input.email, input.motivo, ctx.req.headers["user-agent"], ctx.req.ip);
       return { ok: true };
     }),
 
