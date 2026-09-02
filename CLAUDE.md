@@ -13,9 +13,9 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-01 · noite · **v1.6.0 NO AR** — ADR-146 publicada)
+## Estado atual (2026-09-02 · madrugada · **v1.6.0 NO AR** — ADR-146 publicada · **ADR-147 na `main`, NAO publicada**)
 
-> **Leia a ADR-146 em `docs/DECISIONS.md`.**
+> **Leia a ADR-146 e a ADR-147 em `docs/DECISIONS.md`.**
 
 - **✅ NO AR DESDE 01/09/2026 as 21:47 (18:47 no servidor) — a v1.6.0.** Publicacao `33559992003` no
   commit `225197a`. ⚠️ **O `gh workflow run` PASSOU para mim desta vez** — o placar esta em 2 passagens
@@ -110,7 +110,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 **2 reprovam** · ternario com escape **2 reprovam** (passava antes) · variavel intermediaria **1
 reprova**. typecheck 6/6 · lint limpo · **616 testes de unidade** do `@app/api` · CI **3/3 verde**.
 
-### ✅ O NOME DO SERVICO PASSOU A IDENTIFICAR O SERVICO (`@@unique([nome])`)
+### ✅ O NOME DO SERVICO PASSOU A IDENTIFICAR O SERVICO (`@@unique([nome])` · **ADR-147**, PR #172, `f9ab574`)
 
 - **Por que era regra e nao capricho:** a semeadura do catalogo casa por **NOME**
   (`semearCatalogoSeFaltar`), e o construtor da proposta e a ficha do cliente listam dois servicos
@@ -1292,7 +1292,7 @@ entre proxy e app.
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-139). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-147). Deploy: `docs/DEPLOY.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

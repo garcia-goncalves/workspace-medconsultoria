@@ -5008,3 +5008,73 @@ vazia nao desenha o bloco que quebra. Regua verde na CI **nao e** regua exercida
   `cookie@2.0.1` pedem **Node ≥ 22** e nos rodamos Node 20. Vem de faixa aberta (`^2.17.6`) resolvida na
   hora, entao **ja acontecia na `main`** — inclusive na publicacao da v1.5.0. E aviso, nao erro, e a v1.5.0
   esta no ar funcionando. Fica anotado para o dia de subir o Node.
+
+---
+
+## ADR-147 — O nome do serviço passa a identificar o serviço, e o banco não pensa como o JavaScript ✅
+
+**Contexto.** `@@unique(nome)` em `Servico` estava na lista de pendências desde 31/08/2026, com um motivo
+escrito: *"a criação do índice falha se produção tiver nome duplicado, e a lista de serviços de produção só
+é visível pela página pública, que mostra nome mas não prova unicidade"*.
+
+**Esse motivo era falso, e é o primeiro achado desta ADR.** A tela interna *Ajustes → Serviços* não usa a
+rota pública: usa `servicos.list` → `listServicos()`, cujo próprio comentário diz *"Todos os serviços
+(gestão) — **inclui inativos**"* e que **não filtra `ativo`**. Não existe serviço escondido. Lida em
+produção como ROOT em 01/09: **10 serviços, 10 nomes todos diferentes**. A pendência estava travada por uma
+ressalva que ninguém tinha ido conferir.
+
+**Por que o nome precisa identificar.** A semeadura do catálogo casa por **NOME**
+(`semearCatalogoSeFaltar`), e o construtor da proposta e a ficha do cliente listam dois serviços iguais
+lado a lado **sem nada que os distinga**. Com duas linhas de mesmo nome ninguém sabe qual levou o preço,
+as exigências e o roteiro do projeto — e o engano só aparece no papel que já foi ao cliente. É o outro
+lado das ADR-144/145: lá o perigo era a **regra** casar por nome; aqui é o **nome deixar de identificar**.
+
+**Decisão.** `@@unique([nome])` em `Servico` (migração `20260902000000_nome_de_servico_unico`, aditiva;
+reverter é `DROP INDEX \`Servico_nome_key\``), mais **duas travas com papéis diferentes** e uma guarda de
+publicação.
+
+**⚠️ As duas travas não são redundância — tirar uma deixa um buraco diferente.**
+`recusarNomeDeServicoRepetido` existe para a **MENSAGEM** em português (duas requisições simultâneas passam
+as duas por ela; ela não garante nada sozinha); o **índice** existe para a **GARANTIA** (mas fala em erro
+cru do MySQL). A conferência normaliza com `trim()`: sem isso, `"  Faturamento  "` passaria pela porta e só
+seria barrado pelo banco.
+
+**🔴 O ACHADO GRAVE VEIO DA PRÓPRIA CORREÇÃO, e ele derrubaria uma rota PÚBLICA.** A coluna `Servico.nome`
+é **`utf8mb4_unicode_ci`** — conferido, não presumido: `SELECT nome FROM Servico WHERE nome='faturamento'`
+devolve `Faturamento`. **O banco ignora maiúscula E acento.** A semeadura comparava com a igualdade crua do
+JavaScript, para quem `"Conteudo"` ≠ `"Conteúdo"`. Sem índice, essa divergência produzia no máximo um clone
+silencioso. **Com índice, vira indisponibilidade:** `semearCatalogoSeFaltar` roda em **toda** leitura de
+catálogo — inclusive na página pública `/comecar` e no *"Solicitar"* do Portal —, tentaria recriar um
+canônico que o banco já considera existente, levaria `P2002`, e a rota pública passaria a responder erro em
+vez de lista. A cura é `apps/api/src/modules/servicos/chave-de-nome.ts` (`chaveDoNomeDeServico`, pura e
+testada) usada nos **dois lados** da comparação, mais `skipDuplicates` como rede para a corrida.
+**Visto reprovando antes:** com a correção desligada, `listServicos()` estoura.
+
+**🕳️ O `catch` do update escondia queda de banco.** Ele nasceu para "id não existe" e traduzia **qualquer**
+erro para *"Serviço não encontrado."*. Mas o `antes` já prova que o id existe, então o que chegava ali de
+desconhecido era **infraestrutura** — e o mais provável neste servidor é o `P1001`
+(*"Can't reach database server"*), que a documentação registra como recorrente. Isso fazia duas coisas ruins
+de uma vez: a Thaís lia "não encontrado" e ia procurar um serviço que está lá; e o erro virava `NOT_FOUND`
+no tRPC, que **não entra em SISTEMA → Erros** (o filtro é `INTERNAL_SERVER_ERROR`, ADR-135) — a queda do
+banco ficava invisível justamente no caminho de escrita. Hoje só `P2025` vira "não encontrado"; o resto é
+relançado. `criarServico` também passou a traduzir `P2002`.
+
+**🚨 A guarda para a publicação, e agora sabe se destravar.** `GROUP BY nome HAVING COUNT(*) > 1` antes do
+índice, molde da `20260829210500`. ⚠️ **DDL dá commit implícito**, então o `DROP TABLE` do fim **não roda**
+quando o `CHECK` falha: a tabela auxiliar fica, e a segunda tentativa morreria no `CREATE TABLE` com erro
+**1050**, que se lê como *"a guarda quebrou de novo"*. Hoje há `DROP TABLE IF EXISTS` na frente e o
+destravamento em três passos escrito na própria migração. ⚠️ **Produção é MariaDB 10.6**, que responde
+**`4025`** onde o MySQL 8 local responde **`3819`** — os dois estão citados, senão quem publica procura um
+código que não vai aparecer.
+
+**Alternativas descartadas.** *Índice case-sensitive* (mudar a collation da coluna) — mexeria em toda
+comparação de nome já existente na aplicação, por um ganho que ninguém pediu. *Só o índice, sem mensagem* —
+erro cru do MySQL na tela e ocorrência nova em SISTEMA → Erros, o ruído que a ADR-135 pagou para eliminar.
+*Só a conferência da aplicação, sem índice* — não sobrevive a corrida nem a caminho novo que esqueça de
+chamá-la.
+
+**Provas.** Guarda exercida nos **três cenários** (banco normal passa · com duplicata **barra com 3819** ·
+depois de limpar passa) · **13 testes novos**, e os dois que travam regressão **vistos reprovando antes** ·
+typecheck 6/6 · lint limpo · **suíte completa do `@app/api`: 858/858** · CI 3/3 verde (PR #172, `f9ab574`).
+
+**⚠️ Não está no ar.** A v1.6.0 continua sendo o que roda; publicar depende do sinal do dono.
