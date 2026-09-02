@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import Fastify from "fastify";
 import { PROXY_CONFIAVEL } from "./proxy-confiavel.js";
 
@@ -79,5 +81,101 @@ describe("PROXY_CONFIAVEL — de onde vem o req.ip", () => {
     const ip = await ipVisto({ trustProxy: 1, peer: "127.0.0.1", encaminhado: VISITANTE });
     expect(ip).toBe("127.0.0.1");
     expect(ip).not.toBe(VISITANTE);
+  });
+  it("O CASO REAL DE PRODUÇÃO: forja à esquerda + IP real anexado pelo LiteSpeed à direita", async () => {
+    // É assim que o cabeçalho chega de verdade: o visitante escreve o que quiser, e o LiteSpeed
+    // ACRESCENTA o endereço real dele ao FIM. Os outros testes usam cabeçalho de um elemento só e
+    // por isso nunca exerceram a regra de precedência, que é o que decide quem ganha.
+    const ip = await ipVisto({
+      trustProxy: [...PROXY_CONFIAVEL],
+      peer: "127.0.0.1",
+      encaminhado: `${IMPOSTOR}, ${VISITANTE}`,
+    });
+    expect(ip).toBe(VISITANTE);
+    expect(ip).not.toBe(IMPOSTOR);
+  });
+
+  it("⚠️ O LIMITE DA RÉGUA: privado à direita faz o valor FORJADO vencer", async () => {
+    // Documenta uma DEPENDÊNCIA DE TOPOLOGIA, não um desejo. O `@fastify/proxy-addr` caminha da
+    // direita para a esquerda pulando TODO endereço confiável que encontrar, e para no primeiro
+    // que não é. Se algum dia algo de rede privada passar a anexar o endereço DEPOIS do LiteSpeed,
+    // o que sobra é o que o visitante escreveu — e ele volta a escolher o próprio IP.
+    //
+    // A régua nova só é sólida enquanto o LiteSpeed anexar o IP real À DIREITA. Este teste existe
+    // para que mudar a topologia REPROVE aqui, em vez de mudar o `req.ip` em silêncio — que é
+    // exatamente o modo de falha que a ADR-146 veio consertar.
+    const ip = await ipVisto({
+      trustProxy: [...PROXY_CONFIAVEL],
+      peer: "127.0.0.1",
+      encaminhado: `${IMPOSTOR}, 10.0.0.5`,
+    });
+    expect(ip).toBe(IMPOSTOR);
+  });
+
+  it("⚠️ e ele pula TODOS os privados seguidos, não apenas um", async () => {
+    // O antigo `1` pulava um salto só. Esta régua pula a sequência inteira, então acrescentar mais
+    // um proxy interno não devolve a proteção — o alcance do limite acima é maior do que parece.
+    const ip = await ipVisto({
+      trustProxy: [...PROXY_CONFIAVEL],
+      peer: "127.0.0.1",
+      encaminhado: `${IMPOSTOR}, 10.0.0.5, 192.168.1.9`,
+    });
+    expect(ip).toBe(IMPOSTOR);
+  });
+});
+
+/**
+ * A trava acima protege a CONSTANTE. Esta protege o PONTO DE USO: sem ela, quem escrevesse
+ * `trustProxy: true` direto no `Fastify({...})` de `server.ts` não seria reprovado por nada — a
+ * constante seguiria correta, intocada e simplesmente não usada. Molde da casa: teste que lê o
+ * TEXTO do arquivo (ver `apps/web/src/lib/paginas.test.ts`).
+ */
+describe("o servidor USA a régua — e não um valor escrito à mão", () => {
+  // Só o CÓDIGO. Comentário citando `trustProxy:` não é ponto de uso, e a régua tem justamente
+  // um comentário longo logo acima da linha real: a 1ª versão desta trava lia a explicação e
+  // aprovava o texto errado. Bloco /* */ sai inteiro antes, porque nem toda linha interna dele
+  // começa com `*`.
+  const servidor = () =>
+    readFileSync(resolve(__dirname, "../server.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split(/\r?\n/)
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+
+  // A expressão inteira que o Fastify recebe como `trustProxy`, sem comentário no meio.
+  const valorDoTrustProxy = () => {
+    const achado = servidor().match(/trustProxy:\s*([^,]+)/);
+    expect(achado, "não achei `trustProxy:` em server.ts — ele foi removido?").not.toBeNull();
+    return achado![1]!.trim();
+  };
+
+  it("o `trustProxy` é EXATAMENTE a régua — nem valor à mão, nem ternário com escape", () => {
+    // ⚠️ IGUALDADE, e não "contém". Com `toContain` esta trava tinha um furo REAL, achado pelo
+    // revisor e reproduzido antes de corrigir: `trustProxy: modoDebug ? [...PROXY_CONFIAVEL] :
+    // true` passava VERDE nas 12 travas. A captura contém o nome da constante (satisfaz o
+    // "contém") e o literal proibido não vem logo depois dos dois-pontos (escapa da trava
+    // abaixo). Um ramo que ninguém lê devolveria `true` em produção e o `req.ip` voltaria a ser
+    // escolhido pelo visitante — sem erro, sem log, sem CI vermelha.
+    // ⚠️ RESTRIÇÃO DELIBERADA, para quem for reprovado sem entender: extrair a régua para uma
+    // variável intermediária (`const p = [...PROXY_CONFIAVEL]; trustProxy: p`) TAMBÉM reprova
+    // aqui. É de propósito — a constante tem de estar visível no ponto de uso, senão a trava
+    // volta a proteger só o nome e não o que o Fastify recebe.
+    expect(valorDoTrustProxy()).toBe("[...PROXY_CONFIAVEL]");
+  });
+
+  it("nenhum literal (`true`, número ou string) em PONTO NENHUM da expressão", () => {
+    // Rede de segurança da trava acima: se um dia a igualdade exata for afrouxada, esta ainda
+    // pega o literal onde quer que ele esteja na expressão — não só colado nos dois-pontos.
+    const proibidos = [...valorDoTrustProxy().matchAll(/\b(?:true|\d+)\b|"[^"]*"|'[^']*'/g)];
+    expect(
+      proibidos.map((m) => m[0]),
+      "trustProxy com valor à mão: a régua e o porquê moram em lib/proxy-confiavel.ts",
+    ).toEqual([]);
+  });
+
+  it("server.ts importa a régua do módulo dela", () => {
+    expect(servidor()).toMatch(
+      /import\s*\{[^}]*PROXY_CONFIAVEL[^}]*\}\s*from\s*"\.\/lib\/proxy-confiavel\.js"/,
+    );
   });
 });
