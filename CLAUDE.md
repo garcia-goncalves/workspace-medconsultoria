@@ -166,18 +166,16 @@ loopback e o `X-Forwarded-For` dele e aceito. **Nao e regressao** — o `trustPr
 exposicao **e mais uma** (confiava tambem em peer publico, que a regua nova recusa). A cura nao e mexer
 no `trustProxy`: e o LiteSpeed **reescrever** o cabecalho em vez de anexar, ou um cabecalho secreto
 entre proxy e app.
-- 🔴 **A UNICA PROVA QUE FALTA, E ELA PRECISA DE UM LOGIN NOVO.** `SISTEMA → Sessoes` grava o IP **no
-  momento do login**, entao as linhas de la sao todas ANTERIORES a publicacao — elas provam a linha de
-  base, nao o comportamento novo. **Na proxima vez que alguem (o dono ou a Thais) entrar no sistema,
-  abra `SISTEMA → Sessoes` e olhe a linha MAIS NOVA:** o IP tem de ser **publico**. Se vier
-  `127.0.0.1`, o LiteSpeed nao fala com o Node por loopback e os tres freios da casa estao
-  compartilhados entre todos os visitantes. Nao da para eu provar sozinho: entrar exige digitar senha,
-  que e barrado para mim em producao.
-- ⚠️ **A linha de base, para comparar:** Com a v1.5.0 no ar,
-  `SISTEMA → Sessoes` de producao mostra **enderecos publicos de gente**: `187.35.35.2` (o dono) e
-  `153.67.105.122` (o Andre). **Isso prova que o `X-Forwarded-For` chega hoje.** Depois de publicar, esses
-  IPs tem de **continuar publicos**; se virarem `127.0.0.1` para todo mundo, o LiteSpeed nao fala com o
-  Node por loopback e a regua precisa da faixa daquela conversa.
+- ✅ **A PROVA DO IP SAIU, E A ADR-146 ESTA FECHADA (01/09, tela de producao).** O dono saiu e entrou
+  de novo; a linha MAIS NOVA de `SISTEMA → Sessoes` ("Inicio: agora") mostra **`187.35.35.2` — publico**,
+  o mesmo da linha de base. A regua `PROXY_CONFIAVEL = ["loopback","uniquelocal"]` enxerga o visitante
+  real atras do LiteSpeed: os tres freios da casa (300/min, 8 tentativas de senha, formulario publico) e
+  a prova gravada em `Assinatura.ip` estao intactos.
+- ⚠️ **A ARMADILHA QUE QUASE DEU UMA CONCLUSAO ERRADA, e ela se repete:** `Session` grava o IP **no
+  momento do LOGIN COM SENHA**. Abrir o navegador com a sessao ja aberta (o crachá vale 30 dias) **nao
+  cria linha nova** — na 1a conferencia a linha "mais nova" era de 4 dias antes, ANTERIOR a publicacao,
+  e nao provava nada. Para provar qualquer coisa sobre IP de sessao, exija **SAIR e ENTRAR**, nunca so
+  "abra o sistema".
 - **Publicar so com o sinal do dono.** O `gh workflow run` costuma ser barrado para mim.
 
 ### Conferido em producao nesta janela (01/09, como ROOT), fechando pendencias antigas

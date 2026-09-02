@@ -4974,12 +4974,17 @@ reimplementacao da regra, porque o que mordeu foi justamente o Fastify mudar o s
 baixo. Um dos seis e a **prova da regressao**: com `trustProxy: 1` na versao atual, o IP do visitante real
 e descartado. Se um dia esse teste passar a ver o visitante, o Fastify voltou atras e a regua pode ser revista.
 
-**⚠️ CONFERIR DEPOIS DE PUBLICAR, E A LINHA DE BASE JA FOI MEDIDA.** Em 01/09/2026, com a v1.5.0 no ar
-(Fastify 5.9 + `trustProxy: 1`), `SISTEMA → Sessoes` de producao mostrava **enderecos publicos de gente**:
-`187.35.35.2` (o dono) e `153.67.105.122` (o Andre). **Isso prova que o `X-Forwarded-For` chega e que a
-cadeia do proxy funciona hoje.** Depois de publicar, os IPs dessa tabela tem de **continuar publicos**. Se
-virarem `127.0.0.1` para todo mundo, o LiteSpeed nao fala com o Node por loopback e a regua precisa da
-faixa daquela conversa — e ate la os tres freios da casa estao compartilhados entre todos os visitantes.
+**✅ CONFERIDO DEPOIS DE PUBLICAR — a regua funciona em producao.** A linha de base foi medida em
+01/09/2026 com a v1.5.0 no ar (Fastify 5.9 + `trustProxy: 1`): `SISTEMA → Sessoes` mostrava **enderecos
+publicos de gente**, `187.35.35.2` (o dono) e `153.67.105.122` (o Andre). Depois da v1.6.0 no ar, o dono
+**saiu e entrou de novo**, e a linha mais nova da tabela ("Inicio: agora") veio com **`187.35.35.2` —
+publico**. O `X-Forwarded-For` continua chegando e o visitante real continua sendo enxergado atras do
+LiteSpeed: os tres freios da casa e a prova gravada em `Assinatura.ip` estao intactos.
+
+**⚠️ A ARMADILHA DA CONFERENCIA, e ela se repete em qualquer prova sobre IP de sessao:** `Session` grava
+o IP **no momento do LOGIN COM SENHA**. Abrir o navegador com a sessao ja aberta (o crachá vale 30 dias)
+**nao cria linha nova** — na primeira conferencia a linha "mais nova" era de 4 dias antes, ANTERIOR a
+publicacao, e nao provava nada. Exigir **SAIR e ENTRAR**, nunca so "abra o sistema".
 
 **Junto no mesmo lote, porque um PR de dependencia ja dispara a suite inteira** (a cota de Actions foi o
 motivo de os tres virarem um so — ADR-121): o `@vitest/coverage-v8` ficou preso na 2 enquanto o `vitest`
