@@ -82,20 +82,33 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   `Documento.propostaRespIp`, login, aceite/redefinicao, formulario publico) e o rate-limit global
   entram todos por `ctx.req.ip`.
 
-### ⚠️ AS TRES PENDENCIAS QUE O REVISOR DE SEGURANCA DEIXOU — a proxima rodada de blindagem
+### ✅ AS TRES PENDENCIAS DO REVISOR DE SEGURANCA ESTAO FECHADAS (PR #169, `f600611`)
 
-1. **Falta o teste do caso REAL de producao:** peer `127.0.0.1` + `x-forwarded-for:
-   "198.51.100.9, 203.0.113.7"` (forja a esquerda + append do LiteSpeed a direita) tem de devolver
-   `203.0.113.7`. **Os 6 testes atuais usam cabecalho de UM elemento so**, e a regra de precedencia com
-   varios nunca foi travada.
-2. **⚠️ E O LIMITE DA REGUA, QUE NINGUEM TINHA NOTADO:** o `@fastify/proxy-addr` **pula TODOS os
-   privados consecutivos**, nao apenas um — entao `"198.51.100.9, 10.0.0.5"` devolve o valor **forjado**
-   (o `1` antigo pulava so um). **A regua nova so e solida enquanto o LiteSpeed anexar o IP real A
-   DIREITA.** Escrever um teste com esse resultado esperado deixa a dependencia explicita; sem ele,
-   mudar a topologia muda o `req.ip` **em silencio** — o mesmo modo de falha que a ADR-146 veio consertar.
-3. **O teste protege a CONSTANTE, nao o PONTO DE USO.** Quem escrever `trustProxy: true` direto no
-   `Fastify({...})` de `server.ts` nao e reprovado por nada. A casa ja tem o molde: teste que le o TEXTO
-   do arquivo (`apps/web/src/lib/paginas.test.ts:15-20`).
+> As tres travas que faltavam viraram teste. **Zero mudanca de comportamento, zero migracao** — so
+> teste. A ADR-146 continua valendo inteira; o que mudou e que agora ela e defendida.
+
+1. ✅ **O CASO REAL DE PRODUCAO PASSOU A SER EXERCIDO.** Os 6 testes da ADR-146 usavam cabecalho de
+   **UM elemento so**, entao a regra de **precedencia** nunca foi travada. Hoje ha teste com peer
+   `127.0.0.1` + `x-forwarded-for: "198.51.100.9, 203.0.113.7"` (forja a esquerda + append do
+   LiteSpeed a direita) exigindo `203.0.113.7`.
+2. ✅ **O LIMITE DA REGUA FICOU ESCRITO, E FOI MEDIDO ANTES.** Rodado contra o Fastify de verdade:
+   `"198.51.100.9, 10.0.0.5"` devolve o valor **forjado**, e `"198.51.100.9, 10.0.0.5, 192.168.1.9"`
+   tambem — o `@fastify/proxy-addr` pula **TODOS** os privados consecutivos (o `1` antigo pulava so
+   um). ⚠️ **A regua so e solida enquanto o LiteSpeed anexar o IP real A DIREITA**, e agora mudar a
+   topologia **REPROVA no teste** em vez de mudar o `req.ip` em silencio.
+3. ✅ **A TRAVA DO PONTO DE USO NASCEU — E O REVISOR ACHOU UM FURO NELA, REPRODUZIDO ANTES DE
+   CORRIGIR.** A 1a versao exigia que `server.ts` **contivesse** `PROXY_CONFIAVEL`, e
+   `trustProxy: modoDebug ? [...PROXY_CONFIAVEL] : true` **passava VERDE nas 12 travas**: a captura
+   contem o nome (satisfaz o "contem") e o literal proibido nao vem colado nos dois-pontos (escapa
+   da outra). Um ramo que ninguem le devolveria `true` em producao — `req.ip` forjavel de novo,
+   **sem erro, sem log, sem CI vermelha**. ⚠️ **A cura e IGUALDADE, nao "contem"**: a expressao
+   inteira tem de ser exatamente `[...PROXY_CONFIAVEL]`. E a 1a versao do filtro de comentario lia a
+   **explicacao** do `trustProxy:` (que fica logo acima da linha real) e aprovava o texto errado.
+   ⚠️ **Restricao deliberada, registrada no teste:** variavel intermediaria tambem reprova.
+
+**Provas:** as quatro formas sabotadas no `server.ts` — codigo correto **12 verdes** · `true` cru
+**2 reprovam** · ternario com escape **2 reprovam** (passava antes) · variavel intermediaria **1
+reprova**. typecheck 6/6 · lint limpo · **616 testes de unidade** do `@app/api` · CI **3/3 verde**.
 
 ⚠️ **OBSERVACAO DE INFRA, do dono, NAO deste commit:** a API escuta em `0.0.0.0:4319`. Em revenda
 DirectAdmin, se um processo de outro cliente da mesma maquina alcancar essa porta, ele fala como peer
