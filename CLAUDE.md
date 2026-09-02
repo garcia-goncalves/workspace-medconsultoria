@@ -110,6 +110,34 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 **2 reprovam** · ternario com escape **2 reprovam** (passava antes) · variavel intermediaria **1
 reprova**. typecheck 6/6 · lint limpo · **616 testes de unidade** do `@app/api` · CI **3/3 verde**.
 
+### ✅ O NOME DO SERVICO PASSOU A IDENTIFICAR O SERVICO (`@@unique([nome])`)
+
+- **Por que era regra e nao capricho:** a semeadura do catalogo casa por **NOME**
+  (`semearCatalogoSeFaltar`), e o construtor da proposta e a ficha do cliente listam dois servicos
+  iguais lado a lado **sem nada que os distinga**. Com duas linhas de mesmo nome ninguem sabe qual
+  levou o preco, as exigencias e o roteiro do projeto — e o engano so aparece no papel que ja foi ao
+  cliente. E o outro lado das ADR-144/145: la o perigo era a REGRA casar por nome; aqui e o nome
+  **deixar de identificar**.
+- **🕳️ O DEFEITO DE BRINDE, e ele foi criado pela propria correcao.** O `catch` de `atualizarServico`
+  nasceu para "id nao existe" e traduz **qualquer** erro para **"Servico nao encontrado."**. Com o
+  indice, renomear para um nome ja usado cairia ali — a frase mais confusa possivel para quem esta com
+  o servico **aberto na tela**. Hoje ha conferencia antes (mensagem em portugues) **e** tratamento do
+  `P2002` no `catch`, para a corrida entre duas gravacoes simultaneas.
+- **🚪 SAO DUAS TRAVAS COM PAPEIS DIFERENTES, e tirar uma deixa buraco diferente:** a conferencia da
+  aplicacao existe para a **MENSAGEM** (duas requisicoes simultaneas passam as duas por ela); o indice
+  existe para a **GARANTIA**. ⚠️ A conferencia normaliza com `trim()` — sem isso `"  Faturamento  "`
+  passaria pela porta e so seria barrado pelo banco, com erro cru na cara de quem esta na tela.
+- **🚨 A MIGRACAO `20260902000000` PARA A PUBLICACAO se ja houver nome duplicado**, em vez de deixar o
+  `CREATE UNIQUE INDEX` estourar com o 1062 cru do MySQL no meio do deploy. Molde da `20260829210500`.
+  **Reverter e uma linha:** `DROP INDEX \`Servico_nome_key\` ON \`Servico\`;` — nada e apagado nem
+  convertido.
+- **Provas:** guarda exercida nos **tres cenarios** (banco normal **passa** · com duplicata **barra com
+  erro 3819** · depois de limpar **passa**) · **6 testes de integracao novos, VISTOS REPROVANDO ANTES**
+  (4 dos 6) · typecheck 6/6 · lint limpo · **suite COMPLETA do `@app/api`: 849 de 851**.
+  ⚠️ Os 2 que reprovaram sao do `email-caixa.integration.test.ts`, a intermitencia ja registrada:
+  rodado sozinho, **16/16 verdes**. Nada a ver com este lote, que nao toca em e-mail.
+- ⚠️ **NAO ESTA NO AR.** A v1.6.0 continua sendo o que roda; publicar so com o sinal do dono.
+
 ⚠️ **OBSERVACAO DE INFRA, do dono, NAO deste commit:** a API escuta em `0.0.0.0:4319`. Em revenda
 DirectAdmin, se um processo de outro cliente da mesma maquina alcancar essa porta, ele fala como peer
 loopback e o `X-Forwarded-For` dele e aceito. **Nao e regressao** — o `trustProxy: 1` tinha a mesma
@@ -132,13 +160,13 @@ entre proxy e app.
 
 ### Conferido em producao nesta janela (01/09, como ROOT), fechando pendencias antigas
 
-- ✅ **`@@unique(nome)` em `Servico` DEIXOU DE SER UM RISCO DESCONHECIDO.** A duvida registrada era que a
-  lista de producao "so e visivel pela pagina publica, que mostra nome mas nao prova unicidade". Lida agora
-  em *Ajustes → Servicos* como ROOT: os **10 servicos tem nomes todos DIFERENTES** (Gestao Operacional ·
-  Faturamento · Credenciamento medico e odontologico · Negociacao com operadoras · Identidade visual
-  (Branding) · Manual da marca · Desenvolvimento de site · Gestao de redes sociais · Conteudo & SEO ·
-  Trafego pago). O indice **nao quebraria a publicacao**. ⚠️ Ressalva honesta: isto e o que a tela mostra;
-  se houver servico arquivado que ela nao lista, ele nao foi visto.
+- ✅ **`@@unique(nome)` EM `Servico` ESTA FEITO** — ver a secao propria mais abaixo. ⚠️ **A ressalva
+  antiga estava ERRADA e foi corrigida:** dizia que a tela poderia esconder servico arquivado. Nao
+  esconde — `listServicos` (`servicos.service.ts`) diz no proprio comentario *"Todos os servicos
+  (gestao) — inclui inativos"* e **nao filtra `ativo`**. Os 10 nomes de producao sao todos diferentes
+  (Gestao Operacional · Faturamento · Credenciamento medico e odontologico · Negociacao com operadoras ·
+  Identidade visual (Branding) · Manual da marca · Desenvolvimento de site · Gestao de redes sociais ·
+  Conteudo & SEO · Trafego pago), e nao ha nada fora da lista.
 - ✅ **A PENDENCIA HERDADA C10 E INOFENSIVA HOJE, e da para parar de carrega-la.** O risco era "parcela
   apagada por reversao antiga passa a ser lida como excluida de proposito". Conferido no Financeiro de
   producao, nas duas carteiras (Empresa e Pessoal) e com o filtro **Todas**: **R$ 0,00 em tudo e "Nenhuma
@@ -352,9 +380,10 @@ entre proxy e app.
 - ⚠️ **PENDÊNCIA HERDADA DA ADR-143, a conferir depois de publicar:** a correção **C10** mudou o
   significado de "parcela apagada". Se houver em produção parcela apagada por reversão antiga, ela
   passará a ser lida como *excluída de propósito* e aquele mês será **pulado**.
-- **`@@unique(nome)` em `Servico`** — fora deste lote. A criação do índice **falha** se produção tiver
-  nome duplicado, e a lista de serviços de produção só é visível pela página pública, que mostra nome
-  mas não prova unicidade.
+- ~~**`@@unique(nome)` em `Servico`**~~ **FEITO em 02/09/2026** (ver a secao no Estado atual).
+  ⚠️ **O medo registrado aqui — "a lista de producao so e visivel pela pagina publica, que mostra nome
+  mas nao prova unicidade" — era FALSO.** A tela interna de Servicos usa `listServicos`, que **inclui
+  inativos**; os 10 nomes de producao sao todos diferentes.
 - **Consentimento da assinatura** (LGPD) — pede migração própria e a decisão do texto, que é do dono.
 
 ### Higiene do repositório, feita em 31/08
@@ -573,7 +602,8 @@ entre proxy e app.
 
 - **DPA com a OpenAI** continua pendência jurídica — mas o risco caiu muito, porque o dado
   identificável já não sai daqui.
-- **`Servico.ehCredenciamento`, `@@unique(nome)` em `Servico` e o consentimento da assinatura** pedem
+- **O consentimento da assinatura** pede migração própria. (`Servico.ehCredenciamento` saiu na ADR-144 e
+  `@@unique(nome)` em 02/09/2026.)
   migração própria.
 - **M1, C10, M15, F8, F9** (dinheiro) e **C1, C2, M6, M8** (trabalho invisível) seguem abertos: são
   regra de negócio, não conformidade legal.
@@ -651,7 +681,7 @@ entre proxy e app.
   e o `IA_PRIVACIDADE.md` promete menos do que o código manda) · retenção e direito de eliminação
   sob a LGPD · página de política de privacidade · expiração dos tokens de proposta/assinatura ·
   se credenciamento reaberto cobra de novo · "Foro de eleição" ainda em branco.
-- **Pede migração:** `Servico.ehCredenciamento` · `@@unique(nome)` em `Servico` · gravar o
+- **Pede migração:** ~~`Servico.ehCredenciamento`~~ (ADR-144) · ~~`@@unique(nome)`~~ (02/09/2026) · gravar o
   consentimento da assinatura.
 - **Dinheiro ainda aberto:** M1 (contratar na ficha do prospect + converter = cobra 2×) · C10
   (excluir parcela recorrente e o varredor a ressuscita) · M15 (credenciamento "a combinar"

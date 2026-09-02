@@ -10,6 +10,7 @@ import {
   PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
   MARCA_FATURAMENTO_UNICA,
   MARCA_FATURAMENTO_E_CREDENCIAMENTO,
+  NOME_DE_SERVICO_DUPLICADO,
 } from "@app/shared";
 import { Prisma } from "@prisma/client";
 
@@ -749,6 +750,7 @@ export async function criarServico(input: {
   if (percentualForaDoFaturamento({ valor: input.valor, percentual: input.percentual }, input.ehFaturamento)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
   }
+  await recusarNomeDeServicoRepetido(input.nome, null);
   const max = await prisma.servico.aggregate({ _max: { ordem: true } });
   return mapServico(
     await prisma.servico.create({
@@ -766,6 +768,30 @@ export async function criarServico(input: {
       },
     }),
   );
+}
+
+/**
+ * Recusa nome de serviço já usado — a mensagem em português, antes de o banco falar.
+ *
+ * ⚠️ A CONFERÊNCIA É SOBRE O NOME JÁ APARADO. O `trim()` acontece na hora de gravar, então sem
+ * normalizar aqui `"  Faturamento  "` passaria por esta porta e só seria barrado pelo índice
+ * único, com erro cru do MySQL na cara de quem está na tela.
+ *
+ * ⚠️ E ELA NÃO SUBSTITUI O ÍNDICE. Duas requisições ao mesmo tempo passam as duas por aqui antes
+ * de qualquer uma gravar; quem garante é o banco. Esta função existe para a MENSAGEM, o índice
+ * existe para a GARANTIA — tirar um dos dois deixa um buraco diferente.
+ *
+ * `ignorarId` é o próprio serviço na edição: salvar o formulário sem mexer no nome não pode ser
+ * lido como duplicata de si mesmo.
+ */
+async function recusarNomeDeServicoRepetido(nome: string, ignorarId: string | null) {
+  const jaExiste = await prisma.servico.findFirst({
+    where: { nome: nome.trim(), ...(ignorarId ? { id: { not: ignorarId } } : {}) },
+    select: { nome: true },
+  });
+  if (jaExiste) {
+    throw new TRPCError({ code: "CONFLICT", message: NOME_DE_SERVICO_DUPLICADO(jaExiste.nome) });
+  }
 }
 
 export async function atualizarServico(
@@ -865,9 +891,18 @@ export async function atualizarServico(
   if (dados.ativo !== undefined) data.ativo = dados.ativo;
   if (dados.ehCredenciamento !== undefined) data.ehCredenciamento = dados.ehCredenciamento;
   if (dados.ehFaturamento !== undefined) data.ehFaturamento = dados.ehFaturamento;
+  if (dados.nome !== undefined) await recusarNomeDeServicoRepetido(dados.nome, id);
   try {
     return mapServico(await prisma.servico.update({ where: { id }, data }));
-  } catch {
+  } catch (e) {
+    // ⚠️ ESTE `catch` NASCEU PARA "id não existe" E PASSOU A PEGAR MAIS COISA. Com o índice único
+    // em `Servico.nome`, um nome repetido chega aqui como P2002 — e virava
+    // "Serviço não encontrado." para quem acabou de abrir o serviço na tela e só trocou o nome.
+    // A conferência acima já responde o caso normal; isto é a rede para a corrida entre duas
+    // gravações simultâneas, que a conferência não consegue cobrir.
+    if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") {
+      throw new TRPCError({ code: "CONFLICT", message: NOME_DE_SERVICO_DUPLICADO(String(data.nome ?? "")) });
+    }
     throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado." });
   }
 }

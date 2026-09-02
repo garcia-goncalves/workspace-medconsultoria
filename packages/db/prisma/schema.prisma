@@ -542,6 +542,10 @@ model Servico {
   cards        Card[]
   projetos     Projeto[]
 
+  /// O nome IDENTIFICA o serviço, e por isso não pode repetir: a semeadura do catálogo casa
+  /// por nome (`semearCatalogoSeFaltar`) e a proposta lista os dois lado a lado sem nada que os
+  /// distinga. Ver a guarda da migração, que PARA a publicação se já houver duplicata.
+  @@unique([nome])
   @@index([ordem])
 }
 
