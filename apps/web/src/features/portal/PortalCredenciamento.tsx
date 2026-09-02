@@ -4,6 +4,7 @@ import { trpc } from "../../lib/trpc";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
+import { recarregarAposEnvio } from "../../lib/recarregar-apos-envio";
 
 type Vaga = {
   lado: "FRENTE" | "VERSO" | null;
@@ -35,7 +36,9 @@ export function PortalCredenciamento() {
   const confirm = useConfirm();
   const q = trpc.portal.credenciamento.useQuery();
   const invalidate = () => {
-    utils.portal.credenciamento.invalidate();
+    // `q` é a papelada do credenciamento que ESTA tela desenha: recarregamento duplo, não
+    // `invalidate`. Ver `recarregarAposEnvio`.
+    recarregarAposEnvio(q);
     utils.portal.meusServicos.invalidate();
     utils.portal.arquivos.invalidate();
   };

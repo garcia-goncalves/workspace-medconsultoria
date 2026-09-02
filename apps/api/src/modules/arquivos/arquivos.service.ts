@@ -43,6 +43,25 @@ export async function registrarUpload(input: RegistrarUploadInput) {
   const profissionalId = input.profissionalId
     ? ((await prisma.profissional.findFirst({ where: { id: input.profissionalId, clienteId: input.clienteId }, select: { id: true } }))?.id ?? null)
     : null;
+  // ⚠️ NÃO HÁ CONFERÊNCIA DE POSSE PARA `servicoId`/`requisitoId` AQUI, E ISSO É DELIBERADO.
+  //
+  // A revisão de segurança apontou a assimetria: o `profissionalId` acima é conferido e estes
+  // dois não são. Tentei fechar exigindo que o cliente tivesse o serviço contratado — e a
+  // suíte de ponta a ponta reprovou, mostrando que a premissa estava errada: a papelada do
+  // credenciamento aparece legitimamente para quem tem **médico cadastrado**, ainda que a
+  // contratação não esteja registrada (`credenciamentoDoCliente`: `emCurso = contratado ||
+  // profissionais.length > 0`). Com a regra estrita, o cliente enviava o documento e a barra
+  // de progresso não andava.
+  //
+  // Repetir aquela condição aqui seria escrever a MESMA regra em dois lugares, que é o modo de
+  // falha da ADR-133: no dia em que a visibilidade mudar, o upload continua com a régua velha e
+  // o cliente perde o documento em silêncio. E o que se ganharia é pouco — o estrago possível
+  // fica todo dentro do próprio `clienteId` (arquivar um documento sob um serviço que ele não
+  // contratou), sem atravessar a fronteira entre clínicas.
+  //
+  // Se um dia isto for fechado, a régua tem de ser UMA função exportada por
+  // `credenciamento.service.ts`, chamada pelos dois lados — nunca uma cópia.
+
   const lado = input.lado === "FRENTE" || input.lado === "VERSO" ? input.lado : null;
 
   const arquivo = await prisma.arquivo.create({

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import type { LoginInput, SessionUser } from "@app/shared";
@@ -52,6 +53,49 @@ const tentativas = new Map<string, { count: number; ate: number }>();
 function chaveLogin(ip: string | undefined, email: string): string {
   return `${ip ?? "?"}:${email.trim().toLowerCase()}`;
 }
+
+/**
+ * O SEGUNDO FREIO, E ELE É POR IP SOZINHO — sem o e-mail na chave.
+ *
+ * ⚠️ O freio de cima é `(ip, e-mail)`, e **quem escolhe o e-mail é quem ataca**: basta variar o
+ * endereço a cada tentativa para ele nunca engatar. Isso já era ruim; virou perigoso quando o
+ * caminho da conta inexistente passou a conferir a senha contra um hash de descarte (a defesa
+ * contra enumeração por tempo, logo abaixo). Sem este freio, **cada e-mail inventado passou a
+ * custar um argon2id completo** — 19 MiB e duas passadas, na threadpool de 4 do Node.
+ *
+ * E o cliente fala por LOTE: uma requisição HTTP carrega centenas de chamadas, e o rate-limit
+ * global conta requisições, não chamadas. Um anônimo pedia dezenas de milhares de verificações
+ * por minuto, com e-mails sempre novos — a fila da threadpool é a mesma que lê arquivo e serve
+ * avatar, então o processo inteiro (API + site + tempo real, tudo num Node só) parava de
+ * responder. A defesa contra vazar informação teria virado o jeito mais barato de derrubar o
+ * sistema.
+ *
+ * 60 tentativas por IP em 15 minutos é largo para gente (o teto por e-mail continua sendo 8) e
+ * estreito para robô. Recusa ANTES de queimar tempo — é esse "antes" que faz o freio valer.
+ */
+const MAX_POR_IP = 60;
+const tentativasPorIp = new Map<string, { count: number; ate: number }>();
+
+function loginBloqueadoPorIp(ip: string | undefined): boolean {
+  if (!ip) return false;
+  const reg = tentativasPorIp.get(ip);
+  if (!reg) return false;
+  if (Date.now() >= reg.ate) {
+    tentativasPorIp.delete(ip);
+    return false;
+  }
+  return reg.count >= MAX_POR_IP;
+}
+
+function registrarFalhaPorIp(ip: string | undefined): void {
+  if (!ip) return;
+  const agora = Date.now();
+  const reg = tentativasPorIp.get(ip);
+  // ⚠️ Apaga a entrada vencida em vez de só sobrescrever: sem isso o mapa guarda para sempre
+  // todo IP que já errou uma senha, e cunhar IPs é barato para quem ataca.
+  if (!reg || agora >= reg.ate) tentativasPorIp.set(ip, { count: 1, ate: agora + JANELA_MS });
+  else reg.count += 1;
+}
 function loginBloqueado(chave: string): boolean {
   const reg = tentativas.get(chave);
   if (!reg) return false;
@@ -92,8 +136,41 @@ async function registrarTentativaFalha(email: string, motivo: string, userAgent?
   }
 }
 
+/**
+ * FREIO PRÓPRIO DESTA ROTA — o rate-limit global não segura sozinho.
+ *
+ * `registrarBloqueioNoNavegador` é pública, anônima, e cada chamada GRAVA uma linha no
+ * `ActivityLog` com texto escolhido por quem chama. O teto global é de 300 requisições HTTP por
+ * minuto e por IP — mas o cliente fala por LOTE (`httpBatchLink`), então uma requisição carrega
+ * dezenas de chamadas: o teto real de gravações era ordens de grandeza maior do que parecia.
+ *
+ * O estrago não é derrubar o servidor, é APAGAR O RASTRO: `SISTEMA → Atividade` mostra as 60
+ * linhas mais recentes, e é onde a casa responde "quem viu o quê" (quem entrou no painel do
+ * cliente, quem removeu arquivo, quem assinou). Enchendo a tabela, tudo isso sai da tela.
+ *
+ * 60 por hora e por IP é largo para o diagnóstico (é gente errando a senha, não um robô) e
+ * estreito para o abuso. Mesmo molde do freio do formulário público em `leads.service.ts`.
+ */
+const BLOQUEIO_MAX_POR_HORA = 60;
+const BLOQUEIO_JANELA_MS = 60 * 60 * 1000;
+const bloqueiosPorIp = new Map<string, { count: number; ate: number }>();
+
+function diagnosticoBloqueado(ip: string): boolean {
+  const reg = bloqueiosPorIp.get(ip);
+  const agora = Date.now();
+  if (!reg || agora >= reg.ate) {
+    bloqueiosPorIp.set(ip, { count: 1, ate: agora + BLOQUEIO_JANELA_MS });
+    return false;
+  }
+  reg.count += 1;
+  return reg.count > BLOQUEIO_MAX_POR_HORA;
+}
+
 /** Idem, para o caso em que o NAVEGADOR barrou antes de enviar (validação do formulário). */
-export async function registrarBloqueioCliente(email: string, motivo: string, userAgent?: string) {
+export async function registrarBloqueioCliente(email: string, motivo: string, userAgent?: string, ip?: string) {
+  // Silencioso de propósito: isto é diagnóstico, não uma resposta que alguém espera. Devolver
+  // erro ensinaria o teto a quem está testando o teto.
+  if (ip && diagnosticoBloqueado(ip)) return;
   try {
     await prisma.activityLog.create({
       data: {
@@ -107,6 +184,49 @@ export async function registrarBloqueioCliente(email: string, motivo: string, us
   }
 }
 
+/**
+ * O HASH CONTRA O QUAL SE QUEIMA TEMPO quando a conta não existe.
+ *
+ * É o hash argon2id de um valor aleatório sorteado no primeiro uso: ninguém sabe a senha dele,
+ * nenhuma senha real bate com ele, e ele não abre nada. Serve só para que conferir a senha de
+ * uma conta INEXISTENTE custe o mesmo que conferir a de uma conta que existe.
+ *
+ * Sorteado em memória, e não escrito no código, porque valor fixo em repositório é a coisa que
+ * um dia alguém copia achando que é senha de exemplo.
+ */
+let hashDeDescarte: Promise<string> | null = null;
+function hashParaQueimarTempo(): Promise<string> {
+  // ⚠️ `??=` guardaria a promessa REJEITADA para sempre: se o argon2 não carregasse na primeira
+  // vez, todo login com e-mail desconhecido passaria a responder erro interno em vez de
+  // "e-mail ou senha incorretos" — e encheria SISTEMA → Erros (a lição da ADR-135). Por isso
+  // o descarte no `catch`: a próxima chamada tenta de novo.
+  hashDeDescarte ??= hashPassword(randomBytes(32).toString("hex")).catch((e) => {
+    hashDeDescarte = null;
+    throw e;
+  });
+  return hashDeDescarte;
+}
+
+/**
+ * Queima o mesmo tempo que custaria conferir a senha de uma conta que existe.
+ *
+ * Nada aqui pode derrubar o login: se o hash de descarte falhar, o caminho continua devolvendo
+ * "e-mail ou senha incorretos" — perder a defesa de tempo é muito menos grave que transformar
+ * uma tentativa comum em erro interno.
+ */
+async function queimarTempoDeSenha(senha: string): Promise<void> {
+  try {
+    await verifyPassword(await hashParaQueimarTempo(), senha);
+  } catch {
+    /* defesa de tempo é best-effort */
+  }
+}
+
+/** Aquece o hash de descarte no boot: gerá-lo na 1ª tentativa faria justamente ela destoar. */
+export function aquecerDefesaDeTempo(): void {
+  void hashParaQueimarTempo().catch(() => {});
+}
+
 /** Autentica por e-mail/senha, cria sessão e retorna o usuário público. */
 export async function login(
   input: LoginInput,
@@ -114,12 +234,24 @@ export async function login(
   ip?: string,
 ): Promise<{ sid: string; user: SessionUser }> {
   const chave = chaveLogin(ip, input.email);
-  if (loginBloqueado(chave)) throw MUITAS_TENTATIVAS;
+  // Os dois freios, nesta ordem: o do par (ip, e-mail) protege UMA conta; o de IP protege o
+  // servidor de quem varia o e-mail justamente para escapar do primeiro.
+  if (loginBloqueado(chave) || loginBloqueadoPorIp(ip)) throw MUITAS_TENTATIVAS;
 
   const user = await prisma.user.findUnique({ where: { email: input.email } });
   // Sem passwordHash = convite ainda não aceito → não pode logar.
   if (!user || !user.ativo || user.deletedAt || !user.passwordHash) {
+    // ⚠️ QUEIMA O MESMO TEMPO DE QUEM EXISTE — senão o relógio conta o que a mensagem cala.
+    //
+    // A mensagem de erro é a mesma para conta que existe e conta que não existe, de propósito.
+    // Mas conferir argon2id custa dezenas a centenas de milissegundos e sair sem conferir custa
+    // ~5 ms: bastava cronometrar UMA tentativa por endereço para descobrir quem tem acesso ao
+    // sistema — sem sequer gastar as 8 tentativas do freio. Isso derrubava, pela segunda porta,
+    // a garantia que `solicitarReset` foi escrito para dar (lá a resposta é igual justamente
+    // para não confirmar endereço).
+    await queimarTempoDeSenha(input.password);
     registrarFalha(chave);
+    registrarFalhaPorIp(ip);
     await registrarTentativaFalha(
       input.email,
       !user ? "conta inexistente" : !user.ativo ? "conta inativa" : user.deletedAt ? "conta removida" : "convite não aceito (sem senha)",
@@ -131,6 +263,7 @@ export async function login(
   const ok = await verifyPassword(user.passwordHash, input.password);
   if (!ok) {
     registrarFalha(chave);
+    registrarFalhaPorIp(ip);
     await registrarTentativaFalha(input.email, "senha não confere", userAgent);
     throw CREDENCIAIS_INVALIDAS;
   }

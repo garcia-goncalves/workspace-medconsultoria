@@ -13,6 +13,7 @@ import { toast } from "../../components/ui/toast";
 import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
 import { BriefingDialog } from "./BriefingDialog";
 import { usePodeNoPortal } from "./permissoes";
+import { recarregarAposEnvio } from "../../lib/recarregar-apos-envio";
 
 /**
  * "Seus serviços" no Portal do Cliente: os serviços contratados, o que ainda falta
@@ -27,7 +28,10 @@ export function PortalServicos() {
   // Med também não faz (ADR-128). A régua é a mesma função pura que o servidor usa.
   const cancelamento = usePodeNoPortal()("cancelarServico");
   const invalidate = () => {
-    utils.portal.meusServicos.invalidate();
+    // `q` é a lista que ESTA tela desenha (serviços + o que falta enviar): recarregamento
+    // duplo, não `invalidate` — senão a exigência recém-atendida continua marcada como
+    // pendente e o cliente reenvia achando que falhou. Ver `recarregarAposEnvio`.
+    recarregarAposEnvio(q);
     utils.portal.arquivos.invalidate();
   };
   const cancelar = trpc.portal.cancelarServico.useMutation({

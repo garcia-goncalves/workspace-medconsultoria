@@ -1219,6 +1219,14 @@ model Conta {
   categoriaId    String?
   clienteId      String?
   recorrencia    Recorrencia @default(NENHUMA)
+  // QUE SERVIÇO ORIGINOU ESTA COBRANÇA. Existe porque a conferência que impede cobrar duas
+  // vezes o mesmo serviço casava por TEXTO da descrição ("<Serviço> — <Cliente>"): renomear o
+  // cliente na ficha mudava a descrição das cobranças futuras, a conferência deixava de casar
+  // com as antigas, e aceitar uma segunda proposta que repetisse o serviço lançava a cobrança
+  // de novo — em silêncio, porque duas contas a receber com descrições diferentes não parecem
+  // duplicata para ninguém. Nulo nas contas anteriores a esta coluna e nas que não vêm de um
+  // serviço (aluguel, imposto): por isso a conferência olha as DUAS coisas.
+  origemServicoId String?
   recorrenciaAte DateTime? // limite opcional da série recorrente
   recorrenteId   String? // id da 1ª conta da série (herdado pelas geradas); agrupa a série
   observacoes    String?     @db.Text
@@ -1242,6 +1250,7 @@ model Conta {
   @@index([deletedAt])
   @@index([escopo, donoId])
   @@index([recorrenteId])
+  @@index([clienteId, origemServicoId])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1526,6 +1535,14 @@ model Assinatura {
   // e-mail, sem login). IP e user-agent dizem de onde veio, nunca quem foi.
   assinadoPorId String?
   assinadoEm    DateTime?
+  // A PROVA DO CONSENTIMENTO. A caixa "li e concordo" sempre foi exigida pela tela e pelo
+  // servidor, e nada disso ficava gravado: depois do clique não sobrava no sistema nenhum
+  // registro de que a pessoa consentiu, nem com que texto. Guarda a data E a versão do texto
+  // (`VERSAO_CONSENTIMENTO_ASSINATURA`, em `@app/shared`) — só a data não diria com o quê.
+  // Nulo nas assinaturas anteriores a esta coluna: elas foram dadas, o consentimento foi
+  // exigido na tela, mas a prova não existe e inventá-la seria pior que a ausência.
+  consentimentoEm      DateTime?
+  consentimentoVersao  String?
   criadoEm      DateTime  @default(now())
 
   documento   Documento @relation(fields: [documentoId], references: [id], onDelete: Cascade)

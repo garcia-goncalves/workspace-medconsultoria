@@ -5083,3 +5083,164 @@ depois de limpar passa) · **13 testes novos**, e os dois que travam regressão 
 typecheck 6/6 · lint limpo · **suíte completa do `@app/api`: 858/858** · CI 3/3 verde (PR #172, `f9ab574`).
 
 **⚠️ Não está no ar.** A v1.6.0 continua sendo o que roda; publicar depende do sinal do dono.
+
+---
+
+## ADR-148 — A varredura de setembro: dezesseis correções, e as três piores só aparecem quando alguém repete um clique ✅
+
+**Contexto:** o dono pediu a varredura completa antes de a operação crescer sobre o dado real — *"analise tudo,
+corrija tudo, teste tudo no navegador"*. A base começou **verde**: typecheck 6/6, lint limpo, 858 testes do
+`@app/api`, 220 do `@app/web`, 109 de ponta a ponta. Cinco auditorias em paralelo (segurança, API, tela, banco e
+o levantamento das pendências antigas), mais a aplicação percorrida no navegador, página por página.
+
+**⚠️ A base verde tinha um defeito que cobra o cliente em dobro.** É a lição da ADR-140 de novo, e ela merece
+ser repetida: suíte verde prova que o que alguém **já pensou em testar** continua funcionando, não que o sistema
+esteja certo. Nenhum dos dezesseis achados desta rodada era pego por teste.
+
+**O padrão desta rodada é diferente do da ADR-140.** Lá era "uma segunda porta para o mesmo dado". Aqui é
+**"a correção existe, mas só num dos lugares onde o defeito mora"**: a régua do recarregamento duplo estava em
+um card e faltava em quatro; a trava de papel do Portal cobria quatro botões e não cobria os cinco de dar-e-tirar
+acesso; a conferência de posse do upload valia para o médico e não para o serviço nem para a exigência. Quem
+corrigiu não errou — parou no primeiro caso.
+
+### Decisão
+
+**1. 💸 APROVAR UM CREDENCIAMENTO DUAS VEZES AO MESMO TEMPO COBRAVA DUAS VEZES — e foi visto acontecendo.**
+`mudarStatusCredenciamento` lia o cruzamento uma vez, no começo, e decidia criar a conta a receber com base
+nesse retrato (`!atual.contaId`). Entre a leitura e a criação não havia trava: `Credenciamento.contaId` não é
+único e `criarContaDoHonorario` não reconferia. ⚠️ **Não é hipótese de laboratório:** o botão "Atualizar" existe
+na página Credenciamentos **e** na grade da ficha, um clique duplo basta, e a ADR-128 permite de propósito que a
+mesma clínica esteja aberta em duas sessões. Reproduzido em teste antes de corrigir: **duas contas**
+(`expected 2 to be 1`), com a segunda gravação sobrescrevendo `contaId` e deixando a primeira **órfã** no
+Financeiro, sem nada na ficha que a explicasse. **A cura é a reserva atômica**, não uma transação: a conta é
+criada e só então amarrada por `updateMany({ where: { id, contaId: null } })`, que o MySQL resolve com a linha
+travada — exatamente uma das chamadas vê `count === 1`, e quem perde apaga a conta que criou, antes de ela
+chegar a aparecer para alguém.
+
+**2. 💸 A CONFERÊNCIA CONTRA COBRAR O MESMO SERVIÇO DUAS VEZES CASAVA POR TEXTO.** `provisionarUpsellAceito`
+procurava conta com `descricao endsWith "<Serviço> — <Cliente>"`. Renomear a clínica na ficha muda a descrição
+das cobranças seguintes: a conferência deixa de casar com as antigas e a segunda proposta lança tudo de novo —
+**em silêncio, porque duas contas com descrições diferentes não se parecem com duplicata para quem olha o
+Financeiro**. Nasceu `Conta.origemServicoId` (migração `20260902130000`, aditiva). ⚠️ **A conferência olha as
+DUAS coisas, e não é cinto com suspensório:** o id vale das contas novas em diante, e o texto continua cobrindo
+as que nasceram antes da coluna existir. **Sem backfill, de propósito** — deduzir o serviço das antigas exigiria
+interpretar a descrição, que é justamente a fragilidade que a coluna veio substituir.
+
+**3. 🧮 "EM CURSO" E "APROVADO" CONTAVAM O MESMO DINHEIRO DUAS VEZES.** A página Credenciamentos mostra os dois
+cartões lado a lado, e o primeiro diz, com todas as letras, *"honorário ainda não aprovado"*. O cálculo excluía
+só `NEGADO` e `ENCERRADO`. Medido na tela: R$ 2.020 de fato em andamento apareciam como **R$ 2.770** — que é
+2.020 mais os R$ 750 anunciados pelo cartão vizinho. Quem soma os dois erra para mais. ⚠️ **O total do processo
+continua existindo onde ele é a pergunta certa:** o cabeçalho da grade na ficha, que é o valor que vai para a
+proposta.
+
+**4. 🔐 UMA ROTA ANÔNIMA ESCREVIA NO RASTRO DE AUDITORIA SEM TETO.** `registrarBloqueioNoNavegador` é pública e
+grava uma linha no `ActivityLog` a cada chamada. O teto global é de 300 requisições HTTP por minuto — mas o
+cliente fala por **lote**, então uma requisição carrega dezenas de chamadas. ⚠️ **O estrago não é derrubar o
+servidor, é APAGAR O RASTRO:** `SISTEMA → Atividade` mostra as 60 linhas mais recentes, e é onde a casa responde
+"quem viu o quê". Agora há freio próprio por IP (60/hora, molde do formulário público) **e** o `ActivityLog`
+entrou no expurgo de retenção — ele era a única tabela que crescia para sempre, num MySQL de revenda que já cai
+por esgotamento de pool.
+
+**5. 🔐 O RELÓGIO CONTAVA O QUE A MENSAGEM CALAVA.** Login de conta inexistente saía em ~5 ms; o de conta que
+existe pagava o argon2id. A mensagem era a mesma, o tempo não — uma tentativa por endereço revelava quem tem
+acesso ao sistema, **sem gastar as 8 tentativas do freio**. Isso derrubava, pela segunda porta, a garantia que
+`solicitarReset` foi escrito para dar. Agora o caminho da conta inexistente confere a senha contra um hash de
+descarte, sorteado em memória no primeiro uso — nunca escrito no repositório, porque valor fixo em código é o
+que um dia alguém copia achando que é senha de exemplo.
+
+**6. ✍️ O TOKEN DE ASSINATURA DO CLIENTE VOLTAVA EM CLARO PARA QUALQUER FUNCIONARIO.** ⚠️ **O risco não é o
+acesso, é a ATRIBUIÇÃO.** Quem assina pelo link do e-mail assina deslogado e grava `assinadoPorId: null` — o
+caso normal. Então uma assinatura fabricada por alguém da casa, numa janela anônima, ficava **indistinguível**
+da legítima: mesmo formato, mesmo nulo. O contrato perdia valor de prova sem que nada registrasse a diferença.
+Entregar o link continua sendo função da tela (é assim que a equipe reenvia por WhatsApp) — agora por
+`/ir/assinar/:id`, que exige sessão, registra quem abriu e redireciona. ⚠️ **Redirecionamento, e não uma mutação
+que abre janela:** `window.open` depois de `await` é barrado como pop-up.
+
+**7. 📄 O CONSENTIMENTO DA ASSINATURA ERA EXIGIDO E NÃO ERA GUARDADO.** A caixa "li o documento e concordo"
+sempre existiu e o Zod sempre recusou sem ela — e, passado o clique, não sobrava **nenhum** registro de que a
+pessoa consentiu, nem com que texto. ⚠️ "A tela exigia a caixa" é afirmação sobre o código de **hoje**; não prova
+nada sobre o que estava na tela naquele dia. Migração `20260902120000` (aditiva): `consentimentoEm` e
+`consentimentoVersao`. ⚠️ **É data MAIS versão** — só a data diria "consentiu em 12/03" sem dizer com o quê, e o
+texto muda. O texto saiu da tela e foi para `@app/shared`, com teste que **reprova quem editar a frase sem subir
+a versão**. ⚠️ **Assinaturas antigas ficam nulas e a tela diz "não registrado"**: preencher com a data da
+assinatura fabricaria uma prova que ninguém coletou, o que é pior que a ausência honesta.
+
+**8. 📎 A REGRA DO RECARREGAMENTO DUPLO ESTAVA EM UM LUGAR E FALTAVA EM QUATRO.** A ADR-143 descobriu que
+`invalidate()` sobre uma consulta **em andamento** é deduplicado pelo React Query, que aceita a resposta
+anterior ao envio — o arquivo some da lista até alguém recarregar a página, sem sinal de erro. A correção foi
+aplicada no card de documentos da ficha e **não chegou** ao Portal (Meus documentos, Meus serviços,
+Credenciamento) nem ao card irmão de serviços contratados. No Portal o efeito é pior: a exigência recém-atendida
+continua marcada como pendente, e o cliente reenvia achando que falhou. A regra passou a morar em
+`recarregarAposEnvio`, usada pelas cinco telas — cinco cópias divergem no primeiro ajuste.
+
+**9. 🔒 A TRAVA DE PAPEL DO PORTAL COBRIA QUATRO BOTÕES E DEIXAVA CINCO DE FORA.** "Quem da clínica entra aqui"
+decidia por `papelPortal !== "EQUIPE"` — e a **sessão de suporte da Med entra como RESPONSAVEL da clínica**.
+Resultado: "Convidar pessoa" e "Revogar" à vista para quem está em modo de leitura, com a recusa chegando só
+depois do clique e do modal de confirmação. Agora lê `podeAgirNoPortal`, a mesma função pura que o servidor
+chama, e a frase que ocupa o lugar do botão muda com o motivo — quem está em suporte precisa ler "só leitura", e
+não "peça ao responsável da clínica", que mandaria a pessoa errada resolver.
+
+**10. 🕳️ Mais seis, menores.** `/avatar/:userId`
+servia a foto de qualquer pessoa a qualquer sessão autenticada, inclusive de uma clínica para outra ·
+`servicoIds` do formulário público não tinha teto · as duas sugestões da IA faziam `JSON.parse` sem rede, e uma
+frase a mais do modelo virava erro interno no painel do ROOT (o defeito da ADR-135 outra vez) · o Portal dizia
+"você ainda não enviou nenhum documento" **enquanto a lista carregava** · cliente **já ativo** com upsell no
+funil via "Não tenho mais interesse", que encerra o lead mas se lê como encerrar o atendimento inteiro (M9) · e
+`/privacidade` declarava o envio de texto à OpenAI e **calava sobre o áudio** da transcrição, que é uma segunda
+porta por natureza — a peneira de dado pessoal age sobre texto e não alcança o que ainda está falado.
+
+
+**11. 🔁 OS REVISORES ACHARAM DOIS DEFEITOS BLOQUEANTES NAS PRÓPRIAS CORREÇÕES DESTA ADR — e é a parte
+que mais ensina.** O padrão descrito no alto ("a correção existe, mas só num dos lugares onde o defeito mora")
+apareceu de novo, agora comigo:
+
+- **A defesa contra enumeração por tempo virou um amplificador de argon2id.** O freio de força bruta é chaveado
+  em `(ip, e-mail)` — e **quem escolhe o e-mail é quem ataca**: variar o endereço a cada tentativa faz o freio
+  nunca engatar. Isso já era ruim; virou perigoso quando o caminho da conta inexistente passou a conferir a
+  senha contra um hash de descarte, porque **cada e-mail inventado passou a custar 19 MiB e duas passadas de
+  argon2**, na threadpool de 4 do Node. E o cliente fala por lote, com o rate-limit global contando
+  requisições, não chamadas. ⚠️ **A defesa contra vazar informação teria virado o jeito mais barato de derrubar
+  o sistema inteiro** — um processo só serve API, site e tempo real. Cura: um segundo freio **por IP sozinho**,
+  que recusa **antes** de queimar tempo, mais `.max(200)` na senha. De brinde, a memoização do hash de descarte
+  guardava a promessa **rejeitada** para sempre: uma falha do argon2 no boot faria todo login com e-mail
+  desconhecido responder erro interno (a ADR-135 de novo).
+- **O expurgo do `ActivityLog` apagava a prova criada pela correção vizinha desta mesma ADR.** Pôr teto na
+  tabela estava certo; apagar tudo, não. `documento.link_de_assinatura_aberto` nasceu no item 6 acima
+  **justamente** para o dia em que uma assinatura for contestada — e evaporaria em 180 dias, enquanto contrato
+  se guarda por anos. Junto iam `painel_cliente.*` (o único registro de quem da Med entrou no Portal de um
+  cliente), `arquivo.removido` e `conta.criada`. ⚠️ **E o prazo herdado era o do corpo dos e-mails**, cujo
+  rótulo na tela fala de e-mail: apertar aquele campo para 30 dias destruiria cinco meses de trilha de
+  auditoria sem ninguém ler a palavra "atividade". Cura: uma **lista de ações preservadas**, não um prazo — e o
+  texto do botão de expurgo passou a dizer o que fica.
+- **E uma terceira, do revisor de banco:** `Conta.origemServicoId` era gravado no aceite da proposta e **não**
+  ao contratar pela ficha. Com uma das duas portas sem o elo, o rename da clínica reabria a cobrança dupla por
+  ali — exatamente o buraco que a coluna veio fechar. O teste novo cobre as duas portas de propósito.
+
+### Consequências
+
+- **Duas migrações, as duas aditivas e revertíveis em duas linhas:** `20260902120000` (consentimento da
+  assinatura) e `20260902130000` (origem do serviço na conta). Nenhuma apaga ou converte dado, nenhuma faz
+  backfill, nenhuma linha existente muda de valor.
+- **A versão do aviso de privacidade subiu para `2026-09-02`**, porque o texto mudou — é o que a própria página
+  exige de quem a edita.
+- **Provas:** typecheck 6/6 · lint limpo · **866 testes do `@app/api`** (eram 858; os que travam regressão foram
+  vistos reprovando antes) · **220 do `@app/web`** · **109 de ponta a ponta** · a aplicação percorrida no
+  navegador, área interna e Portal, com **zero erro de console**.
+- **O que ficou de fora, e por quê:**
+  - **O envio de e-mail não pôde ser provado no computador do dono** — a máquina não tem servidor de e-mail
+    (`ECONNREFUSED 127.0.0.1:587`, comportamento conhecido desde a ADR-122). A entrega só se prova em produção,
+    onde foi provada em 22/08.
+  - **⚠️ A CONFERÊNCIA DE POSSE DO `servicoId`/`requisitoId` NO UPLOAD FOI TENTADA E REVERTIDA — e a lição é a
+    parte que importa.** A revisão de segurança apontou a assimetria (o `profissionalId` é conferido, os outros
+    dois não). Fechei exigindo que o cliente tivesse o serviço **contratado** — e a suíte de ponta a ponta
+    reprovou (`flows-credenciamento … enviar um documento move a barra`), mostrando que **a premissa estava
+    errada**: a papelada do credenciamento aparece legitimamente para quem tem médico cadastrado, ainda que a
+    contratação não esteja registrada (`credenciamentoDoCliente`: `emCurso = contratado || profissionais.length
+    > 0`). Com a régua estrita, o cliente enviava o documento e **a barra de progresso não andava**.
+    Repetir aquela condição no upload seria escrever a mesma regra em dois lugares — o modo de falha da ADR-133,
+    e no dia em que a visibilidade mudasse o cliente perderia o documento em silêncio. O risco mitigado é baixo
+    (o estrago fica todo dentro do próprio `clienteId`), então o certo foi **não fechar deste jeito**. Se um dia
+    for fechado, a régua tem de ser **uma** função exportada por `credenciamento.service.ts`, chamada pelos dois
+    lados. O porquê está escrito no código, onde alguém tentaria de novo.
+  - ⚠️ **Isto é a própria lição da rodada aplicada a mim:** a suíte verde não prova que o sistema está certo,
+    mas a suíte **vermelha** provou que a minha correção estava.

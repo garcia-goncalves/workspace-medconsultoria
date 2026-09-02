@@ -15,6 +15,7 @@ import { MoneyInput } from "../../../components/ui/money-input";
 import { formatPreco, formatBRL, formatPct } from "../../../lib/masks";
 import { ConveniosPicker } from "../../documentos/ConveniosPicker";
 import { RespostaBriefingDialog } from "./RespostaBriefingDialog";
+import { recarregarAposEnvio } from "../../../lib/recarregar-apos-envio";
 
 type ServicoContratado = RouterOutputs["clientes"]["servicos"][number];
 
@@ -187,6 +188,13 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
   const confirmar = useConfirmar();
   const q = trpc.clientes.servicos.useQuery({ id: clienteId });
   const invalidate = () => utils.clientes.servicos.invalidate({ id: clienteId });
+  // ⚠️ UPLOAD é outro caso, e a diferença é o arquivo aparecer ou não. A ficha carrega tudo
+  // num lote só e o upload termina ~120 ms depois de esse lote começar; `invalidate` sobre uma
+  // consulta EM ANDAMENTO é deduplicado e aceita a resposta anterior ao envio. A correção
+  // existia só no card de documentos ao lado e não tinha chegado aqui: anexar um documento de
+  // exigência logo depois de abrir a ficha sumia da lista até recarregar. Ver
+  // `recarregarAposEnvio`.
+  const aposUpload = () => recarregarAposEnvio(q);
   // Contratar/cancelar serviço muda o nº de serviços do cliente → atualiza também a listagem
   // (contador "servicosContratados" e o selo "sem serviço" na ClientesListPage).
   const invalidateComLista = () => {
@@ -409,7 +417,7 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                                   size="xs"
                                   label={r.atendido ? "Enviar outro" : "Anexar"}
                                   campos={{ clienteId, servicoId: item.servico.id, requisitoId: r.id }}
-                                  onDone={invalidate}
+                                  onDone={aposUpload}
                                 />
                               </div>
                             ) : r.respostaId ? (
@@ -455,7 +463,7 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                     size="xs"
                     label="Anexar outro documento"
                     campos={{ clienteId, servicoId: item.servico.id }}
-                    onDone={invalidate}
+                    onDone={aposUpload}
                   />
                 </div>
               )}

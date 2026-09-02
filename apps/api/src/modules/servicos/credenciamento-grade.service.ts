@@ -339,6 +339,11 @@ export async function mudarStatusCredenciamento(
   // aprovação também não serve: a operadora aprovou, e o fato tem de ser registrado. Então
   // aprova-se sem inventar cobrança nenhuma, `contaId` fica nulo (a porta continua aberta) e a
   // pendência fica escrita na linha, que é o que a página Credenciamentos desenha.
+  //
+  // ⚠️ `!atual.contaId` aqui é só o filtro BARATO: ele evita o trabalho inútil no caso comum
+  // (aprovar de novo algo que já cobrou). Ele NÃO é a trava — `atual` foi lido no começo desta
+  // função e pode estar velho. Quem garante uma conta só é a reserva atômica dentro de
+  // `criarContaDoHonorario`, que devolve `null` quando outra chamada ganhou a corrida.
   if (input.status === "APROVADO" && !atual.contaId) {
     if (Number(atual.valor) > 0) {
       await criarContaDoHonorario(atualizado.id, atual.clienteId, Number(atual.valor), ator);
@@ -456,7 +461,28 @@ async function criarContaDoHonorario(credenciamentoId: string, clienteId: string
     },
   });
 
-  await prisma.credenciamento.update({ where: { id: credenciamentoId }, data: { contaId: conta.id } });
+  // ⚠️ A AMARRAÇÃO É A TRAVA, E ELA PRECISA SER ATÔMICA — não um `update` por id.
+  //
+  // Duas aprovações quase simultâneas do mesmo cruzamento (clique duplo, ou a página
+  // Credenciamentos e a grade da ficha abertas ao mesmo tempo) liam `contaId` nulo as duas,
+  // passavam as duas pela guarda de quem chamou e criavam DUAS contas do mesmo honorário — a
+  // segunda gravação sobrescrevia `contaId` e deixava a primeira conta órfã no Financeiro,
+  // sem nada na ficha que a explicasse. `Credenciamento.contaId` não é único; a linha de
+  // defesa é o próprio `WHERE`.
+  //
+  // `updateMany` com `contaId: null` no filtro vira UM `UPDATE ... WHERE contaId IS NULL`, que
+  // o MySQL resolve com a linha travada: das duas chamadas, exatamente uma vê `count === 1`.
+  // Quem perde apaga a conta que criou — ela nunca chegou a aparecer para ninguém, porque só
+  // passa a existir para a tela depois de amarrada.
+  const reserva = await prisma.credenciamento.updateMany({
+    where: { id: credenciamentoId, contaId: null },
+    data: { contaId: conta.id },
+  });
+  if (reserva.count === 0) {
+    await prisma.conta.delete({ where: { id: conta.id } });
+    return null;
+  }
+
   await prisma.activityLog.create({
     data: {
       userId: ator.id,

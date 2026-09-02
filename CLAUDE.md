@@ -13,7 +13,115 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-02 · madrugada · **v1.6.0 NO AR** — ADR-146 publicada · **ADR-147 na `main`, NAO publicada**)
+## Estado atual (2026-09-02 · tarde · **v1.6.0 NO AR** — **ADR-147 e ADR-148 na `main`, NAO publicadas**)
+
+> **Leia a ADR-148 e a ADR-147 em `docs/DECISIONS.md`.**
+
+### 🔎 A VARREDURA COMPLETA DE 02/09 (ADR-148) — 18 correcoes, e a base comecou VERDE
+
+- **Ordem do dono:** *"faca todas as pendencias e deixe tudo 100%... analise tudo profundamente, procurando
+  erros/bugs/incongruencias... corrija tudo... abra o navegador e teste tudo"*. Cinco auditorias em paralelo
+  (seguranca, API, tela, banco, pendencias antigas) mais a aplicacao percorrida no navegador, pagina por pagina.
+- ⚠️ **A BASE COMECOU VERDE E TINHA UM DEFEITO QUE COBRA O CLIENTE EM DOBRO.** typecheck 6/6, lint limpo, 858
+  testes de API, 220 de web, 109 de ponta a ponta — e **nenhum** dos 16 achados era pego por teste. Suite verde
+  prova que o que alguem ja pensou em testar continua funcionando, nao que o sistema esteja certo (ADR-140).
+- 🔑 **O PADRAO DESTA RODADA, e ele e diferente do da ADR-140:** *"a correcao existe, mas so num dos lugares onde
+  o defeito mora"*. A regua do recarregamento duplo estava em UM card e faltava em QUATRO; a trava de papel do
+  Portal cobria quatro botoes e nao cobria os cinco de dar-e-tirar acesso; a conferencia de posse do upload valia
+  para o medico e nao para o servico nem para a exigencia. **Quem corrigiu nao errou — parou no primeiro caso.**
+
+- **💸 APROVAR UM CREDENCIAMENTO DUAS VEZES AO MESMO TEMPO CRIAVA DUAS CONTAS A RECEBER, e foi VISTO
+  acontecendo** (`expected 2 to be 1` no teste, antes da correcao). ⚠️ Nao e laboratorio: o botao "Atualizar"
+  existe na pagina Credenciamentos **e** na grade da ficha, um clique duplo basta, e a ADR-128 permite de
+  proposito duas sessoes abertas na mesma clinica. A segunda gravacao sobrescrevia `contaId` e deixava a
+  primeira conta **orfa** no Financeiro. **Cura: reserva ATOMICA** (`updateMany` com `contaId: null` no filtro),
+  nao transacao — quem perde a corrida apaga a conta que criou.
+- **💸 A CONFERENCIA CONTRA COBRAR O MESMO SERVICO DUAS VEZES CASAVA POR TEXTO** (`"<Servico> — <Cliente>"`):
+  renomear a clinica fazia a conferencia deixar de casar com as cobrancas antigas, e a 2a proposta lancava tudo
+  de novo **em silencio**. Nasceu `Conta.origemServicoId` (migracao `20260902130000`). ⚠️ **A conferencia olha as
+  DUAS coisas** — o id cobre as contas novas, o texto cobre as que nasceram antes da coluna. **Sem backfill.**
+- **🧮 "EM CURSO" E "APROVADO" CONTAVAM O MESMO DINHEIRO DUAS VEZES.** O cartao dizia *"honorario ainda nao
+  aprovado"* e somava os aprovados: medido na tela, R$ 2.020 apareciam como **R$ 2.770** (= 2.020 + os R$ 750 do
+  cartao ao lado). Quem soma os dois erra para mais.
+- **🔐 UMA ROTA ANONIMA ESCREVIA NO RASTRO DE AUDITORIA SEM TETO.** `registrarBloqueioNoNavegador` grava no
+  `ActivityLog` a cada chamada, e o cliente fala por **lote** — o teto global de 300 req/min nao segurava.
+  ⚠️ **O estrago e APAGAR O RASTRO**: `SISTEMA -> Atividade` mostra as 60 mais recentes. Freio proprio por IP
+  (60/h) **e** `ActivityLog` no expurgo de retencao (era a unica tabela que crescia para sempre).
+- **🔐 O RELOGIO CONTAVA O QUE A MENSAGEM CALAVA.** Login de conta inexistente saia em ~5 ms; de conta existente,
+  pagava o argon2id. Uma tentativa por endereco revelava quem tem acesso, **sem gastar as 8 do freio**. Hoje o
+  caminho da conta inexistente confere contra um hash de descarte sorteado em memoria.
+- **✍️ O TOKEN DE ASSINATURA DO CLIENTE VOLTAVA EM CLARO PARA QUALQUER FUNCIONARIO.** ⚠️ **O risco nao e o
+  acesso, e a ATRIBUICAO:** quem assina pelo link do e-mail grava `assinadoPorId: null`, entao uma assinatura
+  fabricada numa janela anonima ficava **indistinguivel** da legitima. Hoje o link sai por `/ir/assinar/:id`,
+  que exige sessao, registra quem abriu e redireciona. ⚠️ Redirecionamento, nao mutacao: `window.open` depois de
+  `await` e barrado como pop-up.
+- **📄 O CONSENTIMENTO DA ASSINATURA ERA EXIGIDO E NAO ERA GUARDADO.** Migracao `20260902120000`:
+  `consentimentoEm` + `consentimentoVersao`. ⚠️ **Data MAIS versao** — so a data nao diz COM QUE TEXTO, e o
+  texto muda. O texto foi para `@app/shared` com teste que **reprova quem editar a frase sem subir a versao**.
+  ⚠️ **Assinatura antiga fica nula e a tela diz "nao registrado"** — preencher com a data da assinatura
+  fabricaria uma prova que ninguem coletou.
+- **📎 O RECARREGAMENTO DUPLO (ADR-143) FALTAVA EM QUATRO TELAS.** Portal (Meus documentos, Meus servicos,
+  Credenciamento) e o card de servicos contratados da ficha. No Portal e pior: a exigencia recem-atendida
+  continua marcada como pendente e o cliente reenvia achando que falhou. A regra virou `recarregarAposEnvio`,
+  usada pelas **cinco** telas.
+- **🔒 A TRAVA DE PAPEL DO PORTAL DEIXAVA CINCO BOTOES DE FORA.** "Quem da clinica entra aqui" decidia por
+  `papelPortal !== "EQUIPE"` — e **a sessao de suporte da Med entra como RESPONSAVEL da clinica**. "Convidar
+  pessoa" e "Revogar" ficavam a vista em modo de leitura. Hoje le `podeAgirNoPortal`, e a frase muda com o
+  motivo (quem esta em suporte le "so leitura", nao "peca ao responsavel").
+- **🕳️ Mais seis, menores:** `/avatar/:userId` servia foto de qualquer pessoa a qualquer sessao, inclusive entre clinicas · `servicoIds` do
+  formulario publico sem teto · as duas sugestoes da IA faziam `JSON.parse` sem rede (defeito da ADR-135 de
+  novo) · o Portal dizia "voce ainda nao enviou nenhum documento" **enquanto carregava** · **M9**: cliente ja
+  ATIVO com upsell no funil via "Nao tenho mais interesse" · `/privacidade` declarava o texto enviado a OpenAI e
+  **calava sobre o audio** da transcricao, que e segunda porta por natureza.
+
+- **🔁 OS REVISORES ESPECIALISTAS ACHARAM TRES DEFEITOS NAS MINHAS PROPRIAS CORRECOES — e e a parte que mais
+  ensina desta rodada.** (1) A defesa contra enumeracao por TEMPO virou **amplificador de argon2id**: o freio e
+  chaveado em `(ip, e-mail)` e **quem escolhe o e-mail e quem ataca**, entao cada endereco inventado passava a
+  custar 19 MiB de argon2 na threadpool de 4 do Node — a defesa contra vazar informacao virou o jeito mais
+  barato de derrubar o processo que serve API, site e tempo real. Cura: segundo freio **por IP sozinho**, que
+  recusa ANTES de queimar tempo, mais `.max(200)` na senha. (2) O expurgo do `ActivityLog` apagava
+  `documento.link_de_assinatura_aberto` — a prova criada pela correcao vizinha DESTA MESMA rodada — mais
+  `painel_cliente.*`, `arquivo.removido` e `conta.criada`; e usava o prazo do **corpo dos e-mails**, cujo rotulo
+  na tela nem fala em atividade. Cura: LISTA de acoes preservadas, e o texto do botao passou a dizer o que fica.
+  (3) `Conta.origemServicoId` era gravado no aceite da proposta e **nao** ao contratar pela ficha — uma das duas
+  portas sem o elo reabre a cobranca dupla.
+- **Provas:** typecheck 6/6 · lint limpo · **871 testes do `@app/api`** (eram 858) · **220 do `@app/web`** ·
+  **109 de ponta a ponta** · aplicacao percorrida no navegador (Inicio, Tarefas, Agenda, Projetos, Vendas,
+  Clientes, Credenciamentos, Documentos, Financeiro, E-mail, Mensagens, Ajustes, Servicos, E-mails enviados,
+  Sistema com as abas Visao geral/Desempenho/Erros/Manutencao, `/comecar`, `/privacidade` e as 5 secoes do
+  Portal em sessao de suporte) com **zero erro de console em todas**.
+- ⚠️ **DUAS MIGRACOES NOVAS, as duas ADITIVAS**, aplicadas no banco local e no de teste. Reverter cada uma sao
+  duas linhas, escritas dentro da propria migracao. Nenhuma apaga ou converte dado; nenhuma faz backfill.
+- ⚠️ **A VERSAO DO AVISO DE PRIVACIDADE SUBIU para `2026-09-02`**, porque o texto mudou.
+- ⚠️ **UMA CORRECAO FOI TENTADA E REVERTIDA, e a licao e o que fica.** Fechei a conferencia de posse do
+  `servicoId`/`requisitoId` no upload exigindo o servico **contratado** — e o e2e reprovou
+  (`flows-credenciamento ... enviar um documento move a barra`). **A premissa estava errada:** a papelada do
+  credenciamento aparece para quem tem **medico cadastrado**, mesmo sem contratacao registrada
+  (`emCurso = contratado || profissionais.length > 0`). Com a regua estrita, o cliente enviava o documento e a
+  barra **nao andava**. Repetir aquela condicao no upload seria a mesma regra em dois lugares (ADR-133). O risco
+  e baixo (fica dentro do proprio `clienteId`), entao o certo foi **nao fechar assim** — e o porque ficou
+  escrito no codigo, onde alguem tentaria de novo.
+- 📭 **O E-MAIL NAO PODE SER PROVADO DAQUI, e nao e defeito da aplicacao:** a maquina do dono nao tem servidor de
+  e-mail (`ECONNREFUSED 127.0.0.1:587` — 314 falhas em 7 dias, taxa 0%). O **disparo** funciona; a **entrega** so
+  se prova em producao, onde foi provada em 22/08 (ADR-122). O teste com `tibamooca@gmail.com` que o dono
+  liberou **so vale rodando em producao**.
+- ⚠️ **NAO ESTA NO AR.** A v1.6.0 continua sendo o que roda. Publicar so com o sinal do dono — e o lote de
+  publicacao agora tem **tres migracoes** (a `20260902000000` da ADR-147 mais estas duas).
+
+### O que ficou aberto depois desta varredura
+
+- **Nada de codigo meu.** As duas unicas pendencias que o levantamento achou abertas (M9 e o consentimento da
+  assinatura) foram **fechadas** nesta rodada. Todo o resto da lista historica (M1, C10, M15, F8, F9, C1, C2,
+  M6, M8, C7, C8, F20, `seedIfEmpty`, `login()` sequencial) foi conferido **no codigo de hoje** e ja estava
+  fechado.
+- **Depende do dono (cadastro, nao codigo):** o **DPO** em branco em Ajustes -> Dados da empresa (benigno: a
+  pagina cai no e-mail institucional) e o **endereco incompleto** de producao (*"Alto da Mooca - SP"*, sem rua,
+  numero e CEP) — sai assim no contrato e na pagina publica.
+- **Depende do dono (decisao):** publicar. E, se ele quiser, revisar o **texto do consentimento** da assinatura,
+  que hoje esta em `packages/shared/src/consentimento-assinatura.ts` (mudar a frase exige subir a versao no
+  mesmo commit — ha teste que cobra).
+
+## Estado anterior (2026-09-02 · madrugada · **v1.6.0 NO AR** — ADR-146 publicada · **ADR-147 na `main`, NAO publicada**)
 
 > **Leia a ADR-146 e a ADR-147 em `docs/DECISIONS.md`.**
 

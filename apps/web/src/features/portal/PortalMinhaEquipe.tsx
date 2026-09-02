@@ -4,6 +4,7 @@ import { useAuth } from "../../lib/auth-context";
 import { toast } from "../../components/ui/toast";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import { PessoasDoPortal } from "./PessoasDoPortal";
+import { usePodeNoPortal } from "./permissoes";
 
 /**
  * "Quem da clínica entra aqui" — a seção do Portal onde o responsável cuida da própria equipe
@@ -53,7 +54,16 @@ export function PortalMinhaEquipe() {
   // O papel vem da SESSÃO. Papel nulo é conta antiga, que sempre pôde tudo — a mesma regra do
   // `podeNoPortal` no servidor, e ela precisa ser a mesma aqui, senão a tela esconde um botão
   // que o servidor aceitaria (ou pior, mostra um que ele vai recusar).
-  const souResponsavel = user.papelPortal !== "EQUIPE";
+  // ⚠️ NÃO basta olhar o papel: `papelPortal !== "EQUIPE"` deixava passar a SESSÃO DE SUPORTE
+  // da Med (ADR-128), que entra como RESPONSAVEL da clínica e mesmo assim não pode escrever
+  // nada. O resultado era "Convidar pessoa" e "Revogar" à vista para quem está em modo de
+  // leitura, com a recusa chegando só depois do clique e do modal de confirmação — o mesmo
+  // defeito que a ADR-139 fechou para os outros quatro botões e que não tinha chegado aqui.
+  //
+  // A régua é a função pura do `@app/shared`, a MESMA que o `portalProcedure` chama. Uma só,
+  // porque duas divergem no primeiro ajuste (ADR-133).
+  const convite = usePodeNoPortal()("pessoas.convidar");
+  const souResponsavel = convite.pode;
 
   return (
     <Card>
@@ -72,6 +82,7 @@ export function PortalMinhaEquipe() {
           carregando={q.isLoading}
           meuUserId={user.id}
           podeEditar={souResponsavel}
+          fraseSemPermissao={convite.frase}
           vazio="Por enquanto só você entra aqui. Convide os médicos e as secretárias da clínica para cada um ter o próprio acesso."
           acoes={{
             convidar: (d) => convidar.mutate(d),

@@ -6,6 +6,7 @@ import { useConfirm } from "../../../components/ui/confirm-dialog";
 import { UploadArquivo, ArquivoLink } from "../../../components/ui/upload-arquivo";
 import { useAuth } from "../../../lib/auth-context";
 import { data } from "../../../lib/format-date";
+import { recarregarAposEnvio } from "../../../lib/recarregar-apos-envio";
 
 /**
  * Documentos DO CLIENTE (arquivos): os que o próprio cliente enviou pelo Portal e os que
@@ -27,22 +28,12 @@ export function DocumentosClienteCard({ clienteId }: { clienteId: string }) {
   // Foi assim que o e2e `flows-documentos-ui` passou a reprovar: o upload respondeu 200, e a
   // única releitura da página era anterior ao envio.
   const invalidate = () => {
-    // `refetch()` DIRETO, não `invalidate()` — e a diferença é o arquivo aparecer ou não.
-    // `invalidate` marca a consulta como velha e deixa o React Query decidir; com a carga
-    // inicial da ficha AINDA NO AR (medido: o upload termina 117 ms depois de ela começar),
-    // ele reaproveita a busca em andamento e aceita a resposta ANTERIOR ao envio. O arquivo
-    // some da lista até alguém recarregar a página, sem nenhum sinal de erro.
-    void (async () => {
-      // A PRIMEIRA espera o que já estava no ar; a SEGUNDA é a que traz o arquivo novo.
-      // Parece redundante e não é: se a carga inicial da ficha ainda não terminou (o upload
-      // costuma acabar ~120 ms depois de ela começar), o React Query REAPROVEITA a busca em
-      // andamento — pedir "busque de novo" ali devolve a resposta ANTERIOR ao envio, e nem
-      // chega a sair uma requisição. Medido no trace do Playwright: depois do upload não havia
-      // nenhuma leitura da lista. Sem isto o arquivo só aparece recarregando a página, e nada
-      // indica erro.
-      await q.refetch().catch(() => {});
-      await q.refetch().catch(() => {});
-    })();
+    // Recarregamento DUPLO, não `invalidate`: com a carga inicial da ficha ainda no ar (o
+    // upload termina ~120 ms depois de ela começar), o React Query reaproveita a busca em
+    // andamento e aceita a resposta ANTERIOR ao envio — o arquivo some da lista até alguém
+    // recarregar a página, sem nenhum sinal de erro. O porquê inteiro está em
+    // `recarregarAposEnvio`, onde esta regra passou a morar para as cinco telas.
+    recarregarAposEnvio(q);
     utils.clientes.servicos.invalidate({ id: clienteId });
   };
   const remover = trpc.clientes.removerArquivo.useMutation({ onSuccess: invalidate });

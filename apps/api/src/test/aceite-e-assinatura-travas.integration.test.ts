@@ -6,6 +6,7 @@ import { appRouter } from "../trpc/router";
 import { destinatarioDeAssinatura } from "../modules/documentos/destinatario-de-assinatura";
 import { hashConteudo } from "../lib/hash";
 import { hashPassword } from "../lib/password";
+import { listarDoDocumento } from "../modules/assinaturas/assinaturas.service.js";
 
 /**
  * AS DUAS TRAVAS QUE NÃO COBRIAM O CAMINHO QUE ASSINA (C6 da descoberta de 28/08).
@@ -256,5 +257,42 @@ describe("destinatarioDeAssinatura — o link vai para quem fala pela clínica",
       },
     });
     expect((await destinatarioDeAssinatura(c.id, CAIXA_DA_CLINICA)).email).toBe(`${PFX}-dono-convidado@example.test`);
+  });
+});
+
+describe("o token de assinatura não volta no painel interno do documento", () => {
+  /**
+   * O TOKEN DO CLIENTE VINHA EM CLARO PARA QUALQUER FUNCIONARIO.
+   *
+   * `assinaturas.doDocumento` devolvia `token` de TODAS as assinaturas, e a rota de assinar é
+   * pública de propósito (quem assina clica num link de e-mail, sem login). Bastava ler o valor
+   * na tela e abrir uma janela anônima.
+   *
+   * ⚠️ **O risco não é o acesso, é a ATRIBUIÇÃO.** O signatário legítimo também assina
+   * deslogado (`assinadoPorId: null`), então uma assinatura fabricada por alguém da casa ficava
+   * INDISTINGUÍVEL da verdadeira — mesmo formato, mesmo nulo. O contrato perdia valor de prova
+   * sem que nada registrasse a diferença.
+   *
+   * Entregar o link continua sendo função da tela; ele passou a sair por `/ir/assinar/:id`, que
+   * exige sessão e deixa linha no `activityLog`.
+   */
+  it("nenhuma assinatura devolvida carrega o campo `token`", async () => {
+    const doc = await prisma.documento.create({
+      data: { titulo: `${PFX}-doc-token`, conteudo: "# conteudo" },
+    });
+    await prisma.assinatura.create({
+      data: { documentoId: doc.id, papel: "CLIENTE", nome: `${PFX}-medico`, token: `${PFX}-tok-vaza` },
+    });
+
+    const linhas = await listarDoDocumento(doc.id);
+    expect(linhas.length).toBe(1);
+    for (const l of linhas) {
+      expect(Object.keys(l), "o token não pode voltar no corpo da resposta interna").not.toContain("token");
+    }
+    // E o valor não pode aparecer disfarçado em outro campo.
+    expect(JSON.stringify(linhas)).not.toContain(`${PFX}-tok-vaza`);
+
+    await prisma.assinatura.deleteMany({ where: { documentoId: doc.id } });
+    await prisma.documento.deleteMany({ where: { id: doc.id } });
   });
 });

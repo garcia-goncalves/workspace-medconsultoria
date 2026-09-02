@@ -121,4 +121,4 @@ export function emailAnonimizado(id: string): string {
  * PRECISA subir este número — é por isso que ele mora ao lado do resto da regra de dado
  * pessoal, e não escondido dentro do componente da tela.
  */
-export const AVISO_PRIVACIDADE_VERSAO = "2026-08-28";
+export const AVISO_PRIVACIDADE_VERSAO = "2026-09-02";

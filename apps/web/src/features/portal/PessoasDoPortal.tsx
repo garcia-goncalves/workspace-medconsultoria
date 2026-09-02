@@ -280,6 +280,7 @@ export function PessoasDoPortal({
   carregando,
   meuUserId,
   podeEditar = true,
+  fraseSemPermissao = "Só quem é responsável pela clínica pode convidar ou tirar o acesso de alguém.",
   vazio,
 }: {
   pessoas: PessoaDaLista[];
@@ -289,6 +290,13 @@ export function PessoasDoPortal({
   meuUserId?: string;
   /** Falso para quem é `EQUIPE` no Portal: vê a lista, não mexe nela. */
   podeEditar?: boolean;
+  /**
+   * O que escrever no lugar dos botões. Vem de fora porque o MOTIVO muda com quem está olhando:
+   * a secretária precisa ler "peça ao responsável", e quem está em modo de suporte precisa ler
+   * "só leitura" — dizer a ela para procurar o responsável da clínica mandaria a pessoa errada
+   * resolver um problema que não é dela.
+   */
+  fraseSemPermissao?: string;
   /** O que dizer quando ninguém tem acesso ainda — o texto muda conforme quem está olhando. */
   vazio: string;
 }) {
@@ -345,7 +353,7 @@ export function PessoasDoPortal({
       {!podeEditar && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <KeyRound className="h-3.5 w-3.5" />
-          Só quem é responsável pela clínica pode convidar ou tirar o acesso de alguém.
+          {fraseSemPermissao}
         </p>
       )}
 
