@@ -41,6 +41,17 @@ describe("nome de serviço é único", () => {
     await expect(criarServico({ nome: `   ${PFX} Original   ` })).rejects.toThrow(/já existe um serviço/i);
   });
 
+  it("⚠️ MAIÚSCULA não distingue — a coluna é `utf8mb4_unicode_ci`", async () => {
+    // Comportamento que ninguém espera e que quase ninguém descobre a tempo: para o banco,
+    // "FATURAMENTO" e "Faturamento" são a MESMA linha. A conferência da aplicação roda no banco
+    // (`findFirst`), então ela herda a mesma régua — é o que faz as duas travas concordarem.
+    await expect(criarServico({ nome: `${PFX} ORIGINAL` })).rejects.toThrow(/já existe um serviço/i);
+  });
+
+  it("⚠️ ACENTO também não distingue", async () => {
+    await expect(criarServico({ nome: `${PFX} Origìnal` })).rejects.toThrow(/já existe um serviço/i);
+  });
+
   it("RENOMEAR para um nome já usado NÃO diz 'Serviço não encontrado'", async () => {
     const outro = await criarServico({ nome: `${PFX} Outro` });
     const erro = await atualizarServico(outro.id, { nome: `${PFX} Original` }).catch((e: Error) => e);

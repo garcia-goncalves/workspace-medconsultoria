@@ -107,7 +107,7 @@ export const MARCA_FATURAMENTO_E_CREDENCIAMENTO =
  * projeto — e o erro só aparece no papel que já foi para o cliente.
  */
 export const NOME_DE_SERVICO_DUPLICADO = (nomeExistente: string) =>
-  `Já existe um serviço chamado "${nomeExistente}". Dois serviços com o mesmo nome ficam impossíveis de distinguir na proposta e na ficha do cliente — escolha outro nome, ou edite o que já existe.`;
+  `Já existe um serviço chamado "${nomeExistente}". Dois serviços com o mesmo nome ficam impossíveis de distinguir na proposta e na ficha do cliente — escolha outro nome, ou edite o que já existe. (Maiúsculas e acentos não contam como diferença.)`;
 
 /** Um serviço do lead, só com o que decide a estimativa. */
 export interface ServicoParaEstimativa {

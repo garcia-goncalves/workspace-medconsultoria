@@ -18,7 +18,26 @@
 -- fora da lista estava errada.
 --
 -- Banco novo (CI, instalação nova) passa direto: a tabela está vazia neste momento, o catálogo é
--- criado depois pela aplicação, e `semearCatalogoSeFaltar` já é idempotente por nome.
+-- criado depois pela aplicação. ⚠️ E `semearCatalogoSeFaltar` passou a comparar pela MESMA régua
+-- desta coluna (`utf8mb4_unicode_ci`, que ignora acento e maiúscula) em vez da igualdade exata do
+-- JavaScript — sem isso ela tentaria recriar um canônico que o banco considera já existente, e a
+-- rota PÚBLICA que a chama passaria a responder erro. Ver `apps/api/src/modules/servicos/chave-de-nome.ts`.
+-- ⚠️ COMO DESTRAVAR SE A GUARDA REPROVAR — leia antes de sair caçando defeito.
+-- DDL em MySQL/MariaDB dá commit implícito, então o `DROP TABLE` do fim NÃO roda quando o
+-- `INSERT` viola o CHECK: a tabela auxiliar FICA no banco e a migração fica com
+-- `finished_at NULL` em `_prisma_migrations` (toda publicação seguinte aborta com P3009 — isso é
+-- o desejado). O que confunde é a segunda tentativa: sem o `DROP TABLE IF EXISTS` abaixo, ela
+-- falharia no `CREATE TABLE` com erro 1050 ("table already exists"), que se lê como "a guarda
+-- quebrou de novo". Os três passos são:
+--   1) resolver a duplicata no banco (renomear ou apagar o serviço repetido);
+--   2) `DROP TABLE IF EXISTS \`_guarda_nome_de_servico_unico\`;`
+--   3) `prisma migrate resolve --rolled-back 20260902000000_nome_de_servico_unico` e republicar.
+--
+-- ⚠️ O CÓDIGO DE ERRO DEPENDE DO SERVIDOR: produção é **MariaDB 10.6**, que responde
+-- `ERROR 4025 (23000): CONSTRAINT '...' failed`. O `3819` ("Check constraint is violated") é do
+-- MySQL 8, que é o que roda aqui no desenvolvimento. Os dois querem dizer a mesma coisa.
+DROP TABLE IF EXISTS `_guarda_nome_de_servico_unico`;
+
 CREATE TABLE `_guarda_nome_de_servico_unico` (
   `ok` TINYINT NOT NULL,
   CONSTRAINT `nome_de_servico_duplicado_em_producao` CHECK (`ok` = 1)

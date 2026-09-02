@@ -131,11 +131,33 @@ reprova**. typecheck 6/6 · lint limpo · **616 testes de unidade** do `@app/api
   `CREATE UNIQUE INDEX` estourar com o 1062 cru do MySQL no meio do deploy. Molde da `20260829210500`.
   **Reverter e uma linha:** `DROP INDEX \`Servico_nome_key\` ON \`Servico\`;` — nada e apagado nem
   convertido.
-- **Provas:** guarda exercida nos **tres cenarios** (banco normal **passa** · com duplicata **barra com
-  erro 3819** · depois de limpar **passa**) · **6 testes de integracao novos, VISTOS REPROVANDO ANTES**
-  (4 dos 6) · typecheck 6/6 · lint limpo · **suite COMPLETA do `@app/api`: 849 de 851**.
-  ⚠️ Os 2 que reprovaram sao do `email-caixa.integration.test.ts`, a intermitencia ja registrada:
-  rodado sozinho, **16/16 verdes**. Nada a ver com este lote, que nao toca em e-mail.
+- **🔴 O ACHADO GRAVE DA REVISAO, E ELE FOI CRIADO PELA PROPRIA CORRECAO.** A coluna `Servico.nome`
+  e **`utf8mb4_unicode_ci`** (conferido: buscar `'faturamento'` minusculo devolve `Faturamento`), ou
+  seja **o banco ignora maiuscula E acento**. A semeadura comparava com a igualdade crua do
+  JavaScript, para quem `"Conteudo"` ≠ `"Conteúdo"`. ⚠️ **Sem indice isso era um clone silencioso;
+  COM indice vira INDISPONIBILIDADE:** `semearCatalogoSeFaltar` roda em TODA leitura de catalogo —
+  inclusive na pagina publica `/comecar` e no "Solicitar" do Portal —, tentaria recriar o canonico,
+  levaria `P2002` e a rota **publica** passaria a responder erro em vez de lista. A cura e
+  `chave-de-nome.ts` (`chaveDoNomeDeServico`, pura, testada) usada nos DOIS lados da comparacao,
+  mais `skipDuplicates` como rede para a corrida. **Visto reprovando antes**: com a correcao
+  desligada, `listServicos()` estoura.
+- **🧹 A GUARDA DEIXAVA SUJEIRA AO REPROVAR.** DDL da commit implicito, entao o `DROP TABLE` do fim
+  **nao roda** quando o `CHECK` falha: a tabela auxiliar fica, e a SEGUNDA tentativa falharia no
+  `CREATE TABLE` com erro **1050**, que se le como "a guarda quebrou de novo". Hoje ha
+  `DROP TABLE IF EXISTS` na frente e **o destravamento em tres passos escrito na propria migracao**.
+- **⚠️ PRODUCAO E MariaDB 10.6, NAO MySQL 8** — a guarda responde **`4025`** la e `3819` aqui. Os
+  dois estao citados na migracao; procurar so o `3819` faz perder tempo no meio de uma publicacao.
+- **🕳️ O `catch` DO UPDATE ESCONDIA QUEDA DE BANCO.** O `antes` ja prova que o id existe, entao o
+  que chegava de desconhecido era infraestrutura — e o mais provavel neste servidor e o `P1001`
+  (*"Can't reach database server"*), que a documentacao registra como recorrente. Virava
+  **"Servico nao encontrado."** na tela E um `NOT_FOUND` do tRPC, que **nao entra em SISTEMA →
+  Erros** (o filtro e `INTERNAL_SERVER_ERROR`, ADR-135): a queda do banco ficava invisivel no
+  caminho de escrita. Hoje so `P2025` vira "nao encontrado"; o resto e relancado.
+- **Provas:** guarda exercida nos **tres cenarios** (banco normal **passa** · com duplicata **barra
+  com erro 3819** · depois de limpar **passa**) · **13 testes novos**, e os dois que travam regressao
+  **vistos reprovando antes** · typecheck 6/6 · lint limpo · **suite COMPLETA do `@app/api`: 858 de
+  858, tudo verde** (a rodada anterior teve 2 reprovacoes no `email-caixa`, a intermitencia ja
+  registrada; sozinho deu 16/16 e nesta rodada passou junto).
 - ⚠️ **NAO ESTA NO AR.** A v1.6.0 continua sendo o que roda; publicar so com o sinal do dono.
 
 ⚠️ **OBSERVACAO DE INFRA, do dono, NAO deste commit:** a API escuta em `0.0.0.0:4319`. Em revenda
