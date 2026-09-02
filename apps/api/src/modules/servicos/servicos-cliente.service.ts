@@ -279,6 +279,12 @@ export async function ativarServicoCliente(
           clienteId,
           categoriaId,
           recorrencia: mensal ? "MENSAL" : "NENHUMA",
+          // ⚠️ SÃO DUAS PORTAS QUE CRIAM COBRANÇA DE SERVIÇO, e as duas precisam gravar a
+          // origem. Esta (contratar pela ficha) e o `provisionarUpsellAceito` (aceitar a
+          // proposta). Deixar UMA sem `origemServicoId` reabre exatamente o buraco que a coluna
+          // veio fechar: a conta nasce sem id, passa a ser conferida só pela descrição, e
+          // renomear a clínica faz a próxima proposta cobrar de novo em silêncio.
+          origemServicoId: servicoId,
           observacoes: "Provisionado ao contratar o serviço pela ficha do cliente. Revise o valor e o vencimento.",
         },
       });

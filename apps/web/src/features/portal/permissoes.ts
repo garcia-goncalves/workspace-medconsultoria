@@ -26,11 +26,14 @@ const SO_RESPONSAVEL_FAZ: Record<string, string> = {
   // Dar e tirar acesso é falar pela clínica: quem entra no Portal enxerga contrato, preço e
   // documento. `pessoas.*` nunca esteve em `ACOES_LIBERADAS_PARA_EQUIPE` — o servidor sempre
   // recusou. O que faltava era a tela saber disso ANTES do clique.
-  "pessoas.convidar": "Só o responsável pela clínica convida outras pessoas",
-  "pessoas.alterarPapel": "Só o responsável pela clínica muda o papel de alguém",
-  "pessoas.revogar": "Só o responsável pela clínica revoga um acesso",
-  "pessoas.devolver": "Só o responsável pela clínica devolve um acesso",
-  "pessoas.reenviarConvite": "Só o responsável pela clínica reenvia um convite",
+  //
+  // ⚠️ **UMA CHAVE SÓ, de propósito.** A tela de Equipe trata as cinco ações de acesso
+  // (convidar, mudar papel, revogar, devolver, reenviar convite) como um bloco: quem pode uma,
+  // pode todas, porque a régua compartilhada nega as cinco igualmente. Escrever aqui uma frase
+  // para cada seria texto morto — e texto morto dá a impressão de que a tela decide botão a
+  // botão, o que não é verdade. No dia em que a régua liberar uma delas separadamente, é a TELA
+  // que precisa passar a perguntar por ação, não o dicionário que precisa crescer.
+  "pessoas.convidar": "Só o responsável pela clínica dá e tira acesso ao Portal",
 };
 
 /** Em sessão de suporte a frase é outra: quem está vendo não é da clínica, é da Med. */

@@ -5189,6 +5189,33 @@ funil via "Não tenho mais interesse", que encerra o lead mas se lê como encerr
 `/privacidade` declarava o envio de texto à OpenAI e **calava sobre o áudio** da transcrição, que é uma segunda
 porta por natureza — a peneira de dado pessoal age sobre texto e não alcança o que ainda está falado.
 
+
+**11. 🔁 OS REVISORES ACHARAM DOIS DEFEITOS BLOQUEANTES NAS PRÓPRIAS CORREÇÕES DESTA ADR — e é a parte
+que mais ensina.** O padrão descrito no alto ("a correção existe, mas só num dos lugares onde o defeito mora")
+apareceu de novo, agora comigo:
+
+- **A defesa contra enumeração por tempo virou um amplificador de argon2id.** O freio de força bruta é chaveado
+  em `(ip, e-mail)` — e **quem escolhe o e-mail é quem ataca**: variar o endereço a cada tentativa faz o freio
+  nunca engatar. Isso já era ruim; virou perigoso quando o caminho da conta inexistente passou a conferir a
+  senha contra um hash de descarte, porque **cada e-mail inventado passou a custar 19 MiB e duas passadas de
+  argon2**, na threadpool de 4 do Node. E o cliente fala por lote, com o rate-limit global contando
+  requisições, não chamadas. ⚠️ **A defesa contra vazar informação teria virado o jeito mais barato de derrubar
+  o sistema inteiro** — um processo só serve API, site e tempo real. Cura: um segundo freio **por IP sozinho**,
+  que recusa **antes** de queimar tempo, mais `.max(200)` na senha. De brinde, a memoização do hash de descarte
+  guardava a promessa **rejeitada** para sempre: uma falha do argon2 no boot faria todo login com e-mail
+  desconhecido responder erro interno (a ADR-135 de novo).
+- **O expurgo do `ActivityLog` apagava a prova criada pela correção vizinha desta mesma ADR.** Pôr teto na
+  tabela estava certo; apagar tudo, não. `documento.link_de_assinatura_aberto` nasceu no item 6 acima
+  **justamente** para o dia em que uma assinatura for contestada — e evaporaria em 180 dias, enquanto contrato
+  se guarda por anos. Junto iam `painel_cliente.*` (o único registro de quem da Med entrou no Portal de um
+  cliente), `arquivo.removido` e `conta.criada`. ⚠️ **E o prazo herdado era o do corpo dos e-mails**, cujo
+  rótulo na tela fala de e-mail: apertar aquele campo para 30 dias destruiria cinco meses de trilha de
+  auditoria sem ninguém ler a palavra "atividade". Cura: uma **lista de ações preservadas**, não um prazo — e o
+  texto do botão de expurgo passou a dizer o que fica.
+- **E uma terceira, do revisor de banco:** `Conta.origemServicoId` era gravado no aceite da proposta e **não**
+  ao contratar pela ficha. Com uma das duas portas sem o elo, o rename da clínica reabria a cobrança dupla por
+  ali — exatamente o buraco que a coluna veio fechar. O teste novo cobre as duas portas de propósito.
+
 ### Consequências
 
 - **Duas migrações, as duas aditivas e revertíveis em duas linhas:** `20260902120000` (consentimento da

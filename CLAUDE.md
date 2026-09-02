@@ -17,7 +17,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 > **Leia a ADR-148 e a ADR-147 em `docs/DECISIONS.md`.**
 
-### 🔎 A VARREDURA COMPLETA DE 02/09 (ADR-148) — 16 correcoes, e a base comecou VERDE
+### 🔎 A VARREDURA COMPLETA DE 02/09 (ADR-148) — 18 correcoes, e a base comecou VERDE
 
 - **Ordem do dono:** *"faca todas as pendencias e deixe tudo 100%... analise tudo profundamente, procurando
   erros/bugs/incongruencias... corrija tudo... abra o navegador e teste tudo"*. Cinco auditorias em paralelo
@@ -74,7 +74,18 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   ATIVO com upsell no funil via "Nao tenho mais interesse" · `/privacidade` declarava o texto enviado a OpenAI e
   **calava sobre o audio** da transcricao, que e segunda porta por natureza.
 
-- **Provas:** typecheck 6/6 · lint limpo · **866 testes do `@app/api`** (eram 858) · **220 do `@app/web`** ·
+- **🔁 OS REVISORES ESPECIALISTAS ACHARAM TRES DEFEITOS NAS MINHAS PROPRIAS CORRECOES — e e a parte que mais
+  ensina desta rodada.** (1) A defesa contra enumeracao por TEMPO virou **amplificador de argon2id**: o freio e
+  chaveado em `(ip, e-mail)` e **quem escolhe o e-mail e quem ataca**, entao cada endereco inventado passava a
+  custar 19 MiB de argon2 na threadpool de 4 do Node — a defesa contra vazar informacao virou o jeito mais
+  barato de derrubar o processo que serve API, site e tempo real. Cura: segundo freio **por IP sozinho**, que
+  recusa ANTES de queimar tempo, mais `.max(200)` na senha. (2) O expurgo do `ActivityLog` apagava
+  `documento.link_de_assinatura_aberto` — a prova criada pela correcao vizinha DESTA MESMA rodada — mais
+  `painel_cliente.*`, `arquivo.removido` e `conta.criada`; e usava o prazo do **corpo dos e-mails**, cujo rotulo
+  na tela nem fala em atividade. Cura: LISTA de acoes preservadas, e o texto do botao passou a dizer o que fica.
+  (3) `Conta.origemServicoId` era gravado no aceite da proposta e **nao** ao contratar pela ficha — uma das duas
+  portas sem o elo reabre a cobranca dupla.
+- **Provas:** typecheck 6/6 · lint limpo · **871 testes do `@app/api`** (eram 858) · **220 do `@app/web`** ·
   **109 de ponta a ponta** · aplicacao percorrida no navegador (Inicio, Tarefas, Agenda, Projetos, Vendas,
   Clientes, Credenciamentos, Documentos, Financeiro, E-mail, Mensagens, Ajustes, Servicos, E-mails enviados,
   Sistema com as abas Visao geral/Desempenho/Erros/Manutencao, `/comecar`, `/privacidade` e as 5 secoes do

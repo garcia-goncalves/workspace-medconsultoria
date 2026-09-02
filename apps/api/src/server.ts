@@ -19,6 +19,7 @@ import { registrarRotaCorpoEmail } from "./http/email-corpo.js";
 import { registrarRotaLinkDeAssinatura } from "./http/link-de-assinatura.js";
 import { registrarRotaAnexoEmail, iniciarLimpezaAnexosTemp } from "./http/email-anexo.js";
 import { iniciarExpurgoDeRetencao } from "./modules/sistema/retencao.service.js";
+import { aquecerDefesaDeTempo } from "./modules/auth/auth.service.js";
 import { validarPastaUploads } from "./lib/storage.js";
 import { startReminderLoop } from "./realtime/reminders.js";
 import { startMonitor } from "./observability/monitor.js";
@@ -151,6 +152,9 @@ startAlertas();
 iniciarLimpezaAnexosTemp();
 // Prazo de guarda da LGPD (ADR-141): retenção sem rotina não é política de retenção.
 iniciarExpurgoDeRetencao();
+// Gera o hash de descarte agora: deixá-lo para a 1ª tentativa faria justamente ela destoar no
+// relógio, que é o sinal que a defesa de tempo existe para apagar.
+aquecerDefesaDeTempo();
 
 await app.listen({ port: config.API_PORT, host: "0.0.0.0" });
 app.log.info(`API ouvindo na porta ${config.API_PORT}`);

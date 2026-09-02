@@ -1275,9 +1275,12 @@ function AbaPrivacidade() {
         </h2>
         <div className="rounded-xl border p-4 text-sm">
           <p className="text-muted-foreground">
-            O texto dos e-mails enviados e a pilha dos erros são apagados sozinhos todo dia,
-            depois do prazo definido em <strong>Ajustes → Dados da empresa</strong>. Este botão
-            só antecipa a passada de hoje — não muda prazo nenhum.
+            O texto dos e-mails enviados, a pilha dos erros e o histórico de atividade comum são
+            apagados sozinhos todo dia, depois do prazo definido em{" "}
+            <strong>Ajustes → Dados da empresa</strong>. Este botão só antecipa a passada de hoje
+            — não muda prazo nenhum. O que <strong>nunca</strong> é apagado aqui: quem entrou no
+            Portal de um cliente, quem abriu um link de assinatura, quem removeu documento e quem
+            criou cobrança — essas linhas são prova de responsabilidade e ficam.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <Button size="sm" variant="outline" disabled={expurgo.isPending} onClick={() => expurgo.mutate()}>
@@ -1285,7 +1288,8 @@ function AbaPrivacidade() {
             </Button>
             {expurgo.data && (
               <span className="text-xs text-muted-foreground">
-                Prazo de {expurgo.data.dias} dias · {expurgo.data.emails} e-mails e {expurgo.data.erros} erros limpos nesta passada.
+                Prazo de {expurgo.data.dias} dias · {expurgo.data.emails} e-mails, {expurgo.data.erros} erros e{" "}
+                {expurgo.data.atividade} registros de atividade limpos nesta passada.
               </span>
             )}
             {expurgo.error && <span className="text-xs text-destructive">{expurgo.error.message}</span>}

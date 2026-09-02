@@ -43,15 +43,37 @@ export async function expurgarDadosVencidos(agora = new Date()) {
   });
 
   // O RASTRO DE ATIVIDADE TAMBÉM PRECISA DE TETO — ele era a única tabela que crescia para
-  // sempre. `ActivityLog` guarda o histórico de quem fez o quê, e boa parte dele nasce de
-  // caminho anônimo (o diagnóstico de login barrado no navegador). Sem expurgo, a tabela cresce
-  // sem limite num MySQL de revenda que já cai por esgotamento de pool — e o painel do ROOT,
-  // que mostra as 60 mais recentes, fica cada vez mais lento para responder a mesma pergunta.
+  // sempre, e boa parte do que entra ali nasce de caminho anônimo (o diagnóstico de login
+  // barrado no navegador). Sem expurgo a tabela cresce sem limite num MySQL de revenda que já
+  // cai por esgotamento de pool, e o painel do ROOT fica cada vez mais lento.
   //
-  // ⚠️ O prazo é o MESMO do corpo dos e-mails, e isso é deliberado: os dois são registro de
-  // operação, não documento com dever de guarda. Contrato, nota e processo de credenciamento
-  // continuam intocados aqui (ver o aviso no alto deste arquivo).
-  const atividade = await prisma.activityLog.deleteMany({ where: { createdAt: { lt: limite } } });
+  // ⚠️ **MAS NEM TUDO NO `ActivityLog` É RUÍDO DE OPERAÇÃO — e apagar o resto seria anti-forense
+  // por rotina agendada.** Algumas ações são a ÚNICA prova de responsabilidade que existe:
+  //
+  //   · `painel_cliente.*` — quem da Med entrou no Portal de um cliente. É registro de acesso a
+  //     dado pessoal de médico e clínica, e não existe em nenhum outro lugar.
+  //   · `documento.link_de_assinatura_aberto` — quem tirou daqui o link que assina pelo cliente.
+  //     ⚠️ Esta linha existe justamente para uma assinatura contestada; contrato se guarda por
+  //     anos, então deixá-la evaporar em 180 dias apagaria a prova antes da pergunta.
+  //   · `arquivo.removido`, `conta.criada`, `documento.assinatura_solicitada` — quem mexeu em
+  //     documento do cliente e em dinheiro.
+  //
+  // E o prazo que sobrou para o resto é `retencaoCorpoEmailDias`, cujo rótulo na tela fala de
+  // **e-mail**: quem apertar aquele campo para 30 dias não pode estar apagando trilha de
+  // auditoria sem nunca ler a palavra "atividade". Por isso a lista abaixo, e não um prazo só.
+  const ACOES_QUE_NAO_EXPIRAM = [
+    "painel_cliente.entrou",
+    "painel_cliente.saiu",
+    "documento.link_de_assinatura_aberto",
+    "documento.assinatura_solicitada",
+    "documento.assinado",
+    "arquivo.removido",
+    "conta.criada",
+    "cliente.anonimizado",
+  ];
+  const atividade = await prisma.activityLog.deleteMany({
+    where: { createdAt: { lt: limite }, acao: { notIn: ACOES_QUE_NAO_EXPIRAM } },
+  });
 
   return { dias, limite, emails: emails.count, erros: erros.count, atividade: atividade.count };
 }

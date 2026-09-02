@@ -27,7 +27,13 @@ export const emailColavel = (mensagem = "E-mail inválido") =>
 export const loginSchema = z.object({
   email: emailColavel(),
   // A senha também: colar de um gerenciador costuma trazer espaço rígido ou BOM na ponta.
-  password: z.string().transform((s) => s.replace(INVISIVEIS, "")).pipe(z.string().min(1, "Informe a senha")),
+  // ⚠️ O `.max` é freio, não regra de produto: sem ele cada tentativa de login carrega texto
+  // arbitrário até o limite do corpo da requisição, e o servidor paga a conferência argon2 em
+  // cima. 200 é folga larga para qualquer senha real.
+  password: z
+    .string()
+    .transform((s) => s.replace(INVISIVEIS, ""))
+    .pipe(z.string().min(1, "Informe a senha").max(200, "Senha longa demais")),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
