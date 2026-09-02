@@ -98,6 +98,17 @@ export const MARCA_FATURAMENTO_UNICA = (nomeJaMarcado: string) =>
 export const MARCA_FATURAMENTO_E_CREDENCIAMENTO =
   "Um serviço não pode ser o faturamento médico e o credenciamento ao mesmo tempo: um é cobrado por percentual todo mês, o outro é valor fixo pago só quando a operadora aprova.";
 
+/**
+ * A recusa de dois serviços com o mesmo nome.
+ *
+ * O nome do serviço não é só rótulo: a semeadura do catálogo casa por NOME
+ * (`semearCatalogoSeFaltar`), e a tela de proposta lista os dois lado a lado sem nada que os
+ * distinga. Com duas linhas iguais ninguém sabe qual leva o preço, as exigências e o roteiro do
+ * projeto — e o erro só aparece no papel que já foi para o cliente.
+ */
+export const NOME_DE_SERVICO_DUPLICADO = (nomeExistente: string) =>
+  `Já existe um serviço chamado "${nomeExistente}". Dois serviços com o mesmo nome ficam impossíveis de distinguir na proposta e na ficha do cliente — escolha outro nome, ou edite o que já existe. (Maiúsculas e acentos não contam como diferença.)`;
+
 /** Um serviço do lead, só com o que decide a estimativa. */
 export interface ServicoParaEstimativa {
   nome: string | null;

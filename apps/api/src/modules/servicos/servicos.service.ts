@@ -10,8 +10,10 @@ import {
   PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
   MARCA_FATURAMENTO_UNICA,
   MARCA_FATURAMENTO_E_CREDENCIAMENTO,
+  NOME_DE_SERVICO_DUPLICADO,
 } from "@app/shared";
 import { Prisma } from "@prisma/client";
+import { chaveDoNomeDeServico } from "./chave-de-nome.js";
 
 /**
  * Catálogo inicial COMPLETO — os serviços reais da MedConsultoria com detalhes,
@@ -466,7 +468,14 @@ async function seedIfEmpty(): Promise<void> {
 }
 
 async function semearCatalogoSeFaltar() {
-  const existentes = new Set((await prisma.servico.findMany({ select: { nome: true } })).map((s) => s.nome));
+  // ⚠️ A COMPARAÇÃO USA A MESMA RÉGUA DO BANCO, não a igualdade do JavaScript. A coluna é
+  // `utf8mb4_unicode_ci`: com `Set` de strings cruas, um serviço gravado como "Conteudo & SEO"
+  // (sem acento) não casaria com o canônico "Conteúdo & SEO", a semeadura tentaria criá-lo, e o
+  // índice único devolveria P2002 — numa função que roda em TODA leitura de catálogo, inclusive
+  // na página pública. Ver `chave-de-nome.ts`.
+  const existentes = new Set(
+    (await prisma.servico.findMany({ select: { nome: true } })).map((s) => chaveDoNomeDeServico(s.nome)),
+  );
   // ⚠️ O CREDENCIAMENTO SE RECONHECE PELA MARCA TAMBÉM AQUI.
   // A semeadura procura o catálogo canônico por NOME — e o nome do credenciamento voltou a ser
   // editável. Renomeado, ele sumiria de `existentes`, e a próxima leitura de catálogo criaria um
@@ -480,12 +489,15 @@ async function semearCatalogoSeFaltar() {
   const jaTemFaturamento = (await prisma.servico.count({ where: { ehFaturamento: true } })) > 0;
   const faltando = CONTEUDO_SERVICOS.filter(
     (s) =>
-      !existentes.has(s.nome) &&
+      !existentes.has(chaveDoNomeDeServico(s.nome)) &&
       !(jaTemCredenciamento && s.nome === NOME_SERVICO_CREDENCIAMENTO) &&
       !(jaTemFaturamento && s.nome === NOME_SERVICO_FATURAMENTO),
   );
   if (faltando.length > 0) {
     await prisma.servico.createMany({
+      // ⚠️ Rede de segurança da conferência acima: entre ela e este `createMany` cabe outra
+      // requisição criando o mesmo nome. Sem isto, a corrida derruba uma rota PÚBLICA.
+      skipDuplicates: true,
       data: faltando.map((s) => ({
         nome: s.nome,
         categoria: s.categoria,
@@ -749,9 +761,11 @@ export async function criarServico(input: {
   if (percentualForaDoFaturamento({ valor: input.valor, percentual: input.percentual }, input.ehFaturamento)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
   }
+  await recusarNomeDeServicoRepetido(input.nome, null);
   const max = await prisma.servico.aggregate({ _max: { ordem: true } });
-  return mapServico(
-    await prisma.servico.create({
+  try {
+    return mapServico(
+      await prisma.servico.create({
       data: {
         nome: input.nome.trim(),
         descricao: input.descricao?.trim() || null,
@@ -763,9 +777,42 @@ export async function criarServico(input: {
         ehCredenciamento: input.ehCredenciamento ?? false,
         ehFaturamento: input.ehFaturamento ?? false,
         ordem: (max._max.ordem ?? -1) + 1,
-      },
-    }),
-  );
+        },
+      }),
+    );
+  } catch (e) {
+    // ⚠️ A conferência acima responde o caso normal; isto é a corrida entre dois cliques em
+    // "Salvar" numa conexão lenta. Sem este ramo o P2002 subiria cru: erro genérico de servidor
+    // na tela E uma ocorrência nova em SISTEMA → Erros, que é o ruído que a ADR-135 eliminou.
+    if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") {
+      throw new TRPCError({ code: "CONFLICT", message: NOME_DE_SERVICO_DUPLICADO(input.nome.trim()) });
+    }
+    throw e;
+  }
+}
+
+/**
+ * Recusa nome de serviço já usado — a mensagem em português, antes de o banco falar.
+ *
+ * ⚠️ A CONFERÊNCIA É SOBRE O NOME JÁ APARADO. O `trim()` acontece na hora de gravar, então sem
+ * normalizar aqui `"  Faturamento  "` passaria por esta porta e só seria barrado pelo índice
+ * único, com erro cru do MySQL na cara de quem está na tela.
+ *
+ * ⚠️ E ELA NÃO SUBSTITUI O ÍNDICE. Duas requisições ao mesmo tempo passam as duas por aqui antes
+ * de qualquer uma gravar; quem garante é o banco. Esta função existe para a MENSAGEM, o índice
+ * existe para a GARANTIA — tirar um dos dois deixa um buraco diferente.
+ *
+ * `ignorarId` é o próprio serviço na edição: salvar o formulário sem mexer no nome não pode ser
+ * lido como duplicata de si mesmo.
+ */
+async function recusarNomeDeServicoRepetido(nome: string, ignorarId: string | null) {
+  const jaExiste = await prisma.servico.findFirst({
+    where: { nome: nome.trim(), ...(ignorarId ? { id: { not: ignorarId } } : {}) },
+    select: { nome: true },
+  });
+  if (jaExiste) {
+    throw new TRPCError({ code: "CONFLICT", message: NOME_DE_SERVICO_DUPLICADO(jaExiste.nome) });
+  }
 }
 
 export async function atualizarServico(
@@ -865,10 +912,30 @@ export async function atualizarServico(
   if (dados.ativo !== undefined) data.ativo = dados.ativo;
   if (dados.ehCredenciamento !== undefined) data.ehCredenciamento = dados.ehCredenciamento;
   if (dados.ehFaturamento !== undefined) data.ehFaturamento = dados.ehFaturamento;
+  if (dados.nome !== undefined) await recusarNomeDeServicoRepetido(dados.nome, id);
   try {
     return mapServico(await prisma.servico.update({ where: { id }, data }));
-  } catch {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado." });
+  } catch (e) {
+    // ⚠️ ESTE `catch` NASCEU PARA "id não existe" E PASSOU A PEGAR MAIS COISA. Com o índice único
+    // em `Servico.nome`, um nome repetido chega aqui como P2002 — e virava
+    // "Serviço não encontrado." para quem acabou de abrir o serviço na tela e só trocou o nome.
+    // A conferência acima já responde o caso normal; isto é a rede para a corrida entre duas
+    // gravações simultâneas, que a conferência não consegue cobrir.
+    const codigo = e && typeof e === "object" ? (e as { code?: string }).code : undefined;
+    if (codigo === "P2002") {
+      throw new TRPCError({ code: "CONFLICT", message: NOME_DE_SERVICO_DUPLICADO(String(data.nome ?? "")) });
+    }
+    // ⚠️ SÓ "id não existe" VIRA "não encontrado". O `antes` acima já provou que o id existe, então
+    // o que chega aqui de desconhecido é quase sempre INFRAESTRUTURA — e o mais provável neste
+    // servidor é `P1001` ("Can't reach database server"), que a documentação registra como
+    // recorrente. Engolir isso fazia duas coisas ruins de uma vez: a Thaís lia "Serviço não
+    // encontrado." e ia procurar um serviço que está lá; e o erro virava `NOT_FOUND` no tRPC, que
+    // NÃO entra em SISTEMA → Erros (o filtro é `INTERNAL_SERVER_ERROR`, ADR-135). A queda do banco
+    // ficava invisível justamente no caminho de escrita. Relançar é o certo.
+    if (codigo === "P2025") {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado." });
+    }
+    throw e;
   }
 }
 
