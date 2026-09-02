@@ -131,34 +131,51 @@ describe("PROXY_CONFIAVEL — de onde vem o req.ip", () => {
  * TEXTO do arquivo (ver `apps/web/src/lib/paginas.test.ts`).
  */
 describe("o servidor USA a régua — e não um valor escrito à mão", () => {
-  // Só o CÓDIGO: comentário citando `trustProxy:` não é ponto de uso, e a régua tem um logo acima
-  // da linha real. Sem esta limpeza a trava lê a explicação e aprova (ou reprova) o texto errado.
-  // Só o CÓDIGO: comentário citando `trustProxy:` não é ponto de uso, e a régua tem um logo
-  // acima da linha real. Sem esta limpeza a trava lê a explicação em vez do que roda.
+  // Só o CÓDIGO. Comentário citando `trustProxy:` não é ponto de uso, e a régua tem justamente
+  // um comentário longo logo acima da linha real: a 1ª versão desta trava lia a explicação e
+  // aprovava o texto errado. Bloco /* */ sai inteiro antes, porque nem toda linha interna dele
+  // começa com `*`.
   const servidor = () =>
     readFileSync(resolve(__dirname, "../server.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
       .split(/\r?\n/)
-      .filter((l) => {
-        const t = l.trim();
-        return !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
-      })
+      .filter((l) => !l.trim().startsWith("//"))
       .join("\n");
 
-  it("o `trustProxy` do Fastify vem de PROXY_CONFIAVEL", () => {
-    const linha = servidor().match(/trustProxy:\s*([^,]+)/);
-    expect(linha, "não achei `trustProxy:` em server.ts — ele foi removido?").not.toBeNull();
-    expect(linha![1]).toContain("PROXY_CONFIAVEL");
+  // A expressão inteira que o Fastify recebe como `trustProxy`, sem comentário no meio.
+  const valorDoTrustProxy = () => {
+    const achado = servidor().match(/trustProxy:\s*([^,]+)/);
+    expect(achado, "não achei `trustProxy:` em server.ts — ele foi removido?").not.toBeNull();
+    return achado![1]!.trim();
+  };
+
+  it("o `trustProxy` é EXATAMENTE a régua — nem valor à mão, nem ternário com escape", () => {
+    // ⚠️ IGUALDADE, e não "contém". Com `toContain` esta trava tinha um furo REAL, achado pelo
+    // revisor e reproduzido antes de corrigir: `trustProxy: modoDebug ? [...PROXY_CONFIAVEL] :
+    // true` passava VERDE nas 12 travas. A captura contém o nome da constante (satisfaz o
+    // "contém") e o literal proibido não vem logo depois dos dois-pontos (escapa da trava
+    // abaixo). Um ramo que ninguém lê devolveria `true` em produção e o `req.ip` voltaria a ser
+    // escolhido pelo visitante — sem erro, sem log, sem CI vermelha.
+    // ⚠️ RESTRIÇÃO DELIBERADA, para quem for reprovado sem entender: extrair a régua para uma
+    // variável intermediária (`const p = [...PROXY_CONFIAVEL]; trustProxy: p`) TAMBÉM reprova
+    // aqui. É de propósito — a constante tem de estar visível no ponto de uso, senão a trava
+    // volta a proteger só o nome e não o que o Fastify recebe.
+    expect(valorDoTrustProxy()).toBe("[...PROXY_CONFIAVEL]");
   });
 
-  it("não existe `trustProxy` literal (`true`, `1` ou string solta) em server.ts", () => {
-    const proibidos = [...servidor().matchAll(/trustProxy:\s*(true|\d+|"[^"]*"|'[^']*')/g)];
+  it("nenhum literal (`true`, número ou string) em PONTO NENHUM da expressão", () => {
+    // Rede de segurança da trava acima: se um dia a igualdade exata for afrouxada, esta ainda
+    // pega o literal onde quer que ele esteja na expressão — não só colado nos dois-pontos.
+    const proibidos = [...valorDoTrustProxy().matchAll(/\b(?:true|\d+)\b|"[^"]*"|'[^']*'/g)];
     expect(
       proibidos.map((m) => m[0]),
-      "trustProxy escrito à mão: a régua e o porquê moram em lib/proxy-confiavel.ts",
+      "trustProxy com valor à mão: a régua e o porquê moram em lib/proxy-confiavel.ts",
     ).toEqual([]);
   });
 
   it("server.ts importa a régua do módulo dela", () => {
-    expect(servidor()).toMatch(/import\s*\{[^}]*PROXY_CONFIAVEL[^}]*\}\s*from\s*"\.\/lib\/proxy-confiavel\.js"/);
+    expect(servidor()).toMatch(
+      /import\s*\{[^}]*PROXY_CONFIAVEL[^}]*\}\s*from\s*"\.\/lib\/proxy-confiavel\.js"/,
+    );
   });
 });
