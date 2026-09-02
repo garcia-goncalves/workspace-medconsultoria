@@ -1,15 +1,20 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import { prisma } from "@app/db";
 import { exigirBancoDeTeste } from "./guarda-banco-de-teste.js";
 import { registrarRotasDoAgente } from "../http/agent-v1.js";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   criarClienteDeAgente,
   emitirDelegacao,
   revogarDelegacao,
+  MINUTOS_MAXIMOS_DE_DELEGACAO,
 } from "../modules/agente/agente.service.js";
+import { changePassword } from "../modules/auth/auth.service.js";
+import { hashPassword } from "../lib/password.js";
 
 /**
  * A API DO AGENTE (ADR-149) — os doze testes que o ticket CORA-001 exige comprovados.
@@ -42,6 +47,8 @@ let tokenSemEscopo = "";
 let tokenDoDesativado = "";
 let tokenDoPortal = "";
 let tokenPaginacao = "";
+let userTrocaDeSenha = "";
+let tokenTrocaDeSenha = "";
 let tarefaExclusivaDeA = "";
 let tarefaExclusivaDeB = "";
 let tarefaCompartilhada = "";
@@ -117,12 +124,18 @@ beforeAll(async () => {
   const portal = await criarUsuario("portal", { role: "CLIENTE" });
   userPortal = portal.id;
 
+  // Conta com senha DE VERDADE — `changePassword` confere a senha atual antes de trocar.
+  const trocador = await criarUsuario("troca", {
+    passwordHash: await hashPassword("senha-antiga-de-teste"),
+  });
+  userTrocaDeSenha = trocador.id;
+
   const cliente = await criarClienteDeAgente(`${PFX}-cora`);
   clientId = cliente.id;
   clientSecret = cliente.segredo;
 
   const escopos = ["tasks:read"];
-  const [dA, dB, dExp, dRev, dSemEscopo, dDesativado, dPortal, dPag] = await Promise.all([
+  const [dA, dB, dExp, dRev, dSemEscopo, dDesativado, dPortal, dPag, dTroca] = await Promise.all([
     emitirDelegacao({ clientId, userId: userA, escopos, minutos: 60 }),
     emitirDelegacao({ clientId, userId: userB, escopos, minutos: 60 }),
     // Minutos NEGATIVOS: nasce já vencida — prova o T2 sem depender do relógio.
@@ -132,6 +145,7 @@ beforeAll(async () => {
     emitirDelegacao({ clientId, userId: userDesativado, escopos, minutos: 60 }),
     emitirDelegacao({ clientId, userId: userPortal, escopos, minutos: 60 }),
     emitirDelegacao({ clientId, userId: userPaginacao, escopos, minutos: 60 }),
+    emitirDelegacao({ clientId, userId: userTrocaDeSenha, escopos, minutos: 60 }),
   ]);
   tokenA = dA.token;
   tokenB = dB.token;
@@ -142,6 +156,7 @@ beforeAll(async () => {
   tokenDoDesativado = dDesativado.token;
   tokenDoPortal = dPortal.token;
   tokenPaginacao = dPag.token;
+  tokenTrocaDeSenha = dTroca.token;
 
   tarefaExclusivaDeA = await criarTarefa("so de A", [userA]);
   tarefaExclusivaDeB = await criarTarefa("so de B", [userB]);
@@ -157,8 +172,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  const usuarios = [userA, userB, userDesativado, userPaginacao, userPortal].filter(Boolean);
+  const usuarios = [userA, userB, userDesativado, userPaginacao, userPortal, userTrocaDeSenha].filter(
+    Boolean,
+  );
   await prisma.tarefa.deleteMany({ where: { titulo: { startsWith: PFX } } });
+  await prisma.session.deleteMany({ where: { userId: { in: usuarios } } });
   await prisma.agentDelegation.deleteMany({ where: { userId: { in: usuarios } } });
   await prisma.agentClient.deleteMany({ where: { nome: { startsWith: PFX } } });
   await prisma.user.deleteMany({ where: { id: { in: usuarios } } });
@@ -368,12 +386,20 @@ describe("T10 — entrada inválida é 400, nunca lista vazia", () => {
 
 describe("T11 — banco fora do ar", () => {
   it("responde 503 UPSTREAM_UNAVAILABLE, NUNCA 200 com lista vazia", async () => {
-    const espiao = vi
-      .spyOn(prisma.tarefa, "findMany")
-      .mockRejectedValueOnce(new Error("Can't reach database server at localhost:3306"));
+    // ⚠️ **SALVAR E REPOR À MÃO, não `vi.spyOn(...).mockRestore()`.** O `mockRestore` NÃO
+    // devolve o delegate do Prisma ao estado original: a suíte inteira que rodasse depois deste
+    // teste passava a receber `503` — e o sintoma aparecia longe daqui, nos testes seguintes,
+    // como se a API estivesse quebrada. Foi visto acontecendo antes desta correção.
+    const original = prisma.tarefa.findMany;
+    (prisma.tarefa as { findMany: unknown }).findMany = () =>
+      Promise.reject(new Error("Can't reach database server at localhost:3306"));
 
-    const r = await chamar(PADRAO, tokenA);
-    espiao.mockRestore();
+    let r;
+    try {
+      r = await chamar(PADRAO, tokenA);
+    } finally {
+      (prisma.tarefa as { findMany: unknown }).findMany = original;
+    }
 
     expect(r.statusCode).toBe(503);
     expect(r.json().error.code).toBe("UPSTREAM_UNAVAILABLE");
@@ -382,5 +408,99 @@ describe("T11 — banco fora do ar", () => {
     expect(r.json()).not.toHaveProperty("items");
     // E a mensagem do banco NÃO vaza para quem chamou.
     expect(r.body).not.toContain("localhost:3306");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// O que os revisores especialistas acharam — e que a 1ª rodada de testes NÃO pegava
+// ─────────────────────────────────────────────────────────────
+
+describe("achados da revisão", () => {
+  it("⚠️ o cursor de A NÃO serve para B — é preso a quem o recebeu", async () => {
+    // A tem tarefa suficiente para gerar cursor com limit=1.
+    const deA = await chamar(`${PADRAO}&limit=1`, tokenA);
+    const cursorDeA: string = deA.json().nextCursor;
+    expect(cursorDeA).toBeTruthy();
+
+    const emB = await chamar(
+      `${PADRAO}&limit=1&cursor=${encodeURIComponent(cursorDeA)}`,
+      tokenB,
+    );
+    // Não é "funciona e por acaso não vaza": é recusa explícita.
+    expect(emB.statusCode).toBe(400);
+    expect(emB.json().error.code).toBe("INVALID_INPUT");
+
+    // E continua valendo para o dono.
+    const deNovoEmA = await chamar(`${PADRAO}&limit=1&cursor=${encodeURIComponent(cursorDeA)}`, tokenA);
+    expect(deNovoEmA.statusCode).toBe(200);
+  });
+
+  it("⚠️ trocar a senha REVOGA as delegações do agente — a terceira porta da revogação", async () => {
+    const antes = await chamar(PADRAO, tokenTrocaDeSenha);
+    expect(antes.statusCode).toBe(200);
+
+    await changePassword(userTrocaDeSenha, "senha-antiga-de-teste", "senha-nova-de-teste-123");
+
+    const depois = await chamar(PADRAO, tokenTrocaDeSenha);
+    expect(depois.statusCode).toBe(401);
+    expect(depois.json().error.code).toBe("DELEGATION_EXPIRED");
+  });
+
+  it("⚠️ cabeçalho de cliente sem forma de id é recusado ANTES de tocar o banco", async () => {
+    // Mesma cautela do T11: repor à mão, porque `mockRestore` não devolve o delegate do Prisma.
+    const original = prisma.agentClient.findUnique;
+    let chamou = false;
+    (prisma.agentClient as { findUnique: unknown }).findUnique = (...args: unknown[]) => {
+      chamou = true;
+      return (original as (...a: unknown[]) => unknown)(...args);
+    };
+
+    let r;
+    try {
+      r = await chamar(PADRAO, tokenA, "nao-parece-um-id!!", clientSecret);
+    } finally {
+      (prisma.agentClient as { findUnique: unknown }).findUnique = original;
+    }
+
+    expect(r.statusCode).toBe(401);
+    expect(r.json().error.code).toBe("UNAUTHENTICATED");
+    // A prova que importa: nenhuma conexão do pool foi gasta por quem não provou nada.
+    expect(chamou).toBe(false);
+  });
+
+  it("⚠️ delegação acima do teto de prazo é RECUSADA na emissão", async () => {
+    await expect(
+      emitirDelegacao({
+        clientId,
+        userId: userA,
+        escopos: ["tasks:read"],
+        minutos: MINUTOS_MAXIMOS_DE_DELEGACAO + 1,
+      }),
+    ).rejects.toThrow(/teto/i);
+  });
+
+  /**
+   * ⚠️ TRAVA DE PONTO DE USO — e ela exige IGUALDADE, não "contém".
+   *
+   * O freio desta rota SUBSTITUI o freio global de 300/min por IP (o `@fastify/rate-limit`
+   * registra um hook só, com o merge). Se a chave dele voltar a depender de um cabeçalho, um
+   * anônimo rotacionando o valor ganha um balde por requisição — teto nenhum — e cada uma custa
+   * uma conexão do pool. Provar isso por carga exigiria 300 requisições e um relógio; a trava
+   * que realmente segura é ler o ponto de uso e exigir que a chave seja `req.ip` e nada mais.
+   */
+  it("⚠️ a chave do freio da rota é `req.ip`, e não um cabeçalho que quem chama escolhe", () => {
+    const fonte = readFileSync(resolve(__dirname, "../http/agent-v1.ts"), "utf8");
+    const semComentarios = fonte
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter((l) => !l.trimStart().startsWith("//"))
+      .join("\n");
+
+    const dentroDoConfig = /rateLimit:\s*\{[\s\S]*?keyGenerator:\s*\(req: FastifyRequest\)\s*=>\s*([^,\n]+),/.exec(
+      semComentarios,
+    );
+    expect(dentroDoConfig, "o freio da rota perdeu o keyGenerator").toBeTruthy();
+    // IGUALDADE, não "contém": `\`${req.ip}|${req.headers[X]}\`` contém "req.ip" e reabre o buraco.
+    expect(dentroDoConfig?.[1]?.trim()).toBe("req.ip");
   });
 });

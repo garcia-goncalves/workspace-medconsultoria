@@ -1735,8 +1735,15 @@ model EmailAnexo {
 model AgentClient {
   id         String    @id @default(cuid())
   nome       String    @unique
-  /// SHA-256 do segredo. NUNCA o segredo. Ver o comentário sobre argon2 no serviço.
-  segredoHash String   @unique
+  /// SHA-256 do segredo, em hex. NUNCA o segredo. Ver o comentário sobre argon2 no serviço.
+  ///
+  /// ⚠️ **`utf8mb4_bin` de propósito.** A colação da casa é `utf8mb4_unicode_ci`, que **ignora
+  /// maiúscula e acento** — foi o que mordeu na ADR-147. Aqui a função de hash sempre devolve
+  /// hex minúsculo, então hoje não haveria colisão; o problema é a coluna depender disso. Esta é
+  /// a âncora de autenticação: se um dia o formato virar base64 (onde caixa É significativa) ou
+  /// alguém gravar por outro caminho, a comparação passaria a casar valores diferentes **sem
+  /// erro nenhum**. Colação binária fecha isso na estrutura, não na disciplina.
+  segredoHash String   @unique @db.VarChar(191)
   ativo      Boolean   @default(true)
   revogadoEm DateTime?
   createdAt  DateTime  @default(now())
@@ -1751,8 +1758,10 @@ model AgentDelegation {
   id          String    @id @default(cuid())
   clientId    String
   userId      String
-  /// SHA-256 do token. O valor bruto existe só uma vez, na saída do comando que o emitiu.
-  tokenHash   String    @unique
+  /// SHA-256 do token, em hex. O valor bruto existe só uma vez, na saída do comando que o emitiu.
+  /// ⚠️ `utf8mb4_bin` pelo mesmo motivo de `AgentClient.segredoHash` — e aqui pesa mais: é por
+  /// esta coluna que o servidor decide QUEM está chamando.
+  tokenHash   String    @unique @db.VarChar(191)
   /// Escopos separados por espaço (ex.: "tasks:read"). Padrão NEGAR: sem o escopo, 403.
   escopos     String    @db.Text
   expiraEm    DateTime
@@ -1767,5 +1776,10 @@ model AgentDelegation {
 
   @@index([userId])
   @@index([clientId])
-  @@index([expiraEm])
+  // ⚠️ NÃO existe índice em `expiraEm`, e a ausência é deliberada. Ninguém consulta por esse
+  // campo: a autenticação acha a linha pelo `tokenHash` e compara a data já com a linha em mãos.
+  // Índice que ninguém usa é custo de escrita e mentira sobre a intenção do código. Ele volta
+  // junto com o expurgo de delegações vencidas — que, por sua vez, entra quando houver volume
+  // (hoje cada delegação é emitida à mão, uma por pessoa). É o mesmo raciocínio da ADR-141:
+  // retenção sem rotina não é política de retenção, e rotina sem volume é cerimônia.
 }

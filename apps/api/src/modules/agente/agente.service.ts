@@ -160,6 +160,11 @@ export async function emitirDelegacao(opts: {
   minutos: number;
   criadaPorId?: string | null;
 }): Promise<{ id: string; token: string; expiraEm: Date }> {
+  if (!Number.isFinite(opts.minutos) || opts.minutos > MINUTOS_MAXIMOS_DE_DELEGACAO) {
+    throw new Error(
+      `Prazo de delegação acima do teto: ${opts.minutos} minutos (máximo ${MINUTOS_MAXIMOS_DE_DELEGACAO}).`,
+    );
+  }
   const token = gerarSegredo();
   // `minutos` negativo emite delegação JÁ EXPIRADA — é como se prova o T2 sem esperar o relógio.
   const expiraEm = new Date(Date.now() + opts.minutos * 60_000);
@@ -174,6 +179,30 @@ export async function emitirDelegacao(opts: {
     },
   });
   return { id: delegacao.id, token, expiraEm };
+}
+
+/**
+ * PRAZO MÁXIMO de uma delegação.
+ *
+ * ⚠️ Sem teto, `--minutos 5256000` cria uma credencial de leitura de dez anos, e ninguém
+ * percebe: o comando aceita, o banco guarda, e o único sinal seria alguém abrir a listagem.
+ * Credencial de agente é para uma sessão de trabalho, não para a vida — renovar é um comando.
+ */
+export const MINUTOS_MAXIMOS_DE_DELEGACAO = 24 * 60;
+
+/**
+ * Revoga TODAS as delegações vivas de uma pessoa. Chamada por quem já derruba sessão e token
+ * por comprometimento: troca de senha, redefinição e desativação.
+ *
+ * ⚠️ Mora aqui, e não copiada nos três pontos, porque a régua tem de ser uma só — a próxima
+ * porta de revogação que alguém escrever precisa achar esta função, não reinventá-la.
+ */
+export async function revogarDelegacoesDoUsuario(userId: string): Promise<number> {
+  const res = await prisma.agentDelegation.updateMany({
+    where: { userId, revogadaEm: null },
+    data: { revogadaEm: new Date() },
+  });
+  return res.count;
 }
 
 /** Revogação com efeito na PRÓXIMA chamada — não há cache de token em memória. */

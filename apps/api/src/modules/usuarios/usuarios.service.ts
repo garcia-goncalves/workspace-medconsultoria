@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
+import { revogarDelegacoesDoUsuario } from "../agente/agente.service.js";
 import { ROLE_LEVEL, type Role } from "@app/shared";
 import type { CreateUsuarioInput, UpdateUsuarioInput, InviteUsuarioInput } from "@app/shared";
 import { hashPassword } from "../../lib/password.js";
@@ -388,6 +389,15 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
   // `redefinirSenha` gravam `ativo: true` — a conta desativada voltava a entrar sozinha.
   if (data.ativo === false || data.passwordHash) {
     await prisma.token.deleteMany({ where: { userId: input.id, usedAt: null } });
+  }
+
+  // ⚠️ **A TERCEIRA PORTA (ADR-149).** Derrubar a sessão e apagar o token não bastava: a
+  // delegação do agente é uma credencial de leitura que vive fora das duas coisas. Trocar a
+  // senha é, nesta casa, o gesto de "fui comprometido" — e sem esta linha o painel
+  // `SISTEMA → Sessões` mostraria tudo limpo enquanto um token vazado continuava lendo as
+  // tarefas da pessoa até o prazo vencer, por uma via que **nenhuma tela mostra**.
+  if (data.ativo === false || data.passwordHash || data.email) {
+    await revogarDelegacoesDoUsuario(input.id);
   }
 
   return user;

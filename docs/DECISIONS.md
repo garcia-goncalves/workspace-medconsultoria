@@ -5315,7 +5315,62 @@ Cora, e ela pede prévia com aprovação e idempotência; não há tela de gest�
 4); e `Tarefa.descricao` **não** é exposta — é texto livre que pode conter dado de cliente, e minimização de
 dado é a regra da ADR-141.
 
-**Provas:** typecheck 6/6 · lint limpo · **28 testes de integração novos** exercendo o Fastify de verdade
-(`app.inject`) contra o MySQL `_test`, cobrindo os doze casos que o CORA-001 exige · **7 deles vistos
-reprovando** com as travas sabotadas (isolamento e o `503`) · e a rota exercida por **HTTP real** contra a
-aplicação local, com `200`, `401` e `400` conferidos por `curl`.
+**🕳️ A REVISÃO ESPECIALISTA ACHOU CINCO COISAS, E AS CINCO NASCERAM DESTA PRÓPRIA CORREÇÃO** — é a parte
+que mais ensina desta rodada, de novo.
+
+1. **🔴 O FREIO DA ROTA ERA CHAVEADO POR UM CABEÇALHO QUE O ATACANTE ESCOLHE — e, ao existir, ele DESLIGAVA o
+   freio global de 300/min nesta rota.** O `@fastify/rate-limit` registra **um** hook por rota: havendo
+   `config.rateLimit`, o ramo global não roda. Então um anônimo, sem credencial nenhuma, trocando
+   `X-Agent-Client` a cada requisição, ganhava **um balde novo por chamada** — teto nenhum — e cada chamada
+   custava uma conexão do pool, que nesta hospedagem é 13 e **já esgotou em produção**. Um host sozinho
+   derrubava API, site e tempo real. ⚠️ **É a ADR-148 pela segunda vez, e desta vez fui eu quem repetiu o
+   erro:** lá o freio era chaveado em `(ip, e-mail)` e quem escolhia o e-mail era quem atacava. A cura é a
+   mesma: **freio por IP sozinho**, cuja chave ninguém de fora influencia, mais o freio por credencial
+   aplicado **depois** da autenticação, quando o `clientId` já foi provado. E uma conferência de **forma** do
+   cabeçalho antes de tocar o banco, para requisição anônima com lixo não gastar conexão do pool.
+2. **🔑 A DELEGAÇÃO SOBREVIVIA À TROCA DE SENHA — a terceira porta da revogação.** `changePassword`,
+   `redefinirSenha` e `updateUser` derrubam sessão **e** apagam token em voo, justamente porque "derrubar a
+   sessão não basta" (ADR-140). A delegação do agente não estava em nenhum dos três. Consequência real: o
+   token vaza, a pessoa desconfia e troca a senha, `SISTEMA → Sessões` mostra tudo limpo — e o ladrão continua
+   lendo as tarefas dela **por uma via que nenhuma tela mostra**. Hoje há `revogarDelegacoesDoUsuario`, num
+   lugar só, chamada nos três pontos, com teste que a exercita.
+3. **🚪 A TRAVA DE PRODUÇÃO DO COMANDO NÃO ERA A QUE O PRÓPRIO COMENTÁRIO PROMETIA.** O cabeçalho dizia "a
+   mesma do `demo-seed`" e olhava só `NODE_ENV`. A régua da casa (`podeRodarDemoSeed`) recusa também quando o
+   banco apontado **não é local**. Sem isso, de qualquer máquina de desenvolvimento com a URL de produção no
+   ambiente, dava para criar uma credencial de leitura em nome do ROOT **dentro do banco de produção**. ⚠️ O
+   comentário mentindo é parte do defeito: quem lê não vai conferir. Entrou junto um **teto de 24 h** no prazo
+   da delegação — sem ele, `--minutos 5256000` fabricava um acesso de dez anos sem que nada reclamasse.
+4. **🧭 O CURSOR NÃO ERA PRESO À PESSOA.** Não vazava tarefa (o filtro por responsável vale em cima), mas o
+   cursor **é**, ele mesmo, o id e a data de criação de uma tarefa de quem o recebeu — e viaja na URL, que o
+   log do Fastify e o do LiteSpeed gravam. Hoje o `requesterUserId` entra no corpo assinado, e cursor de A
+   usado por B é `400`, em vez de "funciona, e por acaso não vaza".
+5. **🗄️ AS COLUNAS DE HASH NASCIAM NA COLAÇÃO QUE IGNORA CAIXA E ACENTO.** `utf8mb4_unicode_ci` no
+   `tokenHash` — a coluna por onde o servidor decide **quem está chamando**. Hoje o hash sai em hex minúsculo
+   e não haveria colisão; o defeito era a coluna **depender disso**. É a ADR-147 outra vez, e desta vez sobre
+   uma trava de autenticação. Passou a `utf8mb4_bin`. Saiu junto o `@@index([expiraEm])`, que **ninguém
+   consulta**: índice morto é custo de escrita e mentira sobre a intenção do código.
+
+**⚖️ ONDE DISCORDEI DO REVISOR — e a discordância foi MEDIDA, não argumentada.** Ele pediu índice novo em
+`Tarefa` para a paginação por chave, temendo `filesort` quando a tabela crescer. Rodei o `EXPLAIN` contra o
+banco: o otimizador **entra pelo `TarefaResponsavel_userId_idx`** (`ref`) e junta a `Tarefa` pela chave
+primária (`eq_ref`). Ou seja, o `filesort` acontece sobre **as tarefas daquela pessoa**, não sobre a tabela —
+conjunto de dezenas, não de milhões, numa casa de quatro pessoas. O índice pedido não seria escolhido pelo
+otimizador e cobraria escrita em toda criação de tarefa, para nada. **Índice que o plano não usa é dívida com
+cara de cuidado.**
+
+**Provas:** typecheck 6/6 · lint limpo · **33 testes de integração** exercendo o Fastify de verdade
+(`app.inject`) contra o MySQL `_test` — os doze casos que o CORA-001 exige, mais os cinco achados da revisão ·
+**vistos reprovando**: 7 com as travas originais sabotadas (isolamento e o `503`), e 4 dos 5 novos com as
+travas da revisão desligadas · **621 testes de unidade do `@app/api`** verdes · e a rota exercida por **HTTP
+real** contra a aplicação local: `200` com item sintético, `401` sem credencial, `401` com cabeçalho sem forma
+de id e `400` com `limit=101`.
+
+**🐛 DOIS DEFEITOS QUE SÓ A EXECUÇÃO MOSTROU, e os dois valem como regra:**
+
+1. **`isAllowed` do `@fastify/rate-limit` NÃO significa "pode passar".** Ele só é `true` quando a chave está
+   na lista de permissão; o caminho normal devolve **sempre** `isAllowed: false`, e quem responde "estourou?"
+   é `isExceeded`. Lendo o nome pelo que ele parece dizer, a rota recusava **toda** chamada legítima — a
+   suíte pegou na hora (`expected 429 to be 200`).
+2. **`vi.spyOn(prisma.<model>, …).mockRestore()` NÃO devolve o delegate do Prisma.** O teste T11, que derruba
+   o banco de propósito, deixava o `findMany` quebrado para todos os testes seguintes — e o sintoma aparecia
+   **longe da causa**, como se a API tivesse quebrado. A cura é salvar a função e repor à mão, num `finally`.

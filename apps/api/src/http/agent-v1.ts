@@ -87,23 +87,55 @@ const ERRO_DE_ENTRADA: Record<ErroDeEntrada, string> = {
   CURSOR: "Parâmetro `cursor` inválido: use exatamente o `nextCursor` da resposta anterior.",
 };
 
+/**
+ * Primeiro valor de um cabeçalho ou parâmetro que pode chegar REPETIDO.
+ *
+ * ⚠️ O Fastify sem schema devolve **array** quando a query vem duplicada (`?limit=10&limit=20`),
+ * e o tipo `EntradaCrua` promete `string`. Hoje a validação falha para o lado seguro por
+ * acidente (comparação de tipos diferentes, regex que não casa em `"10,20"`) — e "falha por
+ * acidente" é o que deixa de valer no dia em que alguém trocar um `!==` por um `.includes()`.
+ * Normalizar na fronteira faz a promessa do tipo virar verdade.
+ */
 const umSo = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
 
+/**
+ * Forma de um `cuid()` do Prisma. Serve só para **recusar antes de tocar o banco** um
+ * `X-Agent-Client` que nem parece um id — ver o comentário no freio, abaixo.
+ */
+const FORMA_DE_ID = /^[a-z0-9]{20,40}$/;
+
 export function registrarRotasDoAgente(app: FastifyInstance) {
+  /**
+   * ⚠️ **FREIO POR CREDENCIAL — o de dentro, e ele só roda DEPOIS da autenticação.**
+   *
+   * Existe para um serviço não comer a cota do outro. Chaveia pelo `clientId` **já conferido**;
+   * antes da autenticação esse valor é escolhido por quem chama, e chavear por ele ali é
+   * exatamente o buraco descrito abaixo.
+   */
+  const freioPorCredencial = app.createRateLimit({
+    max: 120,
+    timeWindow: "1 minute",
+    keyGenerator: (req: FastifyRequest) => `agente:${(req as { clienteDeAgente?: string }).clienteDeAgente ?? "-"}`,
+  });
+
   app.get<{ Querystring: EntradaCrua }>(
     "/api/agent/v1/tasks",
     {
       config: {
-        // Freio PRÓPRIO, por credencial de serviço. O global de 300/min é por IP, e a Cora vai
-        // rodar na mesma máquina que o Workspace: sem chave própria, o agente e o navegador da
-        // Thaís dividiriam a mesma cota e um travaria o outro.
+        // ⚠️ **FREIO POR IP — o de fora, e a chave NÃO pode depender de nada que quem chama
+        // escolhe.** A primeira versão chaveava por `X-Agent-Client`, e o revisor de segurança
+        // mostrou o estrago: `config.rateLimit` na rota **substitui** o freio global de 300/min
+        // (o `@fastify/rate-limit` registra um hook só, com o merge), então um anônimo trocando
+        // o cabeçalho a cada requisição ganhava um balde novo por chamada — teto nenhum — e
+        // cada chamada custava uma conexão do pool, que nesta hospedagem é 13 e já esgotou em
+        // produção. Um host sozinho derrubava API, site e tempo real, sem credencial.
+        //
+        // É a ADR-148 pela segunda vez: **freio cuja chave o atacante escolhe não é freio.** Lá
+        // a cura foi um segundo freio por IP sozinho; aqui é a mesma.
         rateLimit: {
-          max: 120,
+          max: 300,
           timeWindow: "1 minute",
-          keyGenerator: (req: FastifyRequest) => {
-            const id = umSo(req.headers[CABECALHO_CLIENTE]);
-            return id ? `agente:${id}` : `ip:${req.ip}`;
-          },
+          keyGenerator: (req: FastifyRequest) => req.ip,
           errorResponseBuilder: (req: FastifyRequest) => ({
             error: {
               code: "RATE_LIMITED",
@@ -125,11 +157,21 @@ export function registrarRotasDoAgente(app: FastifyInstance) {
       // ─── 1. QUEM ESTÁ CHAMANDO, E EM NOME DE QUEM ───────────────────────────
       // Vem ANTES da validação de entrada de propósito: quem não se identificou não tem
       // direito nem a saber se o parâmetro que mandou existe.
+      const clienteBruto = umSo(req.headers[CABECALHO_CLIENTE]);
+
+      // ⚠️ Recusa ANTES de tocar o banco quando o cabeçalho nem tem forma de id. Sem isto, cada
+      // requisição anônima com lixo no cabeçalho custava uma conexão do pool — o gasto que a
+      // ADR-148 aprendeu a não conceder a quem ainda não provou nada.
+      if (!clienteBruto || !FORMA_DE_ID.test(clienteBruto)) {
+        const r = RECUSA.SEM_CREDENCIAL;
+        return responderErro(reply, req, r.http, r.code, r.message);
+      }
+
       let autenticacao;
       try {
         autenticacao = await autenticarChamadaDeAgente(
           {
-            clientId: umSo(req.headers[CABECALHO_CLIENTE]),
+            clientId: clienteBruto,
             clientSecret: umSo(req.headers[CABECALHO_SEGREDO]),
             bearer,
           },
@@ -144,16 +186,42 @@ export function registrarRotasDoAgente(app: FastifyInstance) {
         return responderErro(reply, req, r.http, r.code, r.message);
       }
 
-      // ─── 2. A ENTRADA ────────────────────────────────────────────────────────
+      // ─── 2. A COTA DAQUELA CREDENCIAL ────────────────────────────────────────
+      // Só agora: aqui o `clientId` já foi provado com o segredo, então chavear por ele não é
+      // mais chavear por entrada de quem chama.
+      (req as { clienteDeAgente?: string }).clienteDeAgente = autenticacao.clientId;
+      const cota = await freioPorCredencial(req);
+      // ⚠️ **`isAllowed` NÃO significa "pode passar".** No `@fastify/rate-limit`, `isAllowed:
+      // true` só sai quando a chave está na lista de permissão; o caminho normal devolve
+      // SEMPRE `isAllowed: false`, e quem responde "estourou?" é `isExceeded`. Ler o nome pelo
+      // que ele parece dizer recusa toda chamada legítima — foi o que aconteceu na 1ª versão, e
+      // a suíte pegou (`expected 429 to be 200`).
+      if (!cota.isAllowed && cota.isExceeded) {
+        return responderErro(
+          reply,
+          req,
+          429,
+          "RATE_LIMITED",
+          "Limite de chamadas atingido. Tente de novo em instantes.",
+        );
+      }
+
+      // ─── 3. A ENTRADA ────────────────────────────────────────────────────────
       const entrada = validarEntrada(
-        { scope: req.query.scope, status: req.query.status, limit: req.query.limit, cursor: req.query.cursor },
+        {
+          scope: umSo(req.query.scope),
+          status: umSo(req.query.status),
+          limit: umSo(req.query.limit),
+          cursor: umSo(req.query.cursor),
+        },
         config.SESSION_SECRET,
+        autenticacao.requesterUserId,
       );
       if (!entrada.ok) {
         return responderErro(reply, req, 400, "INVALID_INPUT", ERRO_DE_ENTRADA[entrada.campo]);
       }
 
-      // ─── 3. A CONSULTA ───────────────────────────────────────────────────────
+      // ─── 4. A CONSULTA ───────────────────────────────────────────────────────
       try {
         const pagina = await listarTarefasDoAgente(
           autenticacao.requesterUserId,

@@ -2,7 +2,8 @@
  * Comandos de credencial da API do agente (ADR-149).
  *
  *   pnpm agente cliente  --nome cora-dev
- *   pnpm agente delegar  --cliente <clientId> --email pessoa@exemplo --minutos 60 [--escopos "tasks:read"]
+ *   pnpm agente delegar  --cliente <clientId> --email pessoa@exemplo --minutos 60
+ *                        [--escopos "tasks:read"] [--por quem-emitiu@exemplo]
  *   pnpm agente revogar  --delegacao <delegationId>
  *   pnpm agente listar
  *
@@ -10,19 +11,26 @@
  * valor se perder, emite-se outro. É de propósito: credencial recuperável é credencial que
  * alguém acaba guardando em arquivo.
  *
- * ⚠️ **Nada disto roda em produção.** A trava é a mesma do `contas-de-teste`/`demo-seed`: em
- * `NODE_ENV=production` o comando recusa. Credencial de produção se emite pelo caminho de
- * produção, com registro de quem emitiu — não por script de linha de comando de quem tem
- * acesso ao shell.
+ * ⚠️ **Nada disto roda em produção, e a trava é literalmente a mesma do `demo-seed`**
+ * (`podeRodarDemoSeed`, em `@app/db`): recusa por `NODE_ENV=production` **e também** quando o
+ * banco apontado não é local, exigindo `DEMO_SEED_CONFIRMO=1` para liberar.
+ *
+ * A primeira versão só olhava `NODE_ENV`, e o revisor de segurança mostrou o buraco: de
+ * qualquer máquina de desenvolvimento, com a URL do banco de produção no ambiente, dava para
+ * criar uma credencial de leitura em nome do ROOT **dentro do banco de produção** — a mesma
+ * coisa contra a qual a casa já se defende para uma operação bem menos perigosa, que é semear
+ * dado fictício. O comentário que prometia a trava certa estava mentindo, e isso é parte do
+ * defeito: quem lesse não iria conferir.
  */
 import "../env.js";
-import { prisma } from "@app/db";
+import { prisma, podeRodarDemoSeed } from "@app/db";
 import {
   criarClienteDeAgente,
   emitirDelegacao,
   revogarDelegacao,
   ESCOPOS_CONHECIDOS,
   normalizarEscopos,
+  MINUTOS_MAXIMOS_DE_DELEGACAO,
 } from "../modules/agente/agente.service.js";
 
 function arg(nome: string): string | undefined {
@@ -36,8 +44,9 @@ function fim(mensagem: string): never {
 }
 
 async function principal() {
-  if (process.env["NODE_ENV"] === "production") {
-    fim("Este comando não roda em produção. Ver o cabeçalho do arquivo.");
+  const guarda = podeRodarDemoSeed(process.env as never);
+  if (!guarda.permitido) {
+    fim(`Este comando não roda aqui: ${guarda.motivo}`);
   }
 
   const acao = process.argv[2];
@@ -57,6 +66,9 @@ async function principal() {
     const email = arg("email") ?? fim("Informe --email <e-mail da pessoa>.");
     const minutos = Number(arg("minutos") ?? "60");
     if (!Number.isFinite(minutos)) fim("--minutos precisa ser um número (negativo = já expirada).");
+    if (minutos > MINUTOS_MAXIMOS_DE_DELEGACAO) {
+      fim(`--minutos acima do teto: máximo ${MINUTOS_MAXIMOS_DE_DELEGACAO} (24 h). Renovar é um comando.`);
+    }
     const escopos = normalizarEscopos((arg("escopos") ?? "tasks:read").split(/[\s,]+/));
     const desconhecidos = escopos.filter((e) => !ESCOPOS_CONHECIDOS.includes(e as never));
     if (desconhecidos.length) fim(`Escopo desconhecido: ${desconhecidos.join(", ")}.`);
@@ -69,7 +81,23 @@ async function principal() {
     if (user.role === "CLIENTE") fim("Conta de Portal não pode delegar leitura de tarefa interna.");
     if (!user.ativo) console.warn("⚠️  Atenção: este usuário está DESATIVADO — a API vai recusar (403).");
 
-    const { id, token, expiraEm } = await emitirDelegacao({ clientId, userId: user.id, escopos, minutos });
+    // ⚠️ QUEM EMITIU. Sem isto a coluna `criadaPorId` nasce sempre nula e a pergunta de
+    // auditoria "quem deu essa credencial?" não tem resposta no dia em que for feita.
+    const porEmail = arg("por");
+    let criadaPorId: string | null = null;
+    if (porEmail) {
+      const quem = await prisma.user.findUnique({ where: { email: porEmail }, select: { id: true } });
+      if (!quem) fim(`Não existe usuário com o e-mail ${porEmail} (--por).`);
+      criadaPorId = quem.id;
+    }
+
+    const { id, token, expiraEm } = await emitirDelegacao({
+      clientId,
+      userId: user.id,
+      escopos,
+      minutos,
+      criadaPorId,
+    });
     console.log("\n✅ Delegação emitida.\n");
     console.log(`  delegationId : ${id}`);
     console.log(`  usuário      : ${user.nome} (${user.id})`);

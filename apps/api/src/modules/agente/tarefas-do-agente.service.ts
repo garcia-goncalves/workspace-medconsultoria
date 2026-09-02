@@ -26,11 +26,18 @@ export const LIMITE_MAXIMO = 100;
 
 export type ErroDeEntrada = "SCOPE" | "STATUS" | "LIMIT" | "CURSOR";
 
+/**
+ * O que chega na query string, ANTES de qualquer validação.
+ *
+ * ⚠️ Os campos são `string | string[]` porque o Fastify entrega **array** quando o parâmetro vem
+ * repetido. Quem chama normaliza com `umSo` (ver `http/agent-v1.ts`); o tipo carrega a
+ * possibilidade para o compilador cobrar isso de quem escrever a próxima rota.
+ */
 export interface EntradaCrua {
-  scope?: string;
-  status?: string;
-  limit?: string;
-  cursor?: string;
+  scope?: string | string[];
+  status?: string | string[];
+  limit?: string | string[];
+  cursor?: string | string[];
 }
 
 export interface EntradaValidada {
@@ -47,21 +54,31 @@ export type ValidacaoDaEntrada = { ok: true; valor: EntradaValidada } | { ok: fa
  * em silêncio faz o cliente acreditar que recebeu 500 itens quando recebeu 100 — e a diferença
  * só aparece como "sumiu tarefa" muito depois, longe da causa.
  */
-export function validarEntrada(cru: EntradaCrua, segredo: string): ValidacaoDaEntrada {
-  if (cru.scope !== "mine") return { ok: false, campo: "SCOPE" };
-  if (cru.status !== "open") return { ok: false, campo: "STATUS" };
+export function validarEntrada(cru: EntradaCrua, segredo: string, donoId: string): ValidacaoDaEntrada {
+  // Parâmetro repetido chega como array; um array aqui é entrada inválida, não "o primeiro vale".
+  const so = (v: string | string[] | undefined): string | undefined =>
+    Array.isArray(v) ? undefined : v;
+  const scope = so(cru.scope);
+  const status = so(cru.status);
+  const limitCru = so(cru.limit);
+  const cursorCru = so(cru.cursor);
+  if (Array.isArray(cru.limit)) return { ok: false, campo: "LIMIT" };
+  if (Array.isArray(cru.cursor)) return { ok: false, campo: "CURSOR" };
+
+  if (scope !== "mine") return { ok: false, campo: "SCOPE" };
+  if (status !== "open") return { ok: false, campo: "STATUS" };
 
   let limit = LIMITE_PADRAO;
-  if (cru.limit !== undefined) {
+  if (limitCru !== undefined) {
     // `Number()` aceitaria "", " " e "1e2"; a régua é dígito puro, para "10abc" não virar 10.
-    if (!/^\d+$/.test(cru.limit)) return { ok: false, campo: "LIMIT" };
-    limit = Number(cru.limit);
+    if (!/^\d+$/.test(limitCru)) return { ok: false, campo: "LIMIT" };
+    limit = Number(limitCru);
     if (limit < 1 || limit > LIMITE_MAXIMO) return { ok: false, campo: "LIMIT" };
   }
 
   let posicao: PosicaoDoCursor | null = null;
-  if (cru.cursor !== undefined && cru.cursor !== "") {
-    posicao = decodificarCursor(cru.cursor, segredo);
+  if (cursorCru !== undefined && cursorCru !== "") {
+    posicao = decodificarCursor(cursorCru, segredo, donoId);
     if (!posicao) return { ok: false, campo: "CURSOR" };
   }
 
@@ -78,6 +95,12 @@ export interface TarefaDoAgente {
   assigneeIds: string[];
   clientId: string | null;
   projectId: string | null;
+}
+
+/** Recusa em vez de mentir: o contrato promete só estes dois valores. */
+function estreitarStatus(valor: string): "PENDENTE" | "FAZENDO" {
+  if (valor === "PENDENTE" || valor === "FAZENDO") return valor;
+  throw new Error(`Tarefa com status inesperado no resultado do filtro de abertas: ${valor}`);
 }
 
 export interface PaginaDeTarefas {
@@ -115,6 +138,9 @@ export async function listarTarefasDoAgente(
   // Pede UM a mais do que o limite: é assim que se sabe que existe página seguinte sem contar a
   // tabela inteira — e sem devolver `nextCursor` numa última página cheia, que faria a Cora dar
   // uma volta a mais para receber lista vazia.
+  // ⚠️ O tipo de `status` na resposta é `PENDENTE | FAZENDO`, e quem garante isso é o `where`
+  // acima — não um `as`. `estreitarStatus` recusa qualquer outro valor em vez de mentir para o
+  // compilador: se um dia alguém mexer no filtro, isto estoura aqui e não sai contrato errado.
   const linhas = await prisma.tarefa.findMany({
     where,
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -140,7 +166,7 @@ export async function listarTarefasDoAgente(
     items: pagina.map((t) => ({
       id: t.id,
       title: t.titulo,
-      status: t.status as "PENDENTE" | "FAZENDO",
+      status: estreitarStatus(t.status),
       priority: t.prioridade,
       dueAt: t.prazo ? t.prazo.toISOString() : null,
       // Ordem estável por `userId`, como a CORA pediu: lista que muda de ordem entre duas
@@ -149,6 +175,9 @@ export async function listarTarefasDoAgente(
       clientId: t.clienteId,
       projectId: t.projetoId,
     })),
-    nextCursor: temMais && ultima ? codificarCursor({ createdAt: ultima.createdAt, id: ultima.id }, segredo) : null,
+    nextCursor:
+      temMais && ultima
+        ? codificarCursor({ createdAt: ultima.createdAt, id: ultima.id }, segredo, requesterUserId)
+        : null,
   };
 }

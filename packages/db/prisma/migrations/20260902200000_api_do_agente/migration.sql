@@ -13,6 +13,12 @@
 -- bruto existe uma unica vez, na saida do comando que o emitiu. Vazamento do banco nao entrega
 -- credencial utilizavel.
 --
+-- POR QUE `COLLATE utf8mb4_bin` NAS DUAS COLUNAS DE HASH: a colacao da casa e utf8mb4_unicode_ci,
+-- que IGNORA maiuscula e acento (foi o que mordeu na ADR-147). As duas colunas sao a ancora de
+-- autenticacao -- e por `tokenHash` que o servidor decide QUEM esta chamando. Hoje o hash sai em
+-- hex minusculo e nao haveria colisao; o defeito seria a coluna DEPENDER disso. Colacao binaria
+-- fecha na estrutura, e nao na disciplina de quem escrever o proximo caminho de escrita.
+--
 -- REVERTER SAO DUAS LINHAS (nesta ordem, por causa da chave estrangeira):
 --   DROP TABLE `AgentDelegation`;
 --   DROP TABLE `AgentClient`;
@@ -20,7 +26,7 @@
 CREATE TABLE `AgentClient` (
     `id` VARCHAR(191) NOT NULL,
     `nome` VARCHAR(191) NOT NULL,
-    `segredoHash` VARCHAR(191) NOT NULL,
+    `segredoHash` VARCHAR(191) COLLATE utf8mb4_bin NOT NULL,
     `ativo` BOOLEAN NOT NULL DEFAULT true,
     `revogadoEm` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -35,7 +41,7 @@ CREATE TABLE `AgentDelegation` (
     `id` VARCHAR(191) NOT NULL,
     `clientId` VARCHAR(191) NOT NULL,
     `userId` VARCHAR(191) NOT NULL,
-    `tokenHash` VARCHAR(191) NOT NULL,
+    `tokenHash` VARCHAR(191) COLLATE utf8mb4_bin NOT NULL,
     `escopos` TEXT NOT NULL,
     `expiraEm` DATETIME(3) NOT NULL,
     `revogadaEm` DATETIME(3) NULL,
@@ -46,7 +52,6 @@ CREATE TABLE `AgentDelegation` (
     UNIQUE INDEX `AgentDelegation_tokenHash_key`(`tokenHash`),
     INDEX `AgentDelegation_userId_idx`(`userId`),
     INDEX `AgentDelegation_clientId_idx`(`clientId`),
-    INDEX `AgentDelegation_expiraEm_idx`(`expiraEm`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

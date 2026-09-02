@@ -23,7 +23,10 @@ identidade sai do token, e é revalidada a cada requisição.
 
 ## Emitir credenciais no ambiente local
 
-Os comandos recusam rodar com `NODE_ENV=production`.
+⚠️ **Os comandos recusam rodar em produção — e a trava é a mesma do `demo-seed`** (`podeRodarDemoSeed`):
+recusa por `NODE_ENV=production` **e também** quando o banco apontado não é local. A primeira versão olhava
+só `NODE_ENV`, e isso deixava criar credencial de leitura em nome do ROOT no banco de produção a partir de
+qualquer máquina de desenvolvimento com a URL certa no ambiente.
 
 ```bash
 # 1. o serviço (uma vez por programa)
@@ -63,6 +66,12 @@ Bash, ou usar `Invoke-RestMethod` com `-Headers @{ ... }`.
 - `descricao` não sai — é texto livre e pode conter dado de cliente (minimização, ADR-141).
 - Prazo ausente é `null`. **Nunca vira prazo inventado.**
 
+⚠️ **O `title` sai cru, e é o certo** — o consumidor é quem trata texto como dado inerte. Hoje isso é
+confortável porque `prisma.tarefa.create` só existe atrás de `funcionarioProcedure`: **não há caminho anônimo
+para plantar texto num título**. A régua que fica: no dia em que alguma automação criar tarefa a partir de
+e-mail recebido, formulário público ou conteúdo de cliente, o título passa a ser entrada hostil, e a fronteira
+"dado, nunca instrução" precisa estar declarada no contrato OpenAPI — não só num comentário.
+
 ⚠️ **`{"items":[]}` só sai com `200`, e significa "não há tarefas abertas".** Banco fora do ar é `503
 UPSTREAM_UNAVAILABLE`. Sem essa separação, a assistente diria à Thaís "você está em dia" quando na verdade não
 conseguiu perguntar.
@@ -80,10 +89,30 @@ versão de contrato. Nunca sai stack, SQL, nome de tabela ou segredo.
 ⚠️ **Usuário desativado é `403`, não `401`** — o motivo está na ADR-149: `401` faria o consumidor pedir
 delegação nova em laço, e delegação nova para pessoa desativada também não existe.
 
-## Freio
+## Freio — são dois, e o de fora é o que importa
 
-120 chamadas por minuto **por credencial de serviço** (não por IP). O global da casa continua sendo 300/min por
-IP; a chave própria existe para o agente e o navegador de quem trabalha na mesma máquina não dividirem cota.
+| Freio | Chave | Teto |
+|---|---|---|
+| de fora | `req.ip` | 300/min |
+| de dentro | credencial de serviço **já conferida** | 120/min |
+
+⚠️ **A chave do freio de fora não pode depender de nada que quem chama escolhe.** A primeira versão chaveava
+por `X-Agent-Client` — e o `@fastify/rate-limit` registra **um** hook por rota, então `config.rateLimit`
+**substitui** o freio global de 300/min. Um anônimo trocando o cabeçalho a cada requisição ganhava um balde
+novo por chamada, sem teto, cada uma custando uma conexão do pool (que aqui é 13, e já esgotou em produção).
+É a ADR-148 de novo: **freio cuja chave o atacante escolhe não é freio.** Há teste que lê o ponto de uso e
+exige **igualdade** com `req.ip` — "contém" deixaria passar `` `${req.ip}|${cabeçalho}` ``.
+
+⚠️ **`isAllowed` do `@fastify/rate-limit` não significa "pode passar"** — só é `true` para chave na lista de
+permissão. Quem responde "estourou?" é `isExceeded`.
+
+## Prazo e revogação
+
+- **Máximo 24 h** por delegação. Renovar é um comando; credencial de agente é para uma sessão de trabalho.
+- **Revogação explícita:** `pnpm agente revogar --delegacao <id>`, com efeito na chamada seguinte.
+- ⚠️ **A delegação cai junto com a senha.** `changePassword`, `redefinirSenha` e a desativação/troca de
+  e-mail em `updateUser` revogam todas as delegações vivas da pessoa. Sem isso, trocar a senha — que nesta
+  casa é o gesto de "fui comprometido" — deixaria de pé uma credencial que **nenhuma tela mostra**.
 
 ## Ao mudar qualquer coisa aqui
 

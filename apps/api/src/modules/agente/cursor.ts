@@ -14,6 +14,13 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * cursor adulterado responda `400 INVALID_INPUT`, o que só é possível se dá para DETECTAR a
  * adulteração. Base64 sozinho não detecta nada: todo palpite é "válido".
  *
+ * ⚠️ **O CURSOR É PRESO À PESSOA que o recebeu.** O `requesterUserId` entra no corpo assinado.
+ * Sem isso, o cursor de A entregue a B não vazaria tarefa nenhuma (o filtro por responsável
+ * continua valendo em cima), mas o cursor **é**, ele mesmo, o id e a data de criação de uma
+ * tarefa de A — e ele viaja na URL, que o log do Fastify e o do LiteSpeed gravam. Amarrado ao
+ * usuário, "cursor de A usado por B" vira `400 INVALID_INPUT` em vez de "funciona, e por acaso
+ * não vaza".
+ *
  * A chave é o `SESSION_SECRET`, com rótulo próprio no HMAC para não colidir com outro uso.
  * Consequência aceita e documentada no contrato: trocar o segredo invalida os cursores em voo
  * — a Cora recomeça a listagem, que é o comportamento certo para um valor efêmero.
@@ -30,13 +37,18 @@ function assinar(corpo: string, segredo: string): string {
   return createHmac("sha256", segredo).update(`${ROTULO}\n${corpo}`).digest("base64url");
 }
 
-export function codificarCursor(pos: PosicaoDoCursor, segredo: string): string {
-  const corpo = Buffer.from(`${pos.createdAt.toISOString()}|${pos.id}`, "utf8").toString("base64url");
+export function codificarCursor(pos: PosicaoDoCursor, segredo: string, donoId: string): string {
+  const corpo = Buffer.from(`${donoId}|${pos.createdAt.toISOString()}|${pos.id}`, "utf8").toString(
+    "base64url",
+  );
   return `${corpo}.${assinar(corpo, segredo)}`;
 }
 
-/** Devolve `null` para QUALQUER cursor que não seja exatamente um que nós emitimos. */
-export function decodificarCursor(cursor: string, segredo: string): PosicaoDoCursor | null {
+/**
+ * Devolve `null` para QUALQUER cursor que não seja exatamente um que nós emitimos **para esta
+ * pessoa**. Cursor de outro usuário é tão inválido quanto cursor inventado.
+ */
+export function decodificarCursor(cursor: string, segredo: string, donoId: string): PosicaoDoCursor | null {
   const partes = cursor.split(".");
   if (partes.length !== 2) return null;
   const [corpo, assinatura] = partes;
@@ -48,10 +60,15 @@ export function decodificarCursor(cursor: string, segredo: string): PosicaoDoCur
   if (!timingSafeEqual(esperada, recebida)) return null;
 
   const texto = Buffer.from(corpo, "base64url").toString("utf8");
-  const sep = texto.indexOf("|");
-  if (sep < 0) return null;
-  const createdAt = new Date(texto.slice(0, sep));
-  const id = texto.slice(sep + 1);
+  // `dono|data|id` — o `id` pode conter qualquer coisa, então só as DUAS primeiras barras contam.
+  const primeira = texto.indexOf("|");
+  if (primeira < 0) return null;
+  const segunda = texto.indexOf("|", primeira + 1);
+  if (segunda < 0) return null;
+
+  if (texto.slice(0, primeira) !== donoId) return null;
+  const createdAt = new Date(texto.slice(primeira + 1, segunda));
+  const id = texto.slice(segunda + 1);
   if (Number.isNaN(createdAt.getTime()) || !id) return null;
   return { createdAt, id };
 }
