@@ -166,7 +166,20 @@ pnpm --filter @app/api exec vitest run src/test/agente-api-tarefas.integration.t
 
 ---
 
-# Fase 2 — a ESCRITA (contrato 0.2.0, ADR-150, ticket CORA-003)
+# Fase 2 — a ESCRITA (contrato 0.2.1, ADR-150, ticket CORA-003)
+
+> ✅ **VALIDADA PELO CONSUMIDOR em 03/09/2026: 28 de 28, em duas rodadas.** A CORA exerceu os dois
+> endpoints contra o `:4319` com credencial própria e fechou o ticket como `done`
+> (`med-coordination`, `tickets/CORA-003/acceptance.md` + `evidence/cora/2026-09-03-fase-02-escrita.md`,
+> commit `e0ae08f`). **A W15 foi vista de fora**: duas criações em paralelo com a mesma
+> `Idempotency-Key` deram uma `201 created=true` e uma `200 created=false`, a mesma tarefa.
+>
+> ⚠️ **TRÊS CAMINHOS NÃO FORAM EXERCIDOS DE FORA, e estão declarados no aceite:** o `429` dos
+> freios, o `503` com banco caído, e **`PRECONDITION_CHANGED` com `divergencias[]` reais**. Este
+> último exige **renomear uma fixture DESTE repositório entre a prévia e a criação**, dentro da
+> janela de 15 minutos — e o consumidor não escreve aqui, de propósito. Fechar a lacuna é um
+> comando **nosso** no meio da rodada dele, com horário combinado. O tratamento existe e tem teste
+> local; o que falta é a prova de ponta a ponta.
 
 ## São dois endpoints, e a razão disso é a única coisa a não esquecer
 
