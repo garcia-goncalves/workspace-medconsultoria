@@ -1,7 +1,7 @@
 # API do agente (`/api/agent/v1`) — como a Cora fala com o Workspace
 
 > **Decisão e porquês:** ADR-149 (leitura) e **ADR-150 (escrita)** em `docs/DECISIONS.md`.
-> **Contrato canônico:** `med-coordination/contracts/workspace-agent-v1.openapi.yaml`, versão **0.2.0**
+> **Contrato canônico:** `med-coordination/contracts/workspace-agent-v1.openapi.yaml`, versão **0.2.1**
 > (experimental), com o SHA-256 ao lado. **Este arquivo explica como operar; o contrato manda.**
 >
 > A **Fase 1** (leitura) está descrita logo abaixo; a **Fase 2** (escrita: prévia aprovável e

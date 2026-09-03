@@ -36,7 +36,7 @@ import { hashDosArgumentos, lerAprovacao, referenciasDoToken } from "../modules/
  * versão em `med-coordination/contracts/workspace-agent-v1.openapi.yaml` e regerar o SHA-256.
  */
 
-export const VERSAO_DO_CONTRATO = "0.2.0";
+export const VERSAO_DO_CONTRATO = "0.2.1";
 
 type CodigoDeErro =
   | "INVALID_INPUT"
@@ -356,7 +356,10 @@ export function registrarRotasDoAgente(app: FastifyInstance) {
       // ⚠️ **Obrigatória.** Sem ela, uma repetição depois de um timeout de rede — o caso mais
       // provável de todos — criaria a segunda tarefa, e a Thaís perderia a confiança na
       // assistente por um defeito de transporte.
-      const chave = umSo(req.headers["idempotency-key"]);
+      // ⚠️ **CAIXA ÚNICA.** A coluna `chave` é `utf8mb4_bin`, então `A1B2…` e `a1b2…` seriam
+      // DUAS chaves e criariam DUAS tarefas — a mesma armadilha de colação da ADR-147, pelo lado
+      // oposto. A régua aceita as duas caixas; o banco guarda uma só.
+      const chave = umSo(req.headers["idempotency-key"])?.toLowerCase();
       if (!chave || !FORMA_DE_UUID.test(chave)) {
         return responderErro(
           reply,

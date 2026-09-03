@@ -62,7 +62,10 @@ export interface ArgumentosDaTarefa {
  */
 export function formaCanonicaDosArgumentos(a: ArgumentosDaTarefa): string {
   return JSON.stringify({
-    titulo: a.titulo.trim(),
+    // ⚠️ **NFC.** "ç" composto e "ç" decomposto são o MESMO título aos olhos de quem aprovou, e
+    // sem normalizar dariam hashes diferentes — um `APPROVAL_MISMATCH` falso, que é justamente o
+    // que esta forma canônica existe para evitar. Achado do revisor de segurança.
+    titulo: a.titulo.normalize("NFC").trim(),
     prioridade: a.prioridade,
     prazo: a.prazo ? new Date(a.prazo).toISOString() : null,
     clienteId: a.clienteId ?? null,

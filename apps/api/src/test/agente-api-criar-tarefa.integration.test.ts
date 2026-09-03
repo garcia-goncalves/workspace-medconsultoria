@@ -319,6 +319,35 @@ describe("a aprovação", () => {
     expect(await contarPorTitulo(titulo)).toBe(0);
   });
 
+  it("⚠️ token emitido para OUTRA PESSOA não vale — a trava mais crítica do arquivo", async () => {
+    // Achado do revisor de segurança: havia teste para token de outro SERVIÇO e nenhum para
+    // token de outra PESSOA, que é a linha que impede um token executar em nome de quem não
+    // aprovou. Estava sem rede.
+    const titulo = `${PFX} token de outra pessoa`;
+    const task = {
+      titulo,
+      prioridade: "NORMAL" as const,
+      prazo: null,
+      clienteId: null,
+      projetoId: null,
+      responsavelIds: [userB],
+    };
+    // Emitido para B, apresentado com a delegação de A.
+    const deB = emitirAprovacao(
+      {
+        requesterUserId: userB,
+        clientId,
+        argumentos: task,
+        referencias: [{ tipo: "responsavel", id: userB, rotulo: `${PFX}-b` }],
+      },
+      config.SESSION_SECRET,
+    );
+    const r = await criar({ approvalToken: deB.token, task }, randomUUID(), tokenA);
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error.code).toBe("APPROVAL_INVALID");
+    expect(await contarPorTitulo(titulo)).toBe(0);
+  });
+
   it("token emitido para OUTRO serviço não vale aqui", async () => {
     const p = await previaSimples(`${PFX} token de outro servico`);
     const r = await app.inject({
@@ -488,6 +517,29 @@ describe("a prévia", () => {
     expect(c.previa.projeto.id).toBe(projetoUnico);
     expect(c.previa.projeto.rotulo).toBe(NOME_PROJETO);
     expect(c.approvalToken).toBeTruthy();
+  });
+
+  it("⚠️ `%` no texto de busca é escapado — a prévia não vira listagem da base", async () => {
+    // Achado do revisor de segurança: `contains` do Prisma monta `LIKE '%valor%'` sem escapar
+    // coringa. Sem o escape, `{"texto":"%%"}` casava TUDO e a prévia devolvia nome, CNPJ,
+    // situação e e-mail dos oito primeiros clientes, mais o total da base.
+    const r = await previa({ titulo: `${PFX} coringa`, cliente: { texto: "%%" } });
+    expect(r.statusCode).toBe(200);
+    const c = r.json();
+    expect(c.ambiguidades).toHaveLength(0);
+    expect(c.previa.cliente.motivo).toBe("NAO_ENCONTRADO");
+  });
+
+  it("⚠️ a distinção de PESSOA não entrega o diretório da equipe", async () => {
+    // O lado humano (`listEquipe`) devolve só id, nome e avatar; papel e e-mail de todo mundo
+    // só saem por `adminProcedure`. A prévia devolvia `PAPEL · e-mail completo` a qualquer
+    // funcionário com delegação — insumo para phishing dirigido a quem tem mais poder.
+    const r = await previa({ titulo: `${PFX} pessoa`, responsaveis: [{ texto: PFX }] });
+    const c = r.json();
+    const texto = JSON.stringify(c);
+    expect(texto).not.toContain("FUNCIONARIO");
+    expect(texto).not.toContain(`${PFX}-a@example.test`);
+    expect(texto).not.toContain(`${PFX}-b@example.test`);
   });
 
   it("`id` e `texto` juntos na mesma referência é entrada inválida", async () => {

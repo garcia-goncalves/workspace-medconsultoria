@@ -71,6 +71,9 @@ export async function expurgarDadosVencidos(agora = new Date()) {
     "arquivo.removido",
     "conta.criada",
     "cliente.anonimizado",
+    // ⚠️ Escrita feita por um PROGRAMA em nome de uma pessoa (ADR-150). É a única prova de que a
+    // tarefa nasceu pela Cora e não pela mão da Thaís — apagá-la deixaria as duas indistinguíveis.
+    "agente.tarefa.criada",
   ];
   const atividade = await prisma.activityLog.deleteMany({
     where: { createdAt: { lt: limite }, acao: { notIn: ACOES_QUE_NAO_EXPIRAM } },

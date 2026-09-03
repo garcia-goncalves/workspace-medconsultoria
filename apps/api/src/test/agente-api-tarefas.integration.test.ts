@@ -289,7 +289,7 @@ describe("isolamento e filtro", () => {
     expect(ids).not.toContain(tarefaConcluida);
   });
 
-  it("a forma da resposta é a do contrato 0.2.0, e prazo ausente vira `null` — nunca prazo inventado", async () => {
+  it("a forma da resposta é a do contrato 0.2.1, e prazo ausente vira `null` — nunca prazo inventado", async () => {
     const corpo = (await chamar(PADRAO, tokenA)).json();
     // ⚠️ **O NÚMERO ESCRITO À MÃO AQUI É A TRAVA, e não um descuido.** Comparar com o
     // `VERSAO_DO_CONTRATO` importado seria tautologia — passaria sempre. O literal obriga quem
@@ -297,7 +297,7 @@ describe("isolamento e filtro", () => {
     // `med-coordination/contracts/workspace-agent-v1.openapi.yaml` e o SHA-256 ao lado. Ler o
     // contrato daqui não serve: ele vive em OUTRO repositório, que o runner da CI não clona.
     // Foi exatamente assim que a subida para a 0.2.0 (a escrita, CORA-003) foi pega.
-    expect(corpo.contractVersion).toBe("0.2.0");
+    expect(corpo.contractVersion).toBe("0.2.1");
     expect(corpo).toHaveProperty("nextCursor");
     const item = corpo.items.find((i: { id: string }) => i.id === tarefaExclusivaDeA);
     expect(Object.keys(item).sort()).toEqual(

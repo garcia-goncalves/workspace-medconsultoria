@@ -5556,6 +5556,41 @@ responsáveis) e caberia `Promise.all`. **Não é correção, é latência** —
 de `ambiguidades[]` não determinística, que é justamente o que a Cora lê para perguntar. Fica como
 próximo passo, com a montagem por índice em vez de `push`.
 
+### 🔐 A REVISÃO DE SEGURANÇA: quatro achados, e o contrato subiu para **0.2.1** por causa de um
+
+**Nenhum bloqueante** — não havia caminho para o pedido escolher a pessoa, nem furo no token. Os
+quatro importantes, todos corrigidos com teste:
+
+1. **`%` e `_` são coringas do `LIKE`, e o `contains` do Prisma não os escapa.**
+   `{"texto": "%%"}` passava no mínimo de 2 caracteres e virava `LIKE '%%%'`, que **casa tudo**: a
+   prévia deixava de ser busca e virava **listagem paginável da base** — nome, CNPJ, situação e
+   e-mail dos oito primeiros, mais o `total`. Hoje o texto é escapado e tem teto de 120 caracteres.
+2. **A distinção de PESSOA entregava o diretório da equipe.** Era `PAPEL · e-mail completo` — e
+   isso é **mais permissivo que o lado humano**, onde `listEquipe` devolve só id, nome e avatar, e
+   papel + e-mail de todos só saem por `adminProcedure`. Um funcionário com delegação montava o
+   mapa de quem é ROOT/ADMIN e o e-mail de cada um: insumo direto para phishing dirigido a quem
+   tem mais poder. Hoje é **e-mail mascarado**, que resolve o homônimo sem entregar a lista.
+3. **O teto de responsáveis existia só na prévia**, e a forma canônica deduplica **antes** do
+   hash — então `["u1"]` e `["u1"]` repetido quarenta mil vezes tinham o **mesmo `argsHash`** e
+   passavam pelo `APPROVAL_MISMATCH`, entrando na transação com um corpo de 1 MB de ids. A
+   deduplicação (achado do outro revisor) já mata o caso; o teto entrou como segunda tranca.
+4. **⚠️ O RÓTULO TEM ORIGEM ANÔNIMA, e o contrato calava sobre isso.** `Cliente.nome` nasce do
+   formulário público `/comecar`, que **qualquer pessoa preenche sem autenticação** — o nome da
+   empresa vira o nome do PROSPECT, e é esse texto que volta como `rotulo` e vai direto ao LLM do
+   outro lado. O `docs/API_AGENTE.md` **previu exatamente este dia** e disse que a fronteira "dado,
+   nunca instrução" precisaria estar **no contrato, não num comentário**. Cumprido: a **0.2.1** é
+   uma mudança **só de texto** que declara `previa.*.rotulo`, `ambiguidades[].candidatos[].rotulo` e
+   `divergencias[].{aprovado,atual}.rotulo` como dado inerte, e nasceu a fixture
+   `cora-fx-cli-injecao`. **SHA-256 `19009cb7ac2f847fadbd903bed97697ab1ba03d8cc93bec2c55a16ba3d31b50e`.**
+
+**Mais três, menores, também fechados:** a `Idempotency-Key` era comparada em coluna `utf8mb4_bin`
+com regex `i`, então a mesma chave em caixa diferente criaria **duas** tarefas (hoje é normalizada
+para minúsculas); a forma canônica não normalizava Unicode, e "ç" composto contra decomposto dava
+`APPROVAL_MISMATCH` **falso** (hoje `NFC`); e **escrita feita por um programa em nome de uma pessoa
+não deixava rastro** — a única prova era a linha de idempotência, apagada em 24 h, e depois disso
+nada distinguia da criação feita na tela. Hoje grava `agente.tarefa.criada` no `ActivityLog`, com a
+ação na lista das que **não expiram** (a régua da ADR-128).
+
 **Provas.** typecheck 0 erros · lint limpo · **suíte COMPLETA do `@app/api`: 113 arquivos, 927
 testes, verdes** · **24 testes de integração novos** (Fastify de verdade + MySQL de verdade)
 cobrindo W1–W16 mais oito casos do desenho · **sete sabotagens, todas vermelhas** · a rota

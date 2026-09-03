@@ -40,6 +40,8 @@ const TITULO_MINIMO = 3;
 /** A coluna é `VARCHAR(191)`; o teto fica abaixo dela para o banco nunca ser a régua. */
 const TITULO_MAXIMO = 180;
 const TEXTO_MINIMO_DE_BUSCA = 2;
+/** Teto do texto de busca. Entrada sem limite é custo de CPU do banco pago por quem chama. */
+const TEXTO_MAXIMO_DE_BUSCA = 120;
 /** Quantos candidatos a prévia mostra numa ambiguidade. O total real vai junto. */
 const MAXIMO_DE_CANDIDATOS = 8;
 const MAXIMO_DE_RESPONSAVEIS = 10;
@@ -121,10 +123,24 @@ function lerReferencia(
   }
   if (typeof r.texto !== "string") return { ok: false, detalhe: "`texto` precisa ser texto" };
   const texto = r.texto.trim();
-  if (texto.length < TEXTO_MINIMO_DE_BUSCA) {
-    return { ok: false, detalhe: `\`texto\` precisa ter ao menos ${TEXTO_MINIMO_DE_BUSCA} caracteres` };
+  if (texto.length < TEXTO_MINIMO_DE_BUSCA || texto.length > TEXTO_MAXIMO_DE_BUSCA) {
+    return {
+      ok: false,
+      detalhe: `\`texto\` precisa ter entre ${TEXTO_MINIMO_DE_BUSCA} e ${TEXTO_MAXIMO_DE_BUSCA} caracteres`,
+    };
   }
   return { ok: true, valor: { texto } };
+}
+
+/**
+ * ⚠️ **`%` E `_` SÃO CORINGAS DO `LIKE`, E O `contains` DO PRISMA NÃO OS ESCAPA.**
+ *
+ * Sem isto, `{"texto": "%%"}` passa no mínimo de 2 caracteres e vira `LIKE '%%%'`, que **casa
+ * tudo**: a prévia deixa de ser busca e vira listagem paginável da base — nome, CNPJ, situação e
+ * e-mail dos oito primeiros, mais o `total`. Achado do revisor de segurança.
+ */
+function escaparCoringas(texto: string): string {
+  return texto.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 /** Aceita só ISO 8601 de verdade. `Date` aceitaria "amanhã" como `Invalid Date` calado. */
@@ -286,7 +302,7 @@ interface Achado {
 }
 
 async function buscarClientes(texto: string): Promise<{ achados: Achado[]; total: number }> {
-  const where = { deletedAt: null, nome: { contains: texto } };
+  const where = { deletedAt: null, nome: { contains: escaparCoringas(texto) } };
   const [linhas, total] = await Promise.all([
     prisma.cliente.findMany({
       where,
@@ -307,6 +323,22 @@ async function buscarClientes(texto: string): Promise<{ achados: Achado[]; total
  * conta ativa, não excluída, sem acesso revogado e papel interno. Conta de Portal (`CLIENTE`)
  * não recebe tarefa interna — seria delegar trabalho da casa a quem é de fora.
  */
+/**
+ * O fato que distingue duas pessoas homônimas, **sem entregar o diretório da equipe**.
+ *
+ * ⚠️ **A primeira versão devolvia `PAPEL · e-mail completo`, e isso era MAIS PERMISSIVO que o
+ * lado humano** (achado do revisor de segurança). Na tela, quem escolhe responsável vê
+ * `listEquipe`, que devolve só id, nome e avatar; papel e e-mail de todo mundo só saem por
+ * `usuarios.list`, que é `adminProcedure`. Um funcionário comum com delegação montaria o mapa de
+ * quem é ROOT/ADMIN e o e-mail de cada um — insumo direto para phishing dirigido a quem tem mais
+ * poder. O e-mail mascarado resolve o homônimo e não entrega o diretório.
+ */
+function mascararEmail(email: string): string {
+  const [local = "", dominio = ""] = email.split("@");
+  const visivel = local.slice(0, Math.min(3, local.length));
+  return `${visivel}${"*".repeat(Math.max(1, local.length - visivel.length))}@${dominio}`;
+}
+
 const EQUIPE_ATIVA = {
   ativo: true,
   deletedAt: null,
@@ -315,7 +347,7 @@ const EQUIPE_ATIVA = {
 } as const;
 
 async function buscarPessoas(texto: string): Promise<{ achados: Achado[]; total: number }> {
-  const where = { ...EQUIPE_ATIVA, nome: { contains: texto } };
+  const where = { ...EQUIPE_ATIVA, nome: { contains: escaparCoringas(texto) } };
   const [linhas, total] = await Promise.all([
     prisma.user.findMany({
       where,
@@ -326,13 +358,13 @@ async function buscarPessoas(texto: string): Promise<{ achados: Achado[]; total:
     prisma.user.count({ where }),
   ]);
   return {
-    achados: linhas.map((u) => ({ id: u.id, rotulo: u.nome, distincao: `${u.role} · ${u.email}` })),
+    achados: linhas.map((u) => ({ id: u.id, rotulo: u.nome, distincao: mascararEmail(u.email) })),
     total,
   };
 }
 
 async function buscarProjetos(texto: string): Promise<{ achados: Achado[]; total: number }> {
-  const where = { deletedAt: null, nome: { contains: texto } };
+  const where = { deletedAt: null, nome: { contains: escaparCoringas(texto) } };
   const [linhas, total] = await Promise.all([
     prisma.projeto.findMany({
       where,
@@ -366,7 +398,7 @@ async function conferirPessoa(id: string): Promise<Achado | null> {
     where: { id, ...EQUIPE_ATIVA },
     select: { id: true, nome: true, email: true, role: true },
   });
-  return u ? { id: u.id, rotulo: u.nome, distincao: `${u.role} · ${u.email}` } : null;
+  return u ? { id: u.id, rotulo: u.nome, distincao: mascararEmail(u.email) } : null;
 }
 
 async function conferirProjeto(id: string): Promise<Achado | null> {
@@ -651,6 +683,13 @@ export function validarArgumentos(
   if (t.responsavelIds.length === 0) {
     return { ok: false, detalhe: "`task.responsavelIds` não pode ser vazio" };
   }
+  // ⚠️ **O teto existia SÓ na prévia, e o hash não o cobria.** A forma canônica deduplica antes
+  // do SHA-256, então `["u1"]` e `["u1"]` repetido quarenta mil vezes têm o MESMO `argsHash` e
+  // passariam pelo `APPROVAL_MISMATCH` — um corpo de 1 MB de ids segurando conexão do pool.
+  // A deduplicação abaixo já mata esse caso; o teto é a segunda tranca, para ids DISTINTOS.
+  if (t.responsavelIds.length > MAXIMO_DE_RESPONSAVEIS) {
+    return { ok: false, detalhe: `\`task.responsavelIds\`: no máximo ${MAXIMO_DE_RESPONSAVEIS}` };
+  }
   return {
     ok: true,
     valor: {
@@ -850,6 +889,24 @@ export async function criarTarefaDoAgente(
   // ⚠️ **O aviso sai FORA da transação, e é best-effort.** Dentro dela, uma falha de notificação
   // desfaria a tarefa que já foi aprovada; e uma transação aberta enquanto se manda e-mail
   // segura conexão do pool, que aqui é 13.
+  // ⚠️ **ESCRITA FEITA POR UM PROGRAMA EM NOME DE UMA PESSOA PRECISA DEIXAR RASTRO.** Sem isto,
+  // a única prova de que a tarefa nasceu pela Cora é a linha de `AgentIdempotency` — e o expurgo
+  // a apaga em 24 h. Depois disso `Tarefa.criadoPorId` diz "Thaís" e nada distingue de uma
+  // criação feita por ela na tela. É a régua da ADR-128, que grava `painel_cliente.entrou`
+  // justamente porque agir em nome de outrem tem de ser auditável. A ação está na lista de
+  // preservadas do expurgo de retenção.
+  await prisma.activityLog
+    .create({
+      data: {
+        userId: pedido.requesterUserId,
+        acao: "agente.tarefa.criada",
+        entidadeTipo: "tarefa",
+        entidadeId: criada.id,
+        dados: { clientId: pedido.clientId, ferramenta: FERRAMENTA },
+      },
+    })
+    .catch(() => {});
+
   void avisarDelegacao(criada, pedido.argumentos.responsavelIds).catch(() => {});
   return { situacao: "CRIADA", tarefaId: criada.id };
 }

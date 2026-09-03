@@ -73,6 +73,11 @@ const CLIENTES = [
   { id: "cli-unica", nome: "Clinica Ficticia Unica CORA", cnpj: "11.111.111/0001-11", situacaoComercial: "ATIVO" as const },
   { id: "cli-homonima-1", nome: "Clinica Ficticia Homonima CORA", cnpj: "22.222.222/0001-22", situacaoComercial: "ATIVO" as const },
   { id: "cli-homonima-2", nome: "Clinica Ficticia Homonima CORA Norte", cnpj: "33.333.333/0001-33", situacaoComercial: "PROSPECT" as const },
+  // ⚠️ **NOME DE CLIENTE TAMBEM E ENTRADA HOSTIL, e por uma porta ANONIMA.** `capturarLead` e
+  // `publicProcedure`, e a conversao copia `empresa` para o `Cliente` PROSPECT — entao qualquer
+  // pessoa preenchendo `/comecar` escolhe um texto que a previa vai devolver como `rotulo`, e que
+  // o assistente do outro lado vai ler. Esta fixture existe para o consumidor exercer isso.
+  { id: "cli-injecao", nome: `Clinica CORA ${TEXTO_DE_INJECAO}`.slice(0, 120), cnpj: null, situacaoComercial: "PROSPECT" as const },
 ];
 
 /** Um projeto com id fixo, pendurado na clínica única. */
