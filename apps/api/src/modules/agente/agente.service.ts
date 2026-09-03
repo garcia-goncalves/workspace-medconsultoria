@@ -25,8 +25,17 @@ import { prisma } from "@app/db";
  * valor bruto existe uma vez, na saída do comando que o emitiu (`scripts/agente.ts`).
  */
 
-/** Escopos que existem hoje. Lista de LIBERAÇÃO com padrão NEGAR: escopo novo nasce fechado. */
-export const ESCOPOS_CONHECIDOS = ["tasks:read"] as const;
+/**
+ * Escopos que o sistema RECONHECE. Lista de LIBERAÇÃO com padrão NEGAR: escopo novo nasce
+ * fechado, e cada rota exige o seu explicitamente.
+ *
+ * ⚠️ **`tasks:write` está RESERVADO e não habilita nada.** Nenhuma rota o exige — não existe
+ * escrita nesta versão. Ele é reconhecido pelo comando de emissão de propósito, porque sem isso
+ * **não havia caminho para emitir uma delegação sem `tasks:read`** e o `403` por escopo
+ * insuficiente ficava impossível de exercer de fora (achado do ticket CORA-002). Um escopo
+ * reconhecido que não libera rota nenhuma é exatamente a credencial certa para esse teste.
+ */
+export const ESCOPOS_CONHECIDOS = ["tasks:read", "tasks:write"] as const;
 export type EscopoDeAgente = (typeof ESCOPOS_CONHECIDOS)[number];
 
 /** Cabeçalhos do transporte. Ficam aqui para o contrato e o código não divergirem. */

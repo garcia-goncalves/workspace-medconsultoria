@@ -39,7 +39,35 @@ pnpm agente delegar --cliente <clientId> --email admin@teste.local --minutos 60
 pnpm agente delegar --cliente <clientId> --email admin@teste.local --minutos -1   # já nasce EXPIRADA
 pnpm agente revogar --delegacao <delegationId>                                    # vale na próxima chamada
 pnpm agente listar                                                                # estado de todas
+
+# delegação SEM `tasks:read` — é assim que se exercita o 403 por escopo insuficiente
+pnpm agente delegar --cliente <clientId> --email admin@teste.local --escopos tasks:write
 ```
+
+⚠️ **`tasks:write` é um escopo RESERVADO que não habilita nada** — não existe escrita nesta versão. Ele é
+reconhecido de propósito: sem um escopo aceito pelo comando e insuficiente para a rota, **não haveria caminho
+para emitir uma delegação sem `tasks:read`**, e o `403` por escopo ficava impossível de exercer de fora
+(achado do ticket CORA-002).
+
+⚠️ **Conta de Portal é barrada na EMISSÃO, não na chamada.** `pnpm agente delegar --email cliente@teste.local`
+responde *"Conta de Portal não pode delegar leitura de tarefa interna"* — a credencial nem chega a existir. A
+trava da API continua lá (papel `CLIENTE` → `403`), como segunda camada; só não dá para alcançá-la pela CLI.
+
+## Cenário determinístico para conferir isolamento
+
+```bash
+pnpm agente:fixtures            # cria 10 tarefas com ids fixos (prefixo `cora-fx-`)
+pnpm agente:fixtures --limpar   # apaga só elas
+```
+
+⚠️ **Por que existe:** a primeira validação do consumidor passou o isolamento A/B **por vacuidade** — o
+usuário B não tinha tarefa nenhuma, então *"nada de B vazou para A"* era verdade sem significar nada. **Verde
+que não prova nada é pior que vermelho.**
+
+⚠️ **Confira pelos IDS, não pelo total.** O banco de desenvolvimento tem outras tarefas; o cenário acrescenta
+7 abertas para A e 2 para B. As afirmações que valem são: `cora-fx-b1` **nunca** aparece para A ·
+`cora-fx-ab` aparece para os dois com **dois** `assigneeIds` · `cora-fx-apagada` e `cora-fx-concluida` não
+aparecem para ninguém · `cora-fx-semprazo` volta com `dueAt: null`.
 
 ⚠️ **O segredo e o token aparecem uma vez só, na tela.** O banco guarda só o hash. Perdeu, emite outro — é de
 propósito: credencial recuperável é credencial que alguém guarda em arquivo.
