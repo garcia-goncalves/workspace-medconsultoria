@@ -80,6 +80,21 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   criação" **não se prova de outro jeito**: toda falha natural que se consiga forçar é pega antes,
   pela revalidação. Sem a costura, o W16 seria descrito e não provado — e atomicidade é justamente
   o que não se prova lendo código.
+- **🔴 A REVISÃO ESPECIALISTA ACHOU UM BLOQUEANTE, E ELE TAMBÉM NASCEU DESTA CORREÇÃO.**
+  `responsavelIds` era deduplicado **para o hash** e **não para a gravação**. Dois textos que
+  resolvem para a MESMA pessoa passavam pela prévia, ganhavam token, e estouravam no
+  `@@unique([tarefaId, userId])` **dentro da transação**. ⚠️ **O estrago era o DIAGNÓSTICO:**
+  `ehViolacaoDeUnico` captura qualquer `P2002`, então virava "colisão de chave de idempotência",
+  `503` e *"reserva de idempotência sem tarefa"* no log — alarme de infraestrutura para entrada
+  redundante — e o `approvalToken` ficava **inutilizável para sempre**. Visto reprovando
+  (`expected 503 to be 201`). Cura: normalizar na fronteira **e** relançar o `P2002` que não é
+  nosso.
+- **📌 O PRISMA NÃO EXPRESSA `COLLATE`** — achado do revisor de banco. `prisma migrate diff`
+  proporia desfazer o `utf8mb4_bin` e **reintroduzir o defeito da ADR-147**. Aviso escrito no
+  `schema.prisma`. ⚠️ **Nunca rode `migrate diff` contra este schema para "consertar" isso.**
+- **⏭️ Pedido pela revisão e NÃO feito:** paralelizar a resolução das referências (`Promise.all`).
+  É latência, não correção — e paralelizar torna a ordem de `ambiguidades[]` não determinística,
+  que é o que a Cora lê para perguntar. Próximo passo, com montagem por índice.
 - **Provas:** typecheck 0 erros · lint limpo · **suíte COMPLETA do `@app/api`: 113 arquivos, 927
   testes, verdes** · **24 testes de integração novos** exercendo o Fastify de verdade (`app.inject`)
   contra o MySQL `_test`, cobrindo **W1–W16** mais oito casos do desenho · **sete sabotagens, uma

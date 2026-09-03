@@ -5520,6 +5520,42 @@ chave vencida que o expurgo ainda não pegou é apagada na hora, para a promessa
 rotina ter rodado. Tabela sem expurgo cresce para sempre; foi assim que o `ActivityLog` virou
 achado na ADR-148.
 
+### 🔴 A REVISÃO ESPECIALISTA ACHOU UM BLOQUEANTE, E ELE TAMBÉM NASCEU DESTA CORREÇÃO
+
+**`responsavelIds` era deduplicado para o HASH e não para a GRAVAÇÃO.**
+`formaCanonicaDosArgumentos` já fazia `[...new Set(...)]` ao calcular o `argsHash`; a lista que ia
+para o banco, não. Dois textos que resolvem para a **mesma pessoa** — *"delegue para a Ana e para a
+Ana Paula"*, quando são a mesma conta — passavam pela prévia, ganhavam `approvalToken`, e só
+estouravam no `@@unique([tarefaId, userId])` de `TarefaResponsavel` **dentro da transação**.
+
+⚠️ **O estrago não era o erro, era o DIAGNÓSTICO.** `ehViolacaoDeUnico` captura **qualquer**
+`P2002`, então o `catch` lia aquilo como colisão de chave de idempotência; não achava nem a reserva
+nem o `jti` (a transação inteira tinha revertido), caía no ramo *"corrida com o expurgo"*, tentava
+de novo, falhava igual, e respondia **`503 UPSTREAM_UNAVAILABLE`** registrando *"reserva de
+idempotência sem tarefa"* no log — **alarme de infraestrutura para entrada redundante**. E o
+`approvalToken` ficava **inutilizável para sempre**: qualquer chave nova tropeça na mesma
+duplicata. ⚠️ **Visto reprovando:** `expected 503 to be 201`.
+
+Cura em duas metades: (1) `normalizarResponsavelIds` na fronteira da prévia **e** da execução — o
+hash e a gravação param de discordar sobre o que é "o mesmo pedido"; (2) na segunda tentativa,
+`P2002` que não é nem da chave nem do `jti` passa a ser **relançado** — engolir transformava
+qualquer violação de unicidade de dentro da transação num `503` com a mensagem errada.
+
+### 📌 O PRISMA NÃO EXPRESSA `COLLATE`, E A DIVERGÊNCIA É PERMANENTE
+
+Achado do revisor de banco, documental mas real: as colunas de identidade dos três modelos do
+agente são `utf8mb4_bin` no banco (escrito à mão nas migrações), e **não há sintaxe no schema para
+dizer isso**. `prisma migrate diff` acusaria a diferença e proporia um
+`ALTER TABLE ... COLLATE utf8mb4_unicode_ci` — que **reintroduz exatamente o defeito da ADR-147**.
+O aviso ficou escrito no `schema.prisma`, acima de `AgentClient`. Zero mudança de SQL.
+
+### ⏭️ O QUE A REVISÃO PEDIU E NÃO FOI FEITO, e o porquê
+
+A resolução das referências é sequencial (até 12 idas ao banco em fila numa prévia com dez
+responsáveis) e caberia `Promise.all`. **Não é correção, é latência** — e paralelizar torna a ordem
+de `ambiguidades[]` não determinística, que é justamente o que a Cora lê para perguntar. Fica como
+próximo passo, com a montagem por índice em vez de `push`.
+
 **Provas.** typecheck 0 erros · lint limpo · **suíte COMPLETA do `@app/api`: 113 arquivos, 927
 testes, verdes** · **24 testes de integração novos** (Fastify de verdade + MySQL de verdade)
 cobrindo W1–W16 mais oito casos do desenho · **sete sabotagens, todas vermelhas** · a rota
