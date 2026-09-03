@@ -13,7 +13,7 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-03 · **v1.6.0 NO AR** — ADR-147/148/149/150 na `main` ou a caminho, NENHUMA publicada)
+## Estado atual (2026-09-03 · **v1.6.0 NO AR** — ADR-147/148/149/150 as QUATRO na `main`, NENHUMA publicada)
 
 > **Leia a ADR-150 em `docs/DECISIONS.md` e a seção da Fase 2 em `docs/API_AGENTE.md`.**
 
@@ -137,7 +137,10 @@ ação na lista das que **não expiram** (a régua da ADR-128).
   `localhost:4319`): prévia ambígua `200` sem token, prévia resolvida com token, criação `201`,
   repetição `200` com a mesma tarefa, `409 APPROVAL_MISMATCH`, `409 APPROVAL_ALREADY_USED`, `400`
   sem `Idempotency-Key`, e a tarefa criada **aparecendo no `GET /tasks`** da Fase 1.
-- ⚠️ **NÃO ESTÁ NO AR.** `ready_for_validation` **não** é `done`: quem fecha o CORA-003 é a CORA,
+- ✅ **MESCLADA na `main` em 03/09: PR #180 → `c8affb1`** (squash), com a CI **3/3 verde**
+  (`build-test` 2m38s · `integration` 1m37s · `e2e` 8m01s, execução `33783690482`). A branch
+  `feat/api-do-agente-escrita-adr-150` foi apagada; o SHA a citar é o `c8affb1`, não o `10de1c4`.
+- ⚠️ **NÃO ESTÁ NO AR.** Mesclado não é publicado. `ready_for_validation` **não** é `done`: quem fecha o CORA-003 é a CORA,
   em `acceptance.md`, depois de fazer as requisições do lado dela. O lote de publicação pendente
   tem agora **CINCO** migrações, todas aditivas.
 - **O que ficou de fora, de propósito:** editar, concluir e excluir tarefa; `Card` e `Evento`; e
