@@ -5374,3 +5374,159 @@ de id e `400` com `limit=101`.
 2. **`vi.spyOn(prisma.<model>, …).mockRestore()` NÃO devolve o delegate do Prisma.** O teste T11, que derruba
    o banco de propósito, deixava o `findMany` quebrado para todos os testes seguintes — e o sintoma aparecia
    **longe da causa**, como se a API tivesse quebrado. A cura é salvar a função e repor à mão, num `finally`.
+
+---
+
+## ADR-150 — A escrita pela API do agente: aprova-se a PRÉVIA, e quem garante a idempotência é o índice único
+
+**Contexto.** A ADR-149 abriu a leitura (`GET /api/agent/v1/tasks`). O ticket **CORA-003** pediu a
+Fase 2: a Cora precisa **criar uma tarefa interna** a partir de um pedido ditado pela Thaís, com
+duas garantias inegociáveis — *"o que ela aprovou é exatamente o que é gravado"* e *"repetir depois
+de uma falha não cria duas tarefas"*.
+
+**Decisão.** Dois endpoints, contrato **0.2.0**, migração aditiva `20260903120000` com **uma**
+tabela nova (`AgentIdempotency`).
+
+### 🚪 SÃO DOIS ENDPOINTS, E JUNTÁ-LOS SERIA O DEFEITO
+
+`POST /tasks/preview` monta a prévia; `POST /tasks` grava. O rascunho do consumidor era montar a
+prévia do lado dele e depois mandar a escrita — e aí seriam **dois artefatos diferentes**: o que a
+Thaís leu e o que foi gravado. Entre um e outro cabe qualquer coisa. Aqui quem monta a prévia é o
+mesmo código que grava, e o `approvalToken` amarra os dois pelo **hash dos argumentos**.
+
+### 🧾 O TOKEN NÃO É CRACHÁ, É RECIBO — E A PRÉVIA NÃO ESCREVE NADA
+
+O `approvalToken` não diz "pode escrever" (quem diz isso é a delegação e o escopo): diz *"foi
+exatamente ISTO que a pessoa leu e aprovou"*. Ele é **assinado e sem estado**, porque a prévia é
+leitura pura e é refeita a cada desambiguação — se cada prévia gravasse uma linha, a tabela
+cresceria para sempre, que é a lição do `ActivityLog` na ADR-148. **O que consome o token é o
+`INSERT` do `jti` na hora de executar**, não a emissão.
+
+### 🔑 A ATOMICIDADE É DO ÍNDICE ÚNICO, NÃO DO NÍVEL DE ISOLAMENTO
+
+Pergunta direta da Cora, e a resposta muda o tratamento do lado dela. Em `REPEATABLE READ` — o
+padrão do MySQL local **e do MariaDB 10.6 de produção** — duas conexões que **leem** *"essa chave
+já existe?"* e depois **inserem** passam as duas: o "confere e grava" perdido. Só `SERIALIZABLE`
+ou um lock explícito impediriam, e os dois custam caro numa rota chamada **em laço por um
+programa**, com pool de 13 conexões que já esgotou em produção.
+
+Então: **`INSERT` primeiro** em `@@unique([clientId, userId, ferramenta, chave])`; a violação
+(`P2002`) é a resposta *"alguém já tem"*, não um erro. O InnoDB segura a segunda chamada no índice
+até a primeira commitar. ⚠️ **Visto reprovando:** trocando **só** esse mecanismo por
+"confere-e-grava", o teste de concorrência (W15) fica vermelho.
+
+⚠️ **Qual dos dois índices estourou se descobre CONSULTANDO, não lendo o `meta` do erro** — o nome
+que o driver devolve muda entre versões e entre MySQL e MariaDB.
+
+### 🔗 RESERVA E TAREFA NA MESMA TRANSAÇÃO, NESTA ORDEM
+
+Chave primeiro, tarefa depois, tudo num `$transaction`. Se a tarefa nascesse antes, uma queda no
+meio deixaria **tarefa sem chave** e repetir criaria a segunda. Se fossem duas transações, uma
+queda entre elas deixaria **chave sem tarefa** e repetir **nunca mais** criaria. É por isso que
+`tarefaId` é anulável — e ele nunca é observável nulo de fora.
+
+### 🎯 O ESCOPO DA CHAVE INCLUI A PESSOA E O SERVIÇO, NUNCA A DELEGAÇÃO
+
+`(serviço, usuário, ferramenta, chave)`. Presa à delegação, a chave morreria junto com o token — e
+renovar credencial perderia a idempotência **exatamente depois de uma falha**, que é quando a
+repetição é mais provável. ⚠️ **Visto reprovando:** tirando a pessoa do escopo, **sete** testes
+ficam vermelhos, entre eles o de isolamento entre usuários.
+
+⚠️ **A chave é escolhida por quem chama e NÃO é derivada do conteúdo.** Derivar do payload é um
+defeito com cara de elegância: duas tarefas legitimamente iguais no mesmo dia (*"ligar para a
+clínica"*) colidiriam, e a segunda se perderia **sem ninguém saber**.
+
+### 🚫 O SERVIDOR NUNCA ESCOLHE O MELHOR PALPITE
+
+Referência de texto com mais de um candidato responde **`200`** com `approvalToken: null` e
+`ambiguidades[]`. `200` e não `400` de propósito: erro faria o consumidor tratar como falha e
+repetir com os mesmos dados, **em laço**. A máquina fez o trabalho dela; o resultado é *"precisa de
+gente"*. Vale **inclusive quando um candidato casa exatamente** com o texto — "Clínica Silva" e
+"Clínica Silva e Souza" são duas clínicas, e preferir a exata continua sendo escolher por alguém.
+Homônimo é onde isso machuca: a tarefa vai para o médico errado e ninguém descobre até o prazo
+vencer.
+
+⚠️ **Cada candidato traz um FATO que o distingue** (CNPJ, situação, cliente do projeto, papel e
+e-mail). Devolver dois ids e dois nomes iguais transferiria a ambiguidade para a Thaís sem lhe dar
+como resolvê-la — a mesma falha, um nível abaixo.
+
+### ⚠️ REFERÊNCIA PEDIDA QUE NÃO RESOLVE TAMBÉM ZERA O TOKEN — decisão nossa, mais estrita
+
+Se a Thaís disse *"tarefa para a Clínica Mooca"* e a clínica não existe, gravar a tarefa **sem
+cliente** seria gravar calado uma coisa diferente da que ela pediu, e ela só descobriria
+procurando a tarefa na ficha errada. Campo **não informado** é outra história (`NAO_INFORMADO` não
+impede o token). **Ausência sempre aparece** com motivo, nunca some do JSON: omissão vira "eu não
+vi", e depois "eu não aprovei isso".
+
+### ⏳ O PRAZO DE 15 MINUTOS É HIGIENE; A DEFESA É REVALIDAR
+
+O token está amarrado ao hash dos argumentos, então um token de ontem executaria exatamente o que
+foi aprovado. **O que muda em quarenta minutos não é o pedido — é o mundo.** No instante de
+executar, as referências aprovadas são resolvidas de novo e os **rótulos** comparados com os que a
+pessoa leu; divergiu, é `409 PRECONDITION_CHANGED` com a lista **campo a campo**. O rótulo entra na
+comparação porque **o nome que ela leu faz parte do que ela aprovou**.
+
+### 🧮 A FORMA CANÔNICA EXISTE PARA UM `409` FALSO NÃO NASCER
+
+Título com `trim`, data em UTC, `responsavelIds` deduplicado e ordenado, chaves em ordem fixa.
+Sem isso, reformatar o JSON produziria "argumento alterado" e o consumidor passaria a **desconfiar
+do servidor por um defeito nosso**.
+
+### 🏷️ O `resolutionHash` VIROU UM SELO, E NÃO É UM HASH CRU
+
+A Cora pediu `mudou: [...]` **com o que saiu e o que entrou**. De um SHA-256 só dá para dizer
+*"está diferente"*. Guardar a resolução anterior do nosso lado exigiria gravar toda prévia — o que
+a prévia não pode fazer. Então a resolução viaja **dentro do próprio valor**, assinada, e continua
+sendo **determinística** (nada de relógio dentro, senão duas prévias iguais dariam valores
+diferentes e a comparação por igualdade acusaria mudança que não existe).
+
+### 🔐 `tasks:write` DEIXOU DE SER INERTE
+
+Na ADR-149 ele era um escopo reconhecido que não habilitava nada, criado só para existir um jeito
+de emitir delegação sem `tasks:read` e exercer o `403`. Hoje é a capacidade de escrita, e habilita
+**a prévia também** — ela existe só para habilitar uma escrita e é ela que devolve o token;
+liberá-la a uma delegação de leitura entregaria a chave da porta a quem não pode abri-la. As duas
+provas de `403` passam a se fazer uma contra a outra.
+
+### 🕳️ DOIS DEFEITOS QUE A PRÓPRIA CORREÇÃO CRIOU — e é a parte que mais ensina
+
+1. **A trava do freio por IP ficou CEGA ao virar função compartilhada.** O bloco `config.rateLimit`
+   virou `freioPorIp()`, usado pelas três rotas. A régua da ADR-149 procurava o `keyGenerator`
+   **em qualquer lugar do arquivo** — e passaria verde com uma rota **sem** o `config`, porque o
+   `keyGenerator` continuaria existindo dentro da função. A rota descoberta ficaria **sem teto
+   nenhum**, sem erro e sem log. Cura: contar rota por rota e exigir o mesmo número de
+   `config: { rateLimit: freioPorIp() }`, mais a proibição de um segundo bloco `rateLimit:`
+   escrito à mão. ⚠️ **Visto pegando**: tirando o freio de uma rota, `3 rota(s), mas 2 com o freio
+   por IP`.
+2. **A regra de criação de tarefa ia virar duas.** A criação precisa acontecer **dentro** da
+   transação da reserva, e o `createTarefa` humano usa o `prisma` global. Copiar a montagem seria
+   o modo de falha da ADR-133 (a mesma regra em dois lugares, e o segundo ficando para trás).
+   Cura: `montarTarefa(db, dados)` extraída, recebendo o cliente do Prisma — usada pelas duas
+   portas.
+
+### ⚖️ O W16 TEM UMA COSTURA DE INJEÇÃO, E ELA ESTÁ DECLARADA
+
+*"Queda entre a reserva e a criação"* **não se prova de outro jeito**: qualquer falha natural que
+se consiga forçar (cliente apagado, responsável desativado, projeto inexistente) é pega antes,
+pela revalidação, e a execução nem chega à transação. `criarTarefaDoAgente` aceita a função de
+criação por parâmetro, com o padrão sendo a de verdade. Sem essa costura o W16 seria **descrito e
+não provado** — e atomicidade é justamente o que não se prova lendo código.
+
+### 🧹 A TABELA TEM EXPURGO
+
+`AgentIdempotency` recebe uma linha por tarefa criada pelo agente. Ela entrou no expurgo diário de
+retenção (`expurgarIdempotenciasVencidas`), com validade de **24 h** declarada no contrato — e uma
+chave vencida que o expurgo ainda não pegou é apagada na hora, para a promessa não depender de a
+rotina ter rodado. Tabela sem expurgo cresce para sempre; foi assim que o `ActivityLog` virou
+achado na ADR-148.
+
+**Provas.** typecheck 0 erros · lint limpo · **suíte COMPLETA do `@app/api`: 113 arquivos, 927
+testes, verdes** · **24 testes de integração novos** (Fastify de verdade + MySQL de verdade)
+cobrindo W1–W16 mais oito casos do desenho · **sete sabotagens, todas vermelhas** · a rota
+exercida por **HTTP real** (`curl` contra `localhost:4319`): prévia ambígua `200` sem token,
+prévia resolvida com token, criação `201`, repetição `200` com a mesma tarefa,
+`409 APPROVAL_MISMATCH`, `409 APPROVAL_ALREADY_USED`, `400` sem `Idempotency-Key`, e a tarefa
+criada **aparecendo no `GET /tasks`** da Fase 1.
+
+⚠️ **NÃO ESTÁ NO AR.** A migração está aplicada nos bancos local e de teste; o lote de publicação
+pendente passa a ter **cinco** migrações, todas aditivas.

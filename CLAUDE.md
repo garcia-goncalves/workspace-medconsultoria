@@ -13,7 +13,89 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-03 · **v1.6.0 NO AR** — ADR-147/148/149 na `main`, NENHUMA publicada)
+## Estado atual (2026-09-03 · **v1.6.0 NO AR** — ADR-147/148/149/150 na `main` ou a caminho, NENHUMA publicada)
+
+> **Leia a ADR-150 em `docs/DECISIONS.md` e a seção da Fase 2 em `docs/API_AGENTE.md`.**
+
+### ✍️ A CORA PASSOU A ESCREVER: criar tarefa com prévia aprovável e idempotência (ADR-150, ticket CORA-003)
+
+- **A Fase 2 nasceu, e o desenho inteiro estava no ticket.** A Cora dita o pedido da Thaís; o
+  Workspace resolve as referências, devolve uma prévia **aprovável**, e só grava aquilo. Contrato
+  **0.2.0** (`med-coordination/contracts/`), SHA-256
+  `d5dbff4167727e041326d5e9caf38aa2b3388529272dc673095cdc4a617ec13a`.
+- **🚪 SÃO DOIS ENDPOINTS, e juntá-los seria o defeito.** `POST /api/agent/v1/tasks/preview`
+  (leitura pura, não escreve nada) e `POST /api/agent/v1/tasks` (exige o `approvalToken` daquela
+  prévia). Se a Cora montasse a prévia do lado dela, seriam **dois artefatos diferentes** — o que
+  a Thaís leu e o que foi gravado —, e entre um e outro cabe qualquer coisa.
+- **🔑 A ATOMICIDADE É DO ÍNDICE ÚNICO, NÃO DO NÍVEL DE ISOLAMENTO.** Foi a pergunta direta da
+  Cora. Em `REPEATABLE READ` (o padrão do MySQL local **e do MariaDB 10.6 de produção**) duas
+  conexões que leem *"essa chave já existe?"* e depois inserem **passam as duas** — o "confere e
+  grava" perdido. `SERIALIZABLE` ou lock explícito custariam caro numa rota chamada **em laço por
+  um programa**, com pool de 13 conexões que já esgotou em produção. Cura: **`INSERT` primeiro**
+  em `@@unique([clientId, userId, ferramenta, chave])`; a violação `P2002` é a resposta *"alguém
+  já tem"*. ⚠️ **Visto reprovando:** trocando **só** esse mecanismo por "confere-e-grava", o teste
+  de concorrência **fica vermelho**.
+- **🔗 RESERVA E TAREFA NA MESMA TRANSAÇÃO, chave primeiro.** Em dois passos, uma queda no meio
+  deixa **chave sem tarefa** (repetir nunca mais cria) ou **tarefa sem chave** (repetir cria a
+  segunda). Por isso `AgentIdempotency.tarefaId` é anulável, e nunca é observável nulo de fora.
+- **🎯 O ESCOPO DA CHAVE INCLUI A PESSOA E O SERVIÇO, NUNCA A DELEGAÇÃO** — presa a ela, a chave
+  morreria com o token, e renovar credencial perderia a idempotência **exatamente depois de uma
+  falha**, que é quando a repetição é mais provável. A chave é escolhida por quem chama e **não é
+  derivada do conteúdo**: derivar do payload faria duas tarefas legitimamente iguais no mesmo dia
+  ("ligar para a clínica") colidirem, e a segunda se perderia **sem ninguém saber**.
+- **🚫 O SERVIDOR NUNCA ESCOLHE O MELHOR PALPITE.** Dois candidatos ⇒ `200` com
+  `approvalToken: null` e `ambiguidades[]`. `200` e não `400` de propósito: erro faria a Cora
+  tratar como falha e repetir com os mesmos dados, **em laço**. Vale **inclusive quando um
+  candidato casa exatamente** com o texto. Cada candidato traz um **fato que o distingue** (CNPJ,
+  situação, papel) — dois ids com dois nomes iguais transfeririam a ambiguidade para a Thaís sem
+  lhe dar como resolvê-la.
+- **⏳ O PRAZO DE 15 MIN DO TOKEN É HIGIENE; A DEFESA É REVALIDAR.** O token está amarrado ao hash
+  dos argumentos, então um token de ontem executa exatamente o que foi aprovado — **o que muda em
+  quarenta minutos não é o pedido, é o mundo**. No instante de executar, as referências são
+  resolvidas de novo e os **rótulos** comparados; divergiu, é `409 PRECONDITION_CHANGED` com a
+  lista **campo a campo**.
+- **🏷️ O `resolutionHash` VIROU UM SELO, e não é um hash cru.** A Cora pediu `mudou[]` **com o que
+  saiu e o que entrou**, e de um SHA-256 só dá para dizer "está diferente". Guardar a resolução
+  anterior aqui exigiria gravar toda prévia — e prévia é leitura pura. Então ela viaja **dentro do
+  próprio valor**, assinada, e continua determinística (comparar por igualdade ainda funciona).
+- **⚠️ REFERÊNCIA PEDIDA QUE NÃO RESOLVE TAMBÉM ZERA O TOKEN** — decisão nossa, mais estrita que o
+  ticket. Gravar sem o cliente que foi pedido seria gravar calado uma coisa diferente, e a Thaís
+  só descobriria procurando a tarefa na ficha errada.
+- **🔐 `tasks:write` DEIXOU DE SER INERTE.** Era um escopo reconhecido que não habilitava nada
+  (existia só para emitir delegação sem `tasks:read` e exercer o `403`). Hoje é a capacidade de
+  escrita, e habilita **a prévia também**. As duas provas de `403` passam a se fazer uma contra a
+  outra.
+- **🕳️ DOIS DEFEITOS QUE A PRÓPRIA CORREÇÃO CRIOU.** (1) 🔴 **A trava do freio por IP ficou CEGA
+  ao virar função compartilhada:** a régua da ADR-149 procurava o `keyGenerator` em qualquer lugar
+  do arquivo, e passaria verde com uma rota **sem** o `config` — a rota ficaria **sem teto nenhum**,
+  sem erro e sem log. Hoje ela conta rota por rota e proíbe um segundo `rateLimit:` escrito à mão;
+  **vista pegando** (`3 rota(s), mas 2 com o freio por IP`). (2) **A regra de criar tarefa ia
+  virar duas** — a criação precisa rodar dentro da transação da reserva, e o `createTarefa` humano
+  usa o `prisma` global; copiar a montagem seria a ADR-133 de novo. Nasceu `montarTarefa(db, ...)`,
+  usada pelas duas portas.
+- **⚠️ MIGRAÇÃO `20260903120000`, ADITIVA:** **uma** tabela nova (`AgentIdempotency`). Nenhuma
+  tabela existente muda, nenhum backfill. Reverter é um `DROP TABLE`. **Aplicada nos bancos local
+  e de teste; NÃO em produção.**
+- **⚖️ O W16 TEM UMA COSTURA DE INJEÇÃO, DECLARADA NO CÓDIGO.** "Queda entre a reserva e a
+  criação" **não se prova de outro jeito**: toda falha natural que se consiga forçar é pega antes,
+  pela revalidação. Sem a costura, o W16 seria descrito e não provado — e atomicidade é justamente
+  o que não se prova lendo código.
+- **Provas:** typecheck 0 erros · lint limpo · **suíte COMPLETA do `@app/api`: 113 arquivos, 927
+  testes, verdes** · **24 testes de integração novos** exercendo o Fastify de verdade (`app.inject`)
+  contra o MySQL `_test`, cobrindo **W1–W16** mais oito casos do desenho · **sete sabotagens, uma
+  trava de cada vez, todas vermelhas** · a rota exercida por **HTTP real** (`curl` contra
+  `localhost:4319`): prévia ambígua `200` sem token, prévia resolvida com token, criação `201`,
+  repetição `200` com a mesma tarefa, `409 APPROVAL_MISMATCH`, `409 APPROVAL_ALREADY_USED`, `400`
+  sem `Idempotency-Key`, e a tarefa criada **aparecendo no `GET /tasks`** da Fase 1.
+- ⚠️ **NÃO ESTÁ NO AR.** `ready_for_validation` **não** é `done`: quem fecha o CORA-003 é a CORA,
+  em `acceptance.md`, depois de fazer as requisições do lado dela. O lote de publicação pendente
+  tem agora **CINCO** migrações, todas aditivas.
+- **O que ficou de fora, de propósito:** editar, concluir e excluir tarefa; `Card` e `Evento`; e
+  `Tarefa.descricao`, que **não** é exposta **nem aceita** — texto livre pode conter dado de
+  cliente (minimização, ADR-141).
+- **⚠️ Armadilha do comando:** `pnpm agente delegar` usa **`--email`**, não `--usuario`.
+
+## Estado anterior (2026-09-03 · manhã · a leitura da API do agente — ADR-149)
 
 > **Leia a ADR-149 em `docs/DECISIONS.md` e `docs/API_AGENTE.md`.**
 
@@ -1476,7 +1558,7 @@ entre proxy e app.
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-149). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-150). Deploy: `docs/DEPLOY.md`.
    API do agente (integração com a Cora): `docs/API_AGENTE.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 

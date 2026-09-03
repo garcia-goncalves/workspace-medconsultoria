@@ -43,7 +43,8 @@ cada uma na sua sala.
 | -------- | --------- |
 | http://localhost:4319/health | Diz se o motor está vivo |
 | `http://localhost:4319/trpc/…` | Por onde a **nossa tela** conversa com o motor (não é para abrir no navegador) |
-| `http://localhost:4319/api/agent/v1/tasks` | Por onde a **assistente Cora** lê as tarefas de uma pessoa (precisa de credencial — abrir no navegador devolve `401`) |
+| `http://localhost:4319/api/agent/v1/tasks` | Por onde a **assistente Cora** lê as tarefas de uma pessoa, e por onde ela **cria** tarefa (precisa de credencial — abrir no navegador devolve `401`) |
+| `http://localhost:4319/api/agent/v1/tasks/preview` | A **prévia** que a Cora mostra à Thaís antes de gravar qualquer coisa. Não escreve nada. |
 
 ---
 
@@ -63,10 +64,17 @@ reorganizamos o código por dentro, e a assistente quebraria **sem quebrar nenhu
 
 Então existe uma porta separada, `/api/agent/v1`, com um contrato escrito num arquivo:
 
-- **O contrato:** `med-coordination/contracts/workspace-agent-v1.openapi.yaml` (versão `0.1.0`), com
+- **O contrato:** `med-coordination/contracts/workspace-agent-v1.openapi.yaml` (versão `0.2.0`), com
   o SHA-256 ao lado. É o equivalente ao Swagger, só que num arquivo versionado em vez de uma tela.
 - **Como operar:** `docs/API_AGENTE.md` — comandos, cabeçalhos, erros.
-- **O porquê de cada escolha:** ADR-149 em `docs/DECISIONS.md`.
+- **O porquê de cada escolha:** ADR-149 (a leitura) e ADR-150 (a escrita) em `docs/DECISIONS.md`.
+
+**A Cora já escreve, e o desenho protege a Thaís de um jeito específico:** ela nunca grava direto.
+Primeiro pede a **prévia** — o Workspace resolve "a Clínica Mooca" num cliente de verdade e devolve
+o nome por extenso —, a Thaís aprova **aquilo**, e só então a tarefa é criada. Se houver duas
+clínicas com nome parecido, o sistema **não escolhe**: ele devolve as duas com um fato que as
+distingue (o CNPJ, por exemplo) para a Cora perguntar. E se a mesma criação for enviada duas vezes
+por uma falha de rede, **a segunda não cria tarefa nova** — devolve a primeira.
 
 ⚠️ **Não está no ar.** A porta existe no seu computador; o servidor continua na versão anterior.
 

@@ -1,5 +1,6 @@
 import { prisma } from "@app/db";
 import { CORPO_EXPURGADO, dataLimiteDeGuarda } from "@app/shared";
+import { expurgarIdempotenciasVencidas } from "../agente/criar-tarefa-do-agente.service.js";
 
 /**
  * PRAZO DE GUARDA — o expurgo automático (LGPD, ADR-141).
@@ -75,7 +76,19 @@ export async function expurgarDadosVencidos(agora = new Date()) {
     where: { createdAt: { lt: limite }, acao: { notIn: ACOES_QUE_NAO_EXPIRAM } },
   });
 
-  return { dias, limite, emails: emails.count, erros: erros.count, atividade: atividade.count };
+  // As reservas de idempotência da API do agente (CORA-003). O contrato declara 24 h; passado
+  // o prazo a chave é esquecida e repetir cria tarefa nova. ⚠️ Sem isto a tabela cresceria para
+  // sempre — uma linha por tarefa criada pelo agente. É a lição do `ActivityLog` na ADR-148.
+  const idempotencias = await expurgarIdempotenciasVencidas();
+
+  return {
+    dias,
+    limite,
+    emails: emails.count,
+    erros: erros.count,
+    atividade: atividade.count,
+    idempotencias,
+  };
 }
 
 let intervalo: NodeJS.Timeout | null = null;

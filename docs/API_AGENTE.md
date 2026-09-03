@@ -1,8 +1,11 @@
 # API do agente (`/api/agent/v1`) — como a Cora fala com o Workspace
 
-> **Decisão e porquês:** ADR-149 em `docs/DECISIONS.md`.
-> **Contrato canônico:** `med-coordination/contracts/workspace-agent-v1.openapi.yaml`, versão **0.1.0**
+> **Decisão e porquês:** ADR-149 (leitura) e **ADR-150 (escrita)** em `docs/DECISIONS.md`.
+> **Contrato canônico:** `med-coordination/contracts/workspace-agent-v1.openapi.yaml`, versão **0.2.0**
 > (experimental), com o SHA-256 ao lado. **Este arquivo explica como operar; o contrato manda.**
+>
+> A **Fase 1** (leitura) está descrita logo abaixo; a **Fase 2** (escrita: prévia aprovável e
+> criação com idempotência) está no fim deste arquivo.
 
 ## O que é, em uma frase
 
@@ -160,3 +163,160 @@ pnpm --filter @app/api exec vitest run src/test/agente-api-tarefas.integration.t
 
 ⚠️ **Não rode `pnpm --filter @app/api test`** sem necessidade: o `include` do Vitest varre também os outros
 `*.integration.test.ts`, e parte deles **manda e-mail de verdade** (ver `docs/CLAUDE.md`).
+
+---
+
+# Fase 2 — a ESCRITA (contrato 0.2.0, ADR-150, ticket CORA-003)
+
+## São dois endpoints, e a razão disso é a única coisa a não esquecer
+
+| Endpoint | O que faz | Escopo | Escreve? |
+|---|---|---|---|
+| `POST /api/agent/v1/tasks/preview` | resolve as referências e devolve a prévia **aprovável** | `tasks:write` | **não** |
+| `POST /api/agent/v1/tasks` | cria a tarefa **exatamente** como foi aprovada | `tasks:write` | sim |
+
+Se o agente montasse a prévia do lado dele e depois mandasse a escrita, seriam **dois artefatos
+diferentes** — o que a pessoa leu e o que foi gravado. Aqui quem monta a prévia é o mesmo código
+que grava, e o `approvalToken` amarra os dois pelo hash dos argumentos.
+
+⚠️ **A prévia exige o escopo de ESCRITA mesmo sem escrever nada.** Ela existe só para habilitar
+uma escrita, e é ela que devolve o token.
+
+## O caminho de uma criação, do começo ao fim
+
+```
+1. POST /tasks/preview   { titulo, cliente: {texto: "..."}, ... }
+   → 200 com approvalToken            → siga para o 3
+   → 200 com approvalToken: null      → há ambiguidades[] ou algo não encontrado: PERGUNTE
+
+2. POST /tasks/preview   { ..., cliente: {id: "<o escolhido>"} }
+   → 200 com approvalToken
+
+3. POST /tasks
+   cabeçalho Idempotency-Key: <UUID>
+   corpo     { approvalToken, task: { titulo, prioridade, prazo, clienteId, projetoId, responsavelIds } }
+   → 201 created: true    (nasceu agora)
+   → 200 created: false   (repetição da mesma chave — a MESMA tarefa)
+   → 409                  (ver a tabela de conflitos)
+```
+
+## Emitir a delegação de escrita, no ambiente local
+
+```bash
+pnpm agente cliente --nome "cora"
+pnpm agente delegar --cliente <clientId> --email <pessoa@...> \
+  --escopos "tasks:read tasks:write" --minutos 60
+```
+
+⚠️ O parâmetro da pessoa é **`--email`**, não `--usuario`.
+
+⚠️ **`tasks:write` deixou de ser inerte na Fase 2.** Antes era um escopo reconhecido que não
+habilitava nada — servia de credencial inofensiva para exercer o `403` na leitura. **Hoje quem o
+tem cria tarefa.** As duas provas de `403` se fazem uma contra a outra: `tasks:read` sozinho é
+recusado na escrita, `tasks:write` sozinho é recusado na leitura.
+
+## Referência: `texto` OU `id`, nunca os dois
+
+`{"texto": "Clínica X"}` é o que a pessoa falou. `{"id": "..."}` é a escolha depois de uma
+desambiguação. Os dois juntos — ou nenhum — é `400`: *"qual deles vale?"* é uma decisão que o
+servidor não pode tomar por quem chama.
+
+## O servidor NUNCA escolhe o melhor palpite
+
+Mais de um candidato ⇒ `200` com `approvalToken: null` e `ambiguidades[]`. **`200`, não `400`**:
+um erro faria o consumidor tratar como falha e repetir com os mesmos dados, em laço.
+
+Vale **inclusive quando um candidato casa exatamente** com o texto. "Clínica Silva" e "Clínica
+Silva e Souza" são duas clínicas; preferir a exata continua sendo escolher por alguém. Homônimo é
+onde isso machuca — a tarefa vai para o médico errado e ninguém descobre até o prazo vencer.
+
+Cada candidato traz uma **`distincao`**: um fato que o separa dos outros (CNPJ, situação
+comercial, cliente do projeto, papel e e-mail da pessoa). Dois ids com dois nomes iguais
+transfeririam a ambiguidade para a Thaís sem lhe dar como resolvê-la.
+
+⚠️ **Referência PEDIDA que não resolve também zera o token**, e não só a ambígua. Gravar sem o
+cliente que foi pedido seria gravar calado uma coisa diferente. Campo **não informado**
+(`NAO_INFORMADO`) não impede o token.
+
+## A idempotência
+
+`Idempotency-Key`, **obrigatória**, UUID escolhido por quem chama.
+
+- **Escopo:** `(serviço, usuário delegado, ferramenta, chave)`. **Nunca a delegação** — presa a
+  ela, a chave morreria com o token, e renovar credencial perderia a idempotência exatamente
+  depois de uma falha.
+- **Não é derivada do conteúdo**, de propósito: duas tarefas legitimamente iguais no mesmo dia
+  ("ligar para a clínica") colidiriam e a segunda se perderia sem ninguém saber.
+- **Validade: 24 h.** Depois disso a chave é esquecida e repetir cria tarefa nova.
+
+⚠️ **QUEM GARANTE A ATOMICIDADE É O ÍNDICE ÚNICO, NÃO O NÍVEL DE ISOLAMENTO.** Em
+`REPEATABLE READ` (o padrão do MySQL e do MariaDB 10.6 de produção) duas conexões que leem "essa
+chave já existe?" e depois inserem **passam as duas**. O caminho é `INSERT` primeiro em
+`AgentIdempotency_reserva_key`; a violação (`P2002`) é a resposta *"alguém já tem"*.
+
+⚠️ **Reserva e tarefa entram na MESMA transação**, chave primeiro. Em dois passos, uma queda no
+meio deixaria chave sem tarefa (repetir nunca mais criaria) ou tarefa sem chave (repetir criaria
+a segunda).
+
+## Os cinco conflitos, e por que cada um tem nome próprio
+
+| `code` | O que aconteceu | O que o consumidor faz |
+|---|---|---|
+| `APPROVAL_EXPIRED` | o token passou dos 15 minutos | refaz a prévia |
+| `APPROVAL_MISMATCH` | o `task` enviado não é o aprovado | corrige o envio; **o servidor não executa o novo** |
+| `APPROVAL_ALREADY_USED` | o token já foi consumido por outra chave | refaz a prévia |
+| `PRECONDITION_CHANGED` | o mundo mudou desde a prévia | lê `divergencias[]`, conta à pessoa, refaz a prévia |
+| `IDEMPOTENCY_CONFLICT` | mesma chave, argumentos diferentes | **é defeito de quem chama**: usa chave nova |
+
+Um `CONFLICT` genérico obrigaria o consumidor a decidir pelo **texto** da mensagem — que o
+contrato manda nunca fazer.
+
+Só o `PRECONDITION_CHANGED` traz `divergencias[]`, dentro de `error`, com
+`{campo, aprovado:{id,rotulo}, atual:{id,rotulo}|null, motivo}`.
+
+## O prazo de 15 minutos é higiene; a defesa é revalidar
+
+O token está amarrado ao hash dos argumentos, então um token de ontem executaria exatamente o que
+foi aprovado. **O que muda em quarenta minutos não é o pedido, é o mundo.** No instante de
+executar, as referências são resolvidas de novo e os **rótulos** comparados com os que a pessoa
+leu — o nome que ela leu faz parte do que ela aprovou.
+
+## O `resolutionHash` não é um hash cru
+
+É um **selo opaco, determinístico e assinado** sobre os ids e os rótulos. Existe assim porque de
+um SHA-256 só daria para dizer *"está diferente"*, e o consumidor pediu **o que saiu e o que
+entrou**. Guardar a resolução anterior aqui exigiria gravar toda prévia — e a prévia é leitura
+pura. Comparar por igualdade continua funcionando (não há relógio nem aleatório dentro).
+
+## Fixtures da Fase 2
+
+`pnpm agente:fixtures` cria, com ids fixos:
+
+| id | O que é |
+|---|---|
+| `cora-fx-cli-unica` | "Clinica Ficticia Unica CORA" — busca por `Unica CORA` casa uma |
+| `cora-fx-cli-homonima-1` | "Clinica Ficticia Homonima CORA", CNPJ 22…, ativo |
+| `cora-fx-cli-homonima-2` | "Clinica Ficticia Homonima CORA Norte", CNPJ 33…, prospect |
+| `cora-fx-proj-unico` | "Projeto Ficticio Unico CORA", do cliente único |
+
+Os dois homônimos existem para o teste de ambiguidade **não passar por vacuidade** — a lição do
+CORA-002. **Confira por id, nunca por total.**
+
+## Rodar os testes desta fase
+
+```bash
+pnpm --filter @app/api exec vitest run src/test/agente-api-criar-tarefa.integration.test.ts
+```
+
+24 testes, contra o Fastify de verdade e o MySQL `_test`. Cobrem W1–W16 do ticket mais oito casos
+do desenho.
+
+## Ao mudar qualquer coisa aqui
+
+1. Suba a versão em `med-coordination/contracts/workspace-agent-v1.openapi.yaml` **e** regere o
+   `workspace-agent-v1.sha256`.
+2. Atualize o literal da versão em `agente-api-tarefas.integration.test.ts` — ele é a trava que
+   obriga a lembrar do passo 1.
+3. ⚠️ **Rota nova exige o bloco `config: { rateLimit: freioPorIp() }`.** O freio de rota
+   **substitui** o global; sem o bloco, a rota fica sem teto nenhum, **sem erro e sem log**. Há
+   teste que conta rota por rota e reprova quem esquecer.

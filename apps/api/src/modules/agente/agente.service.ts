@@ -29,11 +29,15 @@ import { prisma } from "@app/db";
  * Escopos que o sistema RECONHECE. Lista de LIBERAÇÃO com padrão NEGAR: escopo novo nasce
  * fechado, e cada rota exige o seu explicitamente.
  *
- * ⚠️ **`tasks:write` está RESERVADO e não habilita nada.** Nenhuma rota o exige — não existe
- * escrita nesta versão. Ele é reconhecido pelo comando de emissão de propósito, porque sem isso
- * **não havia caminho para emitir uma delegação sem `tasks:read`** e o `403` por escopo
- * insuficiente ficava impossível de exercer de fora (achado do ticket CORA-002). Um escopo
- * reconhecido que não libera rota nenhuma é exatamente a credencial certa para esse teste.
+ * ⚠️ **`tasks:write` DEIXOU DE SER INERTE na Fase 2 (CORA-003).** Até a ADR-149 ele era um
+ * escopo reconhecido que não habilitava nada — existia só para dar um jeito de emitir uma
+ * delegação SEM `tasks:read` e assim exercer o `403` por escopo insuficiente de fora (achado do
+ * CORA-002). Hoje ele é a capacidade de ESCRITA: habilita a prévia e a criação de tarefa.
+ *
+ * ⚠️ **Consequência prática, e ela precisa ser dita:** uma delegação só com `tasks:write`
+ * continua servindo para provar o `403` na LEITURA, mas **não é mais inofensiva** — quem a tem
+ * cria tarefa. As duas provas de `403` hoje se fazem uma contra a outra: `tasks:read` sozinho
+ * é recusado na escrita, `tasks:write` sozinho é recusado na leitura.
  */
 export const ESCOPOS_CONHECIDOS = ["tasks:read", "tasks:write"] as const;
 export type EscopoDeAgente = (typeof ESCOPOS_CONHECIDOS)[number];
