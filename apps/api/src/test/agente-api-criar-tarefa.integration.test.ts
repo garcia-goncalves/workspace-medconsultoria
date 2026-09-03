@@ -508,6 +508,41 @@ describe("a prévia", () => {
     expect(r.json().error.message).toContain("previousResolutionHash");
   });
 
+  it("⚠️ duas referências que resolvem para A MESMA pessoa criam UM responsável, não um 503", async () => {
+    // Achado do revisor de TypeScript, e é o padrão desta casa de novo: o defeito nasceu da
+    // própria correção. O `argsHash` já deduplicava; a lista que ia para o banco, não. Dois
+    // textos apontando a mesma conta ("a Ana" e "a Ana Paula", quando são a mesma pessoa)
+    // passavam pela aprovação e estouravam no `@@unique([tarefaId, userId])` DENTRO da
+    // transação — `P2002` lido como colisão de chave de idempotência, `503` na cara da Cora,
+    // "reserva de idempotência sem tarefa" no log, e o `approvalToken` queimado para sempre.
+    const titulo = `${PFX} responsavel repetido`;
+    const r = await previa({
+      titulo,
+      responsaveis: [{ id: userA }, { id: userA }],
+    });
+    expect(r.statusCode).toBe(200);
+    const c = r.json();
+    expect(c.approvalToken).toBeTruthy();
+
+    const task = {
+      titulo,
+      prioridade: c.previa.prioridade,
+      prazo: c.previa.prazo.valor,
+      clienteId: c.previa.cliente.id,
+      projetoId: c.previa.projeto.id,
+      // A Cora manda de volta o que a prévia mostrou — e a prévia mostrou as DUAS linhas.
+      responsavelIds: c.previa.responsaveis.map((x: { id: string }) => x.id),
+    };
+    const criada = await criar({ approvalToken: c.approvalToken, task }, randomUUID());
+
+    expect(criada.statusCode).toBe(201);
+    const vinculos = await prisma.tarefaResponsavel.count({
+      where: { tarefaId: criada.json().taskId as string },
+    });
+    expect(vinculos).toBe(1);
+    expect(await contarPorTitulo(titulo)).toBe(1);
+  });
+
   it("a prévia NÃO escreve nada", async () => {
     const titulo = `${PFX} previa nao escreve`;
     const antesTarefas = await contarPorTitulo(titulo);

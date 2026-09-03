@@ -485,6 +485,22 @@ function referenciasDaPrevia(p: Previa): ReferenciaResolvida[] {
   return refs;
 }
 
+/**
+ * A MESMA normalização que o hash usa — deduplicada e ordenada.
+ *
+ * ⚠️ **O hash e a gravação NÃO PODEM DISCORDAR sobre o que é "o mesmo pedido".**
+ * `formaCanonicaDosArgumentos` já deduplicava para calcular o `argsHash`; a lista que ia para o
+ * banco, não. Dois textos que resolvem para a MESMA pessoa ("delegue para a Ana e para a Ana
+ * Paula", quando as duas são a mesma conta) passavam pela prévia e pela aprovação, e só
+ * estouravam no `@@unique([tarefaId, userId])` de `TarefaResponsavel` **dentro da transação** —
+ * um `P2002` que o `catch` daqui lia como colisão de chave de idempotência, respondia `503` e
+ * registrava "reserva de idempotência sem tarefa" no log. Alarme de infraestrutura para o que
+ * era entrada redundante, e o `approvalToken` ficava **inutilizável para sempre**.
+ */
+function normalizarResponsavelIds(ids: readonly string[]): string[] {
+  return [...new Set(ids)].sort();
+}
+
 export function argumentosDaPrevia(p: Previa): ArgumentosDaTarefa {
   return {
     titulo: p.titulo,
@@ -492,7 +508,9 @@ export function argumentosDaPrevia(p: Previa): ArgumentosDaTarefa {
     prazo: p.prazo.valor,
     clienteId: p.cliente.encontrado ? p.cliente.id : null,
     projetoId: p.projeto.encontrado ? p.projeto.id : null,
-    responsavelIds: p.responsaveis.filter((r) => r.encontrado && r.id).map((r) => r.id!),
+    responsavelIds: normalizarResponsavelIds(
+      p.responsaveis.filter((r) => r.encontrado && r.id).map((r) => r.id!),
+    ),
   };
 }
 
@@ -641,7 +659,7 @@ export function validarArgumentos(
       prazo: typeof t.prazo === "string" ? t.prazo : null,
       clienteId: typeof t.clienteId === "string" ? t.clienteId : null,
       projetoId: typeof t.projetoId === "string" ? t.projetoId : null,
-      responsavelIds: t.responsavelIds as string[],
+      responsavelIds: normalizarResponsavelIds(t.responsavelIds as string[]),
     },
   };
 }
@@ -781,7 +799,9 @@ export async function criarTarefaDoAgente(
           prioridade: pedido.argumentos.prioridade,
           clienteId: pedido.argumentos.clienteId,
           projetoId: pedido.argumentos.projetoId,
-          responsavelIds: pedido.argumentos.responsavelIds,
+          // Defesa em profundidade: a normalização já aconteceu na fronteira, mas quem chamar
+          // este serviço direto (o teste do W16 chama) não passa por lá.
+          responsavelIds: normalizarResponsavelIds(pedido.argumentos.responsavelIds),
         });
         await tx.agentIdempotency.update({ where: { id: linha.id }, data: { tarefaId: tarefa.id } });
         return { id: tarefa.id, titulo: tarefa.titulo, criadoPorId: tarefa.criadoPorId };
@@ -817,8 +837,13 @@ export async function criarTarefaDoAgente(
     const porJti = await prisma.agentIdempotency.findUnique({ where: { jti: pedido.jti } });
     if (porJti) return { situacao: "APROVACAO_JA_USADA" };
 
-    // Nenhum dos dois: corrida com o expurgo entre o erro e a consulta. Uma nova tentativa.
-    if (segundaTentativa) return { situacao: "RESERVA_INCOMPLETA" };
+    // ⚠️ **NEM A CHAVE NEM O `jti`: ENTÃO O `P2002` NÃO ERA NOSSO.**
+    //
+    // Na primeira passada isto ainda pode ser corrida com o expurgo, e vale uma nova tentativa.
+    // Na segunda, não: engolir aqui transforma **qualquer** violação de unicidade de dentro da
+    // transação (a de `TarefaResponsavel`, por exemplo) num `503` com a mensagem errada — um
+    // alarme de infraestrutura para o que é outra coisa. Relançar faz a causa real chegar ao log.
+    if (segundaTentativa) throw e;
     return criarTarefaDoAgente(pedido, agora, deps, true);
   }
 
