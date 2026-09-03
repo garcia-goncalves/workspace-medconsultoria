@@ -58,6 +58,8 @@ fica desligado. **Senha e chave nunca são escritas em documento nenhum deste re
 | `pnpm acessos` | diagnóstico "por que não consigo entrar?" |
 | `pnpm senha:rotacionar` | troca a senha de seed desta máquina e reescreve o hash das contas |
 | `pnpm doutor` | varredura de saúde da aplicação em navegador real |
+| `pnpm agente` | credenciais da API do agente (`cliente`/`delegar`/`revogar`/`listar`) — ver `docs/API_AGENTE.md` |
+| `pnpm agente:fixtures` | cenário A/B com ids fixos para conferir isolamento (`--limpar` apaga) |
 | `pnpm build:deploy` | empacota para produção |
 
 ## Documentação

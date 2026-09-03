@@ -42,24 +42,33 @@ cada uma na sua sala.
 | Endereço | O que faz |
 | -------- | --------- |
 | http://localhost:4319/health | Diz se o motor está vivo |
-| `http://localhost:4319/trpc/…` | Por onde a tela conversa com o motor (não é para abrir no navegador) |
+| `http://localhost:4319/trpc/…` | Por onde a **nossa tela** conversa com o motor (não é para abrir no navegador) |
+| `http://localhost:4319/api/agent/v1/tasks` | Por onde a **assistente Cora** lê as tarefas de uma pessoa (precisa de credencial — abrir no navegador devolve `401`) |
 
 ---
 
 ## 3. ❓ "Cadê o Swagger?"
 
-**Este projeto não tem Swagger — e isso é de propósito, não é falta.**
+**Para a nossa própria tela, não existe e é de propósito.** A tela e o motor compartilham o mesmo
+código de tipos (é o que se chama de **tRPC**): se alguém escrever uma chamada errada, **o projeto
+não compila** — o erro aparece na hora de escrever, não depois de publicar. Swagger ali seria um
+documento a mais para manter desatualizado.
 
-Swagger é uma tela que lista os endereços de uma API para quem for programar contra ela. Ele
-existe porque, numa API tradicional (REST), o programador do front precisa **descobrir** o que o
-back-end aceita.
+**Para quem é de fora, existe — e nasceu em 02/09/2026.** ⚠️ *Esta seção dizia "hoje ninguém de fora
+consome esta API" até 03/09/2026, e virou mentira no dia em que a Cora passou a consumir.*
 
-Aqui a API é **tRPC**: o front e o back compartilham o mesmo código de tipos. Se alguém escrever
-uma chamada errada, **o projeto não compila** — o erro aparece na hora de escrever, não depois de
-publicar. Swagger seria um documento a mais para manter desatualizado.
+A **Cora** é a assistente que a Thaís vai usar por voz e por celular. Ela é outro programa, em outro
+repositório, e por isso **não pode** usar o caminho da nossa tela: o tRPC muda de forma toda vez que
+reorganizamos o código por dentro, e a assistente quebraria **sem quebrar nenhum teste nosso**.
 
-Se um dia um sistema **de fora** (outra empresa, um app) precisar conversar com esta aplicação,
-aí sim vale criar endereços REST com Swagger. Hoje ninguém de fora consome esta API.
+Então existe uma porta separada, `/api/agent/v1`, com um contrato escrito num arquivo:
+
+- **O contrato:** `med-coordination/contracts/workspace-agent-v1.openapi.yaml` (versão `0.1.0`), com
+  o SHA-256 ao lado. É o equivalente ao Swagger, só que num arquivo versionado em vez de uma tela.
+- **Como operar:** `docs/API_AGENTE.md` — comandos, cabeçalhos, erros.
+- **O porquê de cada escolha:** ADR-149 em `docs/DECISIONS.md`.
+
+⚠️ **Não está no ar.** A porta existe no seu computador; o servidor continua na versão anterior.
 
 ---
 
