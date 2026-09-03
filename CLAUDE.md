@@ -13,7 +13,139 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-03 · **v1.6.0 NO AR** — ADR-147/148/149 na `main`, NENHUMA publicada)
+## Estado atual (2026-09-03 · **v1.6.0 NO AR** — ADR-147/148/149/150 na `main` ou a caminho, NENHUMA publicada)
+
+> **Leia a ADR-150 em `docs/DECISIONS.md` e a seção da Fase 2 em `docs/API_AGENTE.md`.**
+
+### ✍️ A CORA PASSOU A ESCREVER: criar tarefa com prévia aprovável e idempotência (ADR-150, ticket CORA-003)
+
+- **A Fase 2 nasceu, e o desenho inteiro estava no ticket.** A Cora dita o pedido da Thaís; o
+  Workspace resolve as referências, devolve uma prévia **aprovável**, e só grava aquilo. Contrato
+  **0.2.0** (`med-coordination/contracts/`), SHA-256
+  `d5dbff4167727e041326d5e9caf38aa2b3388529272dc673095cdc4a617ec13a`.
+- **🚪 SÃO DOIS ENDPOINTS, e juntá-los seria o defeito.** `POST /api/agent/v1/tasks/preview`
+  (leitura pura, não escreve nada) e `POST /api/agent/v1/tasks` (exige o `approvalToken` daquela
+  prévia). Se a Cora montasse a prévia do lado dela, seriam **dois artefatos diferentes** — o que
+  a Thaís leu e o que foi gravado —, e entre um e outro cabe qualquer coisa.
+- **🔑 A ATOMICIDADE É DO ÍNDICE ÚNICO, NÃO DO NÍVEL DE ISOLAMENTO.** Foi a pergunta direta da
+  Cora. Em `REPEATABLE READ` (o padrão do MySQL local **e do MariaDB 10.6 de produção**) duas
+  conexões que leem *"essa chave já existe?"* e depois inserem **passam as duas** — o "confere e
+  grava" perdido. `SERIALIZABLE` ou lock explícito custariam caro numa rota chamada **em laço por
+  um programa**, com pool de 13 conexões que já esgotou em produção. Cura: **`INSERT` primeiro**
+  em `@@unique([clientId, userId, ferramenta, chave])`; a violação `P2002` é a resposta *"alguém
+  já tem"*. ⚠️ **Visto reprovando:** trocando **só** esse mecanismo por "confere-e-grava", o teste
+  de concorrência **fica vermelho**.
+- **🔗 RESERVA E TAREFA NA MESMA TRANSAÇÃO, chave primeiro.** Em dois passos, uma queda no meio
+  deixa **chave sem tarefa** (repetir nunca mais cria) ou **tarefa sem chave** (repetir cria a
+  segunda). Por isso `AgentIdempotency.tarefaId` é anulável, e nunca é observável nulo de fora.
+- **🎯 O ESCOPO DA CHAVE INCLUI A PESSOA E O SERVIÇO, NUNCA A DELEGAÇÃO** — presa a ela, a chave
+  morreria com o token, e renovar credencial perderia a idempotência **exatamente depois de uma
+  falha**, que é quando a repetição é mais provável. A chave é escolhida por quem chama e **não é
+  derivada do conteúdo**: derivar do payload faria duas tarefas legitimamente iguais no mesmo dia
+  ("ligar para a clínica") colidirem, e a segunda se perderia **sem ninguém saber**.
+- **🚫 O SERVIDOR NUNCA ESCOLHE O MELHOR PALPITE.** Dois candidatos ⇒ `200` com
+  `approvalToken: null` e `ambiguidades[]`. `200` e não `400` de propósito: erro faria a Cora
+  tratar como falha e repetir com os mesmos dados, **em laço**. Vale **inclusive quando um
+  candidato casa exatamente** com o texto. Cada candidato traz um **fato que o distingue** (CNPJ,
+  situação, papel) — dois ids com dois nomes iguais transfeririam a ambiguidade para a Thaís sem
+  lhe dar como resolvê-la.
+- **⏳ O PRAZO DE 15 MIN DO TOKEN É HIGIENE; A DEFESA É REVALIDAR.** O token está amarrado ao hash
+  dos argumentos, então um token de ontem executa exatamente o que foi aprovado — **o que muda em
+  quarenta minutos não é o pedido, é o mundo**. No instante de executar, as referências são
+  resolvidas de novo e os **rótulos** comparados; divergiu, é `409 PRECONDITION_CHANGED` com a
+  lista **campo a campo**.
+- **🏷️ O `resolutionHash` VIROU UM SELO, e não é um hash cru.** A Cora pediu `mudou[]` **com o que
+  saiu e o que entrou**, e de um SHA-256 só dá para dizer "está diferente". Guardar a resolução
+  anterior aqui exigiria gravar toda prévia — e prévia é leitura pura. Então ela viaja **dentro do
+  próprio valor**, assinada, e continua determinística (comparar por igualdade ainda funciona).
+- **⚠️ REFERÊNCIA PEDIDA QUE NÃO RESOLVE TAMBÉM ZERA O TOKEN** — decisão nossa, mais estrita que o
+  ticket. Gravar sem o cliente que foi pedido seria gravar calado uma coisa diferente, e a Thaís
+  só descobriria procurando a tarefa na ficha errada.
+- **🔐 `tasks:write` DEIXOU DE SER INERTE.** Era um escopo reconhecido que não habilitava nada
+  (existia só para emitir delegação sem `tasks:read` e exercer o `403`). Hoje é a capacidade de
+  escrita, e habilita **a prévia também**. As duas provas de `403` passam a se fazer uma contra a
+  outra.
+- **🕳️ DOIS DEFEITOS QUE A PRÓPRIA CORREÇÃO CRIOU.** (1) 🔴 **A trava do freio por IP ficou CEGA
+  ao virar função compartilhada:** a régua da ADR-149 procurava o `keyGenerator` em qualquer lugar
+  do arquivo, e passaria verde com uma rota **sem** o `config` — a rota ficaria **sem teto nenhum**,
+  sem erro e sem log. Hoje ela conta rota por rota e proíbe um segundo `rateLimit:` escrito à mão;
+  **vista pegando** (`3 rota(s), mas 2 com o freio por IP`). (2) **A regra de criar tarefa ia
+  virar duas** — a criação precisa rodar dentro da transação da reserva, e o `createTarefa` humano
+  usa o `prisma` global; copiar a montagem seria a ADR-133 de novo. Nasceu `montarTarefa(db, ...)`,
+  usada pelas duas portas.
+- **⚠️ MIGRAÇÃO `20260903120000`, ADITIVA:** **uma** tabela nova (`AgentIdempotency`). Nenhuma
+  tabela existente muda, nenhum backfill. Reverter é um `DROP TABLE`. **Aplicada nos bancos local
+  e de teste; NÃO em produção.**
+- **⚖️ O W16 TEM UMA COSTURA DE INJEÇÃO, DECLARADA NO CÓDIGO.** "Queda entre a reserva e a
+  criação" **não se prova de outro jeito**: toda falha natural que se consiga forçar é pega antes,
+  pela revalidação. Sem a costura, o W16 seria descrito e não provado — e atomicidade é justamente
+  o que não se prova lendo código.
+- **🔴 A REVISÃO ESPECIALISTA ACHOU UM BLOQUEANTE, E ELE TAMBÉM NASCEU DESTA CORREÇÃO.**
+  `responsavelIds` era deduplicado **para o hash** e **não para a gravação**. Dois textos que
+  resolvem para a MESMA pessoa passavam pela prévia, ganhavam token, e estouravam no
+  `@@unique([tarefaId, userId])` **dentro da transação**. ⚠️ **O estrago era o DIAGNÓSTICO:**
+  `ehViolacaoDeUnico` captura qualquer `P2002`, então virava "colisão de chave de idempotência",
+  `503` e *"reserva de idempotência sem tarefa"* no log — alarme de infraestrutura para entrada
+  redundante — e o `approvalToken` ficava **inutilizável para sempre**. Visto reprovando
+  (`expected 503 to be 201`). Cura: normalizar na fronteira **e** relançar o `P2002` que não é
+  nosso.
+- **📌 O PRISMA NÃO EXPRESSA `COLLATE`** — achado do revisor de banco. `prisma migrate diff`
+  proporia desfazer o `utf8mb4_bin` e **reintroduzir o defeito da ADR-147**. Aviso escrito no
+  `schema.prisma`. ⚠️ **Nunca rode `migrate diff` contra este schema para "consertar" isso.**
+- **⏭️ Pedido pela revisão e NÃO feito:** paralelizar a resolução das referências (`Promise.all`).
+  É latência, não correção — e paralelizar torna a ordem de `ambiguidades[]` não determinística,
+  que é o que a Cora lê para perguntar. Próximo passo, com montagem por índice.
+- 🔐 A REVISÃO DE SEGURANÇA: quatro achados, e o contrato subiu para **0.2.1** por causa de um
+
+**Nenhum bloqueante** — não havia caminho para o pedido escolher a pessoa, nem furo no token. Os
+quatro importantes, todos corrigidos com teste:
+
+1. **`%` e `_` são coringas do `LIKE`, e o `contains` do Prisma não os escapa.**
+   `{"texto": "%%"}` passava no mínimo de 2 caracteres e virava `LIKE '%%%'`, que **casa tudo**: a
+   prévia deixava de ser busca e virava **listagem paginável da base** — nome, CNPJ, situação e
+   e-mail dos oito primeiros, mais o `total`. Hoje o texto é escapado e tem teto de 120 caracteres.
+2. **A distinção de PESSOA entregava o diretório da equipe.** Era `PAPEL · e-mail completo` — e
+   isso é **mais permissivo que o lado humano**, onde `listEquipe` devolve só id, nome e avatar, e
+   papel + e-mail de todos só saem por `adminProcedure`. Um funcionário com delegação montava o
+   mapa de quem é ROOT/ADMIN e o e-mail de cada um: insumo direto para phishing dirigido a quem
+   tem mais poder. Hoje é **e-mail mascarado**, que resolve o homônimo sem entregar a lista.
+3. **O teto de responsáveis existia só na prévia**, e a forma canônica deduplica **antes** do
+   hash — então `["u1"]` e `["u1"]` repetido quarenta mil vezes tinham o **mesmo `argsHash`** e
+   passavam pelo `APPROVAL_MISMATCH`, entrando na transação com um corpo de 1 MB de ids. A
+   deduplicação (achado do outro revisor) já mata o caso; o teto entrou como segunda tranca.
+4. **⚠️ O RÓTULO TEM ORIGEM ANÔNIMA, e o contrato calava sobre isso.** `Cliente.nome` nasce do
+   formulário público `/comecar`, que **qualquer pessoa preenche sem autenticação** — o nome da
+   empresa vira o nome do PROSPECT, e é esse texto que volta como `rotulo` e vai direto ao LLM do
+   outro lado. O `docs/API_AGENTE.md` **previu exatamente este dia** e disse que a fronteira "dado,
+   nunca instrução" precisaria estar **no contrato, não num comentário**. Cumprido: a **0.2.1** é
+   uma mudança **só de texto** que declara `previa.*.rotulo`, `ambiguidades[].candidatos[].rotulo` e
+   `divergencias[].{aprovado,atual}.rotulo` como dado inerte, e nasceu a fixture
+   `cora-fx-cli-injecao`. **SHA-256 `19009cb7ac2f847fadbd903bed97697ab1ba03d8cc93bec2c55a16ba3d31b50e`.**
+
+**Mais três, menores, também fechados:** a `Idempotency-Key` era comparada em coluna `utf8mb4_bin`
+com regex `i`, então a mesma chave em caixa diferente criaria **duas** tarefas (hoje é normalizada
+para minúsculas); a forma canônica não normalizava Unicode, e "ç" composto contra decomposto dava
+`APPROVAL_MISMATCH` **falso** (hoje `NFC`); e **escrita feita por um programa em nome de uma pessoa
+não deixava rastro** — a única prova era a linha de idempotência, apagada em 24 h, e depois disso
+nada distinguia da criação feita na tela. Hoje grava `agente.tarefa.criada` no `ActivityLog`, com a
+ação na lista das que **não expiram** (a régua da ADR-128).
+
+- **Provas:** typecheck 0 erros · lint limpo · **suíte COMPLETA do `@app/api`: 113 arquivos, 927
+  testes, verdes** · **24 testes de integração novos** exercendo o Fastify de verdade (`app.inject`)
+  contra o MySQL `_test`, cobrindo **W1–W16** mais oito casos do desenho · **sete sabotagens, uma
+  trava de cada vez, todas vermelhas** · a rota exercida por **HTTP real** (`curl` contra
+  `localhost:4319`): prévia ambígua `200` sem token, prévia resolvida com token, criação `201`,
+  repetição `200` com a mesma tarefa, `409 APPROVAL_MISMATCH`, `409 APPROVAL_ALREADY_USED`, `400`
+  sem `Idempotency-Key`, e a tarefa criada **aparecendo no `GET /tasks`** da Fase 1.
+- ⚠️ **NÃO ESTÁ NO AR.** `ready_for_validation` **não** é `done`: quem fecha o CORA-003 é a CORA,
+  em `acceptance.md`, depois de fazer as requisições do lado dela. O lote de publicação pendente
+  tem agora **CINCO** migrações, todas aditivas.
+- **O que ficou de fora, de propósito:** editar, concluir e excluir tarefa; `Card` e `Evento`; e
+  `Tarefa.descricao`, que **não** é exposta **nem aceita** — texto livre pode conter dado de
+  cliente (minimização, ADR-141).
+- **⚠️ Armadilha do comando:** `pnpm agente delegar` usa **`--email`**, não `--usuario`.
+
+## Estado anterior (2026-09-03 · manhã · a leitura da API do agente — ADR-149)
 
 > **Leia a ADR-149 em `docs/DECISIONS.md` e `docs/API_AGENTE.md`.**
 
@@ -1476,7 +1608,7 @@ entre proxy e app.
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-149). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-150). Deploy: `docs/DEPLOY.md`.
    API do agente (integração com a Cora): `docs/API_AGENTE.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 

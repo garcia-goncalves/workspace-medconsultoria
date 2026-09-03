@@ -57,6 +57,32 @@ const CENARIO: LinhaDoCenario[] = [
   { id: "concluida", titulo: "A — concluída, não pode aparecer", de: ["A"], status: "CONCLUIDA", prazo: null },
 ];
 
+/**
+ * O CENÁRIO DA FASE 2 (CORA-003) — clientes e projeto com id fixo, para a prévia e a
+ * desambiguação.
+ *
+ * ⚠️ **As duas homônimas são o coração disto.** Buscar por `Homonima CORA` casa com as duas, e é
+ * assim — e só assim — que dá para provar que o servidor **não escolhe o melhor palpite**. Sem
+ * elas o W10 passaria por vacuidade, que é exatamente o defeito que este arquivo nasceu para
+ * consertar no CORA-002.
+ *
+ * ⚠️ **As distinções são diferentes de propósito** (CNPJ e situação): candidato sem fato que o
+ * distinga transfere a ambiguidade para a Thaís sem lhe dar como resolvê-la.
+ */
+const CLIENTES = [
+  { id: "cli-unica", nome: "Clinica Ficticia Unica CORA", cnpj: "11.111.111/0001-11", situacaoComercial: "ATIVO" as const },
+  { id: "cli-homonima-1", nome: "Clinica Ficticia Homonima CORA", cnpj: "22.222.222/0001-22", situacaoComercial: "ATIVO" as const },
+  { id: "cli-homonima-2", nome: "Clinica Ficticia Homonima CORA Norte", cnpj: "33.333.333/0001-33", situacaoComercial: "PROSPECT" as const },
+  // ⚠️ **NOME DE CLIENTE TAMBEM E ENTRADA HOSTIL, e por uma porta ANONIMA.** `capturarLead` e
+  // `publicProcedure`, e a conversao copia `empresa` para o `Cliente` PROSPECT — entao qualquer
+  // pessoa preenchendo `/comecar` escolhe um texto que a previa vai devolver como `rotulo`, e que
+  // o assistente do outro lado vai ler. Esta fixture existe para o consumidor exercer isso.
+  { id: "cli-injecao", nome: `Clinica CORA ${TEXTO_DE_INJECAO}`.slice(0, 120), cnpj: null, situacaoComercial: "PROSPECT" as const },
+];
+
+/** Um projeto com id fixo, pendurado na clínica única. */
+const PROJETO = { id: "proj-unico", nome: "Projeto Ficticio Unico CORA" };
+
 async function principal() {
   const guarda = podeRodarDemoSeed(process.env as never);
   if (!guarda.permitido) {
@@ -65,7 +91,13 @@ async function principal() {
   }
 
   // Apagar SEMPRE vem antes — é o que torna o comando idempotente.
+  // ⚠️ A ordem importa: reserva de idempotência → tarefa → projeto → cliente. O caminho
+  // contrário esbarra na chave estrangeira e o comando morre pela metade, deixando o banco num
+  // estado que nenhuma das duas sessões esperava.
+  await prisma.agentIdempotency.deleteMany({ where: { chave: { startsWith: PREFIXO } } });
   const apagadas = await prisma.tarefa.deleteMany({ where: { id: { startsWith: PREFIXO } } });
+  await prisma.projeto.deleteMany({ where: { id: { startsWith: PREFIXO } } });
+  await prisma.cliente.deleteMany({ where: { id: { startsWith: PREFIXO } } });
   console.log(`\n🧹 Removidas ${apagadas.count} tarefa(s) com o prefixo \`${PREFIXO}\`.`);
 
   if (process.argv.includes("--limpar")) {
@@ -84,6 +116,13 @@ async function principal() {
     process.exit(1);
   }
   const userDe = { A: a.id, B: b.id };
+
+  for (const c of CLIENTES) {
+    await prisma.cliente.create({ data: { ...c, id: `${PREFIXO}${c.id}` } });
+  }
+  await prisma.projeto.create({
+    data: { id: `${PREFIXO}${PROJETO.id}`, nome: PROJETO.nome, clienteId: `${PREFIXO}cli-unica` },
+  });
 
   for (const linha of CENARIO) {
     await prisma.tarefa.create({
@@ -114,6 +153,11 @@ async function principal() {
   console.log(`  \`${PREFIXO}ab\` aparece para os DOIS, com dois ids em \`assigneeIds\`.`);
   console.log(`  \`${PREFIXO}apagada\` e \`${PREFIXO}concluida\` não aparecem para ninguém.\n`);
   console.log("  Ids: " + CENARIO.map((l) => PREFIXO + l.id).join(", ") + "\n");
+  console.log("  -- Fase 2 (CORA-003) --");
+  CLIENTES.forEach((c) => console.log(`  cliente  ${PREFIXO}${c.id}  "${c.nome}"`));
+  console.log(`  projeto  ${PREFIXO}${PROJETO.id}  "${PROJETO.nome}"`);
+  console.log('  Buscar por "Homonima CORA" casa com DUAS -> a previa devolve approvalToken null.');
+  console.log('  Buscar por "Unica CORA" casa com UMA -> a previa devolve token.');
   console.log("  Para apagar tudo: pnpm agente:fixtures --limpar\n");
 }
 

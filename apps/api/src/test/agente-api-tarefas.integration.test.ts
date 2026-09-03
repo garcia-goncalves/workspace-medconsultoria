@@ -289,9 +289,15 @@ describe("isolamento e filtro", () => {
     expect(ids).not.toContain(tarefaConcluida);
   });
 
-  it("a forma da resposta é a do contrato 0.1.0, e prazo ausente vira `null` — nunca prazo inventado", async () => {
+  it("a forma da resposta é a do contrato 0.2.1, e prazo ausente vira `null` — nunca prazo inventado", async () => {
     const corpo = (await chamar(PADRAO, tokenA)).json();
-    expect(corpo.contractVersion).toBe("0.1.0");
+    // ⚠️ **O NÚMERO ESCRITO À MÃO AQUI É A TRAVA, e não um descuido.** Comparar com o
+    // `VERSAO_DO_CONTRATO` importado seria tautologia — passaria sempre. O literal obriga quem
+    // subir a versão da API a parar neste teste, que é o lembrete de subir junto o
+    // `med-coordination/contracts/workspace-agent-v1.openapi.yaml` e o SHA-256 ao lado. Ler o
+    // contrato daqui não serve: ele vive em OUTRO repositório, que o runner da CI não clona.
+    // Foi exatamente assim que a subida para a 0.2.0 (a escrita, CORA-003) foi pega.
+    expect(corpo.contractVersion).toBe("0.2.1");
     expect(corpo).toHaveProperty("nextCursor");
     const item = corpo.items.find((i: { id: string }) => i.id === tarefaExclusivaDeA);
     expect(Object.keys(item).sort()).toEqual(
@@ -496,11 +502,29 @@ describe("achados da revisão", () => {
       .filter((l) => !l.trimStart().startsWith("//"))
       .join("\n");
 
-    const dentroDoConfig = /rateLimit:\s*\{[\s\S]*?keyGenerator:\s*\(req: FastifyRequest\)\s*=>\s*([^,\n]+),/.exec(
-      semComentarios,
-    );
-    expect(dentroDoConfig, "o freio da rota perdeu o keyGenerator").toBeTruthy();
+    // A chave mora dentro de `freioPorIp()`, e é só ali que ela pode morar.
+    const corpoDoFreio = /function freioPorIp\(\)\s*\{[\s\S]*?\n\}/.exec(semComentarios)?.[0];
+    expect(corpoDoFreio, "a função `freioPorIp` sumiu do arquivo").toBeTruthy();
+    const chave = /keyGenerator:\s*\(req: FastifyRequest\)\s*=>\s*([^,\n]+),/.exec(corpoDoFreio ?? "");
+    expect(chave, "o freio perdeu o keyGenerator").toBeTruthy();
     // IGUALDADE, não "contém": `\`${req.ip}|${req.headers[X]}\`` contém "req.ip" e reabre o buraco.
-    expect(dentroDoConfig?.[1]?.trim()).toBe("req.ip");
+    expect(chave?.[1]?.trim()).toBe("req.ip");
+
+    // ⚠️ **E A TRAVA PRECISA COBRIR TODA ROTA, NÃO SÓ EXISTIR NO ARQUIVO.** Na Fase 2 o bloco do
+    // freio virou a função `freioPorIp()`, compartilhada por três rotas — e a régua acima,
+    // sozinha, passaria a aprovar um arquivo em que UMA das rotas esquecesse o `config`: o
+    // `keyGenerator` continuaria lá dentro da função, e a rota descoberta ficaria **sem teto
+    // nenhum**, sem erro e sem log. A substituição é POR ROTA; a conferência também tem de ser.
+    const rotas = [...semComentarios.matchAll(/\bapp\.(get|post)</g)].length;
+    const comFreio = [
+      ...semComentarios.matchAll(/config:\s*\{\s*rateLimit:\s*freioPorIp\(\)\s*\}/g),
+    ].length;
+    expect(rotas, "nenhuma rota encontrada — a régua abaixo não mediria nada").toBeGreaterThan(0);
+    expect(comFreio, `${rotas} rota(s), mas ${comFreio} com o freio por IP`).toBe(rotas);
+
+    // E não pode existir NENHUM outro `rateLimit:` escrito à mão: uma régua própria numa rota
+    // substituiria o freio por IP sem esta trava enxergar. São exatamente um por rota, e todos
+    // eles são o `freioPorIp()` conferido acima.
+    expect([...semComentarios.matchAll(/rateLimit:/g)].length).toBe(rotas);
   });
 });

@@ -130,6 +130,7 @@ model User {
   // API DO AGENTE (ADR-149): delegações emitidas EM NOME desta pessoa, e as que ela emitiu.
   delegacoesDeAgente   AgentDelegation[]      @relation("DelegacaoDoUsuario")
   delegacoesEmitidas   AgentDelegation[]      @relation("DelegacaoEmitidaPor")
+  idempotenciasDeAgente AgentIdempotency[]   @relation("IdempotenciaDoAgente")
 
   @@index([role])
   @@index([clienteId])
@@ -1390,6 +1391,8 @@ model Tarefa {
   projeto      Projeto?            @relation(fields: [projetoId], references: [id], onDelete: SetNull)
   // Uma tarefa pode ser de VÁRIOS responsáveis (tarefa "da equipe").
   responsaveis TarefaResponsavel[]
+  // Reserva de idempotência da API do agente (CORA-003). Some junto se a tarefa for apagada.
+  idempotencias AgentIdempotency[]
 
   @@index([criadoPorId, status])
   @@index([clienteId])
@@ -1732,6 +1735,16 @@ model EmailAnexo {
 /// separadas de propósito: um segredo de serviço vazado não pode virar acesso ao dado de
 /// ninguém sem a delegação da pessoa, e uma delegação vazada não serve a outro programa
 /// (ela é presa a este `AgentClient`).
+/// ⚠️ **O PRISMA NÃO EXPRESSA `COLLATE`, E ESSA DIVERGÊNCIA É PERMANENTE E ESPERADA.**
+///
+/// As colunas de identidade destes três modelos são `utf8mb4_bin` no banco (escrito à mão nas
+/// migrações), e **não há sintaxe no schema para dizer isso**. Consequência: `prisma migrate diff`
+/// e `prisma db pull` vão acusar diferença e propor um `ALTER TABLE ... COLLATE utf8mb4_unicode_ci`
+/// — que **reintroduz exatamente o defeito da ADR-147**, o banco voltando a ignorar maiúscula e
+/// acento na coluna por onde o servidor decide QUEM está chamando.
+///
+/// **NUNCA rode `prisma migrate diff` contra este schema para "consertar" isso.** A CI roda só
+/// `migrate deploy`, que aplica o SQL escrito à mão e preserva a colação.
 model AgentClient {
   id         String    @id @default(cuid())
   nome       String    @unique
@@ -1750,6 +1763,65 @@ model AgentClient {
   updatedAt  DateTime  @updatedAt
 
   delegacoes AgentDelegation[]
+  idempotencias AgentIdempotency[]
+}
+
+/// RESERVA DE IDEMPOTÊNCIA E USO ÚNICO DA APROVAÇÃO — a escrita da Fase 2 (CORA-003).
+///
+/// ⚠️ **UMA LINHA GUARDA DUAS GARANTIAS DIFERENTES, e é de propósito.**
+///
+///  1. `@@unique([clientId, userId, ferramenta, chave])` — a **reserva da chave de
+///     idempotência**. É este índice, e não um nível de isolamento, que torna a reserva
+///     atômica: em `REPEATABLE READ` (o padrão do MySQL/MariaDB) duas conexões que leem e
+///     depois inserem **as duas passam** — o clássico "confere e grava" perdido. O índice
+///     único é imposto pelo motor de armazenamento e é a única coisa que continua valendo
+///     entre conexões diferentes do pool.
+///  2. `@@unique([jti])` — o **uso único do `approvalToken`**. O token é assinado e sem
+///     estado; o que o consome é o `INSERT` deste `jti`. Reapresentar o mesmo token com
+///     OUTRA chave de idempotência colide aqui e é recusado.
+///
+/// ⚠️ **A LINHA NASCE ANTES DA TAREFA, DENTRO DA MESMA TRANSAÇÃO.** É por isso que
+/// `tarefaId` é anulável — e ele nunca é observável nulo de fora: ou a transação inteira
+/// entra (reserva + tarefa + vínculo), ou nada entra. Em dois passos, uma queda entre eles
+/// deixaria a chave gravada sem tarefa (repetir nunca mais criaria) ou a tarefa sem chave
+/// (repetir criaria a segunda) — que é precisamente o que a idempotência existe para impedir.
+///
+/// ⚠️ **O ESCOPO INCLUI O SERVIÇO E A PESSOA, NUNCA A DELEGAÇÃO.** Presa à delegação, a chave
+/// morreria junto com o token — e renovar credencial perderia a idempotência exatamente
+/// depois de uma falha, que é quando a repetição é mais provável.
+///
+/// ⚠️ `ON DELETE CASCADE` no `tarefaId`: se a tarefa deixar de existir de verdade, a reserva
+/// vai junto e a chave volta a valer. Coerente — a tarefa aprovada não existe mais.
+model AgentIdempotency {
+  id       String @id @default(cuid())
+  clientId String
+  userId   String
+  /// Qual capacidade. Hoje só `tasks.create`. Faz parte do escopo da chave para a mesma chave
+  /// não significar duas operações diferentes.
+  ferramenta String @db.VarChar(64)
+  /// A chave escolhida por quem chama (`Idempotency-Key`, UUID v4).
+  /// ⚠️ `utf8mb4_bin`: é por ela que o servidor decide "já fiz isto?" (a lição da ADR-147).
+  chave    String @db.VarChar(191)
+  /// SHA-256 da forma canônica dos argumentos gravados. Mesma chave + argumentos diferentes
+  /// é conflito, e é esta coluna que prova a diferença.
+  argsHash String @db.VarChar(64)
+  /// Identificador do `approvalToken` consumido. `utf8mb4_bin` pelo mesmo motivo.
+  jti      String @db.VarChar(64)
+  tarefaId String?
+  criadaEm DateTime @default(now())
+  /// Validade declarada no contrato: 24 h. Passado o prazo a chave é esquecida pelo expurgo e
+  /// repetir cria tarefa nova.
+  expiraEm DateTime
+
+  client AgentClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User        @relation("IdempotenciaDoAgente", fields: [userId], references: [id], onDelete: Cascade)
+  tarefa Tarefa?     @relation(fields: [tarefaId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, userId, ferramenta, chave], map: "AgentIdempotency_reserva_key")
+  @@unique([jti], map: "AgentIdempotency_jti_key")
+  @@index([expiraEm])
+  @@index([userId])
+  @@index([tarefaId])
 }
 
 /// DELEGAÇÃO REVOGÁVEL: a pessoa autoriza o serviço a agir em nome dela, por um prazo e com

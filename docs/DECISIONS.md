@@ -5374,3 +5374,230 @@ de id e `400` com `limit=101`.
 2. **`vi.spyOn(prisma.<model>, …).mockRestore()` NÃO devolve o delegate do Prisma.** O teste T11, que derruba
    o banco de propósito, deixava o `findMany` quebrado para todos os testes seguintes — e o sintoma aparecia
    **longe da causa**, como se a API tivesse quebrado. A cura é salvar a função e repor à mão, num `finally`.
+
+---
+
+## ADR-150 — A escrita pela API do agente: aprova-se a PRÉVIA, e quem garante a idempotência é o índice único
+
+**Contexto.** A ADR-149 abriu a leitura (`GET /api/agent/v1/tasks`). O ticket **CORA-003** pediu a
+Fase 2: a Cora precisa **criar uma tarefa interna** a partir de um pedido ditado pela Thaís, com
+duas garantias inegociáveis — *"o que ela aprovou é exatamente o que é gravado"* e *"repetir depois
+de uma falha não cria duas tarefas"*.
+
+**Decisão.** Dois endpoints, contrato **0.2.0**, migração aditiva `20260903120000` com **uma**
+tabela nova (`AgentIdempotency`).
+
+### 🚪 SÃO DOIS ENDPOINTS, E JUNTÁ-LOS SERIA O DEFEITO
+
+`POST /tasks/preview` monta a prévia; `POST /tasks` grava. O rascunho do consumidor era montar a
+prévia do lado dele e depois mandar a escrita — e aí seriam **dois artefatos diferentes**: o que a
+Thaís leu e o que foi gravado. Entre um e outro cabe qualquer coisa. Aqui quem monta a prévia é o
+mesmo código que grava, e o `approvalToken` amarra os dois pelo **hash dos argumentos**.
+
+### 🧾 O TOKEN NÃO É CRACHÁ, É RECIBO — E A PRÉVIA NÃO ESCREVE NADA
+
+O `approvalToken` não diz "pode escrever" (quem diz isso é a delegação e o escopo): diz *"foi
+exatamente ISTO que a pessoa leu e aprovou"*. Ele é **assinado e sem estado**, porque a prévia é
+leitura pura e é refeita a cada desambiguação — se cada prévia gravasse uma linha, a tabela
+cresceria para sempre, que é a lição do `ActivityLog` na ADR-148. **O que consome o token é o
+`INSERT` do `jti` na hora de executar**, não a emissão.
+
+### 🔑 A ATOMICIDADE É DO ÍNDICE ÚNICO, NÃO DO NÍVEL DE ISOLAMENTO
+
+Pergunta direta da Cora, e a resposta muda o tratamento do lado dela. Em `REPEATABLE READ` — o
+padrão do MySQL local **e do MariaDB 10.6 de produção** — duas conexões que **leem** *"essa chave
+já existe?"* e depois **inserem** passam as duas: o "confere e grava" perdido. Só `SERIALIZABLE`
+ou um lock explícito impediriam, e os dois custam caro numa rota chamada **em laço por um
+programa**, com pool de 13 conexões que já esgotou em produção.
+
+Então: **`INSERT` primeiro** em `@@unique([clientId, userId, ferramenta, chave])`; a violação
+(`P2002`) é a resposta *"alguém já tem"*, não um erro. O InnoDB segura a segunda chamada no índice
+até a primeira commitar. ⚠️ **Visto reprovando:** trocando **só** esse mecanismo por
+"confere-e-grava", o teste de concorrência (W15) fica vermelho.
+
+⚠️ **Qual dos dois índices estourou se descobre CONSULTANDO, não lendo o `meta` do erro** — o nome
+que o driver devolve muda entre versões e entre MySQL e MariaDB.
+
+### 🔗 RESERVA E TAREFA NA MESMA TRANSAÇÃO, NESTA ORDEM
+
+Chave primeiro, tarefa depois, tudo num `$transaction`. Se a tarefa nascesse antes, uma queda no
+meio deixaria **tarefa sem chave** e repetir criaria a segunda. Se fossem duas transações, uma
+queda entre elas deixaria **chave sem tarefa** e repetir **nunca mais** criaria. É por isso que
+`tarefaId` é anulável — e ele nunca é observável nulo de fora.
+
+### 🎯 O ESCOPO DA CHAVE INCLUI A PESSOA E O SERVIÇO, NUNCA A DELEGAÇÃO
+
+`(serviço, usuário, ferramenta, chave)`. Presa à delegação, a chave morreria junto com o token — e
+renovar credencial perderia a idempotência **exatamente depois de uma falha**, que é quando a
+repetição é mais provável. ⚠️ **Visto reprovando:** tirando a pessoa do escopo, **sete** testes
+ficam vermelhos, entre eles o de isolamento entre usuários.
+
+⚠️ **A chave é escolhida por quem chama e NÃO é derivada do conteúdo.** Derivar do payload é um
+defeito com cara de elegância: duas tarefas legitimamente iguais no mesmo dia (*"ligar para a
+clínica"*) colidiriam, e a segunda se perderia **sem ninguém saber**.
+
+### 🚫 O SERVIDOR NUNCA ESCOLHE O MELHOR PALPITE
+
+Referência de texto com mais de um candidato responde **`200`** com `approvalToken: null` e
+`ambiguidades[]`. `200` e não `400` de propósito: erro faria o consumidor tratar como falha e
+repetir com os mesmos dados, **em laço**. A máquina fez o trabalho dela; o resultado é *"precisa de
+gente"*. Vale **inclusive quando um candidato casa exatamente** com o texto — "Clínica Silva" e
+"Clínica Silva e Souza" são duas clínicas, e preferir a exata continua sendo escolher por alguém.
+Homônimo é onde isso machuca: a tarefa vai para o médico errado e ninguém descobre até o prazo
+vencer.
+
+⚠️ **Cada candidato traz um FATO que o distingue** (CNPJ, situação, cliente do projeto, papel e
+e-mail). Devolver dois ids e dois nomes iguais transferiria a ambiguidade para a Thaís sem lhe dar
+como resolvê-la — a mesma falha, um nível abaixo.
+
+### ⚠️ REFERÊNCIA PEDIDA QUE NÃO RESOLVE TAMBÉM ZERA O TOKEN — decisão nossa, mais estrita
+
+Se a Thaís disse *"tarefa para a Clínica Mooca"* e a clínica não existe, gravar a tarefa **sem
+cliente** seria gravar calado uma coisa diferente da que ela pediu, e ela só descobriria
+procurando a tarefa na ficha errada. Campo **não informado** é outra história (`NAO_INFORMADO` não
+impede o token). **Ausência sempre aparece** com motivo, nunca some do JSON: omissão vira "eu não
+vi", e depois "eu não aprovei isso".
+
+### ⏳ O PRAZO DE 15 MINUTOS É HIGIENE; A DEFESA É REVALIDAR
+
+O token está amarrado ao hash dos argumentos, então um token de ontem executaria exatamente o que
+foi aprovado. **O que muda em quarenta minutos não é o pedido — é o mundo.** No instante de
+executar, as referências aprovadas são resolvidas de novo e os **rótulos** comparados com os que a
+pessoa leu; divergiu, é `409 PRECONDITION_CHANGED` com a lista **campo a campo**. O rótulo entra na
+comparação porque **o nome que ela leu faz parte do que ela aprovou**.
+
+### 🧮 A FORMA CANÔNICA EXISTE PARA UM `409` FALSO NÃO NASCER
+
+Título com `trim`, data em UTC, `responsavelIds` deduplicado e ordenado, chaves em ordem fixa.
+Sem isso, reformatar o JSON produziria "argumento alterado" e o consumidor passaria a **desconfiar
+do servidor por um defeito nosso**.
+
+### 🏷️ O `resolutionHash` VIROU UM SELO, E NÃO É UM HASH CRU
+
+A Cora pediu `mudou: [...]` **com o que saiu e o que entrou**. De um SHA-256 só dá para dizer
+*"está diferente"*. Guardar a resolução anterior do nosso lado exigiria gravar toda prévia — o que
+a prévia não pode fazer. Então a resolução viaja **dentro do próprio valor**, assinada, e continua
+sendo **determinística** (nada de relógio dentro, senão duas prévias iguais dariam valores
+diferentes e a comparação por igualdade acusaria mudança que não existe).
+
+### 🔐 `tasks:write` DEIXOU DE SER INERTE
+
+Na ADR-149 ele era um escopo reconhecido que não habilitava nada, criado só para existir um jeito
+de emitir delegação sem `tasks:read` e exercer o `403`. Hoje é a capacidade de escrita, e habilita
+**a prévia também** — ela existe só para habilitar uma escrita e é ela que devolve o token;
+liberá-la a uma delegação de leitura entregaria a chave da porta a quem não pode abri-la. As duas
+provas de `403` passam a se fazer uma contra a outra.
+
+### 🕳️ DOIS DEFEITOS QUE A PRÓPRIA CORREÇÃO CRIOU — e é a parte que mais ensina
+
+1. **A trava do freio por IP ficou CEGA ao virar função compartilhada.** O bloco `config.rateLimit`
+   virou `freioPorIp()`, usado pelas três rotas. A régua da ADR-149 procurava o `keyGenerator`
+   **em qualquer lugar do arquivo** — e passaria verde com uma rota **sem** o `config`, porque o
+   `keyGenerator` continuaria existindo dentro da função. A rota descoberta ficaria **sem teto
+   nenhum**, sem erro e sem log. Cura: contar rota por rota e exigir o mesmo número de
+   `config: { rateLimit: freioPorIp() }`, mais a proibição de um segundo bloco `rateLimit:`
+   escrito à mão. ⚠️ **Visto pegando**: tirando o freio de uma rota, `3 rota(s), mas 2 com o freio
+   por IP`.
+2. **A regra de criação de tarefa ia virar duas.** A criação precisa acontecer **dentro** da
+   transação da reserva, e o `createTarefa` humano usa o `prisma` global. Copiar a montagem seria
+   o modo de falha da ADR-133 (a mesma regra em dois lugares, e o segundo ficando para trás).
+   Cura: `montarTarefa(db, dados)` extraída, recebendo o cliente do Prisma — usada pelas duas
+   portas.
+
+### ⚖️ O W16 TEM UMA COSTURA DE INJEÇÃO, E ELA ESTÁ DECLARADA
+
+*"Queda entre a reserva e a criação"* **não se prova de outro jeito**: qualquer falha natural que
+se consiga forçar (cliente apagado, responsável desativado, projeto inexistente) é pega antes,
+pela revalidação, e a execução nem chega à transação. `criarTarefaDoAgente` aceita a função de
+criação por parâmetro, com o padrão sendo a de verdade. Sem essa costura o W16 seria **descrito e
+não provado** — e atomicidade é justamente o que não se prova lendo código.
+
+### 🧹 A TABELA TEM EXPURGO
+
+`AgentIdempotency` recebe uma linha por tarefa criada pelo agente. Ela entrou no expurgo diário de
+retenção (`expurgarIdempotenciasVencidas`), com validade de **24 h** declarada no contrato — e uma
+chave vencida que o expurgo ainda não pegou é apagada na hora, para a promessa não depender de a
+rotina ter rodado. Tabela sem expurgo cresce para sempre; foi assim que o `ActivityLog` virou
+achado na ADR-148.
+
+### 🔴 A REVISÃO ESPECIALISTA ACHOU UM BLOQUEANTE, E ELE TAMBÉM NASCEU DESTA CORREÇÃO
+
+**`responsavelIds` era deduplicado para o HASH e não para a GRAVAÇÃO.**
+`formaCanonicaDosArgumentos` já fazia `[...new Set(...)]` ao calcular o `argsHash`; a lista que ia
+para o banco, não. Dois textos que resolvem para a **mesma pessoa** — *"delegue para a Ana e para a
+Ana Paula"*, quando são a mesma conta — passavam pela prévia, ganhavam `approvalToken`, e só
+estouravam no `@@unique([tarefaId, userId])` de `TarefaResponsavel` **dentro da transação**.
+
+⚠️ **O estrago não era o erro, era o DIAGNÓSTICO.** `ehViolacaoDeUnico` captura **qualquer**
+`P2002`, então o `catch` lia aquilo como colisão de chave de idempotência; não achava nem a reserva
+nem o `jti` (a transação inteira tinha revertido), caía no ramo *"corrida com o expurgo"*, tentava
+de novo, falhava igual, e respondia **`503 UPSTREAM_UNAVAILABLE`** registrando *"reserva de
+idempotência sem tarefa"* no log — **alarme de infraestrutura para entrada redundante**. E o
+`approvalToken` ficava **inutilizável para sempre**: qualquer chave nova tropeça na mesma
+duplicata. ⚠️ **Visto reprovando:** `expected 503 to be 201`.
+
+Cura em duas metades: (1) `normalizarResponsavelIds` na fronteira da prévia **e** da execução — o
+hash e a gravação param de discordar sobre o que é "o mesmo pedido"; (2) na segunda tentativa,
+`P2002` que não é nem da chave nem do `jti` passa a ser **relançado** — engolir transformava
+qualquer violação de unicidade de dentro da transação num `503` com a mensagem errada.
+
+### 📌 O PRISMA NÃO EXPRESSA `COLLATE`, E A DIVERGÊNCIA É PERMANENTE
+
+Achado do revisor de banco, documental mas real: as colunas de identidade dos três modelos do
+agente são `utf8mb4_bin` no banco (escrito à mão nas migrações), e **não há sintaxe no schema para
+dizer isso**. `prisma migrate diff` acusaria a diferença e proporia um
+`ALTER TABLE ... COLLATE utf8mb4_unicode_ci` — que **reintroduz exatamente o defeito da ADR-147**.
+O aviso ficou escrito no `schema.prisma`, acima de `AgentClient`. Zero mudança de SQL.
+
+### ⏭️ O QUE A REVISÃO PEDIU E NÃO FOI FEITO, e o porquê
+
+A resolução das referências é sequencial (até 12 idas ao banco em fila numa prévia com dez
+responsáveis) e caberia `Promise.all`. **Não é correção, é latência** — e paralelizar torna a ordem
+de `ambiguidades[]` não determinística, que é justamente o que a Cora lê para perguntar. Fica como
+próximo passo, com a montagem por índice em vez de `push`.
+
+### 🔐 A REVISÃO DE SEGURANÇA: quatro achados, e o contrato subiu para **0.2.1** por causa de um
+
+**Nenhum bloqueante** — não havia caminho para o pedido escolher a pessoa, nem furo no token. Os
+quatro importantes, todos corrigidos com teste:
+
+1. **`%` e `_` são coringas do `LIKE`, e o `contains` do Prisma não os escapa.**
+   `{"texto": "%%"}` passava no mínimo de 2 caracteres e virava `LIKE '%%%'`, que **casa tudo**: a
+   prévia deixava de ser busca e virava **listagem paginável da base** — nome, CNPJ, situação e
+   e-mail dos oito primeiros, mais o `total`. Hoje o texto é escapado e tem teto de 120 caracteres.
+2. **A distinção de PESSOA entregava o diretório da equipe.** Era `PAPEL · e-mail completo` — e
+   isso é **mais permissivo que o lado humano**, onde `listEquipe` devolve só id, nome e avatar, e
+   papel + e-mail de todos só saem por `adminProcedure`. Um funcionário com delegação montava o
+   mapa de quem é ROOT/ADMIN e o e-mail de cada um: insumo direto para phishing dirigido a quem
+   tem mais poder. Hoje é **e-mail mascarado**, que resolve o homônimo sem entregar a lista.
+3. **O teto de responsáveis existia só na prévia**, e a forma canônica deduplica **antes** do
+   hash — então `["u1"]` e `["u1"]` repetido quarenta mil vezes tinham o **mesmo `argsHash`** e
+   passavam pelo `APPROVAL_MISMATCH`, entrando na transação com um corpo de 1 MB de ids. A
+   deduplicação (achado do outro revisor) já mata o caso; o teto entrou como segunda tranca.
+4. **⚠️ O RÓTULO TEM ORIGEM ANÔNIMA, e o contrato calava sobre isso.** `Cliente.nome` nasce do
+   formulário público `/comecar`, que **qualquer pessoa preenche sem autenticação** — o nome da
+   empresa vira o nome do PROSPECT, e é esse texto que volta como `rotulo` e vai direto ao LLM do
+   outro lado. O `docs/API_AGENTE.md` **previu exatamente este dia** e disse que a fronteira "dado,
+   nunca instrução" precisaria estar **no contrato, não num comentário**. Cumprido: a **0.2.1** é
+   uma mudança **só de texto** que declara `previa.*.rotulo`, `ambiguidades[].candidatos[].rotulo` e
+   `divergencias[].{aprovado,atual}.rotulo` como dado inerte, e nasceu a fixture
+   `cora-fx-cli-injecao`. **SHA-256 `19009cb7ac2f847fadbd903bed97697ab1ba03d8cc93bec2c55a16ba3d31b50e`.**
+
+**Mais três, menores, também fechados:** a `Idempotency-Key` era comparada em coluna `utf8mb4_bin`
+com regex `i`, então a mesma chave em caixa diferente criaria **duas** tarefas (hoje é normalizada
+para minúsculas); a forma canônica não normalizava Unicode, e "ç" composto contra decomposto dava
+`APPROVAL_MISMATCH` **falso** (hoje `NFC`); e **escrita feita por um programa em nome de uma pessoa
+não deixava rastro** — a única prova era a linha de idempotência, apagada em 24 h, e depois disso
+nada distinguia da criação feita na tela. Hoje grava `agente.tarefa.criada` no `ActivityLog`, com a
+ação na lista das que **não expiram** (a régua da ADR-128).
+
+**Provas.** typecheck 0 erros · lint limpo · **suíte COMPLETA do `@app/api`: 113 arquivos, 927
+testes, verdes** · **24 testes de integração novos** (Fastify de verdade + MySQL de verdade)
+cobrindo W1–W16 mais oito casos do desenho · **sete sabotagens, todas vermelhas** · a rota
+exercida por **HTTP real** (`curl` contra `localhost:4319`): prévia ambígua `200` sem token,
+prévia resolvida com token, criação `201`, repetição `200` com a mesma tarefa,
+`409 APPROVAL_MISMATCH`, `409 APPROVAL_ALREADY_USED`, `400` sem `Idempotency-Key`, e a tarefa
+criada **aparecendo no `GET /tasks`** da Fase 1.
+
+⚠️ **NÃO ESTÁ NO AR.** A migração está aplicada nos bancos local e de teste; o lote de publicação
+pendente passa a ter **cinco** migrações, todas aditivas.
