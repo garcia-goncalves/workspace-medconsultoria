@@ -13,7 +13,7 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-02 · noite · **v1.6.0 NO AR** — ADR-147/148 na `main`; **ADR-149 na branch `feat/api-do-agente-cora-001`**)
+## Estado atual (2026-09-03 · **v1.6.0 NO AR** — ADR-147/148/149 na `main`, NENHUMA publicada)
 
 > **Leia a ADR-149 em `docs/DECISIONS.md` e `docs/API_AGENTE.md`.**
 
