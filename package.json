@@ -23,6 +23,8 @@
     "acessos": "tsx scripts/verificar-acessos.ts",
     "contas:teste": "tsx scripts/contas-de-teste.ts",
     "senha:rotacionar": "tsx scripts/rotacionar-senha-seed.ts",
+    "agente": "pnpm --filter @app/api exec tsx src/scripts/agente.ts",
+    "agente:fixtures": "pnpm --filter @app/api exec tsx src/scripts/agente-fixtures.ts",
     "doutor": "tsx scripts/doutor.ts",
     "db:generate": "pnpm --filter @app/db generate",
     "db:migrate": "pnpm --filter @app/db migrate",

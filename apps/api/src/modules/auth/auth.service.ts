@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
+import { revogarDelegacoesDoUsuario } from "../agente/agente.service.js";
 import type { LoginInput, SessionUser } from "@app/shared";
 import { hashPassword, verifyPassword, precisaRehash } from "../../lib/password.js";
 import { createSession } from "../../lib/session.js";
@@ -346,6 +347,12 @@ export async function changePassword(
   await prisma.session.deleteMany({
     where: { userId, ...(currentSid ? { NOT: { id: currentSid } } : {}) },
   });
+  // ⚠️ **A TERCEIRA PORTA (ADR-149).** Derrubar a sessão e apagar o token não bastava: a
+  // delegação do agente é uma credencial de leitura que vive fora das duas coisas. Trocar a
+  // senha é, nesta casa, o gesto de "fui comprometido" — e sem esta linha o painel
+  // `SISTEMA → Sessões` mostraria tudo limpo enquanto um token vazado continuava lendo as
+  // tarefas da pessoa até o prazo vencer, por uma via que **nenhuma tela mostra**.
+  await revogarDelegacoesDoUsuario(userId);
   return { ok: true };
 }
 
@@ -507,6 +514,12 @@ export async function redefinirSenha(
     data: { passwordHash: await hashPassword(novaSenha), ativo: true, senhaTrocadaEm: new Date() },
   });
   await prisma.session.deleteMany({ where: { userId } }); // derruba sessões antigas
+  // ⚠️ **A TERCEIRA PORTA (ADR-149).** Derrubar a sessão e apagar o token não bastava: a
+  // delegação do agente é uma credencial de leitura que vive fora das duas coisas. Trocar a
+  // senha é, nesta casa, o gesto de "fui comprometido" — e sem esta linha o painel
+  // `SISTEMA → Sessões` mostraria tudo limpo enquanto um token vazado continuava lendo as
+  // tarefas da pessoa até o prazo vencer, por uma via que **nenhuma tela mostra**.
+  await revogarDelegacoesDoUsuario(userId);
   const sid = await createSession(user.id, { userAgent, ip });
   await prisma.user.update({ where: { id: user.id }, data: { ultimoAcessoEm: new Date() } }).catch(() => {});
   await prisma.activityLog.create({ data: { userId: user.id, acao: "senha_redefinida" } });

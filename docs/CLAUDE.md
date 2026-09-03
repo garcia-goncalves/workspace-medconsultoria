@@ -212,6 +212,22 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 
 99. **O aviso de lead novo parou de virar ruído (ADR-134).** Um lead pelo site mandava e-mail para **toda** conta ADMIN/ROOT ativa — quatro em produção. **Não é esquecimento:** o lead nasce **sem responsável**, então o sistema avisa quem poderia atender. Três mudanças: a **conta de sistema** (`root@`, o ROOT primordial da ADR-89) nunca recebe e-mail operacional, ⚠️ **nem com a preferência ligada à mão**; **"lead novo" nasce ligado só para ADMIN** (o ROOT nominal vê pelo sininho e liga se quiser); e a tela de preferências virou **seis seções** com o aviso de que desligar o e-mail **não** esconde o aviso do sistema. De 4 e-mails por lead para 2. ⚠️ **`padraoDesligadoPara` é lista de EXCEÇÕES com padrão LIGADO** — o oposto de `MODELO_ACEITA_LEAD` e `ACOES_LIBERADAS_PARA_EQUIPE`, e de propósito: lá o risco é fazer demais, aqui é **avisar de menos**. ⚠️ A régua inteira (oito condições) mora em `decidirEmailOperacional` (`@app/shared`), **e a tela lê a mesma função** — duas cópias fariam a tela mentir sobre o que está sendo enviado, o modo de falha da ADR-133. Zero migração — ADR-134.
 
+100. **A porta por onde um programa DE FORA lê dado do Workspace (ADR-149).** Nasceu
+     `GET /api/agent/v1/tasks` — REST/JSON, **fora do tRPC**, com contrato OpenAPI versionado em
+     `med-coordination/contracts/workspace-agent-v1.openapi.yaml` (0.1.0) + SHA-256. O tRPC daqui é
+     transporte do nosso próprio navegador e muda de forma quando refatoramos; entregá-lo à assistente
+     **Cora** faria uma refatoração interna quebrar a assistente **sem quebrar nenhum teste nosso**.
+     ⚠️ **Duas identidades separadas:** `AgentClient` (que programa chama) e `AgentDelegation` (em nome de
+     que pessoa, com escopo, prazo de **24 h** e revogação). Juntá-las faria o segredo do serviço virar,
+     sozinho, acesso a dado de gente. ⚠️ **`userId` no payload não autentica nada** — o `requesterUserId`
+     sai do token e de lugar nenhum mais, e a pessoa é revalidada **a cada chamada**. ⚠️ **A delegação cai
+     junto com a senha:** `changePassword`, `redefinirSenha` e a desativação revogam todas as vivas — sem
+     isso, trocar a senha (o gesto de "fui comprometido") deixaria de pé uma credencial que nenhuma tela
+     mostra. ⚠️ **Indisponibilidade nunca vira lista vazia** (`503`, nunca `200` com `items: []`), porque
+     `{"items":[]}` se lê como *"você está em dia"*. ⚠️ **O freio é por IP**, e não por cabeçalho: chave
+     que quem chama escolhe não é freio (ADR-148 de novo). Detalhe operacional em `docs/API_AGENTE.md` —
+     ADR-149.
+
 ---
 
 ## 7. Regras de negócio (núcleo)
@@ -636,6 +652,55 @@ o que ele leu.
 **Credenciamento reaberto cobra de novo** (decisão do dono). ⚠️ A tentativa nova **não herda**
 `contaId` — quem "consertar" isso estará dando de graça o segundo credenciamento. O aviso na tela é
 que faltava.
+
+---
+
+## 12.14. A API do agente — a Cora falando com o Workspace (ADR-149)
+
+**Detalhe operacional (comandos, cabeçalhos, erros): `docs/API_AGENTE.md`.** O contrato canônico é
+`med-coordination/contracts/workspace-agent-v1.openapi.yaml`, versão **0.1.0**, com o SHA-256 ao
+lado. **O contrato é o arquivo; este texto explica o porquê.**
+
+**Não expor o tRPC foi a primeira decisão, e ela vem antes de todas.** O tRPC daqui fala superjson,
+agrupa chamadas em lote e muda de forma quando refatoramos. Um consumidor externo amarrado a ele
+quebraria numa refatoração interna — **sem quebrar nenhum teste nosso**, porque o outro lado nem
+compila junto. Cada capacidade nova é um endpoint desenhado, com escopo próprio e subida de versão.
+
+**Duas identidades, e juntá-las seria o defeito.** `AgentClient` responde *que programa está
+chamando*; `AgentDelegation`, *em nome de que pessoa*. Separadas, um segredo de serviço vazado não
+lê o dado de ninguém, e **a delegação é presa ao serviço** que a recebeu.
+
+⚠️ **`userId` no corpo, na query ou em cabeçalho livre não autentica nada.** O `requesterUserId`
+sai do token e de lugar nenhum mais — a função que consulta recebe o id que a autenticação
+devolveu, e não existe caminho para o pedido escolher a pessoa. Mesma escolha do `clienteId` do
+`portalProcedure` (ADR-128), pelo mesmo motivo: quem pede é a parte interessada em mentir.
+
+⚠️ **A pessoa é revalidada a cada chamada** — ativa, não excluída, sem acesso revogado, papel
+interno, escopo presente (padrão NEGAR). Delegação de 24 h emitida de manhã não vale depois de o
+acesso cair ao meio-dia.
+
+⚠️ **A delegação cai junto com a senha.** `changePassword`, `redefinirSenha` e a
+desativação/troca de e-mail em `updateUser` chamam `revogarDelegacoesDoUsuario`. Sem isso, trocar a
+senha — que nesta casa é o gesto de *"fui comprometido"* — deixaria de pé uma credencial de leitura
+que **nenhuma tela mostra**, e `SISTEMA → Sessões` apareceria limpo. É a terceira porta da
+revogação, ao lado de sessão e token (ADR-140).
+
+⚠️ **Indisponibilidade nunca vira lista vazia.** `{"items":[]}` só sai com `200`, e significa "não
+há tarefas abertas". Banco fora do ar é `503 UPSTREAM_UNAVAILABLE`, e o assistente tem de dizer
+"não consegui consultar" — dizer *"você está em dia"* é a pior frase que ele pode errar.
+
+⚠️ **O freio é por IP, não por cabeçalho.** `config.rateLimit` numa rota **substitui** o freio
+global de 300/min; chavear pelo cabeçalho de cliente dava um balde novo por requisição a quem o
+rotacionasse. É a ADR-148 pela segunda vez: **freio cuja chave o atacante escolhe não é freio.**
+
+⚠️ **Só `Tarefa`.** Não `Card` (etapa de projeto), não `Evento` (agenda) — o briefing da Cora
+proíbe fundir as três, e a proibição é de negócio. `scope=mine` é *sou responsável*, a mesma régua
+da aba **Comigo**; nunca "tudo o que eu posso ver". E `descricao` **não** é exposta: texto livre
+pode conter dado de cliente (minimização, ADR-141).
+
+**Migração `20260902200000`:** duas tabelas novas, aditiva, sem backfill; reverter são dois
+`DROP TABLE`. Credenciais nascem só pelo comando `pnpm agente`, que **recusa rodar em produção**
+com a mesma régua do `demo-seed` (`podeRodarDemoSeed`).
 
 ---
 

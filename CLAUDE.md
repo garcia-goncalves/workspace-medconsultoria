@@ -13,7 +13,85 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-02 · tarde · **v1.6.0 NO AR** — **ADR-147 e ADR-148 na `main`, NAO publicadas**)
+## Estado atual (2026-09-02 · noite · **v1.6.0 NO AR** — ADR-147/148 na `main`; **ADR-149 na branch `feat/api-do-agente-cora-001`**)
+
+> **Leia a ADR-149 em `docs/DECISIONS.md` e `docs/API_AGENTE.md`.**
+
+### 🤖 NASCEU A API DO AGENTE — a porta por onde a Cora fala com o Workspace (ADR-149, ticket CORA-001)
+
+- **Contexto novo, e ele muda o desenho:** esta e a primeira vez que um programa **de fora** le dado do
+  Workspace. A assistente **Cora** (`cora-med`, outra sessao do Claude Code) precisa ler as tarefas internas da
+  pessoa que fala com ela. A coordenacao entre as duas janelas e por arquivo, no repositorio
+  `med-coordination` (irmao deste) — e **o WORKSPACE nao roda git la**: escreve so os arquivos que possui
+  (`contracts/`, `tickets/CORA-00N/response.md`, `status/workspace.md`, `evidence/workspace/`).
+- **🚪 `GET /api/agent/v1/tasks`, REST/JSON, FORA do tRPC.** O tRPC daqui e o transporte do nosso navegador
+  (superjson, lote, muda de forma quando refatoramos). Entrega-lo a Cora amarraria os dois sistemas: uma
+  refatoracao interna quebraria a assistente **sem quebrar nenhum teste nosso**. O contrato e o arquivo
+  `med-coordination/contracts/workspace-agent-v1.openapi.yaml` (0.1.0) mais o SHA-256 ao lado.
+- **🔑 DUAS IDENTIDADES, e junta-las seria o defeito.** `AgentClient` = que PROGRAMA chama; `AgentDelegation` =
+  em nome de QUE PESSOA. Com uma so, o segredo do servico viraria sozinho acesso a dado de gente. E **a
+  delegacao e presa ao servico**: token vazado nao vale para outro programa.
+- **⚠️ `userId` NO PAYLOAD NAO AUTENTICA NADA, e a trava e estrutural.** O `requesterUserId` sai do token e de
+  lugar nenhum mais — nao existe caminho para o pedido escolher a pessoa (mesma escolha do `clienteId` do
+  `portalProcedure`). A pessoa e revalidada **a cada chamada**: ativa, nao excluida, sem acesso revogado, papel
+  interno, escopo `tasks:read` presente (padrao NEGAR).
+- **🔐 SHA-256 e nao argon2 nos segredos — filho direto da ADR-148.** La, argon2 num caminho anonimo virou o
+  jeito mais barato de derrubar o processo; aqui seria pior, porque a API e chamada **em laco por um programa**.
+  E nao ha o que argon2 resolveria: sao 32 bytes sorteados por nos. Nenhum dos dois e guardado, so o hash.
+- **🚨 INDISPONIBILIDADE NUNCA VIRA LISTA VAZIA.** `{"items":[]}` se le como *"voce esta em dia"* — a frase
+  mais perigosa que um assistente pode dizer errado. Banco fora do ar e `503`. Ha teste que derruba o banco de
+  proposito; com a correcao desligada ele reprova.
+- **⚖️ Usuario desativado e `403`, nao `401`** — `401` faria a Cora pedir delegacao nova em laco, e delegacao
+  nova para pessoa desativada tambem nao existe. Fixado no contrato.
+- **📄 Cursor OPACO E ASSINADO** (HMAC), nao base64: so da para recusar o que da para detectar. Paginacao por
+  chave `(createdAt, id)`, nao por deslocamento — com `skip`, tarefa criada entre duas paginas faz a seguinte
+  **pular uma linha** em silencio. `limit` fora de 1..100 e **erro**, nao e aparado.
+- **⚠️ MIGRACAO `20260902200000`, ADITIVA:** duas tabelas NOVAS (`AgentClient`, `AgentDelegation`). Nenhuma
+  tabela existente muda, nenhum backfill. Reverter sao dois `DROP TABLE`. **Aplicada nos bancos local e de
+  teste; NAO em producao.**
+- **Comandos:** `pnpm agente cliente|delegar|revogar|listar` (recusam rodar em producao).
+- **🕳️ A REVISAO ESPECIALISTA ACHOU CINCO COISAS, E AS CINCO NASCERAM DESTA PROPRIA CORRECAO.**
+  (1) 🔴 **O freio da rota era chaveado por um cabecalho que o atacante escolhe — e, ao existir, DESLIGAVA o
+  freio global de 300/min nesta rota** (o `@fastify/rate-limit` registra UM hook por rota). Um anonimo
+  trocando `X-Agent-Client` ganhava um balde por chamada, teto nenhum, cada uma custando conexao do pool —
+  que aqui e 13 e **ja esgotou em producao**. ⚠️ **E a ADR-148 de novo, e desta vez fui eu quem repetiu.**
+  Cura: freio **por IP sozinho** (chave que ninguem de fora influencia) + freio por credencial **depois** da
+  autenticacao + conferencia de FORMA do cabecalho antes de tocar o banco.
+  (2) 🔑 **A delegacao sobrevivia a TROCA DE SENHA** — a terceira porta da revogacao. Token vazado continuava
+  lendo depois do gesto que nesta casa significa "fui comprometido", e `SISTEMA → Sessoes` mostrava tudo
+  limpo. Hoje `revogarDelegacoesDoUsuario` e chamada nos tres pontos que ja derrubam sessao e token.
+  (3) 🚪 **A trava de producao do comando nao era a que o proprio comentario prometia** (so `NODE_ENV`, e nao
+  `podeRodarDemoSeed`): de qualquer maquina com a URL de producao no ambiente, dava para criar credencial de
+  leitura em nome do ROOT **no banco de producao**. Entrou junto **teto de 24 h** no prazo da delegacao.
+  (4) 🧭 **O cursor nao era preso a pessoa** — nao vazava tarefa, mas ele proprio E o id e a data de uma
+  tarefa de quem o recebeu, e viaja na URL que o log grava. Hoje cursor de A usado por B e `400`.
+  (5) 🗄️ **As colunas de hash nasciam em `utf8mb4_unicode_ci`**, que ignora caixa e acento — na coluna por
+  onde o servidor decide QUEM esta chamando (ADR-147 outra vez). Passaram a `utf8mb4_bin`, e o
+  `@@index([expiraEm])`, que ninguem consulta, saiu.
+- **⚖️ ONDE DISCORDEI DO REVISOR, e a discordancia foi MEDIDA:** ele pediu indice novo em `Tarefa` para a
+  paginacao. O `EXPLAIN` real mostra o otimizador entrando pelo `TarefaResponsavel_userId_idx` (`ref`) e
+  juntando a `Tarefa` pela chave primaria (`eq_ref`) — o `filesort` cai sobre as tarefas **daquela pessoa**,
+  dezenas, nao sobre a tabela. O indice pedido nao seria escolhido e cobraria escrita a toa. **Indice que o
+  plano nao usa e divida com cara de cuidado.**
+- **🐛 DOIS DEFEITOS QUE SO A EXECUCAO MOSTROU:** (1) **`isAllowed` do `@fastify/rate-limit` NAO significa
+  "pode passar"** — so e `true` para lista de permissao; quem responde "estourou?" e `isExceeded`, e ler o
+  nome pelo que ele parece dizer recusava TODA chamada legitima. (2) **`vi.spyOn(prisma.<model>, …)
+  .mockRestore()` NAO devolve o delegate do Prisma** — o teste que derruba o banco de proposito deixava o
+  `findMany` quebrado para os testes seguintes, com o sintoma longe da causa. Salvar e repor a mao.
+- **Provas:** typecheck **6/6** · lint limpo · **33 testes de integracao** exercendo o Fastify de verdade
+  (`app.inject`) contra o MySQL `_test` — os doze casos do CORA-001 mais os cinco achados da revisao ·
+  **vistos reprovando**: 7 com as travas originais sabotadas, e 4 dos 5 novos com as da revisao desligadas ·
+  **621 testes de unidade do `@app/api` verdes** · e a rota exercida por **HTTP real** (`curl` contra o
+  localhost:4319): `200` com item sintetico, `401` sem credencial, `401` com cabecalho sem forma de id e
+  `400` com `limit=101`.
+- ⚠️ **NAO ESTA NO AR e NAO FOI MESCLADA.** Falta a validacao do consumidor: `ready_for_validation` **nao** e
+  `done` — quem fecha o CORA-001 e a CORA, em `acceptance.md`, depois de fazer a requisicao HTTP real do lado
+  dela. O lote de publicacao pendente agora tem **quatro migracoes**.
+- **O que ficou de fora, de proposito:** escrita de tarefa (Fase 2 da Cora, pede previa + idempotencia); tela
+  de gestao de delegacoes (entra com o pareamento de dispositivo da Fase 4); e `Tarefa.descricao`, que **nao**
+  e exposta — texto livre pode conter dado de cliente (minimizacao, ADR-141).
+
+## Estado anterior (2026-09-02 · tarde · **v1.6.0 NO AR** — **ADR-147 e ADR-148 na `main`, NAO publicadas**)
 
 > **Leia a ADR-148 e a ADR-147 em `docs/DECISIONS.md`.**
 
@@ -1398,7 +1476,8 @@ entre proxy e app.
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-147). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-149). Deploy: `docs/DEPLOY.md`.
+   API do agente (integração com a Cora): `docs/API_AGENTE.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas

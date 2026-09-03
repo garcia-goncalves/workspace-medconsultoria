@@ -5244,3 +5244,133 @@ apareceu de novo, agora comigo:
     lados. O porquê está escrito no código, onde alguém tentaria de novo.
   - ⚠️ **Isto é a própria lição da rodada aplicada a mim:** a suíte verde não prova que o sistema está certo,
     mas a suíte **vermelha** provou que a minha correção estava.
+
+---
+
+## ADR-149 — A porta por onde a Cora fala com o Workspace: contrato próprio, e delegação que se revoga
+
+**Data:** 02/09/2026 · **Estado:** implementada na branch `feat/api-do-agente-cora-001`, **não publicada** ·
+**Pedido:** ticket `CORA-001` em `med-coordination`, seção 7 do briefing `CORA-MED-START-HERE.md`.
+
+**O contexto.** Está nascendo a **Cora**, uma assistente que a Thaís vai usar por voz e por celular. A Cora é
+outro programa, em outro repositório, escrito por outra sessão. Ela precisa ler as tarefas internas da pessoa
+que está falando com ela — e essa é a primeira vez que algo **de fora** lê dado do Workspace.
+
+**A decisão que veio antes de tudo: NÃO expor o tRPC.** O tRPC daqui é o transporte do nosso próprio navegador
+— fala `superjson`, agrupa chamadas em lote, muda de forma quando refatoramos e não tem contrato publicável.
+Entregá-lo à Cora amarraria os dois sistemas: uma refatoração interna quebraria a assistente, e o nosso
+compilador não avisaria, porque o outro lado nem compila junto. Nasceu `/api/agent/v1`, REST/JSON, com contrato
+OpenAPI versionado em arquivo — e é **o arquivo** que é o contrato, não este código.
+
+**🔑 SÃO DUAS IDENTIDADES, E JUNTÁ-LAS SERIA O DEFEITO.** `AgentClient` responde *"que programa está
+chamando"*; `AgentDelegation` responde *"em nome de que pessoa"*. Com uma coisa só, o segredo do serviço
+viraria, sozinho, acesso ao dado de gente. Separadas: um segredo de serviço vazado não lê a caixa de ninguém
+sem a delegação, e **a delegação é presa ao serviço que a recebeu** — token da Cora não vale para outro
+programa. Migração `20260902200000`, **duas tabelas novas**; reverter são dois `DROP TABLE`.
+
+**⚠️ `userId` NO PAYLOAD NÃO AUTENTICA NADA — e a trava é estrutural, não uma conferência.** O
+`requesterUserId` sai do token e de lugar nenhum mais: a função que lista tarefas recebe o id que a
+autenticação devolveu, e **não existe caminho** para o pedido escolher a pessoa. É a mesma escolha do
+`clienteId` do `portalProcedure` (ADR-128), pelo mesmo motivo: quem pede é a parte interessada em mentir.
+
+**⚠️ A PESSOA É REVALIDADA A CADA CHAMADA, não só na emissão.** Delegação de duas horas emitida de manhã não
+pode continuar valendo depois de o acesso da pessoa cair ao meio-dia. Conferimos, por requisição: delegação
+viva, não revogada, não expirada · usuário ativo, não excluído, sem acesso revogado · papel interno (conta de
+Portal não lê tarefa da equipe) · escopo `tasks:read` presente, com **padrão NEGAR** — escopo novo nasce
+fechado.
+
+**🔐 SHA-256 E NÃO argon2 NOS SEGREDOS — e a escolha é filha direta da ADR-148.** Lá, pôr argon2 no caminho de
+uma conta inexistente transformou uma defesa de privacidade no jeito mais barato de derrubar o processo. Aqui o
+risco seria pior: a API do agente é chamada **em laço por um programa**, não uma vez por dia por uma pessoa. E
+não há o que argon2 resolveria: estes dois segredos são 32 bytes sorteados por nós (256 bits), sem dicionário a
+percorrer. O que protege é a entropia, não a lentidão. **Nenhum dos dois é guardado** — só o hash; o valor
+bruto existe uma vez, na saída do comando que o emitiu.
+
+**🧭 `scope=mine` É "SOU RESPONSÁVEL", NUNCA "TUDO QUE EU POSSO VER".** É a mesma régua da aba *Comigo* da tela
+humana. A diferença importa para ADMIN e ROOT: com a leitura larga, um assistente pessoal despejaria a fila da
+casa inteira na cara de quem só perguntou "o que eu tenho para hoje?".
+
+**📄 CURSOR OPACO E ASSINADO, não base64.** O contrato promete que o cursor é opaco e que adulterá-lo responde
+`400` — e só dá para **recusar** o que dá para **detectar**. Base64 sozinho não detecta nada: todo palpite é
+"válido". O cursor carrega `(createdAt, id)` — par **total**, porque `id` é único — assinado por HMAC com o
+segredo de sessão. Paginação por chave, não por deslocamento: com `skip`, uma tarefa criada entre duas páginas
+empurra a lista e a página seguinte **pula uma linha**, em silêncio.
+
+**⚠️ `limit` FORA DA FAIXA É ERRO, NÃO É APARADO.** Aparar em silêncio faz o consumidor acreditar que recebeu
+500 itens quando recebeu 100 — e a diferença aparece como "sumiu tarefa", muito longe da causa.
+
+**🚨 INDISPONIBILIDADE NUNCA VIRA LISTA VAZIA, e este é o item de maior consequência humana.** `{"items":[]}`
+se lê como *"você não tem nada pendente"* — a frase mais perigosa que um assistente pode dizer errado. Banco
+fora do ar é `503 UPSTREAM_UNAVAILABLE`, e a Cora tem de dizer "não consegui consultar". Há teste que derruba o
+banco de propósito e exige o `503`; com a correção desligada, ele reprova.
+
+**⚖️ USUÁRIO DESATIVADO É `403`, NÃO `401` — e o ticket deixou a escolha comigo.** `401` significa "sua
+credencial não serve, consiga outra", e é o que a Cora faria: pediria renovação, em laço. Mas delegação nova
+para uma pessoa desativada também não vai existir, então o laço nunca fecha. `403` diz a coisa certa: a
+credencial está boa, quem não pode mais é a **pessoa** — pare e avise gente. Fixado no contrato.
+
+**🕳️ O QUE FICOU DE FORA, DE PROPÓSITO:** não há escrita (criar/editar tarefa) — é a Fase 2 do briefing da
+Cora, e ela pede prévia com aprovação e idempotência; não há tela de gestão de delegações (o comando
+`pnpm agente listar/revogar` cobre o desenvolvimento, e a tela entra com o pareamento de dispositivo da Fase
+4); e `Tarefa.descricao` **não** é exposta — é texto livre que pode conter dado de cliente, e minimização de
+dado é a regra da ADR-141.
+
+**🕳️ A REVISÃO ESPECIALISTA ACHOU CINCO COISAS, E AS CINCO NASCERAM DESTA PRÓPRIA CORREÇÃO** — é a parte
+que mais ensina desta rodada, de novo.
+
+1. **🔴 O FREIO DA ROTA ERA CHAVEADO POR UM CABEÇALHO QUE O ATACANTE ESCOLHE — e, ao existir, ele DESLIGAVA o
+   freio global de 300/min nesta rota.** O `@fastify/rate-limit` registra **um** hook por rota: havendo
+   `config.rateLimit`, o ramo global não roda. Então um anônimo, sem credencial nenhuma, trocando
+   `X-Agent-Client` a cada requisição, ganhava **um balde novo por chamada** — teto nenhum — e cada chamada
+   custava uma conexão do pool, que nesta hospedagem é 13 e **já esgotou em produção**. Um host sozinho
+   derrubava API, site e tempo real. ⚠️ **É a ADR-148 pela segunda vez, e desta vez fui eu quem repetiu o
+   erro:** lá o freio era chaveado em `(ip, e-mail)` e quem escolhia o e-mail era quem atacava. A cura é a
+   mesma: **freio por IP sozinho**, cuja chave ninguém de fora influencia, mais o freio por credencial
+   aplicado **depois** da autenticação, quando o `clientId` já foi provado. E uma conferência de **forma** do
+   cabeçalho antes de tocar o banco, para requisição anônima com lixo não gastar conexão do pool.
+2. **🔑 A DELEGAÇÃO SOBREVIVIA À TROCA DE SENHA — a terceira porta da revogação.** `changePassword`,
+   `redefinirSenha` e `updateUser` derrubam sessão **e** apagam token em voo, justamente porque "derrubar a
+   sessão não basta" (ADR-140). A delegação do agente não estava em nenhum dos três. Consequência real: o
+   token vaza, a pessoa desconfia e troca a senha, `SISTEMA → Sessões` mostra tudo limpo — e o ladrão continua
+   lendo as tarefas dela **por uma via que nenhuma tela mostra**. Hoje há `revogarDelegacoesDoUsuario`, num
+   lugar só, chamada nos três pontos, com teste que a exercita.
+3. **🚪 A TRAVA DE PRODUÇÃO DO COMANDO NÃO ERA A QUE O PRÓPRIO COMENTÁRIO PROMETIA.** O cabeçalho dizia "a
+   mesma do `demo-seed`" e olhava só `NODE_ENV`. A régua da casa (`podeRodarDemoSeed`) recusa também quando o
+   banco apontado **não é local**. Sem isso, de qualquer máquina de desenvolvimento com a URL de produção no
+   ambiente, dava para criar uma credencial de leitura em nome do ROOT **dentro do banco de produção**. ⚠️ O
+   comentário mentindo é parte do defeito: quem lê não vai conferir. Entrou junto um **teto de 24 h** no prazo
+   da delegação — sem ele, `--minutos 5256000` fabricava um acesso de dez anos sem que nada reclamasse.
+4. **🧭 O CURSOR NÃO ERA PRESO À PESSOA.** Não vazava tarefa (o filtro por responsável vale em cima), mas o
+   cursor **é**, ele mesmo, o id e a data de criação de uma tarefa de quem o recebeu — e viaja na URL, que o
+   log do Fastify e o do LiteSpeed gravam. Hoje o `requesterUserId` entra no corpo assinado, e cursor de A
+   usado por B é `400`, em vez de "funciona, e por acaso não vaza".
+5. **🗄️ AS COLUNAS DE HASH NASCIAM NA COLAÇÃO QUE IGNORA CAIXA E ACENTO.** `utf8mb4_unicode_ci` no
+   `tokenHash` — a coluna por onde o servidor decide **quem está chamando**. Hoje o hash sai em hex minúsculo
+   e não haveria colisão; o defeito era a coluna **depender disso**. É a ADR-147 outra vez, e desta vez sobre
+   uma trava de autenticação. Passou a `utf8mb4_bin`. Saiu junto o `@@index([expiraEm])`, que **ninguém
+   consulta**: índice morto é custo de escrita e mentira sobre a intenção do código.
+
+**⚖️ ONDE DISCORDEI DO REVISOR — e a discordância foi MEDIDA, não argumentada.** Ele pediu índice novo em
+`Tarefa` para a paginação por chave, temendo `filesort` quando a tabela crescer. Rodei o `EXPLAIN` contra o
+banco: o otimizador **entra pelo `TarefaResponsavel_userId_idx`** (`ref`) e junta a `Tarefa` pela chave
+primária (`eq_ref`). Ou seja, o `filesort` acontece sobre **as tarefas daquela pessoa**, não sobre a tabela —
+conjunto de dezenas, não de milhões, numa casa de quatro pessoas. O índice pedido não seria escolhido pelo
+otimizador e cobraria escrita em toda criação de tarefa, para nada. **Índice que o plano não usa é dívida com
+cara de cuidado.**
+
+**Provas:** typecheck 6/6 · lint limpo · **33 testes de integração** exercendo o Fastify de verdade
+(`app.inject`) contra o MySQL `_test` — os doze casos que o CORA-001 exige, mais os cinco achados da revisão ·
+**vistos reprovando**: 7 com as travas originais sabotadas (isolamento e o `503`), e 4 dos 5 novos com as
+travas da revisão desligadas · **621 testes de unidade do `@app/api`** verdes · e a rota exercida por **HTTP
+real** contra a aplicação local: `200` com item sintético, `401` sem credencial, `401` com cabeçalho sem forma
+de id e `400` com `limit=101`.
+
+**🐛 DOIS DEFEITOS QUE SÓ A EXECUÇÃO MOSTROU, e os dois valem como regra:**
+
+1. **`isAllowed` do `@fastify/rate-limit` NÃO significa "pode passar".** Ele só é `true` quando a chave está
+   na lista de permissão; o caminho normal devolve **sempre** `isAllowed: false`, e quem responde "estourou?"
+   é `isExceeded`. Lendo o nome pelo que ele parece dizer, a rota recusava **toda** chamada legítima — a
+   suíte pegou na hora (`expected 429 to be 200`).
+2. **`vi.spyOn(prisma.<model>, …).mockRestore()` NÃO devolve o delegate do Prisma.** O teste T11, que derruba
+   o banco de propósito, deixava o `findMany` quebrado para todos os testes seguintes — e o sintoma aparecia
+   **longe da causa**, como se a API tivesse quebrado. A cura é salvar a função e repor à mão, num `finally`.
