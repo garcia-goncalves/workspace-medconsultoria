@@ -17,9 +17,10 @@ name: Emitir credencial do agente
 # dispara este workflow está escolhendo, conscientemente, contorná-la uma vez.
 #
 # ⚠️ O SEGREDO/TOKEN SÓ APARECE UMA VEZ, no log desta execução — exatamente como no terminal.
-# O log é mascarado (`::add-mask::`) e só é visível para quem tem acesso de escrita a este
-# repositório PRIVADO. Ainda assim: copie o valor e feche a aba. Ele NÃO fica em lugar nenhum
-# além do hash que o banco guarda.
+# ⛔ ISSO SÓ É SEGURO SE O REPOSITÓRIO FOR PRIVADO — o primeiro passo do job RECUSA rodar se não
+# for (não confie neste comentário: é o `if: github.event.repository.private == false` que manda).
+# Mesmo privado: copie o valor e feche a aba. Ele NÃO fica em lugar nenhum além do hash que o
+# banco guarda.
 
 on:
   workflow_dispatch:
@@ -73,6 +74,8 @@ concurrency:
   group: credencial-agente-producao
   cancel-in-progress: false
 
+permissions: {}
+
 jobs:
   emitir:
     if: github.event.inputs.confirmar == 'EMITIR'
@@ -84,24 +87,47 @@ jobs:
       NODE_VENV: ~/nodevenv/domains/workspace.medconsultoria.com.br/public_html/20/bin/activate
 
     steps:
+      # ⛔ TRAVA ESTRUTURAL, NÃO COMENTÁRIO (achado da revisão de segurança, 04/09/2026).
+      # Este workflow IMPRIME CREDENCIAL DE PRODUÇÃO NO LOG da execução — mesmo risco aceito que
+      # o comando local (`pnpm agente ...`) já assume ao mostrar o segredo uma vez na tela. Isso só
+      # é seguro se só quem tem escrita neste repositório enxergar o log. Em repositório PÚBLICO, o
+      # log do Actions é lido por qualquer pessoa da internet, sem login — a 1ª versão deste arquivo
+      # presumia "repositório privado" só no comentário, e o revisor confirmou por API que
+      # `garcia-goncalves/workspace-medconsultoria` está `public`. Por isso a conferência é feita
+      # em código, não em prosa, e para o job inteiro ANTES de gastar uma conexão SSH.
+      - name: Recusar rodar em repositório público
+        if: github.event.repository.private == false
+        run: |
+          echo "::error::Este workflow imprime credencial de produção no log da execução, e ESTE REPOSITÓRIO É PÚBLICO — qualquer pessoa da internet leria o token. Torne o repositório privado (Settings → General → Danger Zone → Change visibility) antes de rodar este workflow. Nada foi executado."
+          exit 1
+
       # Conferência cedo, com mensagem clara — antes de gastar uma conexão SSH com um pedido
-      # que já se sabe malformado.
+      # que já se sabe malformado. Os inputs entram por variável de ambiente, nunca interpolados
+      # dentro da string do `run:` — achado da revisão: `${{ inputs.nome }}` cru dentro de
+      # `[ -n "${{ inputs.nome }}" ]` deixava injetar comando no RUNNER com um nome do tipo
+      # `cora$(curl ... | bash)` (o `$(...)` do bash expande ANTES do `[ -n ... ]` rodar).
       - name: Validar os argumentos da ação escolhida
+        env:
+          ACAO: ${{ inputs.acao }}
+          ARG_NOME: ${{ inputs.nome }}
+          ARG_CLIENT_ID: ${{ inputs.clientId }}
+          ARG_EMAIL: ${{ inputs.email }}
+          ARG_DELEGACAO: ${{ inputs.delegacao }}
         run: |
           set -euo pipefail
-          case "${{ inputs.acao }}" in
+          case "$ACAO" in
             cliente)
-              [ -n "${{ inputs.nome }}" ] || { echo "::error::Ação 'cliente' exige --nome."; exit 1; }
+              [ -n "$ARG_NOME" ] || { echo "::error::Ação 'cliente' exige --nome."; exit 1; }
               ;;
             delegar)
-              [ -n "${{ inputs.clientId }}" ] || { echo "::error::Ação 'delegar' exige clientId."; exit 1; }
-              [ -n "${{ inputs.email }}" ] || { echo "::error::Ação 'delegar' exige email."; exit 1; }
+              [ -n "$ARG_CLIENT_ID" ] || { echo "::error::Ação 'delegar' exige clientId."; exit 1; }
+              [ -n "$ARG_EMAIL" ] || { echo "::error::Ação 'delegar' exige email."; exit 1; }
               ;;
             revogar)
-              [ -n "${{ inputs.delegacao }}" ] || { echo "::error::Ação 'revogar' exige delegacao (o id)."; exit 1; }
+              [ -n "$ARG_DELEGACAO" ] || { echo "::error::Ação 'revogar' exige delegacao (o id)."; exit 1; }
               ;;
             listar) ;;
-            *) echo "::error::Ação desconhecida: ${{ inputs.acao }}"; exit 1 ;;
+            *) echo "::error::Ação desconhecida: $ACAO"; exit 1 ;;
           esac
 
       - name: Abrir a conexão com o servidor
@@ -185,10 +211,16 @@ jobs:
 
           SAIDA="$(ssh -o LogLevel=ERROR deploy "$COMANDO_REMOTO" 2>&1)" && CODIGO=0 || CODIGO=$?
 
-          # Mascara qualquer coisa que pareça segredo/token ANTES de imprimir — defesa a mais,
-          # mesmo o log já sendo só de quem tem acesso de escrita a este repositório privado.
+          # Mascara ANTES de imprimir uma linha sequer — a régua é a saída REAL de
+          # `apps/api/src/scripts/agente.ts` (achado da revisão: a 1ª versão procurava
+          # "Bearer: valor", com dois-pontos; o script imprime "Bearer valor", com ESPAÇO —
+          # a máscara nunca disparava e o token ia para o log em claro).
           while IFS= read -r LINHA; do
-            VALOR="$(printf '%s\n' "$LINHA" | grep -oE '(x-agent-secret|Bearer): *\S+' | awk '{print $NF}' || true)"
+            case "$LINHA" in
+              *"x-agent-secret:"*) VALOR="${LINHA##*x-agent-secret: }" ;;
+              *"Authorization: Bearer "*) VALOR="${LINHA##*Authorization: Bearer }" ;;
+              *) VALOR="" ;;
+            esac
             [ -n "$VALOR" ] && echo "::add-mask::$VALOR"
           done <<< "$SAIDA"
 
