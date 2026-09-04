@@ -140,9 +140,31 @@ ação na lista das que **não expiram** (a régua da ADR-128).
 - ✅ **MESCLADA na `main` em 03/09: PR #180 → `c8affb1`** (squash), com a CI **3/3 verde**
   (`build-test` 2m38s · `integration` 1m37s · `e2e` 8m01s, execução `33783690482`). A branch
   `feat/api-do-agente-escrita-adr-150` foi apagada; o SHA a citar é o `c8affb1`, não o `10de1c4`.
-- ⚠️ **NÃO ESTÁ NO AR.** Mesclado não é publicado. `ready_for_validation` **não** é `done`: quem fecha o CORA-003 é a CORA,
-  em `acceptance.md`, depois de fazer as requisições do lado dela. O lote de publicação pendente
-  tem agora **CINCO** migrações, todas aditivas.
+- ✅ **O CORA-003 ESTÁ `done` — a CORA validou contra o `:4319` em 03/09, e passou 28 de 28, em duas
+  rodadas.** Registro dela em `med-coordination`: `tickets/CORA-003/acceptance.md` e
+  `evidence/cora/2026-09-03-fase-02-escrita.md` (`e0ae08f`). **A prova que mais importava é a W15
+  vista de fora:** duas criações **em paralelo** com a mesma `Idempotency-Key` deram **uma `201
+  created=true` e uma `200 created=false`, a mesma tarefa** — a atomicidade do índice único
+  funciona para quem chama, não só para o nosso teste. Também confirmados de fora:
+  `APPROVAL_MISMATCH` recusando **sem executar o novo**, `APPROVAL_ALREADY_USED`,
+  `IDEMPOTENCY_CONFLICT` **sem criar a segunda tarefa**, chave em caixa alta voltando `200
+  created=false` (a normalização para minúsculas trabalhando), `403` na prévia **e** na criação com
+  delegação só de leitura, e `previousResolutionHash` desconhecido dando `400` em vez de "sem
+  comparação". ⚠️ **O bloqueante do `responsavelIds` duplicado está fechado visto de fora**: `201`,
+  um vínculo, sem erro — era o que respondia `503` com alarme de infraestrutura.
+- ⚠️ **TRÊS COISAS NÃO FORAM EXERCIDAS, e estão DECLARADAS no aceite em vez de arredondadas:** o
+  `429` dos freios, o `503` com banco caído, e — a maior — **`PRECONDITION_CHANGED` com
+  `divergencias[]` reais**. Esta última exige **renomear uma fixture NOSSA entre a prévia e a
+  criação**, dentro da janela de 15 min, e a CORA não toca neste repositório de propósito. O
+  tratamento existe e é testado localmente, com as três frases distintas (`ROTULO_MUDOU`,
+  `NAO_ENCONTRADO`, `SEM_ACESSO`). **Fechar a lacuna é um comando daqui no meio da rodada dela**,
+  combinando horário — não foi pedido, ficou registrado.
+- ⚠️ **NÃO ESTÁ NO AR.** Mesclado não é publicado, e validado pelo consumidor também não é
+  publicado. O lote de publicação pendente tem **CINCO** migrações, todas aditivas.
+- **🧪 Resíduo no banco LOCAL, de propósito:** as duas rodadas da CORA deixaram tarefas com título
+  começando em `SYNTH-verificacao-fase-02`. É o banco de desenvolvimento, que os e2e já enchem de
+  resíduo; apagar é um `LIKE`. As credenciais emitidas para a rodada (cliente
+  `cora-verificacao-fase2`) **expiram sozinhas**, e o segredo não é recuperável.
 - **O que ficou de fora, de propósito:** editar, concluir e excluir tarefa; `Card` e `Evento`; e
   `Tarefa.descricao`, que **não** é exposta **nem aceita** — texto livre pode conter dado de
   cliente (minimização, ADR-141).
