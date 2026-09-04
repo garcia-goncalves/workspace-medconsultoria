@@ -60,8 +60,12 @@ export function PortalServicosPage() {
       {/* ⚠️ Esta consulta leva ~12 s em produção. Sem um lugar reservado, a tela parecia
           pronta e um card inteiro caía do céu doze segundos depois, empurrando o que o
           cliente estava lendo. A silhueta diz "vem mais coisa" e o conteúdo chega no lugar
-          que já estava guardado para ele. */}
-      {catalogo.isLoading && (
+          que já estava guardado para ele.
+          ⚠️ Achado do react-reviewer no PR #191: o gate precisa esperar TAMBÉM
+          `meusServicos` — se `catalogo` responder antes dela, o card desenharia com
+          `jaContratados` vazio e mostraria como "disponível" um serviço que a clínica já
+          paga, na janela entre as duas respostas. */}
+      {(catalogo.isLoading || meusServicos.isLoading) && (
         <Card>
           <div className="space-y-3 p-4">
             <Skeleton className="h-4 w-44" />
@@ -72,7 +76,7 @@ export function PortalServicosPage() {
       )}
 
       {/* Autosserviço: o cliente escolhe os serviços que precisa, e o pedido vira oportunidade no funil */}
-      {catalogo.data && catalogo.data.length > 0 && (
+      {!meusServicos.isLoading && catalogo.data && catalogo.data.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>
