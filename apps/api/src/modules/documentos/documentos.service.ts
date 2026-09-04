@@ -1158,7 +1158,7 @@ const SYSTEM_IA =
 
 function exigirIA() {
   if (!isAiEnabled) {
-    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "IA não configurada (OPENAI_API_KEY)." });
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "IA não configurada (GEMINI_API_KEY)." });
   }
 }
 

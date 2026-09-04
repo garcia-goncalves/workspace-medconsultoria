@@ -122,7 +122,7 @@ export const documentosRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(({ input }) => documentos.removeDocumento(input.id)),
 
-  // ── IA (OpenAI) — a disponibilidade é consultada via `ia.disponivel` ──
+  // ── IA (Gemini) — a disponibilidade é consultada via `ia.disponivel` ──
   gerarComIA: funcionarioProcedure
     .input(gerarComIASchema)
     .mutation(({ input, ctx }) => documentos.gerarComIA(input, ctx.user.id)),

@@ -51,7 +51,7 @@ Regra de ouro de segurança: **default-deny**. Nenhum endpoint/mutação sem che
 | Auth         | Cookie httpOnly assinado + argon2id    | Sem token em localStorage (anti-XSS)           |
 | Hospedagem   | TineHost / DirectAdmin (Node + MySQL)  | Requisito                                      |
 
-**Proibido:** .NET. **IA:** `AiService` real, provedor **OpenAI (gpt-4o-mini)** — usada em Documentos (gerar/melhorar/resumir), **transcrição de áudio** (`whisper-1`, em Ata/Pauta/Gerar com IA) e no assistente de busca; aprovação humana sempre obrigatória (a IA nunca envia documento).
+**Proibido:** .NET. **IA:** `AiService` real, provedor **Gemini (`gemini-3.6-flash`, ADR-151)** — REST direto sem SDK — usada em Documentos (gerar/melhorar/resumir), **transcrição de áudio** (multimodal do próprio Gemini, ainda não validada com áudio real) e no assistente de busca; aprovação humana sempre obrigatória (a IA nunca envia documento).
 
 ---
 
@@ -110,7 +110,7 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 3. Deploy por SSH + rsync (TineHost não tem Git no servidor).
 4. Sessão por cookie httpOnly (não JWT em localStorage).
 5. IDs `cuid` não-sequenciais.
-6. IA (`AiService`) real sobre **OpenAI** — decisão de custo (Claude/Anthropic era a recomendação original); aprovação humana sempre.
+6. IA (`AiService`) real sobre **Gemini** (trocou de OpenAI em 04/09/2026, ADR-151 — decisão de custo, mesma config já provada pela Cora); aprovação humana sempre.
 7. Chat adiado (na origem); notificações real-time cedo — chat entregue na Fase 6.
 8. Busca global interna (módulo `busca`) + assistente de IA (`ia.perguntar`) dentro da paleta de busca (Ctrl+K).
 9. Autocomplete (`Combobox`) como padrão de seleção de entidades (cliente em projeto/conta/evento/documento/portal).

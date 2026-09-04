@@ -23,7 +23,7 @@ export function perguntar(pergunta: string): Promise<string> {
 // ── Sugestões de IA (a IA propõe; o usuário aprova) ──────────────
 
 function exigirIA() {
-  if (!isAiEnabled) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "IA não configurada (OPENAI_API_KEY)." });
+  if (!isAiEnabled) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "IA não configurada (GEMINI_API_KEY)." });
 }
 
 const SYSTEM_SUGESTAO =

@@ -5,7 +5,7 @@ import { redigirDadoPessoal, restaurarDadoPessoal } from "@app/shared";
 
 /**
  * A trava do item 1 da conformidade (LGPD): NENHUM dado pessoal identificável sai
- * daqui para a OpenAI. A lição da ADR-140 é que a segunda porta é a que fura a
+ * daqui para o Gemini. A lição da ADR-140 é que a segunda porta é a que fura a
  * regra — por isso a peneira mora na PORTA ÚNICA (`lib/ai.ts`), e não em cada
  * lugar que monta contexto.
  *
@@ -74,7 +74,7 @@ describe("redigirDadoPessoal — o que sai daqui para a IA", () => {
   });
 });
 
-describe("a porta única para a OpenAI", () => {
+describe("a porta única para o Gemini", () => {
   const ai = readFileSync(resolve(__dirname, "../lib/ai.ts"), "utf8");
 
   it("gerarRascunho peneira a entrada e restaura a saída", () => {
