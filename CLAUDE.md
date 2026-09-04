@@ -13,7 +13,36 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-03 · **v1.6.0 NO AR** — ADR-147/148/149/150 as QUATRO na `main`, NENHUMA publicada)
+## Estado atual (2026-09-04 · **v1.7.0 NO AR** — ADR-147/148/149/150 publicadas, as QUATRO)
+
+> **Leia a ADR-150 em `docs/DECISIONS.md` e a seção da Fase 2 em `docs/API_AGENTE.md`.**
+
+### 🚀 O LOTE DO CORA-003 FOI PUBLICADO — a API do agente (leitura E escrita) está no ar
+
+- **✅ NO AR DESDE 04/09/2026 às 14:03 (11:03 no servidor) — a v1.7.0.** Publicação
+  `33878723364`, disparada por `workflow_dispatch` (`gh workflow run deploy.yml --ref main -f
+  confirmar=PUBLICAR`, e desta vez **não fui barrado**). Antes de tocar no servidor, a suíte
+  completa rodou de novo e verde (`build-test` · `integration` · `e2e in 7m30s`); no servidor,
+  os **7/7 passos** verdes: `1b/7` confirmou o artefato inteiro e limpo, `5/7` aplicou as
+  **cinco migrações pendentes** (`20260902000000` nome único de serviço · `20260902120000`
+  consentimento da assinatura · `20260902130000` `Conta.origemServicoId` · `20260902200000`
+  `AgentClient`/`AgentDelegation` · `20260903120000` `AgentIdempotency`), `6/7` e `7/7`
+  confirmaram o reinício, e o **smoke test do próprio workflow** respondeu verde. Etiqueta
+  **`v1.7.0`** criada e enviada antes do disparo (aponta para `6f2d52a`, o mesmo código já
+  testado em `c8affb1` — o commit entre os dois foi só documentação).
+- **🔎 CONFERIDO DE FORA, por HTTP real, depois do deploy (não só o smoke test do workflow):**
+  `https://workspace.medconsultoria.com.br/` → `200`; `/health` → `{"status":"ok"}`;
+  `/credenciamentos` → `200`; **`GET /api/agent/v1/tasks` sem credencial → `401`** — a prova
+  de que a API do agente (leitura, ADR-149, e agora também escrita, ADR-150) **existe e está
+  viva** em produção, não só localmente.
+- **⚠️ Ainda depende de alguém: nenhuma credencial de produção foi emitida para a Cora.** Os
+  comandos `pnpm agente cliente|delegar` recusam rodar fora desta máquina por desenho — quem
+  gera o `AgentClient` e a `AgentDelegation` de produção é uma execução própria, à parte da
+  publicação. Até isso acontecer, a Cora continua falando só com `localhost:4319`.
+- **📮 Aviso deixado em `med-coordination/status/workspace.md`** antes e depois da publicação,
+  para a sessão da Cora não presumir que a API do agente segue restrita a esta máquina.
+
+## Estado anterior (2026-09-03 · **v1.6.0 NO AR** — ADR-147/148/149/150 as QUATRO na `main`, NENHUMA publicada)
 
 > **Leia a ADR-150 em `docs/DECISIONS.md` e a seção da Fase 2 em `docs/API_AGENTE.md`.**
 

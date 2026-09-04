@@ -655,10 +655,15 @@ que faltava.
 
 ---
 
-## 12.14. A API do agente — a Cora falando com o Workspace (ADR-149)
+## 12.14. A API do agente — a Cora falando com o Workspace (ADR-149/150)
+
+> ✅ **NO AR desde 04/09/2026 (v1.7.0), leitura E escrita.** As cinco migrações do lote (ADR-147 a
+> 150) foram aplicadas em produção; confirmado por HTTP real, de fora: `GET /api/agent/v1/tasks`
+> sem credencial responde `401`. ⚠️ Nenhuma credencial de produção foi emitida ainda — os comandos
+> `pnpm agente cliente|delegar` recusam rodar fora desta máquina, de propósito.
 
 **Detalhe operacional (comandos, cabeçalhos, erros): `docs/API_AGENTE.md`.** O contrato canônico é
-`med-coordination/contracts/workspace-agent-v1.openapi.yaml`, versão **0.1.0**, com o SHA-256 ao
+`med-coordination/contracts/workspace-agent-v1.openapi.yaml`, versão **0.2.1**, com o SHA-256 ao
 lado. **O contrato é o arquivo; este texto explica o porquê.**
 
 **Não expor o tRPC foi a primeira decisão, e ela vem antes de todas.** O tRPC daqui fala superjson,

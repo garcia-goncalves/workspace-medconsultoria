@@ -64,7 +64,7 @@ reorganizamos o código por dentro, e a assistente quebraria **sem quebrar nenhu
 
 Então existe uma porta separada, `/api/agent/v1`, com um contrato escrito num arquivo:
 
-- **O contrato:** `med-coordination/contracts/workspace-agent-v1.openapi.yaml` (versão `0.2.0`), com
+- **O contrato:** `med-coordination/contracts/workspace-agent-v1.openapi.yaml` (versão `0.2.1`), com
   o SHA-256 ao lado. É o equivalente ao Swagger, só que num arquivo versionado em vez de uma tela.
 - **Como operar:** `docs/API_AGENTE.md` — comandos, cabeçalhos, erros.
 - **O porquê de cada escolha:** ADR-149 (a leitura) e ADR-150 (a escrita) em `docs/DECISIONS.md`.
@@ -76,7 +76,11 @@ clínicas com nome parecido, o sistema **não escolhe**: ele devolve as duas com
 distingue (o CNPJ, por exemplo) para a Cora perguntar. E se a mesma criação for enviada duas vezes
 por uma falha de rede, **a segunda não cria tarefa nova** — devolve a primeira.
 
-⚠️ **Não está no ar.** A porta existe no seu computador; o servidor continua na versão anterior.
+✅ **NO AR desde 04/09/2026, na v1.7.0.** `https://workspace.medconsultoria.com.br/api/agent/v1/tasks`
+responde (`401` sem credencial, `200` com uma delegação válida). ⚠️ **Nenhuma credencial de
+PRODUÇÃO foi emitida ainda para a Cora** — os comandos `pnpm agente cliente|delegar` recusam rodar
+fora desta máquina, e emitir para produção é uma execução própria, à parte da publicação. Até lá a
+Cora continua falando só com `localhost:4319`.
 
 ---
 
