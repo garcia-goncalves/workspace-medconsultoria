@@ -46,6 +46,15 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   `seed.js`), porque o comando usa `tsx` — `devDependency`, ausente no servidor. ⚠️ **Só funciona
   depois do PRÓXIMO deploy** (o `scripts/agente.js` ainda não existe em produção — só entra no ar
   no primeiro deploy depois deste commit). Decisão de disparar de verdade continua sendo do dono.
+- **🔓 O REPOSITÓRIO É PÚBLICO, E CONTINUA — DECISÃO DO DONO (04/09/2026), NÃO DESCUIDO.** A
+  revisão de segurança achou o repositório `public` e travou o workflow de credencial para
+  recusar rodar enquanto isso não mudar (imprimir segredo de produção num log público seria
+  grave). Perguntado, o dono escolheu **manter público**: a conta é do plano **Team**, e Actions
+  em repositório público é grátis/ilimitado — privado passaria a consumir a cota
+  **compartilhada** de 3.000 min/mês entre os 15 repositórios da conta, a mesma que este projeto
+  sozinho já estourou em 116% no passado (ADR-121). **Não torne este repositório privado** por
+  causa do achado acima; se um dia for preciso emitir a credencial de verdade, a correção é mudar
+  *como* o segredo é entregue (nunca pelo log do Actions), não a visibilidade do repositório.
 - **📮 Aviso deixado em `med-coordination/status/workspace.md`** antes e depois da publicação,
   para a sessão da Cora não presumir que a API do agente segue restrita a esta máquina.
 
