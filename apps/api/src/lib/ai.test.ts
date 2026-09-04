@@ -96,4 +96,56 @@ describe("gerarRascunho (Gemini, generateContent)", () => {
     const { aiService } = await import("./ai.js");
     await expect(aiService.gerarRascunho("s", "u")).rejects.toThrow(/SAFETY|resposta vazia|bloque/i);
   });
+
+  it("erro de rede (fetch lança antes de obter resposta) não vaza a chave na mensagem", async () => {
+    vi.resetModules();
+    process.env.GEMINI_API_KEY = "chave-dummy-que-nao-pode-vazar";
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed: ENOTFOUND")));
+
+    const { aiService } = await import("./ai.js");
+    await expect(aiService.gerarRascunho("s", "u")).rejects.toThrow(/rede/i);
+    try {
+      await aiService.gerarRascunho("s", "u");
+    } catch (e) {
+      expect(String((e as Error).message)).not.toContain("chave-dummy-que-nao-pode-vazar");
+    }
+  });
+});
+
+describe("transcrever (Gemini, áudio multimodal)", () => {
+  it("usa o mimetype REAL recebido — nunca 'audio/mpeg' fixo (achado da revisão)", async () => {
+    vi.resetModules();
+    process.env.GEMINI_API_KEY = "chave-de-teste";
+
+    const fetchMock = vi.fn().mockResolvedValue(respostaGemini([{ text: "isso foi dito no áudio" }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { aiService } = await import("./ai.js");
+    const buffer = Buffer.from("audio fake");
+    const resultado = await aiService.transcrever(buffer, "audio/webm");
+
+    expect(resultado).toBe("isso foi dito no áudio");
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const corpo = JSON.parse(init.body as string);
+    const parteInline = corpo.contents[0].parts.find((p: { inlineData?: unknown }) => p.inlineData);
+    expect(parteInline.inlineData.mimeType).toBe("audio/webm");
+    expect(parteInline.inlineData.data).toBe(buffer.toString("base64"));
+  });
+
+  it("remove o parâmetro de codec (';codecs=opus') que o MediaRecorder do navegador anexa", async () => {
+    vi.resetModules();
+    process.env.GEMINI_API_KEY = "chave-de-teste";
+
+    const fetchMock = vi.fn().mockResolvedValue(respostaGemini([{ text: "ok" }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { aiService } = await import("./ai.js");
+    await aiService.transcrever(Buffer.from("x"), "audio/webm;codecs=opus");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const corpo = JSON.parse(init.body as string);
+    const parteInline = corpo.contents[0].parts.find((p: { inlineData?: unknown }) => p.inlineData);
+    expect(parteInline.inlineData.mimeType).toBe("audio/webm");
+  });
 });

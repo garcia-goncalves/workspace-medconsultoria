@@ -109,7 +109,11 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
     if (!isAiEnabled) return reply.code(412).send({ error: "IA não configurada (GEMINI_API_KEY)." });
 
     let buffer: Buffer | null = null;
-    let filename = "audio.webm";
+    // ⚠️ O mimetype REAL do arquivo (achado do revisor de TS): a gravação pelo microfone do
+    // navegador manda WebM/Opus, não MP3 — mandar "audio/mpeg" fixo para o Gemini faria ele
+    // tentar decodificar bytes Opus como MP3. `mimetype` vai até `aiService.transcrever` para
+    // o Gemini receber o formato certo em `inlineData.mimeType`.
+    let mimetype = "audio/webm";
     for await (const part of req.parts()) {
       if (part.type === "field") continue;
       if (part.fieldname !== "audio") {
@@ -120,7 +124,7 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
         part.file.resume();
         return reply.code(415).send({ error: "Envie um arquivo de áudio." });
       }
-      filename = part.filename || "audio.webm";
+      mimetype = part.mimetype;
       const chunks: Buffer[] = [];
       for await (const c of part.file) chunks.push(c as Buffer);
       if (part.file.truncated) return reply.code(413).send({ error: "Áudio muito grande (máx. 20 MB)." });
@@ -129,7 +133,7 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
     if (!buffer || buffer.length === 0) return reply.code(400).send({ error: "Nenhum áudio enviado." });
 
     try {
-      const texto = await aiService.transcrever(buffer, filename);
+      const texto = await aiService.transcrever(buffer, mimetype);
       return reply.send({ texto });
     } catch {
       return reply.code(500).send({ error: "Não consegui transcrever o áudio. Tente de novo." });
