@@ -5601,3 +5601,53 @@ criada **aparecendo no `GET /tasks`** da Fase 1.
 
 ⚠️ **NÃO ESTÁ NO AR.** A migração está aplicada nos bancos local e de teste; o lote de publicação
 pendente passa a ter **cinco** migrações, todas aditivas.
+
+## ADR-151 — A IA trocou de provedor: OpenAI virou Gemini, e a porta única não mudou de lugar
+
+**Pedido do dono (04/09/2026):** *"quero que o Workspace tbm use o Gemini... com a mesma api do
+CORA se possível"*. A Cora (`cora-med`, outra sessão) já usa o Gemini gratuito há dias, num motor
+de teste (ADR 0003 de lá), e o dono quis a mesma economia aqui — o Gemini é gratuito no volume
+desta aplicação; a OpenAI cobrava por token.
+
+- **🔑 A ÚNICA COISA QUE MUDOU FOI QUEM RECEBE O TEXTO JÁ PENEIRADO.** `apps/api/src/lib/ai.ts`
+  continua sendo a **porta única** (ADR-141): `redigirDadoPessoal`/`restaurarDadoPessoal` entram e
+  saem exatamente como antes, no mesmo lugar. Trocar o provedor **dentro** da porta única é
+  precisamente o que a ADR-140/141 desenharam para ser barato — se a peneira estivesse espalhada
+  pelos pontos de chamada, esta troca teria sido uma reescrita de 12 arquivos, não de um.
+- **🌐 SEM SDK NOVO, DE PROPÓSITO.** A Cora não trouxe SDK do Gemini para o motor dela (o servidor
+  de lá já não usa framework HTTP nenhum) e chama `generateContent` cru com `fetch`. Aqui é o
+  mesmo raciocínio: `openai` (a dependência inteira) saiu do `package.json`, e a chamada é
+  `fetch` puro contra `https://generativelanguage.googleapis.com/v1beta/models/<modelo>:generateContent`.
+  Um pacote a menos no bundle de produção.
+- **🤖 O MODELO (`gemini-3.6-flash`) FOI ESCOLHIDO POR CHAMADA REAL, NÃO POR DOCUMENTAÇÃO** — achado
+  da Cora, reaproveitado aqui: `gemini-3.8-flash` devolvia `503` (sobrecarga, três tentativas) e
+  `gemini-2.5-flash` devolvia `404` (aposentado; a própria API sugeriu o `3.6` na mensagem de
+  erro). ⚠️ **Este modelo "pensa" antes de responder** (`thoughtsTokenCount`, consumido do mesmo
+  orçamento de saída) — com `maxOutputTokens` baixo a resposta corta no meio
+  (`finishReason: MAX_TOKENS`). `4096` é o valor que a Cora já validou sem cortar, herdado aqui.
+- **🔐 CHAVE NOVA, NÃO A MESMA DA CORA.** Perguntado, o dono escolheu não compartilhar o valor
+  literal da chave — as duas aplicações teriam dividido a mesma cota gratuita do Google, e este
+  Workspace já tem histórico de estourar cota compartilhada (ADR-121, Actions). A chave nova vive
+  na mesma conta Google (`faturamentomedconsultoria@gmail.com`, projeto "Default Gemini Project"),
+  gratuita também, com cota **separada**.
+- **🎙️ TRANSCRIÇÃO DE ÁUDIO É A PARTE QUE FICOU EM ABERTO.** A Whisper tinha um endpoint dedicado
+  para isso; o Gemini não — o áudio entra como parte multimodal (`inlineData`, base64) dentro da
+  mesma chamada `generateContent`, pedindo transcrição no texto do prompt. **A Cora não usa Gemini
+  para áudio** (motor de teste dela é só texto), então esta parte foi implementada sem o mesmo grau
+  de prova das outras — funciona pela documentação da Google, **não foi exercida com um áudio de
+  reunião real ainda**. Ficou registrado como pendência em `docs/IA_PRIVACIDADE.md`, não escondido.
+- **📄 TEXTO LEGAL CORRIGIDO, NÃO SÓ O CÓDIGO.** `/privacidade` dizia "com a OpenAI" na frase sobre
+  compartilhamento de dado — texto visível ao público, sob a LGPD. Corrigido para "com o Google
+  (Gemini)" no mesmo commit que trocou o provedor: documentação que descreve o software de ontem
+  mente com autoridade, e um aviso de privacidade é o pior lugar para isso acontecer.
+- **Zero migração** — nada mudou no banco. A troca é `GEMINI_API_KEY` no lugar de `OPENAI_API_KEY`
+  no `.env`; sem a chave nova, `isAiEnabled` volta a `false` e a app degrada com elegância (os
+  recursos de IA somem da interface), como sempre fez sem chave.
+
+**Provas:** typecheck 6/6 · **suíte completa do `@app/api`: 114 arquivos, 935 testes, verdes**
+(8 novos, cobrindo o parsing da resposta do Gemini, a filtragem de partes de "thinking" e o erro
+HTTP virando mensagem clara em vez do JSON cru da Google) · os testes de gate (`ia-indisponivel`)
+adaptados para `GEMINI_API_KEY` continuam verdes sem mudar de comportamento.
+
+⚠️ **NÃO ESTÁ NO AR** — depende do dono gerar a chave e colar no `.env` local primeiro, depois
+publicar. Sem a chave, a IA local também fica desligada (mesmo comportamento de sempre).

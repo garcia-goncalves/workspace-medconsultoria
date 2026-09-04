@@ -13,7 +13,36 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-04 · **v1.7.0 NO AR** — ADR-147/148/149/150 publicadas, as QUATRO)
+## Estado atual (2026-09-04 · noite · a IA trocou de provedor — ADR-151, código pronto, AINDA sem chave)
+
+> **Leia a ADR-151 em `docs/DECISIONS.md`.**
+
+### 🔀 OPENAI VIROU GEMINI — pedido do dono, mesma config já provada pela Cora
+
+- **Motivo:** o dono pediu para usar o Gemini (gratuito) em vez da OpenAI (paga), reaproveitando a
+  configuração que a `cora-med` (outra sessão) já validou em produção de teste. Perguntado sobre
+  compartilhar a MESMA chave da Cora, o dono escolheu **chave nova, cota separada** — as duas
+  aplicações dividirem cota gratuita foi descartado (o Workspace já tem histórico de estourar cota
+  compartilhada, ADR-121/Actions).
+- **A porta única não mudou de lugar** (ADR-141): `apps/api/src/lib/ai.ts` continua sendo o único
+  ponto que fala com um provedor externo de IA; a peneira de dado pessoal (`redigirDadoPessoal`)
+  entra e sai no mesmo lugar de sempre. Só o QUEM do outro lado mudou.
+- **Sem SDK novo** — REST direto (`fetch`) contra `generateContent`, mesmo padrão do motor de teste
+  da Cora. `openai` saiu do `package.json`. Modelo `gemini-3.6-flash`, escolhido por chamada real
+  (a Cora já tinha testado e descartado dois outros).
+- **Texto legal corrigido junto:** `/privacidade` dizia "com a OpenAI" — agora diz "com o Google
+  (Gemini)". Não é só código, é o que o cliente lê sob a LGPD.
+- ⚠️ **Transcrição de áudio não foi exercida com áudio real** — implementada pela documentação do
+  Gemini (a Cora não usa Gemini para áudio, não deu para reaproveitar prova). Pendência registrada
+  em `docs/IA_PRIVACIDADE.md`.
+- **Provas:** typecheck 6/6 · **935 testes, todos verdes** (8 novos, cobrindo o parser da resposta
+  do Gemini e o erro HTTP virando mensagem clara).
+- ⚠️ **NÃO FUNCIONA AINDA — falta o dono colar a chave no `.env` local.** Sem `GEMINI_API_KEY`, a
+  IA fica desligada (degrada com elegância, como sempre). Depois disso, publicar é o passo seguinte.
+- ⚠️ **`.env.example` não foi atualizado** (fora do alcance de permissão desta sessão) — trocar
+  `OPENAI_API_KEY` por `GEMINI_API_KEY` ali é pendência manual do dono ou de outra sessão.
+
+## Estado anterior (2026-09-04 · **v1.7.0 NO AR** — ADR-147/148/149/150 publicadas, as QUATRO)
 
 > **Leia a ADR-150 em `docs/DECISIONS.md` e a seção da Fase 2 em `docs/API_AGENTE.md`.**
 

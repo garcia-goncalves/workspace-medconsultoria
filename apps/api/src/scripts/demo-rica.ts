@@ -120,10 +120,10 @@ async function main() {
   process.env.SMTP_HOST = "";
   process.env.SMTP_USER = "";
   process.env.SMTP_PASS = "";
-  // Defensivo: nenhum caminho usado aqui deveria chamar a OpenAI (as duas gerações de
+  // Defensivo: nenhum caminho usado aqui deveria chamar o Gemini (as duas gerações de
   // documento automáticas passam `usarIA: false` explicitamente), mas zerar a chave também
   // garante que nenhuma chamada real aconteça mesmo que um caminho futuro esqueça a flag.
-  process.env.OPENAI_API_KEY = "";
+  process.env.GEMINI_API_KEY = "";
 
   const { createLead, moveLead, reconciliarPassosAuto, togglePasso, convertLead, marcarPerdido, criarOportunidadeParaCliente, getLeadDetalhe, updateLead } =
     await import("../modules/leads/leads.service.js");

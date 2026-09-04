@@ -1,5 +1,5 @@
 /**
- * Peneira de dado pessoal para o que sai da casa (hoje: a OpenAI). Ver ADR-141.
+ * Peneira de dado pessoal para o que sai da casa (hoje: o Gemini). Ver ADR-141.
  *
  * DUAS FUNÇÕES, e o par é o ponto: `redigirDadoPessoal` troca cada dado por uma
  * etiqueta ANTES de enviar, `restaurarDadoPessoal` devolve o original NA VOLTA.

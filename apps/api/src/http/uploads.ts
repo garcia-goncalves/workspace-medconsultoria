@@ -106,7 +106,7 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
   app.post("/transcrever", async (req, reply) => {
     const user = await usuarioDaRequest(req);
     if (!user || user.role === "CLIENTE") return reply.code(401).send({ error: "Não autenticado." });
-    if (!isAiEnabled) return reply.code(412).send({ error: "IA não configurada (OPENAI_API_KEY)." });
+    if (!isAiEnabled) return reply.code(412).send({ error: "IA não configurada (GEMINI_API_KEY)." });
 
     let buffer: Buffer | null = null;
     let filename = "audio.webm";

@@ -469,7 +469,7 @@ function AbaGeral() {
               icon={Sparkles}
               label="IA"
               value={saude.data.iaAtiva ? "Ativa" : "Desligada"}
-              hint={saude.data.iaAtiva ? "OpenAI configurada" : "sem OPENAI_API_KEY"}
+              hint={saude.data.iaAtiva ? "Gemini configurado" : "sem GEMINI_API_KEY"}
               tom={saude.data.iaAtiva ? "ok" : "default"}
             />
             <StatCard

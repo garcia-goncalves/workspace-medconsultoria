@@ -128,15 +128,15 @@ export function PrivacidadePage() {
         <Bloco titulo="Com quem compartilhamos">
           <p>
             Com as operadoras de saúde, quando você nos contrata para credenciar — é a finalidade do
-            serviço. Com o provedor do nosso servidor de e-mail, para entregar as mensagens. E com a
-            OpenAI, quando alguém da nossa equipe usa um recurso de assistência por inteligência
-            artificial: antes do envio, o sistema substitui automaticamente CPF, CNPJ, número de
-            conselho, RG, telefone, e-mail e CEP por marcadores, de modo que esses dados não saem
-            daqui.
+            serviço. Com o provedor do nosso servidor de e-mail, para entregar as mensagens. E com o
+            Google (Gemini), quando alguém da nossa equipe usa um recurso de assistência por
+            inteligência artificial: antes do envio, o sistema substitui automaticamente CPF, CNPJ,
+            número de conselho, RG, telefone, e-mail e CEP por marcadores, de modo que esses dados
+            não saem daqui.
           </p>
           <p className="mt-2">
             {/* ⚠️ A peneira de dado pessoal age sobre TEXTO. A transcrição de áudio é uma segunda
-                porta para a OpenAI por natureza — não há como redigir o que ainda não foi
+                porta para o provedor por natureza — não há como redigir o que ainda não foi
                 transcrito —, e omiti-la faria esta página prometer mais do que o sistema
                 cumpre. Ver ADR-141. */}
             Nossa equipe também pode transcrever a gravação de uma reunião usando o mesmo

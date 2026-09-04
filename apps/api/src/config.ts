@@ -13,9 +13,11 @@ const schema = z.object({
   // Root "primordial" IMUTÁVEL: nunca pode ser rebaixado, desativado ou excluído (nem por
   // outro ROOT, nem por ele mesmo). Garante que a aplicação nunca fique sem um super-admin.
   ROOT_PROTEGIDO_EMAIL: z.string().default("root@medconsultoria.com.br"),
-  OPENAI_API_KEY: z.string().optional(),
+  // Provedor Gemini (Google) — trocou de OPENAI_API_KEY em 04/09/2026 (ADR-151). Chave gratuita,
+  // gerada em aistudio.google.com/apikey.
+  GEMINI_API_KEY: z.string().optional(),
   // Interruptor GLOBAL da IA (privacidade): "false"/"0" desliga a IA MESMO com chave presente.
-  // Útil para cortar o envio de dados à OpenAI sem remover a chave. Ver docs/IA_PRIVACIDADE.md.
+  // Útil para cortar o envio de dados ao provedor sem remover a chave. Ver docs/IA_PRIVACIDADE.md.
   IA_ENABLED: z.string().optional(),
   // Pasta persistente onde ficam os arquivos enviados (upload). Relativa ao cwd do
   // processo ou absoluta. Na TineHost deve apontar para uma pasta FORA do diretório do
@@ -77,9 +79,9 @@ if (isProd) {
     process.exit(1);
   }
 }
-/** IA (OpenAI) disponível = chave presente E não desligada globalmente (IA_ENABLED != false/0). */
+/** IA (Gemini) disponível = chave presente E não desligada globalmente (IA_ENABLED != false/0). */
 const iaDesligada = ["false", "0", "off", "no"].includes((config.IA_ENABLED ?? "").trim().toLowerCase());
-export const isAiEnabled = !!config.OPENAI_API_KEY && !iaDesligada;
+export const isAiEnabled = !!config.GEMINI_API_KEY && !iaDesligada;
 /** E-mail "real" só quando SMTP está completo; caso contrário, modo dev (link em tela). */
 export const isEmailReal = !!(config.SMTP_HOST && config.SMTP_USER && config.SMTP_PASS);
 /** E-mail dentro da app (IMAP por usuário) só liga com a chave de cifra presente e válida. */
