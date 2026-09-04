@@ -13,17 +13,25 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-04 · noite · a IA trocou de provedor — ADR-151, código pronto, AINDA sem chave)
+## Estado atual (2026-09-04 · noite · a IA trocou de provedor e JÁ FUNCIONA no local — ADR-151)
 
 > **Leia a ADR-151 em `docs/DECISIONS.md`.**
 
-### 🔀 OPENAI VIROU GEMINI — pedido do dono, mesma config já provada pela Cora
+### 🔀 OPENAI VIROU GEMINI, E FOI PROVADO COM CHAMADA REAL — pedido do dono
 
 - **Motivo:** o dono pediu para usar o Gemini (gratuito) em vez da OpenAI (paga), reaproveitando a
   configuração que a `cora-med` (outra sessão) já validou em produção de teste. Perguntado sobre
   compartilhar a MESMA chave da Cora, o dono escolheu **chave nova, cota separada** — as duas
   aplicações dividirem cota gratuita foi descartado (o Workspace já tem histórico de estourar cota
   compartilhada, ADR-121/Actions).
+- **✅ PROVADO COM CHAMADA REAL AO GEMINI, LOCAL, 04/09/2026 (noite).** Depois de o dono colar
+  `GEMINI_API_KEY` no `.env` local, `ia.resumoDoDia` (autenticado como `admin@teste.local`) foi
+  chamado por HTTP real duas vezes: a **primeira deu timeout** (30s — provável "chamada fria" do
+  modelo, mesmo padrão que a Cora já tinha visto com sobrecarga de outros modelos), a **segunda
+  respondeu em português, coerente, com dados reais do banco** ("11 contas vencidas", horário da
+  reunião de kickoff, contagem de documentos aguardando revisão). ⚠️ **Timeout na 1ª chamada é
+  esperado, não bug** — o `AbortSignal.timeout(30_000)` fez exatamente o que devia (falhar rápido
+  em vez de travar a requisição), e a 2ª tentativa provou que a config está certa.
 - **A porta única não mudou de lugar** (ADR-141): `apps/api/src/lib/ai.ts` continua sendo o único
   ponto que fala com um provedor externo de IA; a peneira de dado pessoal (`redigirDadoPessoal`)
   entra e sai no mesmo lugar de sempre. Só o QUEM do outro lado mudou.
@@ -32,15 +40,17 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   (a Cora já tinha testado e descartado dois outros).
 - **Texto legal corrigido junto:** `/privacidade` dizia "com a OpenAI" — agora diz "com o Google
   (Gemini)". Não é só código, é o que o cliente lê sob a LGPD.
-- ⚠️ **Transcrição de áudio não foi exercida com áudio real** — implementada pela documentação do
-  Gemini (a Cora não usa Gemini para áudio, não deu para reaproveitar prova). Pendência registrada
-  em `docs/IA_PRIVACIDADE.md`.
-- **Provas:** typecheck 6/6 · **935 testes, todos verdes** (8 novos, cobrindo o parser da resposta
-  do Gemini e o erro HTTP virando mensagem clara).
-- ⚠️ **NÃO FUNCIONA AINDA — falta o dono colar a chave no `.env` local.** Sem `GEMINI_API_KEY`, a
-  IA fica desligada (degrada com elegância, como sempre). Depois disso, publicar é o passo seguinte.
+- ⚠️ **Transcrição de áudio segue NÃO exercida com áudio real** — implementada pela documentação do
+  Gemini (a Cora não usa Gemini para áudio, não deu para reaproveitar prova). A prova acima foi só
+  de texto (`resumoDoDia`). Pendência registrada em `docs/IA_PRIVACIDADE.md`.
+- **Provas:** typecheck 6/6 · **938 testes, todos verdes** (8 novos, cobrindo o parser da resposta
+  do Gemini, o mimetype real da transcrição e o erro HTTP virando mensagem clara) · revisão
+  especialista (typescript-reviewer + react-reviewer) rodada e os 3 achados corrigidos · **e agora
+  chamada real ao Gemini, funcionando**.
 - ⚠️ **`.env.example` não foi atualizado** (fora do alcance de permissão desta sessão) — trocar
   `OPENAI_API_KEY` por `GEMINI_API_KEY` ali é pendência manual do dono ou de outra sessão.
+- **Falta só publicar** — o código está na `main`, testado e provado local. A chave em produção
+  ainda não existe (é outra variável, no `.env` do servidor — publicar não copia o `.env` local).
 
 ## Estado anterior (2026-09-04 · **v1.7.0 NO AR** — ADR-147/148/149/150 publicadas, as QUATRO)
 
