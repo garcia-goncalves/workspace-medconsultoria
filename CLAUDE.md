@@ -36,9 +36,16 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   de que a API do agente (leitura, ADR-149, e agora também escrita, ADR-150) **existe e está
   viva** em produção, não só localmente.
 - **⚠️ Ainda depende de alguém: nenhuma credencial de produção foi emitida para a Cora.** Os
-  comandos `pnpm agente cliente|delegar` recusam rodar fora desta máquina por desenho — quem
-  gera o `AgentClient` e a `AgentDelegation` de produção é uma execução própria, à parte da
-  publicação. Até isso acontecer, a Cora continua falando só com `localhost:4319`.
+  comandos `pnpm agente cliente|delegar` recusam rodar fora desta máquina por desenho — a trava
+  é `podeRodarDemoSeed`, a mesma do `demo-seed`, e não abre exceção nenhuma daqui.
+- **🔧 O MECANISMO PARA EMITIR NASCEU, A EMISSÃO EM SI NÃO ACONTECEU.** Workflow **"Emitir
+  credencial do agente"** (`workflow_dispatch`, confirmação `EMITIR`) roda o comando **dentro do
+  servidor**, pela mesma conexão SSH do deploy — é o único jeito legítimo de tocar o banco de
+  produção, já que a trava recusa qualquer banco remoto sem exceção. `apps/api/src/scripts/agente.ts`
+  passou a ser compilado no bundle de publicação (`scripts/bundle-deploy.mjs`, mesmo molde do
+  `seed.js`), porque o comando usa `tsx` — `devDependency`, ausente no servidor. ⚠️ **Só funciona
+  depois do PRÓXIMO deploy** (o `scripts/agente.js` ainda não existe em produção — só entra no ar
+  no primeiro deploy depois deste commit). Decisão de disparar de verdade continua sendo do dono.
 - **📮 Aviso deixado em `med-coordination/status/workspace.md`** antes e depois da publicação,
   para a sessão da Cora não presumir que a API do agente segue restrita a esta máquina.
 

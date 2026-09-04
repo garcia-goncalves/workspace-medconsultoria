@@ -78,9 +78,9 @@ por uma falha de rede, **a segunda não cria tarefa nova** — devolve a primeir
 
 ✅ **NO AR desde 04/09/2026, na v1.7.0.** `https://workspace.medconsultoria.com.br/api/agent/v1/tasks`
 responde (`401` sem credencial, `200` com uma delegação válida). ⚠️ **Nenhuma credencial de
-PRODUÇÃO foi emitida ainda para a Cora** — os comandos `pnpm agente cliente|delegar` recusam rodar
-fora desta máquina, e emitir para produção é uma execução própria, à parte da publicação. Até lá a
-Cora continua falando só com `localhost:4319`.
+PRODUÇÃO foi emitida ainda para a Cora.** Existe agora um botão para isso — Actions →
+**"Emitir credencial do agente"** — mas ninguém apertou. Até lá a Cora continua falando só com
+`localhost:4319`. Detalhe de como funciona: `docs/API_AGENTE.md` § *Emitir credenciais em PRODUÇÃO*.
 
 ---
 

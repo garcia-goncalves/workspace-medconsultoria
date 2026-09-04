@@ -660,7 +660,10 @@ que faltava.
 > ✅ **NO AR desde 04/09/2026 (v1.7.0), leitura E escrita.** As cinco migrações do lote (ADR-147 a
 > 150) foram aplicadas em produção; confirmado por HTTP real, de fora: `GET /api/agent/v1/tasks`
 > sem credencial responde `401`. ⚠️ Nenhuma credencial de produção foi emitida ainda — os comandos
-> `pnpm agente cliente|delegar` recusam rodar fora desta máquina, de propósito.
+> `pnpm agente cliente|delegar` recusam rodar fora desta máquina, de propósito, e não há exceção
+> por variável de ambiente daqui. **O mecanismo para emitir existe** (workflow "Emitir credencial
+> do agente", `docs/API_AGENTE.md` § *Emitir credenciais em PRODUÇÃO*) — a decisão de acionar
+> continua sendo do dono.
 
 **Detalhe operacional (comandos, cabeçalhos, erros): `docs/API_AGENTE.md`.** O contrato canônico é
 `med-coordination/contracts/workspace-agent-v1.openapi.yaml`, versão **0.2.1**, com o SHA-256 ao
