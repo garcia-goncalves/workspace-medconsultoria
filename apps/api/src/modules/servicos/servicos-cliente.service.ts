@@ -199,6 +199,14 @@ export async function ativarServicoCliente(
     where: { id: servicoId },
     select: { nome: true, valor: true, valorRecorrencia: true, percentual: true, percentualRecorrencia: true, ehCredenciamento: true },
   });
+  // Achado da auditoria de 04/09/2026: das QUATRO portas de preço (catálogo, edição de
+  // contratação, aceite de proposta e esta), só esta não conferia valor+percentual juntos.
+  // Hoje não morde ninguém (só a tela do funil chama, e ela nunca manda `valor`), mas fica
+  // aberto para qualquer chamada direta de API — a mesma régua central das outras três portas.
+  if (temValorEPercentual({ valor: opts.valor ?? emReaisOu(servico?.valor), percentual: emReaisOu(servico?.percentual) })) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_VALOR_E_PERCENTUAL });
+  }
+
   const jaContratado = await prisma.clienteServico.findUnique({
     where: { clienteId_servicoId: { clienteId, servicoId } },
     select: { id: true },

@@ -208,9 +208,15 @@ export function MudarStatusDialog({
 
   const mutar = trpc.credenciamento.mudarStatus.useMutation({
     onSuccess: () => {
+      // Achado da auditoria de 04/09/2026: o servidor só cria a conta a receber quando o
+      // honorário é > 0 (credenciamento-grade.service.ts) — com valor "a combinar" (R$ 0,00),
+      // dizer "a conta foi criada" é o painel mentindo (mesmo defeito que a ADR-135 tratou como
+      // prioridade máxima). O toast agora reflete o que realmente aconteceu.
       toast(
         status === "APROVADO"
-          ? "Aprovado! A conta a receber do honorário foi criada no Financeiro."
+          ? celula.valor > 0
+            ? "Aprovado! A conta a receber do honorário foi criada no Financeiro."
+            : "Aprovado! Como o honorário está \"a combinar\" (R$ 0,00), nenhuma conta foi criada — edite o valor para gerar a cobrança."
           : "Andamento atualizado.",
         "success",
       );
@@ -280,10 +286,16 @@ export function MudarStatusDialog({
           <Textarea id="cred-obs" rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
         </div>
 
-        {status === "APROVADO" && (
+        {status === "APROVADO" && celula.valor > 0 && (
           <p className="rounded-lg border border-success/30 bg-success/5 p-2.5 text-xs text-foreground">
             Ao salvar, o honorário de <strong>{formatBRL(celula.valor)}</strong> entra no Financeiro como conta a
             receber. É aqui que a cobrança nasce — não no aceite da proposta.
+          </p>
+        )}
+        {status === "APROVADO" && celula.valor <= 0 && (
+          <p className="rounded-lg border border-warning/30 bg-warning/5 p-2.5 text-xs text-foreground">
+            O honorário está "a combinar" (R$ 0,00) — ao salvar, <strong>nenhuma conta a receber é criada</strong>.
+            Para cobrar, edite o valor deste cruzamento antes ou depois de aprovar.
           </p>
         )}
       </div>

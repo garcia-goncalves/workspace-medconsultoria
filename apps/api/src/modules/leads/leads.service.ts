@@ -695,8 +695,20 @@ async function docsAoEntrarEtapa(leadId: string, chaveAuto: string | null, userI
     const m = await import("../documentos/documentos.service.js");
     if (chaveAuto === "proposta") await m.gerarPropostaAutoParaLead(leadId, userId);
     else if (chaveAuto === "negociacao") await m.gerarContratoAutoParaLead(leadId, userId);
-  } catch {
-    /* automação best-effort — nunca quebra o fluxo do funil */
+  } catch (e) {
+    // Achado do typescript-reviewer no PR #191: `gerarContratoAutoParaLead` (via
+    // `gerarParaLead("contrato", ...)`) passou a recusar contrato sem proposta ACEITA
+    // (04/09/2026). Antes, mover um lead para "Negociação" sem nunca ter enviado/aceito
+    // proposta (arraste no funil pula validação de passo) gerava um contrato GENÉRICO para
+    // revisão; hoje não gera nada. A recusa em si está certa — o silêncio total não estava:
+    // fica um rastro em `activityLog`, para quem investigar "cadê o contrato desse lead?".
+    if (chaveAuto === "negociacao" && e instanceof TRPCError && e.code === "BAD_REQUEST") {
+      await prisma.activityLog
+        .create({ data: { userId, acao: "documento.contrato_nao_gerado_sem_aceite", entidadeTipo: "lead", entidadeId: leadId } })
+        .catch(() => {});
+      return;
+    }
+    /* demais falhas: automação best-effort — nunca quebra o fluxo do funil */
   }
 }
 
@@ -1574,8 +1586,16 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
   try {
     const m = await import("../documentos/documentos.service.js");
     await m.gerarContratoAutoParaLead(id, userId);
-  } catch {
-    /* best-effort — nunca bloqueia a conversão */
+  } catch (e) {
+    // Mesmo achado do docsAoEntrarEtapa (04/09/2026): converter um lead manualmente sem
+    // nunca ter tido proposta aceita agora recusa o contrato genérico em vez de gerá-lo —
+    // certo por regra, mas silencioso demais sem este rastro.
+    if (e instanceof TRPCError && e.code === "BAD_REQUEST") {
+      await prisma.activityLog
+        .create({ data: { userId, acao: "documento.contrato_nao_gerado_sem_aceite", entidadeTipo: "cliente", entidadeId: clienteId } })
+        .catch(() => {});
+    }
+    /* demais falhas: best-effort — nunca bloqueia a conversão */
   }
 
   return { clienteId, projetoId };

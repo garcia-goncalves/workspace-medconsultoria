@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { cn } from "@app/ui";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
-import { formatBRL } from "../../../lib/masks";
+import { formatEstimativaDoFunil } from "../../../lib/masks";
 import { haQuanto } from "../../../lib/format-date";
 import { Button } from "../../../components/ui/button";
 import { toast } from "../../../components/ui/toast";
@@ -34,7 +34,7 @@ import { Skeleton } from "../../../components/ui/skeleton";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
 import { AssistenteIADialog } from "../../../components/ui/assistente-ia";
 import { EmailsDoLeadLista } from "../clientes/EmailsDoClienteCard";
-import { estimativaDoLeadComPreco, sufixoDeRecorrencia } from "./estimativa-do-lead";
+import { estimativaDoLeadComPreco } from "./estimativa-do-lead";
 
 type Detalhe = RouterOutputs["leads"]["detalhe"];
 
@@ -135,14 +135,16 @@ export function LeadDetailPanel({
                 >
                   {d.stage.nome}
                 </span>
-                {d.valorEstimado != null && (
-                  <Badge variant="success">
-                    {formatBRL(d.valorEstimado)}
-                    {sufixoDeRecorrencia(
-                      estimativaDoLeadComPreco(d.servicos, catalogo.data ?? [], d.valorEstimado),
-                    )}
-                  </Badge>
-                )}
+                {(() => {
+                  // Achado da auditoria de 04/09/2026: este badge mostrava só o valor DIGITADO
+                  // à mão (`d.valorEstimado`), e ficava mudo sempre que o lead tinha serviço
+                  // vinculado com preço de catálogo mas ninguém tinha preenchido a Qualificação
+                  // — exatamente o total que a coluna do funil já soma (LeadsPipelinePage) e o
+                  // card (LeadCard) mostra. Agora as três telas usam a MESMA fonte.
+                  const est = estimativaDoLeadComPreco(d.servicos, catalogo.data ?? [], d.valorEstimado);
+                  if (est.mensal <= 0 && est.avulso <= 0) return null;
+                  return <Badge variant="success">{formatEstimativaDoFunil(est)}</Badge>;
+                })()}
               </div>
               <h2 className="mt-2 truncate text-xl font-semibold">{d.nome}</h2>
               {d.empresa && <p className="truncate text-sm text-muted-foreground">{d.empresa}</p>}

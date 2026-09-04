@@ -118,8 +118,6 @@ Cordialmente,
 
 **{{cliente.nome}}**
 
-# PROPOSTA — MÓDULO DE FATURAMENTO DE CONTAS MÉDICAS
-
 Prezado(a),
 
 Atendendo à solicitação, a MedConsultoria tem o prazer de apresentar sua proposta para a gestão do módulo de faturamento de contas médicas, com foco em eficiência operacional, redução de glosas e otimização do fluxo financeiro da Clínica.

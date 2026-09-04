@@ -738,6 +738,17 @@ async function recusarMarcaDeFaturamentoInvalida(
   if (outro) throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_UNICA(outro.nome) });
 }
 
+// ⚠️ ACHADO DA AUDITORIA DE 04/09/2026, AINDA ABERTO: as duas funções acima conferem e o
+// `create`/`update` grava em chamadas SEPARADAS ao banco — duas requisições marcando serviços
+// DIFERENTES ao mesmo tempo passam as duas pela conferência antes de qualquer uma gravar (mesmo
+// modo de falha que a ADR-140 corrigiu para a conta do honorário, com `updateMany` condicionado).
+// Aqui a marca é um boolean comum, sem coluna própria para esse tipo de trava, e envolver a
+// checagem + gravação numa transação `SERIALIZABLE` esbarrou no tipo do client do Prisma
+// estendido (`packages/db`, `$extends`) — o `tx` da transação não é estruturalmente compatível
+// com `Prisma.TransactionClient`, e forçar `any` custaria a segurança de tipo do resto do
+// arquivo. Fica registrado para quem tiver tempo de resolver o atrito de tipo (ou migrar para um
+// índice único condicional, como o `Servico_nome_key` da ADR-147).
+
 export async function criarServico(input: {
   nome: string;
   descricao?: string | null;

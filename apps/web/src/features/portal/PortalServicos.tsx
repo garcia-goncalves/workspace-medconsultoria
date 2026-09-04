@@ -27,6 +27,12 @@ export function PortalServicos() {
   // Cancelar um serviço contratado é falar PELA clínica (ADR-131) — e a sessão de suporte da
   // Med também não faz (ADR-128). A régua é a mesma função pura que o servidor usa.
   const cancelamento = usePodeNoPortal()("cancelarServico");
+  // Achado da auditoria de 04/09/2026: enviar documento, remover documento e responder
+  // briefing eram os únicos botões desta tela sem essa mesma checagem — a EQUIPE já podia
+  // (ambas ações estão liberadas), mas a sessão de SUPORTE só descobria a recusa depois de
+  // escolher arquivo/preencher o formulário e tentar salvar.
+  const podeAgirComArquivo = usePodeNoPortal()("removerArquivo");
+  const podeResponder = usePodeNoPortal()("briefing.salvar");
   const invalidate = () => {
     // `q` é a lista que ESTA tela desenha (serviços + o que falta enviar): recarregamento
     // duplo, não `invalidate` — senão a exigência recém-atendida continua marcada como
@@ -181,15 +187,19 @@ export function PortalServicos() {
                         {r.descricao && <p className="text-xs text-muted-foreground">{r.descricao}</p>}
                         {r.tipo !== "DOCUMENTO" ? (
                           <div className="mt-1.5">
-                            <Button
-                              size="sm"
-                              className="min-h-11"
-                              variant={r.atendido ? "outline" : "default"}
-                              onClick={() => setBriefing(r.id)}
-                            >
-                              <PenLine className="h-3.5 w-3.5" />
-                              {r.atendido ? "Revisar resposta" : r.tipo === "INFORMACAO" ? "Responder na tela" : "Preencher na tela"}
-                            </Button>
+                            {podeResponder.pode ? (
+                              <Button
+                                size="sm"
+                                className="min-h-11"
+                                variant={r.atendido ? "outline" : "default"}
+                                onClick={() => setBriefing(r.id)}
+                              >
+                                <PenLine className="h-3.5 w-3.5" />
+                                {r.atendido ? "Revisar resposta" : r.tipo === "INFORMACAO" ? "Responder na tela" : "Preencher na tela"}
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">{podeResponder.frase}</span>
+                            )}
                           </div>
                         ) : (
                           <>
@@ -198,7 +208,7 @@ export function PortalServicos() {
                                 {r.arquivos.map((a) => (
                                   <li key={a.id} className="flex items-center gap-1.5 text-xs">
                                     <ArquivoLink id={a.id} nome={a.nome} className="flex min-h-11 max-w-[200px] items-center" />
-                                    {a.enviadoPorTipo === "CLIENTE" && (
+                                    {a.enviadoPorTipo === "CLIENTE" && podeAgirComArquivo.pode && (
                                       <button
                                         onClick={() => onRemover(a.id, a.nome)}
                                         aria-label={`Remover ${a.nome}`}
@@ -211,14 +221,18 @@ export function PortalServicos() {
                                 ))}
                               </ul>
                             )}
-                            <div className="mt-1.5 [&_button]:min-h-11">
-                              <UploadArquivo
-                                size="xs"
-                                label={r.atendido ? "Enviar outro" : "Enviar documento"}
-                                campos={{ servicoId: s.servico.id, requisitoId: r.id }}
-                                onDone={invalidate}
-                              />
-                            </div>
+                            {podeAgirComArquivo.pode ? (
+                              <div className="mt-1.5 [&_button]:min-h-11">
+                                <UploadArquivo
+                                  size="xs"
+                                  label={r.atendido ? "Enviar outro" : "Enviar documento"}
+                                  campos={{ servicoId: s.servico.id, requisitoId: r.id }}
+                                  onDone={invalidate}
+                                />
+                              </div>
+                            ) : (
+                              <p className="mt-1.5 text-xs text-muted-foreground">{podeAgirComArquivo.frase}</p>
+                            )}
                           </>
                         )}
                       </div>

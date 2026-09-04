@@ -3,10 +3,9 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Pencil, Trash2, UserCheck, KeyRound } from "lucide-react";
 import { cn } from "@app/ui";
 import type { AcessoAoPortal } from "@app/shared";
-import { formatBRL } from "../../../lib/masks";
+import { formatEstimativaDoFunil } from "../../../lib/masks";
 import { Badge } from "../../../components/ui/badge";
 import { AcessoPortalBotao } from "../AcessoPortalBotao";
-import { sufixoDeRecorrencia } from "./estimativa-do-lead";
 
 export interface LeadItem {
   id: string;
@@ -129,11 +128,13 @@ export function LeadCard({
             </div>
           )}
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {lead.valorEstimado != null && (
-              <Badge variant="success">
-                {formatBRL(lead.valorEstimado)}
-                {sufixoDeRecorrencia(lead.estimativa)}
-              </Badge>
+            {/* Achado da auditoria de 04/09/2026: este badge usava lead.valorEstimado (só
+                preenchido a mão na Qualificação), enquanto o TOTAL da coluna (LeadsPipelinePage)
+                soma lead.estimativa (preço real do catálogo dos serviços vinculados) — o total
+                mostrava dinheiro que nenhum card individual explicava. Agora os dois usam a
+                MESMA fonte e a MESMA formatação (formatEstimativaDoFunil). */}
+            {(lead.estimativa.mensal > 0 || lead.estimativa.avulso > 0) && (
+              <Badge variant="success">{formatEstimativaDoFunil(lead.estimativa)}</Badge>
             )}
             {lead.origem && <Badge>{lead.origem}</Badge>}
             {lead.portalAtivo && (
