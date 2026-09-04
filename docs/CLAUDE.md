@@ -619,7 +619,8 @@ acharia mais pelo funil (a falha de costura das ADR-105 e ADR-128).
 > o correto (não inventar dado jurídico); o que falta é o dono preencher **Ajustes → Dados da
 > empresa**. Os cinco campos bancários e o encarregado de dados também estão vazios.
 
-**A OpenAI nunca vê dado pessoal identificável.** A peneira (`redigirDadoPessoal`, `@app/shared`)
+**O Gemini nunca vê dado pessoal identificável** (trocou de provedor na ADR-151; o mecanismo
+continua o mesmo). A peneira (`redigirDadoPessoal`, `@app/shared`)
 mora na **porta única** — `gerarRascunho`, em `apps/api/src/lib/ai.ts`. ⚠️ **Não mova a peneira para
 os pontos de chamada**: são 16 hoje, e o filtro no portão é o que faz a chamada de amanhã nascer
 coberta. ⚠️ **Não troque redigir+restaurar por "apagar"**: "melhorar com IA" devolve o corpo do
