@@ -13,7 +13,60 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-04 · noite · **v1.8.0 NO AR** — ADR-151 publicada)
+## Estado atual (2026-09-04 · madrugada · auditoria completa pedida pelo dono — PR #191 aberto, NÃO mesclado)
+
+> **Leia o PR #191** (`fix/auditoria-completa-04-09-lote1`) no GitHub — corpo tem a lista completa.
+
+### 🔎 A AUDITORIA COMPLETA DE 04/09 — 6 auditores em paralelo, 9 defeitos corrigidos, mais ficaram abertos
+
+- **Ordem do dono:** *"analise profundamente toda a aplicação... percorra tudo como se fosse um
+  usuário trabalhando no dia a dia... corrija o que estiver com erro/bug ou incongruente"*. Seis
+  agentes em paralelo (código + Playwright real, como ROOT/admin/funcionário/cliente do Portal)
+  cobriram: Funil/Clientes/Financeiro · Serviços/Credenciamento/Documentos ·
+  Projetos/Tarefas/Agenda/Início · Portal do cliente · E-mail/Mensagens · Ajustes/Sistema/Segurança.
+- **✅ 9 CORRIGIDOS NESTA LEVA, TODOS COM TESTE (typecheck 0 erros · API 944/944 · web 220/220):**
+  1. **[CRÍTICO] Funil:** o total de dinheiro da coluna somava `estimativa` (preço de catálogo),
+     e o badge de cada card lia só `valorEstimado` (digitado à mão) — total mostrava dinheiro que
+     nenhum card explicava. `LeadCard`/`LeadDetailPanel` agora usam a mesma fonte do total.
+  2. **[ALTA] Documentos:** `gerarParaLead("contrato")` era a SEGUNDA porta e não consultava
+     `MODELO_ACEITA_LEAD` — o botão do funil gerava Contrato para lead sem proposta aceita.
+     Trava exige `Documento{propostaStatus:"ACEITA"}` do cliente, mantendo o fallback automático
+     que roda logo após o aceite (`gerarContratoAutoParaCliente`).
+  3. **[ALTA] Portal:** "O que você precisa?" oferecia serviço que o cliente JÁ CONTRATOU (só
+     descontava o carrinho do lead ativo, nunca `portal.meusServicos`).
+  4. **[ALTA] Credenciamento:** aviso "conta criada no Financeiro" era incondicional mesmo com
+     honorário "a combinar" (R$ 0,00), caso em que o servidor não cria conta nenhuma.
+  5. **[MÉDIA]** `{{foro}}` vazio produzia "o foro de da comarca..." no Contrato (jurídico).
+  6. **[MÉDIA]** Timeout do Gemini (esperado) virava "erro não resolvido" no painel ROOT —
+     `new Error` cru agora é `TRPCError PRECONDITION_FAILED`, padrão da ADR-135.
+  7. **[MÉDIA]** `ativarServicoCliente` (4ª porta de preço) não recusava valor+percentual juntos.
+  8. **[MÉDIA] Portal:** 3 seções (Credenciamento, Meus serviços, Suporte) mostravam botão de
+     ação em sessão de suporte (ADR-128) — servidor sempre recusou, tela agora esconde antes.
+  9. **[MÉDIA] Portal:** convidar colega nunca mostrava o link quando o e-mail falha (sempre,
+     local) — única das 5 telas de convite sem essa saída. Reaproveita `ConviteLinkDialog`.
+  - Mais dois cosméticos: H1 duplicado na Proposta de faturamento; texto "OpenAI" desatualizado
+    na auditoria carimbada do Sistema (superado pela ADR-151).
+- **⚠️ REGISTRADO, NÃO CORRIGIDO — corrida em `Servico.ehFaturamento`/`ehCredenciamento`.** Dois
+  admins marcando ao mesmo tempo passam os dois pela conferência antes de qualquer um gravar
+  (mesmo modo de falha que a ADR-140 corrigiu para a conta do honorário). Tentativa de trava
+  `SERIALIZABLE` esbarrou em atrito de tipo do Prisma Client estendido (`packages/db`,
+  `$extends` — o `tx` da transação não bate estruturalmente com `Prisma.TransactionClient`).
+  Comentário no código (`servicos.service.ts`, perto de `recusarMarcaDeFaturamentoInvalida`)
+  aponta o caminho: resolver o atrito de tipo, ou migrar para índice único condicional (molde da
+  `Servico_nome_key`, ADR-147).
+- **📋 AINDA ABERTOS DA AUDITORIA (médio/baixo, não tocados nesta leva)** — arquivo:linha nos
+  relatórios dos 6 agentes, que não foram salvos em disco (só na conversa que gerou o PR):
+  Kanban de Projetos não mostra o responsável do cartão (dado já vem do servidor) · mudar o prazo
+  de uma tarefa já delegada não avisa o responsável · saudação do Início chama cartão de "tarefa"
+  · duas implementações divergentes de Contrato (rica via aceite, pobre via botão manual) ·
+  `AssinarPage` mostra Markdown cru, não renderizado · "Enviado por você" no Portal atribui a
+  qualquer pessoa da clínica um documento que outra pessoa enviou · alguns achados BAIXA de
+  Serviços/Documentos (formulário "Novo serviço" não expõe a caixa de credenciamento na criação,
+  só na edição; nome de variável `ehCredenciamento` local colidindo semanticamente com a marca).
+- **PR #191 aberto, CI e revisores especialistas (react/typescript/security) rodando no momento
+  do handoff — confira `gh pr checks 191` e o resultado dos revisores antes de mesclar.**
+
+## Estado anterior (2026-09-04 · noite · **v1.8.0 NO AR** — ADR-151 publicada)
 
 > **Leia a ADR-151 em `docs/DECISIONS.md`.**
 
