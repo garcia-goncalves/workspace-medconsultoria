@@ -13,9 +13,23 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-04 · noite · a IA trocou de provedor e JÁ FUNCIONA no local — ADR-151)
+## Estado atual (2026-09-04 · noite · **v1.8.0 NO AR** — ADR-151 publicada)
 
 > **Leia a ADR-151 em `docs/DECISIONS.md`.**
+
+### ✅ NO AR: a troca para o Gemini foi PUBLICADA e confirmada por HTTP real
+
+- **Publicação `33900553080`, `workflow_dispatch`, commit `18a2129` (tag `v1.8.0`).** A suíte
+  completa rodou verde antes de tocar no servidor; no servidor os **7/7 passos** verdes (o 5/7 —
+  dependências + Prisma + migrations — não tinha migração nova, ADR-151 é zero-migração) e o
+  **smoke test do próprio workflow** verde.
+- **Conferido de fora, por `curl` real, não só confiando no smoke test do workflow:**
+  `/health` → `{"status":"ok",...}` **200** · `/` **200** · `/credenciamentos` **200**.
+- ⚠️ **A chamada real ao Gemini EM PRODUÇÃO ainda não foi feita** — o dono colou a segunda chave
+  (a de produção, separada da local) no `.env` do servidor durante o deploy, e o reinício do passo
+  7/7 já sobe com ela lida. Falta só alguém abrir a tela logada e clicar em algo que chame a IA
+  (ex.: "Gerar meu plano" no Início) para ver a resposta real — isso é uso normal, não pendência de
+  código.
 
 ### 🔀 OPENAI VIROU GEMINI, E FOI PROVADO COM CHAMADA REAL — pedido do dono
 
@@ -49,8 +63,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   chamada real ao Gemini, funcionando**.
 - ⚠️ **`.env.example` não foi atualizado** (fora do alcance de permissão desta sessão) — trocar
   `OPENAI_API_KEY` por `GEMINI_API_KEY` ali é pendência manual do dono ou de outra sessão.
-- **Falta só publicar** — o código está na `main`, testado e provado local. A chave em produção
-  ainda não existe (é outra variável, no `.env` do servidor — publicar não copia o `.env` local).
+- **Publicado — ver o bloco "NO AR" acima.** Foi a mesma sessão que publicou.
 
 ## Estado anterior (2026-09-04 · **v1.7.0 NO AR** — ADR-147/148/149/150 publicadas, as QUATRO)
 
