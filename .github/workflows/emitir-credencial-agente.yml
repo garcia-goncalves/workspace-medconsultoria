@@ -1,0 +1,238 @@
+name: Emitir credencial do agente
+
+# Isto NÃO é publicação — não muda uma linha do que roda em produção. É um comando
+# administrativo, disparado à mão, que cria/consulta/revoga a credencial com a qual a Cora
+# (assistente externa, ADR-149/150) fala com o Workspace em produção. Nunca `on: push`.
+#
+# ⚠️ POR QUE ISTO PRECISA DE SSH E NÃO RODA "DAQUI": `pnpm agente cliente|delegar|revogar|listar`
+# tem uma trava (`podeRodarDemoSeed`, a MESMA do `demo-seed`) que recusa qualquer banco que não
+# seja localhost — de propósito, para ninguém semear/emitir credencial em produção por engano
+# de uma máquina de desenvolvimento. A única forma legítima de emitir credencial de produção é
+# rodar o comando DENTRO do servidor, onde o MySQL É localhost — e é isso que este workflow faz,
+# pela mesma conexão SSH do `deploy.yml`.
+#
+# ⚠️ A TRAVA CONTINUA DE PÉ. O comando roda com `NODE_ENV` sobrescrito só PARA ESTA CHAMADA
+# (nunca a variável do processo da aplicação, que continua `production`) — é a escotilha que o
+# próprio comentário de `apps/api/src/scripts/agente.ts` descreve. Ninguém edita a trava; quem
+# dispara este workflow está escolhendo, conscientemente, contorná-la uma vez.
+#
+# ⚠️ O SEGREDO/TOKEN SÓ APARECE UMA VEZ, no log desta execução — exatamente como no terminal.
+# ⛔ ISSO SÓ É SEGURO SE O REPOSITÓRIO FOR PRIVADO — o primeiro passo do job RECUSA rodar se não
+# for (não confie neste comentário: é o `if: github.event.repository.private == false` que manda).
+# Mesmo privado: copie o valor e feche a aba. Ele NÃO fica em lugar nenhum além do hash que o
+# banco guarda.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: "Digite EMITIR (em maiúsculas) para confirmar"
+        required: true
+        type: string
+      acao:
+        description: "O que fazer"
+        required: true
+        type: choice
+        options:
+          - listar
+          - cliente
+          - delegar
+          - revogar
+        default: listar
+      nome:
+        description: "[cliente] Nome do AgentClient (ex.: cora-prod)"
+        required: false
+        type: string
+      clientId:
+        description: "[delegar] O id do AgentClient (saiu do comando 'cliente')"
+        required: false
+        type: string
+      email:
+        description: "[delegar] E-mail da PESSOA em nome de quem a Cora vai falar"
+        required: false
+        type: string
+      minutos:
+        description: "[delegar] Prazo da delegação em minutos (máx. 1440 = 24h)"
+        required: false
+        type: string
+        default: "1440"
+      escopos:
+        description: "[delegar] Escopos, separados por espaço (ex.: tasks:read tasks:write)"
+        required: false
+        type: string
+        default: "tasks:read"
+      por:
+        description: "[delegar] E-mail de quem está autorizando (fica no registro de auditoria)"
+        required: false
+        type: string
+      delegacao:
+        description: "[revogar] O delegationId a revogar"
+        required: false
+        type: string
+
+concurrency:
+  group: credencial-agente-producao
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  emitir:
+    if: github.event.inputs.confirmar == 'EMITIR'
+    runs-on: ubuntu-latest
+    environment: producao
+    env:
+      DEPLOY_PATH: /home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html
+      DEPLOY_SSH_PORT: "1992"
+      NODE_VENV: ~/nodevenv/domains/workspace.medconsultoria.com.br/public_html/20/bin/activate
+
+    steps:
+      # ⛔ TRAVA ESTRUTURAL, NÃO COMENTÁRIO (achado da revisão de segurança, 04/09/2026).
+      # Este workflow IMPRIME CREDENCIAL DE PRODUÇÃO NO LOG da execução — mesmo risco aceito que
+      # o comando local (`pnpm agente ...`) já assume ao mostrar o segredo uma vez na tela. Isso só
+      # é seguro se só quem tem escrita neste repositório enxergar o log. Em repositório PÚBLICO, o
+      # log do Actions é lido por qualquer pessoa da internet, sem login — a 1ª versão deste arquivo
+      # presumia "repositório privado" só no comentário, e o revisor confirmou por API que
+      # `garcia-goncalves/workspace-medconsultoria` está `public`. Por isso a conferência é feita
+      # em código, não em prosa, e para o job inteiro ANTES de gastar uma conexão SSH.
+      - name: Recusar rodar em repositório público
+        if: github.event.repository.private == false
+        run: |
+          echo "::error::Este workflow imprime credencial de produção no log da execução, e ESTE REPOSITÓRIO É PÚBLICO — qualquer pessoa da internet leria o token. Torne o repositório privado (Settings → General → Danger Zone → Change visibility) antes de rodar este workflow. Nada foi executado."
+          exit 1
+
+      # Conferência cedo, com mensagem clara — antes de gastar uma conexão SSH com um pedido
+      # que já se sabe malformado. Os inputs entram por variável de ambiente, nunca interpolados
+      # dentro da string do `run:` — achado da revisão: `${{ inputs.nome }}` cru dentro de
+      # `[ -n "${{ inputs.nome }}" ]` deixava injetar comando no RUNNER com um nome do tipo
+      # `cora$(curl ... | bash)` (o `$(...)` do bash expande ANTES do `[ -n ... ]` rodar).
+      - name: Validar os argumentos da ação escolhida
+        env:
+          ACAO: ${{ inputs.acao }}
+          ARG_NOME: ${{ inputs.nome }}
+          ARG_CLIENT_ID: ${{ inputs.clientId }}
+          ARG_EMAIL: ${{ inputs.email }}
+          ARG_DELEGACAO: ${{ inputs.delegacao }}
+        run: |
+          set -euo pipefail
+          case "$ACAO" in
+            cliente)
+              [ -n "$ARG_NOME" ] || { echo "::error::Ação 'cliente' exige --nome."; exit 1; }
+              ;;
+            delegar)
+              [ -n "$ARG_CLIENT_ID" ] || { echo "::error::Ação 'delegar' exige clientId."; exit 1; }
+              [ -n "$ARG_EMAIL" ] || { echo "::error::Ação 'delegar' exige email."; exit 1; }
+              ;;
+            revogar)
+              [ -n "$ARG_DELEGACAO" ] || { echo "::error::Ação 'revogar' exige delegacao (o id)."; exit 1; }
+              ;;
+            listar) ;;
+            *) echo "::error::Ação desconhecida: $ACAO"; exit 1 ;;
+          esac
+
+      - name: Abrir a conexão com o servidor
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          cat > ~/.ssh/config <<CFG
+          Host deploy
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            Port $DEPLOY_SSH_PORT
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ControlMaster auto
+            ControlPath ~/.ssh/cm-%r@%h:%p
+            ControlPersist 5m
+            ServerAliveInterval 30
+            ServerAliveCountMax 6
+            ConnectTimeout 30
+          CFG
+          chmod 600 ~/.ssh/config
+
+          for TENTATIVA in 1 2 3 4; do
+            if ssh -o LogLevel=ERROR -N -f deploy 2>/tmp/ssh-erro; then
+              echo "conexão aberta na tentativa $TENTATIVA"
+              break
+            fi
+            echo "tentativa $TENTATIVA falhou: $(cat /tmp/ssh-erro)"
+            [ "$TENTATIVA" = "4" ] && { echo "!! não consegui abrir a conexão com o servidor"; exit 1; }
+            sleep $((TENTATIVA * 20))
+          done
+          ssh -O check deploy
+
+      # ⚠️ O script compilado (`scripts/agente.js`) só existe no servidor a partir do PRÓXIMO
+      # deploy que incluir este workflow — ele nasce junto do bundle (`bundle-deploy.mjs`),
+      # igual ao `seed.js`. Se ainda não foi publicado, este passo falha dizendo exatamente isso,
+      # em vez de um erro de "arquivo não encontrado" sem contexto.
+      - name: Conferir que o servidor já tem o comando
+        run: |
+          set -euo pipefail
+          ssh -o LogLevel=ERROR deploy "test -f '$DEPLOY_PATH/scripts/agente.js'" \
+            || { echo "::error::'$DEPLOY_PATH/scripts/agente.js' não existe ainda no servidor — publique (workflow Deploy) pelo menos uma vez depois que este workflow foi mesclado, e tente de novo."; exit 1; }
+
+      # Cada argumento entra pela variável de ambiente (nunca interpolado dentro da string do
+      # comando remoto) — é o que impede um valor com aspas ou `;` de escapar para outro
+      # comando no shell do servidor.
+      - name: Rodar o comando no servidor (com NODE_ENV sobrescrito só para esta chamada)
+        env:
+          ACAO: ${{ inputs.acao }}
+          ARG_NOME: ${{ inputs.nome }}
+          ARG_CLIENT_ID: ${{ inputs.clientId }}
+          ARG_EMAIL: ${{ inputs.email }}
+          ARG_MINUTOS: ${{ inputs.minutos }}
+          ARG_ESCOPOS: ${{ inputs.escopos }}
+          ARG_POR: ${{ inputs.por }}
+          ARG_DELEGACAO: ${{ inputs.delegacao }}
+        run: |
+          set -euo pipefail
+
+          case "$ACAO" in
+            cliente)  ARGS=(cliente --nome "$ARG_NOME") ;;
+            delegar)
+              ARGS=(delegar --cliente "$ARG_CLIENT_ID" --email "$ARG_EMAIL" --minutos "$ARG_MINUTOS" --escopos "$ARG_ESCOPOS")
+              [ -n "$ARG_POR" ] && ARGS+=(--por "$ARG_POR")
+              ;;
+            revogar)  ARGS=(revogar --delegacao "$ARG_DELEGACAO") ;;
+            listar)   ARGS=(listar) ;;
+          esac
+
+          # `printf %q` monta uma linha shell-safe a partir do array — cada argumento chega ao
+          # bash remoto exatamente como um token, mesmo que contenha espaço, aspas ou `;`.
+          COMANDO_REMOTO="cd '$DEPLOY_PATH' && source $NODE_VENV && NODE_ENV=administracao-agente node scripts/agente.js $(printf '%q ' "${ARGS[@]}")"
+
+          SAIDA="$(ssh -o LogLevel=ERROR deploy "$COMANDO_REMOTO" 2>&1)" && CODIGO=0 || CODIGO=$?
+
+          # Mascara ANTES de imprimir uma linha sequer — a régua é a saída REAL de
+          # `apps/api/src/scripts/agente.ts` (achado da revisão: a 1ª versão procurava
+          # "Bearer: valor", com dois-pontos; o script imprime "Bearer valor", com ESPAÇO —
+          # a máscara nunca disparava e o token ia para o log em claro).
+          while IFS= read -r LINHA; do
+            case "$LINHA" in
+              *"x-agent-secret:"*) VALOR="${LINHA##*x-agent-secret: }" ;;
+              *"Authorization: Bearer "*) VALOR="${LINHA##*Authorization: Bearer }" ;;
+              *) VALOR="" ;;
+            esac
+            [ -n "$VALOR" ] && echo "::add-mask::$VALOR"
+          done <<< "$SAIDA"
+
+          printf '%s\n' "$SAIDA"
+
+          if [ "$CODIGO" -ne 0 ]; then
+            echo "::error::O comando terminou com código $CODIGO — nada foi confirmado como emitido."
+            exit "$CODIGO"
+          fi
+
+      - name: Fechar a conexão e limpar a chave do runner
+        if: always()
+        run: |
+          ssh -O exit deploy 2>/dev/null || true
+          rm -f ~/.ssh/deploy_key ~/.ssh/config

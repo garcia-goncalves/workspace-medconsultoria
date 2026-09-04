@@ -47,14 +47,45 @@ pnpm agente listar                                                              
 pnpm agente delegar --cliente <clientId> --email admin@teste.local --escopos tasks:write
 ```
 
-⚠️ **`tasks:write` é um escopo RESERVADO que não habilita nada** — não existe escrita nesta versão. Ele é
-reconhecido de propósito: sem um escopo aceito pelo comando e insuficiente para a rota, **não haveria caminho
-para emitir uma delegação sem `tasks:read`**, e o `403` por escopo ficava impossível de exercer de fora
-(achado do ticket CORA-002).
+⚠️ **`tasks:write` HOJE HABILITA ESCRITA — este exemplo mostra só o 403 por escopo, da Fase 1
+(CORA-001/002).** Na época em que este trecho foi escrito, `tasks:write` era um escopo reconhecido
+que não habilitava nada; ele existia de propósito, para provar o `403` por escopo insuficiente sem
+precisar de `tasks:read` (achado do ticket CORA-002). A partir da Fase 2 (ADR-150), quem tem
+`tasks:write` cria tarefa de verdade — ver "Emitir a delegação de escrita" mais abaixo.
 
 ⚠️ **Conta de Portal é barrada na EMISSÃO, não na chamada.** `pnpm agente delegar --email cliente@teste.local`
 responde *"Conta de Portal não pode delegar leitura de tarefa interna"* — a credencial nem chega a existir. A
 trava da API continua lá (papel `CLIENTE` → `403`), como segunda camada; só não dá para alcançá-la pela CLI.
+
+## Emitir credenciais em PRODUÇÃO (04/09/2026)
+
+**Nenhum `AgentClient`/`AgentDelegation` de produção existe ainda.** Enquanto isso não muda, a
+Cora só fala com `localhost:4319`, mesmo com a API já publicada.
+
+Os comandos acima **nunca** funcionam contra o banco de produção rodando desta máquina — a trava
+é a mesma do `demo-seed` e não tem escotilha por variável de ambiente daqui (`NODE_ENV=production`
+é recusa **sem exceção**, e banco remoto exige `DEMO_SEED_CONFIRMO=1`, que a hospedagem nem expõe
+por fora). A única forma legítima é rodar o comando **dentro do servidor**, onde o MySQL é
+`localhost` — e é isso que o workflow **"Emitir credencial do agente"** faz (Actions → Run
+workflow), pela mesma conexão SSH do deploy:
+
+1. Vá em **Actions → Emitir credencial do agente → Run workflow**.
+2. Escolha a ação (`cliente` para criar o programa, `delegar` para autorizar uma pessoa,
+   `revogar` ou `listar`) e preencha só os campos daquela ação.
+3. Digite `EMITIR` no campo de confirmação.
+4. O segredo/token aparece **uma única vez**, no log da execução — copie e feche a aba. Ele não
+   fica em lugar nenhum além do hash que o banco guarda (mesmo aviso do comando local).
+
+⚠️ **A trava continua de pé.** O workflow roda o comando com `NODE_ENV` sobrescrito **só para
+aquela chamada** (`NODE_ENV=administracao-agente`) — a variável de ambiente da aplicação em si
+continua `production`, intocada. Ninguém edita `podeRodarDemoSeed`; quem dispara o workflow está
+escolhendo, conscientemente e uma vez, contornar a trava — exatamente o comentário que
+`apps/api/src/scripts/agente.ts` já descrevia antes de este workflow existir.
+
+⚠️ **Exige que a produção já tenha recebido pelo menos um deploy depois deste workflow ter sido
+mesclado.** O comando roda o arquivo compilado `scripts/agente.js`, que nasce junto do artefato de
+publicação (`scripts/bundle-deploy.mjs`, o mesmo molde do `seed.js`) — sem isso, `pnpm agente ...`
+usa `tsx`, que é `devDependency` e não existe no servidor (`npm ci --omit=dev`).
 
 ## Cenário determinístico para conferir isolamento
 
