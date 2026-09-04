@@ -22,6 +22,7 @@ import { usePodeNoPortal } from "../permissoes";
 export function PortalServicosPage() {
   const resumo = trpc.portal.resumo.useQuery();
   const catalogo = trpc.portal.servicosDisponiveis.useQuery();
+  const meusServicos = trpc.portal.meusServicos.useQuery();
   const utils = trpc.useUtils();
   // Pedir serviço novo é falar PELA clínica (ADR-131): a secretária vê o catálogo e não pede.
   const pedirServico = usePodeNoPortal()("solicitarServicos");
@@ -37,8 +38,14 @@ export function PortalServicosPage() {
     },
   });
 
+  // Achado da auditoria de 04/09/2026: o catálogo só descontava `servicosAtuais` (o carrinho do
+  // LEAD ativo no funil) — cliente já convertido normalmente não tem lead ativo, então esse
+  // conjunto ficava vazio e "O que você precisa?" oferecia até serviço JÁ CONTRATADO de verdade
+  // (`portal.meusServicos`), abrindo caminho para pedido duplicado do que já se paga. Agora
+  // descontamos os dois: o carrinho em aberto E o que já está contratado.
   const servicosAtuais = resumo.data?.servicosAtuais ?? [];
-  const jaPedidos = new Set(servicosAtuais.map((s) => s.id));
+  const jaContratados = meusServicos.data ?? [];
+  const jaPedidos = new Set([...servicosAtuais.map((s) => s.id), ...jaContratados.map((s) => s.servico.id)]);
   const disponiveis = (catalogo.data ?? []).filter((s) => !jaPedidos.has(s.id));
 
   return (

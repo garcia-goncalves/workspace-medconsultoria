@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { AVISO_MARCADORES_IA, redigirDadoPessoal, restaurarDadoPessoal } from "@app/shared";
 import { config, isAiEnabled } from "../config.js";
 
@@ -77,7 +78,14 @@ async function chamarGeminiOk(chave: string, corpo: unknown): Promise<RespostaGe
     });
   } catch (e) {
     const semTempo = e instanceof Error && e.name === "TimeoutError";
-    throw new Error(semTempo ? "O Gemini não respondeu a tempo." : "Não consegui falar com o Gemini (rede).");
+    // ⚠️ Achado da auditoria de 04/09/2026, mesmo padrão da ADR-135 (erros-de-caixa.ts): timeout e
+    // falha de rede na chamada ao Gemini são ESPERADOS (o "chamada fria" documentado no CLAUDE.md),
+    // não bug de servidor. `new Error` cru vira INTERNAL_SERVER_ERROR no onError do tRPC e polui o
+    // painel SISTEMA → Erros com ruído indistinguível de defeito real.
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: semTempo ? "O Gemini não respondeu a tempo." : "Não consegui falar com o Gemini (rede).",
+    });
   }
 
   if (!resp.ok) {

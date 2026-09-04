@@ -24,6 +24,8 @@ import {
   valorPorExtenso,
   UMA_OPERADORA_POR_PROPOSTA,
   SITUACOES_CLIENTE,
+  MODELO_ACEITA_LEAD,
+  TIPO_MODELO_LABEL,
 } from "@app/shared";
 import { aiService } from "../../lib/ai.js";
 import { avancarLeadPorClienteAuto, garantirClienteDoLead } from "../leads/leads.service.js";
@@ -771,7 +773,9 @@ export async function criarContrato(input: CriarContratoInput, userId: string) {
   const prazoTxt = textoVigencia(input.vigenciaMeses);
   // Identidade da CONTRATADA e foro vêm de Ajustes → Dados da empresa (editáveis pela Thaís).
   const identidade = await getIdentidade();
-  const foroTxt = identidade.foro?.trim() || "da comarca do domicílio da CONTRATANTE";
+  // Achado da auditoria de 04/09/2026: o modelo já traz "Fica eleito o foro de {{foro}}" — um
+  // fallback começando em "da" duplicava a preposição ("...o foro de da comarca..."). Sem "da".
+  const foroTxt = identidade.foro?.trim() || "comarca do domicílio da CONTRATANTE";
 
   const modelo = input.modeloId
     ? await prisma.modeloDocumento.findUnique({ where: { id: input.modeloId } })
@@ -1010,6 +1014,37 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
 
   const clienteId = await garantirClienteDoLead(lead, ator.id);
 
+  // Achado da auditoria de 04/09/2026: esta é a SEGUNDA porta de geração de documento, e era a
+  // única que não consultava MODELO_ACEITA_LEAD (`@app/shared`) — o botão "Elaborar e enviar o
+  // contrato" do passo "Negociação" do funil conseguia gerar Contrato para um lead que nunca teve
+  // proposta aceita nenhuma, contrariando a regra ("nasce do aceite", ADR-132/133).
+  //
+  // ⚠️ Não pode ser um bloqueio CEGO por tipo: o próprio playbook do funil (leads.service.ts,
+  // PLAYBOOK.negociacao) chama este mesmo caminho como FALLBACK depois que uma proposta já foi
+  // aceita — e o `gerarContratoAutoParaCliente` disparado no aceite (propostas.service.ts) cai
+  // aqui quando o cliente ainda não tem serviço estruturado. Nos dois casos legítimos já existe
+  // uma proposta ACEITA por trás. A régua certa é essa: contrato só nasce se houver proposta
+  // aceita para este cliente — não "se já é cliente" (a conta pode ser um PROSPECT recém-criado
+  // pela linha acima) nem "se o tipo permite lead" (permite, DEPOIS do aceite).
+  if (MODELO_ACEITA_LEAD[tipoModelo] === false) {
+    if (tipoModelo !== "CONTRATO") {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `${TIPO_MODELO_LABEL[tipoModelo]} não pode ser gerado a partir do funil de vendas.`,
+      });
+    }
+    const propostaAceita = await prisma.documento.findFirst({
+      where: { clienteId, deletedAt: null, propostaStatus: "ACEITA", modelo: { tipo: "PROPOSTA" } },
+      select: { id: true },
+    });
+    if (!propostaAceita) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Ainda não há proposta aceita por este cliente — o contrato nasce do aceite, não pode ser gerado antes dele.",
+      });
+    }
+  }
+
   // PROPOSTA: monta a partir dos serviços escolhidos pelo mesmo construtor da "Nova proposta"
   // (tabela + investimento reais, corpo do modelo como moldura) — nunca deixa {{servicos}} cru.
   if (tipo === "proposta") {
@@ -1055,7 +1090,8 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
     variaveis.prazo = textoVigencia(12);
     // Foro e qualificação da CONTRATADA de Ajustes → Dados da empresa (editáveis pela Thaís).
     const identidade = await getIdentidade();
-    variaveis.foro = identidade.foro?.trim() || "da comarca do domicílio da CONTRATANTE";
+    // Sem "da" no início — o modelo já traz "...o foro de {{foro}}" (mesma correção do achado 3).
+    variaveis.foro = identidade.foro?.trim() || "comarca do domicílio da CONTRATANTE";
     variaveis.contratada = qualificacaoContratada(identidade);
     // ⚠️ O CONTRATO NASCE POR DUAS PORTAS, e esta é a segunda: o botão "Gerar contrato" do painel
     // do lead. `render` troca marcador desconhecido por *(a preencher)*, então sem esta linha o

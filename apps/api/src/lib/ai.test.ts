@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { TRPCError } from "@trpc/server";
 
 /**
  * `lib/ai.ts` fala com o Gemini por REST puro (`fetch`), sem SDK — mesma escolha do motor de
@@ -110,6 +111,42 @@ describe("gerarRascunho (Gemini, generateContent)", () => {
     } catch (e) {
       expect(String((e as Error).message)).not.toContain("chave-dummy-que-nao-pode-vazar");
     }
+  });
+
+  // Achado da auditoria de 04/09/2026: timeout/falha de rede na chamada ao Gemini são estado
+  // ESPERADO ("chamada fria"), não bug de servidor — mesmo padrão da ADR-135 (erros-de-caixa.ts).
+  // `new Error` cru vira INTERNAL_SERVER_ERROR no onError do tRPC e polui SISTEMA → Erros.
+  it("timeout vira TRPCError PRECONDITION_FAILED, não erro interno genérico", async () => {
+    vi.resetModules();
+    process.env.GEMINI_API_KEY = "chave-de-teste";
+
+    const erroDeTimeout = new Error("The operation was aborted due to timeout");
+    erroDeTimeout.name = "TimeoutError";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(erroDeTimeout));
+
+    const { aiService } = await import("./ai.js");
+    await expect(aiService.gerarRascunho("s", "u")).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+    });
+    try {
+      await aiService.gerarRascunho("s", "u");
+      throw new Error("deveria ter lançado");
+    } catch (e) {
+      expect(e).toBeInstanceOf(TRPCError);
+      expect(String((e as TRPCError).message)).toMatch(/não respondeu a tempo/i);
+    }
+  });
+
+  it("falha de rede também vira TRPCError PRECONDITION_FAILED", async () => {
+    vi.resetModules();
+    process.env.GEMINI_API_KEY = "chave-de-teste";
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed: ENOTFOUND")));
+
+    const { aiService } = await import("./ai.js");
+    await expect(aiService.gerarRascunho("s", "u")).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+    });
   });
 });
 

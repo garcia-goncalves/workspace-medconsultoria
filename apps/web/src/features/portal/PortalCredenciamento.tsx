@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
 import { recarregarAposEnvio } from "../../lib/recarregar-apos-envio";
+import { usePodeNoPortal } from "./permissoes";
 
 type Vaga = {
   lado: "FRENTE" | "VERSO" | null;
@@ -34,6 +35,12 @@ type Requisito = {
 export function PortalCredenciamento() {
   const utils = trpc.useUtils();
   const confirm = useConfirm();
+  // Achado da auditoria de 04/09/2026: os botões de Enviar/Remover eram os únicos do Portal que
+  // nunca consultavam a trava de papel — em sessão de suporte (ADR-128), o servidor recusa (403,
+  // já provado antes desta correção), mas a pessoa só descobria DEPOIS de escolher o arquivo e
+  // esperar o upload. Reaproveita "removerArquivo" (já liberada para EQUIPE) para as duas ações:
+  // enviar e remover documento do credenciamento são a mesma capacidade de gestão de arquivo.
+  const podeAgir = usePodeNoPortal()("removerArquivo");
   const q = trpc.portal.credenciamento.useQuery();
   const invalidate = () => {
     // `q` é a papelada do credenciamento que ESTA tela desenha: recarregamento duplo, não
@@ -79,15 +86,19 @@ export function PortalCredenciamento() {
       {v.arquivo ? (
         <>
           <ArquivoLink id={v.arquivo.id} nome={v.arquivo.nome} className="flex min-h-11 max-w-[200px] items-center" />
-          <button
-            onClick={() => v.arquivo && onRemover(v.arquivo.id, v.arquivo.nome)}
-            aria-label={`Remover ${v.arquivo.nome}`}
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground/60 hover:text-destructive"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {podeAgir.pode ? (
+            <button
+              onClick={() => v.arquivo && onRemover(v.arquivo.id, v.arquivo.nome)}
+              aria-label={`Remover ${v.arquivo.nome}`}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground/60 hover:text-destructive"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <span className="text-xs text-muted-foreground">{podeAgir.frase}</span>
+          )}
         </>
-      ) : (
+      ) : podeAgir.pode ? (
         <div className="[&_button]:min-h-11">
           <UploadArquivo
             size="xs"
@@ -100,6 +111,8 @@ export function PortalCredenciamento() {
             onDone={invalidate}
           />
         </div>
+      ) : (
+        <span className="text-xs text-muted-foreground">{podeAgir.frase}</span>
       )}
     </div>
   );

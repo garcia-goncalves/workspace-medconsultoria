@@ -15,6 +15,7 @@ import { Modal } from "../../components/ui/modal";
 import { EmptyState } from "../../components/ui/empty-state";
 import { toast } from "../../components/ui/toast";
 import { SuporteChat } from "./SuporteChat";
+import { usePodeNoPortal } from "./permissoes";
 
 const statusBadge: Record<ChamadoStatus, NonNullable<BadgeProps["variant"]>> = {
   ABERTO: "warning",
@@ -24,6 +25,12 @@ const statusBadge: Record<ChamadoStatus, NonNullable<BadgeProps["variant"]>> = {
 
 export function PortalSuporte() {
   const utils = trpc.useUtils();
+  // Achado da auditoria de 04/09/2026: "Abrir chamado" e a resposta dentro de um chamado eram
+  // dois dos botões que faltavam essa checagem — a sessão de suporte (ADR-128) lê os chamados
+  // normalmente, mas o servidor recusa `suporte.abrir`/`suporte.enviar`; sem a trava aqui, a
+  // pessoa preenchia o formulário inteiro (ou digitava a resposta) antes de descobrir.
+  const podeAbrir = usePodeNoPortal()("suporte.abrir");
+  const podeEnviar = usePodeNoPortal()("suporte.enviar");
   const [sel, setSel] = useState<string | null>(null);
   const [abrir, setAbrir] = useState(false);
   const [assunto, setAssunto] = useState("");
@@ -74,10 +81,12 @@ export function PortalSuporte() {
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Meus chamados
           </button>
-        ) : (
+        ) : podeAbrir.pode ? (
           <Button size="sm" className="min-h-11" onClick={() => setAbrir(true)}>
             <Plus className="h-4 w-4" /> Abrir chamado
           </Button>
+        ) : (
+          <span className="text-xs text-muted-foreground">{podeAbrir.frase}</span>
         )}
       </CardHeader>
 
@@ -99,6 +108,8 @@ export function PortalSuporte() {
             enviando={enviar.isPending}
             isLoading={thread.isLoading}
             ancorarAcimaDaBarra
+            podeEnviar={podeEnviar.pode}
+            motivoNaoPode={podeEnviar.frase}
           />
         </div>
       ) : chamados.isLoading ? (
@@ -149,11 +160,17 @@ export function PortalSuporte() {
           <EmptyState
             icon={LifeBuoy}
             title="Nenhum chamado aberto"
-            description="Precisa de alguma coisa? Abra um chamado que a nossa equipe responde por aqui."
+            description={
+              podeAbrir.pode
+                ? "Precisa de alguma coisa? Abra um chamado que a nossa equipe responde por aqui."
+                : podeAbrir.frase
+            }
           >
-            <Button className="min-h-11" onClick={() => setAbrir(true)}>
-              <Plus className="h-4 w-4" /> Abrir chamado
-            </Button>
+            {podeAbrir.pode && (
+              <Button className="min-h-11" onClick={() => setAbrir(true)}>
+                <Plus className="h-4 w-4" /> Abrir chamado
+              </Button>
+            )}
           </EmptyState>
         </div>
       )}

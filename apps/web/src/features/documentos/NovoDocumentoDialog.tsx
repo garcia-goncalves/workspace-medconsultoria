@@ -537,7 +537,8 @@ export function NovoDocumentoDialog({
         .replace(/\{\{\s*clausulas_servicos\s*\}\}/g, clausulas)
         .replace(/\{\{\s*valor\s*\}\}/g, inv.length ? inv.join("\n") : "_______")
         .replace(/\{\{\s*prazo\s*\}\}/g, textoVigencia(vigenciaMeses))
-        .replace(/\{\{\s*foro\s*\}\}/g, "da comarca do domicílio da CONTRATANTE");
+        // Sem "da" no início — o modelo já traz "...o foro de {{foro}}" (achado da auditoria de 04/09/2026).
+        .replace(/\{\{\s*foro\s*\}\}/g, "comarca do domicílio da CONTRATANTE");
     }
     if (modo === "RECIBO") {
       corpo = corpo

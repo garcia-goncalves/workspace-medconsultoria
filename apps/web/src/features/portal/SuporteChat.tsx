@@ -19,6 +19,8 @@ export function SuporteChat({
   enviando,
   isLoading,
   ancorarAcimaDaBarra,
+  podeEnviar = true,
+  motivoNaoPode,
 }: {
   mensagens: SuporteMsg[];
   meuLado: "equipe" | "cliente";
@@ -27,6 +29,13 @@ export function SuporteChat({
   isLoading?: boolean;
   /** Gruda o campo de escrita acima da barra de seções do Portal. */
   ancorarAcimaDaBarra?: boolean;
+  /**
+   * `false` esconde o campo de escrita e mostra `motivoNaoPode` no lugar — achado da auditoria
+   * de 04/09/2026: sessão de suporte (ADR-128) lê o chamado normalmente, mas o servidor recusa
+   * `suporte.enviar`; sem esta trava a pessoa digitava a resposta inteira antes de descobrir.
+   */
+  podeEnviar?: boolean;
+  motivoNaoPode?: string;
 }) {
   const [texto, setTexto] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -118,6 +127,11 @@ export function SuporteChat({
         )}
         <div ref={bottomRef} />
       </div>
+      {!podeEnviar ? (
+        <div className="border-t bg-muted/20 p-3 text-center text-xs text-muted-foreground">
+          {motivoNaoPode ?? "Modo de suporte — só leitura"}
+        </div>
+      ) : (
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -160,6 +174,7 @@ export function SuporteChat({
           <Send className="h-4 w-4" />
         </Button>
       </form>
+      )}
     </div>
   );
 }

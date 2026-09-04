@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Users } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { useAuth } from "../../lib/auth-context";
@@ -5,6 +6,8 @@ import { toast } from "../../components/ui/toast";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import { PessoasDoPortal } from "./PessoasDoPortal";
 import { usePodeNoPortal } from "./permissoes";
+import { ConviteLinkDialog } from "../configuracoes/ConviteLinkDialog";
+import type { ConviteResultado } from "../configuracoes/UsuarioFormDialog";
 
 /**
  * "Quem da clínica entra aqui" — a seção do Portal onde o responsável cuida da própria equipe
@@ -26,14 +29,18 @@ export function PortalMinhaEquipe() {
   const recarregar = () => utils.portal.pessoas.list.invalidate();
   const aoFalhar = (e: { message: string }) => toast(e.message);
 
+  // Achado da auditoria de 04/09/2026: quando o e-mail falhava (no ambiente local, SEMPRE — não
+  // há servidor de e-mail), esta tela dizia só "fale com a nossa equipe" e DESCARTAVA o
+  // `conviteUrl` que o servidor já calculou — a única das cinco telas de convite do sistema que
+  // não dava um jeito alternativo de entregar o acesso. Agora reaproveita o mesmo diálogo das
+  // outras quatro (`ConviteLinkDialog`).
+  const [conviteInfo, setConviteInfo] = useState<ConviteResultado | null>(null);
+  const emailPorPessoaId = new Map((q.data ?? []).map((p) => [p.id, p.email]));
+
   const convidar = trpc.portal.pessoas.convidar.useMutation({
-    onSuccess: (r) => {
+    onSuccess: (r, variaveis) => {
       recarregar();
-      toast(
-        r.emailEnviado
-          ? "Convite enviado. A pessoa recebe um e-mail com o link para criar a senha."
-          : "Pessoa cadastrada, mas o e-mail não saiu. Fale com a nossa equipe.",
-      );
+      setConviteInfo({ email: variaveis.email, conviteUrl: r.conviteUrl, emailEnviado: r.emailEnviado });
     },
     onError: aoFalhar,
   });
@@ -42,11 +49,21 @@ export function PortalMinhaEquipe() {
     onError: aoFalhar,
   });
   const revogar = trpc.portal.pessoas.revogar.useMutation({ onSuccess: recarregar, onError: aoFalhar });
-  const devolver = trpc.portal.pessoas.devolver.useMutation({ onSuccess: recarregar, onError: aoFalhar });
-  const reenviar = trpc.portal.pessoas.reenviarConvite.useMutation({
-    onSuccess: () => {
+  const devolver = trpc.portal.pessoas.devolver.useMutation({
+    onSuccess: (r, variaveis) => {
       recarregar();
-      toast("Convite reenviado.");
+      if (r.conviteUrl) {
+        setConviteInfo({ email: emailPorPessoaId.get(variaveis.pessoaId) ?? "", conviteUrl: r.conviteUrl, emailEnviado: r.emailEnviado });
+      } else {
+        toast("Acesso devolvido.");
+      }
+    },
+    onError: aoFalhar,
+  });
+  const reenviar = trpc.portal.pessoas.reenviarConvite.useMutation({
+    onSuccess: (r, variaveis) => {
+      recarregar();
+      setConviteInfo({ email: emailPorPessoaId.get(variaveis.pessoaId) ?? "", conviteUrl: r.conviteUrl, emailEnviado: r.emailEnviado });
     },
     onError: aoFalhar,
   });
@@ -99,6 +116,7 @@ export function PortalMinhaEquipe() {
           }}
         />
       </CardContent>
+      <ConviteLinkDialog info={conviteInfo} onClose={() => setConviteInfo(null)} />
     </Card>
   );
 }
