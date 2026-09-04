@@ -25,11 +25,12 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   **smoke test do próprio workflow** verde.
 - **Conferido de fora, por `curl` real, não só confiando no smoke test do workflow:**
   `/health` → `{"status":"ok",...}` **200** · `/` **200** · `/credenciamentos` **200**.
-- ⚠️ **A chamada real ao Gemini EM PRODUÇÃO ainda não foi feita** — o dono colou a segunda chave
-  (a de produção, separada da local) no `.env` do servidor durante o deploy, e o reinício do passo
-  7/7 já sobe com ela lida. Falta só alguém abrir a tela logada e clicar em algo que chame a IA
-  (ex.: "Gerar meu plano" no Início) para ver a resposta real — isso é uso normal, não pendência de
-  código.
+- **✅ A CHAMADA REAL AO GEMINI EM PRODUÇÃO FOI FEITA E FUNCIONOU, na tela, como ROOT.** Botão
+  "Gerar meu plano" no Início: "Pensando…" por ~20s (mesma janela de "chamada fria" já vista no
+  local) e depois um plano em português, coerente com o dado real da conta ("1 documento em
+  rascunho/revisão", agenda livre) — botão virou "Refazer", confirmando sucesso, não texto
+  congelado. Console do navegador sem erro nenhum. **A ADR-151 está fechada de ponta a ponta:
+  código, teste, publicação e uso real.**
 
 ### 🔀 OPENAI VIROU GEMINI, E FOI PROVADO COM CHAMADA REAL — pedido do dono
 
