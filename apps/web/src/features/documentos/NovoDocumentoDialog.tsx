@@ -347,11 +347,17 @@ export function NovoDocumentoDialog({
 
   // Proposta de credenciamento = modelo cujo corpo declara {{operadoras}} → usa o formulário
   // de OPERADORAS (não o catálogo de serviços da proposta comercial).
-  const ehCredenciamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{operadoras}}");
+  // ⚠️ NOME DELIBERADAMENTE DIFERENTE de `Servico.ehCredenciamento`: aqui é "este DOCUMENTO é
+  // uma proposta de credenciamento" (detectado pelo MODELO), lá é "este SERVIÇO do catálogo é a
+  // marca única de credenciamento" (gravado no banco). Same-name local var já colidiu com o
+  // campo do banco e confundia a leitura — achado da auditoria de 04/09.
+  const ePropostaDeCredenciamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{operadoras}}");
 
   // Proposta de FATURAMENTO = modelo cujo corpo declara {{convenios}} (ADR-126). Mesma lógica
   // de detecção do credenciamento: quem manda é o MODELO, não o nome do serviço nem a categoria.
-  const ehFaturamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{convenios}}");
+  // ⚠️ Mesma ressalva acima: não é `Servico.ehFaturamento` (marca do banco), é "este DOCUMENTO é
+  // uma proposta de faturamento".
+  const ePropostaDeFaturamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{convenios}}");
   // O percentual somado dos serviços escolhidos — é o que a proposta cobra por mês.
   const percentualDaProposta = Object.values(sel).reduce((t, i) => t + (i.percentual ?? 0), 0);
   const valorEstimadoDoFaturamento =
@@ -364,13 +370,13 @@ export function NovoDocumentoDialog({
   // a grade igual ao que o servidor vai gerar.
   const gradeCtx = trpc.credenciamento.grade.useQuery(
     { clienteId },
-    { enabled: open && ehCredenciamento && !!clienteId },
+    { enabled: open && ePropostaDeCredenciamento && !!clienteId },
   );
 
   // Os NOMES dos convênios para a prévia (o mesmo cache que o ConveniosPicker usa).
   const catalogoConvenios = trpc.documentos.operadoras.list.useQuery(
     { uso: "FATURAMENTO" },
-    { enabled: open && ehFaturamento },
+    { enabled: open && ePropostaDeFaturamento },
   );
 
   // Preview ao vivo: injeta os valores já preenchidos no corpo antes de exibir.
@@ -379,7 +385,7 @@ export function NovoDocumentoDialog({
     let corpo = modelo.corpo;
     // PROPOSTA DE CREDENCIAMENTO: preenche {{operadoras}}, {{profissionais}} e {{servicos}},
     // espelhando o servidor — a prévia tem de mostrar a proposta que vai sair, não um esboço.
-    if (ehCredenciamento) {
+    if (ePropostaDeCredenciamento) {
       const extras = [prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : ""].filter(Boolean);
 
       let nomesOperadoras: string[];
@@ -449,7 +455,7 @@ export function NovoDocumentoDialog({
     }
     // PROPOSTA COMERCIAL: espelha o servidor (montarServicos) — tabela de serviços + investimento +
     // prazo/condições/observações + apresentação. Assim a prévia mostra a proposta COMPLETA em tempo real.
-    if (modo === "PROPOSTA" && !ehCredenciamento) {
+    if (modo === "PROPOSTA" && !ePropostaDeCredenciamento) {
       const servDe = (id: string) => servicosAtivos.data?.find((s) => s.id === id);
       const ids = Object.keys(sel);
       let av = 0;
@@ -638,7 +644,7 @@ export function NovoDocumentoDialog({
         titulo: tituloArg,
         // Credenciamento envia a GRADE (médico × operadora) ou, sem médico cadastrado, as
         // operadoras soltas; a proposta comercial envia os serviços do catálogo.
-        ...(ehCredenciamento
+        ...(ePropostaDeCredenciamento
           ? modoGrade
             ? { grade: celulasGrade }
             : {
@@ -656,7 +662,7 @@ export function NovoDocumentoDialog({
               // Faturamento (ADR-126): os convênios e a base do cálculo. O servidor grava os
               // convênios dentro do item para eles atravessarem o aceite, e devolve o
               // faturamento ao lead.
-              ...(ehFaturamento
+              ...(ePropostaDeFaturamento
                 ? { conveniosIds: conveniosSel, faturamentoMensal: faturamentoMensal || 0 }
                 : {}),
             }),
@@ -746,7 +752,7 @@ export function NovoDocumentoDialog({
     !modelo ||
     pending ||
     (modo === "PROPOSTA"
-      ? ehCredenciamento
+      ? ePropostaDeCredenciamento
         ? !operadoraProposta || (modoGrade && celulasGrade.length === 0)
         : Object.keys(sel).length === 0
       : modo === "CONTRATO"
@@ -829,7 +835,7 @@ export function NovoDocumentoDialog({
             <div className="space-y-4">
               {modo === "PROPOSTA" ? (
           <>
-            {ehCredenciamento ? (
+            {ePropostaDeCredenciamento ? (
               <CredenciamentoPicker
                 clienteId={clienteId}
                 celulas={celulasGrade}
@@ -845,10 +851,10 @@ export function NovoDocumentoDialog({
                 <PropostaServicosPicker
                   sel={sel}
                   setSel={setSel}
-                  escopo={ehFaturamento ? "FATURAMENTO" : "COMERCIAL"}
-                  titulo={ehFaturamento ? "Serviço e percentual" : "Serviços da proposta"}
+                  escopo={ePropostaDeFaturamento ? "FATURAMENTO" : "COMERCIAL"}
+                  titulo={ePropostaDeFaturamento ? "Serviço e percentual" : "Serviços da proposta"}
                 />
-                {ehFaturamento && (
+                {ePropostaDeFaturamento && (
                   <>
                     <ConveniosPicker selecionados={conveniosSel} setSelecionados={setConveniosSel} />
                     <div className="space-y-1">

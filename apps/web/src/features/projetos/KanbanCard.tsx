@@ -4,6 +4,7 @@ import { Clock, CheckSquare } from "lucide-react";
 import { cn } from "@app/ui";
 import { PRIORIDADE_LABEL, type CardStatus, type Prioridade } from "@app/shared";
 import { Badge, type BadgeProps } from "../../components/ui/badge";
+import { Avatar } from "../../components/ui/avatar";
 
 export interface CardItem {
   id: string;
@@ -83,7 +84,18 @@ export function KanbanCard({
         className,
       )}
     >
-      <div className="text-sm font-medium">{card.titulo}</div>
+      <div className="flex items-start justify-between gap-1.5">
+        <div className="text-sm font-medium">{card.titulo}</div>
+        {card.responsavel && (
+          <span
+            title={`Responsável: ${card.responsavel.nome}`}
+            aria-label={`Responsável: ${card.responsavel.nome}`}
+            className="shrink-0"
+          >
+            <Avatar nome={card.responsavel.nome} className="h-5 w-5" text="text-[10px]" />
+          </span>
+        )}
+      </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
         <Badge variant={prioridadeVariant[card.prioridade]}>{PRIORIDADE_LABEL[card.prioridade]}</Badge>
         {card.checklist.length > 0 && (

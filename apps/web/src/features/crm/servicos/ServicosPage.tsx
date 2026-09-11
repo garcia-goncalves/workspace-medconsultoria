@@ -28,7 +28,7 @@ import {
   ehServicoSomentePercentual,
   type AddServicoPassoInput,
 } from "@app/shared";
-import { useForm, Controller, useWatch, type Control, type UseFormSetValue } from "react-hook-form";
+import { useForm, Controller, useWatch, type Control, type UseFormSetValue, type UseFormRegister } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { PageHeader } from "../../../components/ui/page-header";
@@ -282,6 +282,34 @@ function PrecoFields({
   );
 }
 
+/**
+ * A MARCA DO CREDENCIAMENTO. Ela decide QUANDO este serviço vira dinheiro, e por isso está
+ * à vista, e não escondida no banco: se ficar errada, o conserto tem de caber num clique de
+ * quem administra — antes disso, a única saída era mexer no banco de produção.
+ *
+ * ⚠️ Componente ÚNICO, usado na CRIAÇÃO e na EDIÇÃO (achado da auditoria de 04/09: até aqui a
+ * caixa só existia no formulário de editar — quem quisesse marcar um serviço já ao criá-lo tinha
+ * de salvar e reabrir). As duas travas de "só um marcado" (`recusarSegundaMarcaDeCredenciamento`
+ * em `servicos.service.ts`) já valem para `criarServico` do jeito que está — nenhuma trava nova
+ * foi criada aqui, só a tela passou a expor o que o servidor já aceitava.
+ */
+function CredenciamentoCheckbox({ register }: { register: UseFormRegister<CreateServicoInput> }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-0.5 h-4 w-4" {...register("ehCredenciamento")} />
+        <span>
+          <span className="font-medium text-foreground">Este é o serviço de credenciamento</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            O honorário dele só vira conta a receber quando a operadora aprova — nunca ao contratar nem ao
+            converter o lead. Só um serviço do catálogo pode estar marcado.
+          </span>
+        </span>
+      </label>
+    </div>
+  );
+}
+
 // ── Novo serviço (criação rápida) ──
 function NovoServicoDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const utils = trpc.useUtils();
@@ -296,7 +324,17 @@ function NovoServicoDialog({ open, onClose }: { open: boolean; onClose: () => vo
 
   useEffect(() => {
     if (open)
-      reset({ nome: "", descricao: "", categoria: "", valor: undefined, valorRecorrencia: "AVULSO", percentual: undefined, percentualRecorrencia: "MENSAL", ehFaturamento: false });
+      reset({
+        nome: "",
+        descricao: "",
+        categoria: "",
+        valor: undefined,
+        valorRecorrencia: "AVULSO",
+        percentual: undefined,
+        percentualRecorrencia: "MENSAL",
+        ehFaturamento: false,
+        ehCredenciamento: false,
+      });
   }, [open, reset]);
 
   const criar = trpc.servicos.criar.useMutation({ onSuccess: () => (utils.servicos.list.invalidate(), onClose()) });
@@ -337,6 +375,7 @@ function NovoServicoDialog({ open, onClose }: { open: boolean; onClose: () => vo
           </Select>
         </div>
         <PrecoFields control={control} setValue={setValue} erroPreco={errors.percentual?.message} />
+        <CredenciamentoCheckbox register={register} />
         <div className="space-y-1.5">
           <Label htmlFor="s-desc">Descrição</Label>
           <Textarea id="s-desc" rows={3} placeholder="O que este serviço inclui…" {...register("descricao")} />
@@ -439,23 +478,7 @@ function DetalhesPanel({
           {...register("condicaoPagamento")}
         />
       </div>
-      {/*
-        A MARCA DO CREDENCIAMENTO. Ela decide QUANDO este serviço vira dinheiro, e por isso está
-        aqui, à vista, e não escondida no banco: se ficar errada, o conserto tem de caber num
-        clique de quem administra — antes disso, a única saída era mexer no banco de produção.
-      */}
-      <div className="space-y-1.5">
-        <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" className="mt-0.5 h-4 w-4" {...register("ehCredenciamento")} />
-          <span>
-            <span className="font-medium text-foreground">Este é o serviço de credenciamento</span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">
-              O honorário dele só vira conta a receber quando a operadora aprova — nunca ao contratar nem ao
-              converter o lead. Só um serviço do catálogo pode estar marcado.
-            </span>
-          </span>
-        </label>
-      </div>
+      <CredenciamentoCheckbox register={register} />
       <div className="space-y-1.5">
         <Label
           htmlFor="d-clausulas"
