@@ -435,7 +435,7 @@ export function AgendaPage() {
             </button>
           ))}
         </div>
-        <Select aria-label="Filtrar por tipo" value={fTipo} onChange={(e) => setFTipo(e.target.value as EventoTipo | "")} className="h-9 w-auto">
+        <Select aria-label="Filtrar por tipo" value={fTipo} onChange={(e) => setFTipo(e.target.value as EventoTipo | "")} className="h-9">
           <option value="">Todos os tipos</option>
           {(Object.keys(EVENTO_TIPO_LABEL) as EventoTipo[]).map((t) => (
             <option key={t} value={t}>
@@ -444,7 +444,7 @@ export function AgendaPage() {
           ))}
         </Select>
         {donos.length > 1 && (
-          <Select aria-label="Filtrar por responsável" value={fDono} onChange={(e) => setFDono(e.target.value)} className="h-9 w-auto">
+          <Select aria-label="Filtrar por responsável" value={fDono} onChange={(e) => setFDono(e.target.value)} className="h-9">
             <option value="">Todos os responsáveis</option>
             {donos.map((d) => (
               <option key={d.id} value={d.id}>
@@ -979,12 +979,12 @@ function ListaView({
     <div className="flex h-full flex-col">
       {/* Navegação por mês/ano — escolha rápida do período. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 pb-3">
-        <Select aria-label="Mês" value={dataRef.getMonth()} onChange={(e) => setMes(Number(e.target.value))} className="h-9 w-auto">
+        <Select aria-label="Mês" value={dataRef.getMonth()} onChange={(e) => setMes(Number(e.target.value))} className="h-9">
           {MESES.map((m, i) => (
             <option key={m} value={i}>{m}</option>
           ))}
         </Select>
-        <Select aria-label="Ano" value={dataRef.getFullYear()} onChange={(e) => setAno(Number(e.target.value))} className="h-9 w-auto">
+        <Select aria-label="Ano" value={dataRef.getFullYear()} onChange={(e) => setAno(Number(e.target.value))} className="h-9">
           {anos.map((a) => (
             <option key={a} value={a}>{a}</option>
           ))}

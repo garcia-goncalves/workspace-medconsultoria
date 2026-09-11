@@ -62,3 +62,27 @@ describe("KanbanCard — indicador do responsável", () => {
     expect(raiz.container.querySelector('[title^="Responsável:"]')).toBeNull();
   });
 });
+
+describe("KanbanCard — título comprido não estoura o card", () => {
+  let raiz: { root: Root; container: HTMLDivElement } | null = null;
+
+  afterEach(() => {
+    if (raiz) {
+      act(() => raiz!.root.unmount());
+      raiz.container.remove();
+    }
+    raiz = null;
+  });
+
+  // Achado da auditoria: sem `min-w-0` no item flex que encolhe, um título sem espaços
+  // (nome comprido de tarefa/serviço) força a largura do card fixo (`w-72`) a estourar —
+  // `truncate` sozinho não basta dentro de um item flex, que por padrão não encolhe.
+  it("o título tem min-w-0 e truncate para encolher dentro do card", () => {
+    raiz = montar({ ...BASE, titulo: "TítuloBemCompridoSemEspaçosQueEstouraOCardDeLarguraFixa" });
+
+    const titulo = raiz.container.querySelector(".font-medium");
+    expect(titulo?.textContent).toBe("TítuloBemCompridoSemEspaçosQueEstouraOCardDeLarguraFixa");
+    expect(titulo?.className).toContain("min-w-0");
+    expect(titulo?.className).toContain("truncate");
+  });
+});
