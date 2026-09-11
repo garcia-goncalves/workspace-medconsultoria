@@ -294,7 +294,7 @@ function PlanoDoDia() {
 function AcoesRapidas() {
   const [novaTarefa, setNovaTarefa] = useState(false);
   const acoes: { to: string; icon: LucideIcon; label: string }[] = [
-    { to: "/leads", icon: Filter, label: "Novo lead" },
+    { to: "/funil-de-vendas", icon: Filter, label: "Novo lead" },
     { to: "/clientes", icon: Building2, label: "Novo cliente" },
     { to: "/documentos", icon: FileText, label: "Nova proposta" },
     { to: "/agenda", icon: Calendar, label: "Novo evento" },
@@ -620,7 +620,7 @@ export function DashboardPage() {
           {g && g.docsAguardandoClienteCount > 0 && (
             <AttentionChip to="/documentos" icon={FileText} count={g.docsAguardandoClienteCount} label="documento(s) parado(s) aguardando o cliente" tone="warning" />
           )}
-          {g && g.funil.parados > 0 && <AttentionChip to="/leads" icon={Filter} count={g.funil.parados} label="lead(s) parado(s) há +14 dias" tone="info" />}
+          {g && g.funil.parados > 0 && <AttentionChip to="/funil-de-vendas" icon={Filter} count={g.funil.parados} label="lead(s) parado(s) há +14 dias" tone="info" />}
           {g && g.projetos.parados > 0 && (
             <AttentionChip to="/projetos" icon={FolderKanban} count={g.projetos.parados} label="projeto(s) parado(s) há +14 dias" tone="warning" />
           )}
@@ -668,7 +668,7 @@ export function DashboardPage() {
         />
         {g ? (
           <>
-            <StatCard to="/leads" icon={Filter} label="Leads no funil" value={g.funil.total} sub={formatEstimativaDoFunil(g.funil) || "sem valor estimado"} />
+            <StatCard to="/funil-de-vendas" icon={Filter} label="Leads no funil" value={g.funil.total} sub={formatEstimativaDoFunil(g.funil) || "sem valor estimado"} />
             <StatCard to="/projetos" icon={FolderKanban} label="Projetos ativos" value={g.projetos.ativos} sub={g.projetos.parados > 0 ? `${g.projetos.parados} parado(s)` : "em movimento"} />
           </>
         ) : (
@@ -851,7 +851,7 @@ export function DashboardPage() {
       icon: TrendingUp,
       grupo: "gestao",
       span: 1,
-      link: { to: "/leads", label: "Ver funil" },
+      link: { to: "/funil-de-vendas", label: "Ver funil" },
       render: () => (
         <div className="space-y-3 p-4">
           {g.funil.total === 0 ? (

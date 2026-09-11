@@ -91,7 +91,7 @@ export function CommandPalette({
     else if (hit.tipo === "projeto") navigate({ to: "/projetos/$projetoId", params: { projetoId: hit.id } });
     else if (hit.tipo === "documento")
       navigate({ to: "/documentos/$documentoId", params: { documentoId: hit.id } });
-    else navigate({ to: "/leads" });
+    else navigate({ to: "/funil-de-vendas" });
   };
 
   const enviarIA = (texto: string) => {
