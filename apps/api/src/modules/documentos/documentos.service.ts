@@ -383,6 +383,12 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
 
   // Usa o CORPO do modelo escolhido como moldura (proposta comercial ≠ credenciamento):
   // {{servicos}} = tabela/investimento; {{operadoras}} = operadoras; {{apresentacao}} = abertura.
+  // ⚠️ `listModelos()` garante os modelos padrão semeados ANTES da busca — sem isto, um banco
+  // onde ninguém nunca abriu "Modelos" (1ª proposta de uma instalação nova, ou a ordem em que os
+  // testes de integração rodam contra o banco isolado) gera o documento com `modeloId: null` em
+  // silêncio, e qualquer consulta que exija a RELAÇÃO com o modelo (`modelo: { tipo: "PROPOSTA" }`)
+  // deixa de achá-lo.
+  await listModelos();
   const modelo = input.modeloId
     ? await prisma.modeloDocumento.findUnique({ where: { id: input.modeloId } })
     : await prisma.modeloDocumento.findFirst({ where: { tipo: "PROPOSTA", ativo: true }, orderBy: { createdAt: "asc" } });
@@ -778,6 +784,10 @@ export async function criarContrato(input: CriarContratoInput, userId: string) {
   // fallback começando em "da" duplicava a preposição ("...o foro de da comarca..."). Sem "da".
   const foroTxt = identidade.foro?.trim() || "comarca do domicílio da CONTRATANTE";
 
+  // ⚠️ Mesmo motivo do `criarProposta`: garante os modelos padrão semeados antes da busca, para
+  // este caminho não depender de alguém já ter aberto "Modelos" (ou de outro teste, em outro
+  // arquivo, ter semeado por acaso) antes do primeiro contrato ser gerado.
+  await listModelos();
   const modelo = input.modeloId
     ? await prisma.modeloDocumento.findUnique({ where: { id: input.modeloId } })
     : await prisma.modeloDocumento.findFirst({ where: { tipo: "CONTRATO", ativo: true }, orderBy: { createdAt: "asc" } });

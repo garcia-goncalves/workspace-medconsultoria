@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
 import { exigirBancoDeTeste } from "./guarda-banco-de-teste.js";
 import { gerarParaLead } from "../modules/documentos/documentos.service.js";
+import { listModelos } from "../modules/documentos/modelos.service.js";
 import { listStages } from "../modules/pipeline/pipeline.service.js";
 
 /**
@@ -24,6 +25,11 @@ let etapaId: string;
 
 beforeAll(async () => {
   exigirBancoDeTeste();
+  // O 2º teste desta suíte monta uma proposta de credenciamento à mão (sem passar por
+  // `criarProposta`), e por isso precisa de um `ModeloDocumento` já existente. Num banco recém
+  // migrado (o `_test` isolado do CI, sem `db:seed`) nada semeia os modelos padrão sozinho —
+  // achado da revisão que reprovou este arquivo em CI (P2025 "no record was found").
+  await listModelos();
   atorId = (
     await prisma.user.create({ data: { nome: `${PFX}-ator`, email: `${PFX}@teste.local`, role: "ADMIN" } })
   ).id;
