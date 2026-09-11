@@ -23,7 +23,13 @@ async function dataJson(res: { json: () => Promise<unknown> }) {
 // não há hover persistente e a pessoa ficaria sem forma de editar/apagar. O botão "⋮" (Opções)
 // já usava o padrão certo (`opacity-100 md:opacity-0 md:group-hover:opacity-100`); este teste
 // prova que editar/apagar segue o mesmo padrão numa viewport de celular, sem precisar de hover.
-test("editar/apagar a própria mensagem fica visível sem hover em tela de celular", async ({ browser }) => {
+test("editar/apagar a própria mensagem fica visível sem hover em tela de celular", async ({ browser, playwright }) => {
+  // Garante que existe ao menos UMA conversa: o banco da CI é efêmero (zera a cada rodada) e,
+  // sem isto, este teste dependeria de sorte de ordem de execução com os outros arquivos de e2e.
+  const cliente: APIRequestContext = await playwright.request.newContext({ baseURL: BASE, storageState: "e2e/.auth/cliente.json" });
+  await cliente.post("/trpc/portal.suporte.abrir", jsonBody({ assunto: `Chamado toque ${Date.now().toString().slice(-6)}`, mensagem: "Mensagem inicial E2E" }));
+  await cliente.dispose();
+
   const ctx = await browser.newContext({ storageState: "e2e/.auth/admin.json", viewport: { width: 390, height: 844 } });
   const page = await ctx.newPage();
   await page.goto("/mensagens");
