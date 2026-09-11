@@ -120,15 +120,15 @@ export function AssinarPage({ token }: { token: string }) {
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Signatários</h2>
       <div className="space-y-1.5">
         {d.todas.map((s, i) => (
-          <div key={i} className="flex items-center gap-2 text-sm">
+          <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
             {s.status === "ASSINADO" ? (
-              <CheckCircle2 className="h-4 w-4 text-success" />
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
             ) : (
-              <Circle className="h-4 w-4 text-muted-foreground/50" />
+              <Circle className="h-4 w-4 shrink-0 text-muted-foreground/50" />
             )}
-            <span className="font-medium">{s.nome}</span>
-            <span className="text-xs text-muted-foreground">({s.papel === "CLIENTE" ? "Cliente" : "MedConsultoria"})</span>
-            <span className="ml-auto text-xs text-muted-foreground">
+            <span className="min-w-0 truncate font-medium">{s.nome}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">({s.papel === "CLIENTE" ? "Cliente" : "MedConsultoria"})</span>
+            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
               {s.status === "ASSINADO" && s.assinadoEm ? dataHora(s.assinadoEm) : "pendente"}
             </span>
           </div>

@@ -68,7 +68,7 @@ export function SignaturePad({ onChange }: { onChange: (v: AssinaturaValor) => v
           type="button"
           onClick={() => setModo("DESENHO")}
           className={cn(
-            "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-sm font-medium transition-colors",
+            "flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-sm font-medium transition-colors",
             modo === "DESENHO" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
           )}
         >
@@ -81,7 +81,7 @@ export function SignaturePad({ onChange }: { onChange: (v: AssinaturaValor) => v
             onChange({ metodo: "DIGITADO", nomeDigitado: nome });
           }}
           className={cn(
-            "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-sm font-medium transition-colors",
+            "flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-sm font-medium transition-colors",
             modo === "DIGITADO" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground",
           )}
         >
