@@ -13,7 +13,61 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-04 · madrugada · auditoria completa pedida pelo dono — PR #191 aberto, NÃO mesclado)
+## Estado atual (2026-09-10 · corrida de concorrência da marca única FECHADA)
+
+> **Leia a ADR-152** em `docs/DECISIONS.md` — corpo tem o detalhe completo, inclusive o caminho
+> que foi tentado e revertido.
+
+### 🔒 A corrida em `Servico.ehCredenciamento`/`ehFaturamento` — registrada na auditoria de 04/09, corrigida em 10/09
+
+- **O relato:** dois admins editando serviços DIFERENTES em Ajustes → Serviços, marcando
+  "é o credenciamento"/"é o faturamento" ao mesmo tempo, podiam passar os dois pela conferência de
+  leitura (`recusarSegundaMarcaDeCredenciamento`/`recusarMarcaDeFaturamentoInvalida`) antes de
+  qualquer um gravar — mesmo modo de falha que a ADR-140 corrigiu para a conta do honorário. O
+  achado ficou registrado no código (`servicos.service.ts`) e na memória
+  `prisma-extends-quebra-tipo-de-transacao-2026-09-04` desde 04/09, sem solução por atrito de tipo.
+- **🔑 A PRIMEIRA TENTATIVA FOI UM ÍNDICE ÚNICO NO BANCO (coluna gerada + índice, migração
+  própria) — E FOI REVERTIDA.** Era a cura "mais robusta a longo prazo" que a própria memória
+  recomendava, e fechava a corrida de verdade — mas quebrou **~15 arquivos de teste** que criam
+  serviços marcados DIRETO no banco, como fixture, bypassando a conferência da aplicação de
+  propósito (padrão já estabelecido no projeto, com comentário explícito nesse sentido em
+  `marca-faturamento.integration.test.ts`). Um índice único GLOBAL no banco tornaria essa prática
+  impossível em todo lugar, não só onde a corrida é real. **Custo demais para o benefício.**
+- **🔧 A CURA QUE FICOU: UPDATE ATÔMICO CONDICIONAL, sem migração, sem transação.**
+  `tentarMarcarAtomicamente`/`tentarLigarAtomicamente` (perto de
+  `recusarSegundaMarcaDeCredenciamento`, em `servicos.service.ts`): ligar a marca é UMA instrução
+  SQL — `UPDATE Servico SET ehCredenciamento=1 WHERE id=? AND NOT EXISTS (...)` —, então a
+  condição ("ninguém mais marcado") e a gravação acontecem no MESMO round-trip, sem a janela que a
+  corrida explora. Só afeta o caminho que a APLICAÇÃO usa (`atualizarServico`); fixtures de teste
+  que escrevem direto no banco continuam livres, exatamente como antes.
+- **🕳️ DOIS DEFEITOS DE MYSQL QUE SÓ A EXECUÇÃO REAL MOSTROU:** (1) `UPDATE Servico ... WHERE NOT
+  EXISTS (SELECT ... FROM Servico)` é recusado pelo MySQL — erro 1093, *"can't specify target
+  table for update in FROM clause"* — porque a subconsulta reabre a MESMA tabela que está sendo
+  escrita. Cura: embrulhar numa TABELA DERIVADA (`SELECT ... FROM (SELECT ...) AS s2`), truque
+  clássico que força o motor a materializar antes. (2) Mesmo com a instrução atômica, o InnoDB às
+  vezes responde **deadlock** (erro 1213) em vez de simplesmente recusar, quando duas dessas
+  instruções disputam a mesma tabela derivada ao mesmo tempo — o motor escolhe uma "vítima". Um
+  retry único resolve: na segunda tentativa a outra transação já terminou.
+- **⚠️ A CRIAÇÃO (`criarServico`) NÃO GANHOU A MESMA TRAVA** — o relato e o uso real são sobre
+  EDITAR um serviço já existente, não criar dois serviços novos já marcados ao mesmo tempo.
+  Registrado no código como risco residual, bem mais raro que o caso real.
+- **🔴 O REVISOR ESPECIALISTA ACHOU UM BLOQUEANTE, E ELE NASCEU DA PRÓPRIA CORREÇÃO** — a lição de
+  sempre nesta casa. A 1ª versão aplicava a marca **antes** de conferir o nome duplicado: um
+  pedido que trocasse o nome para um já usado **e** mexesse na marca no mesmo envio deixava a
+  marca gravada em silêncio — a tela dizia "nome já usado", a Thaís concluía que nada foi salvo,
+  mas a marca (inclusive tendo roubado a marca única de outro serviço) já estava no banco. **Cura:
+  a marca virou o ÚLTIMO passo**, só depois do resto do pedido (nome incluído) já ter sido gravado
+  com sucesso. Visto reprovando antes da correção (`expected ehCredenciamento to be false`, veio
+  `true`), com teste próprio.
+- **Provas:** typecheck 0 erros · lint limpo · **suíte COMPLETA do `@app/api`, 117 arquivos/948
+  testes, rodada VÁRIAS VEZES seguidas, sempre verde** · 4 testes de integração novos
+  (`marca-unica-por-indice.integration.test.ts`) forçam a corrida de verdade com `Promise.all`
+  contra o MySQL real (2 e 10 edições concorrentes disputando a mesma marca, mais o caso do
+  bloqueante acima) · revisão `typescript-reviewer` rodada no diff, achado corrigido e confirmado.
+- **Zero migração, zero mudança de schema** — o fix inteiro vive em `servicos.service.ts` mais um
+  arquivo de teste novo.
+
+## Estado anterior (2026-09-04 · madrugada · auditoria completa pedida pelo dono — PR #191 aberto, NÃO mesclado)
 
 > **Leia o PR #191** (`fix/auditoria-completa-04-09-lote1`) no GitHub — corpo tem a lista completa.
 
@@ -1784,7 +1838,7 @@ entre proxy e app.
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-150). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-152). Deploy: `docs/DEPLOY.md`.
    API do agente (integração com a Cora): `docs/API_AGENTE.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 

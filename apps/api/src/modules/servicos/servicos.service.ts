@@ -691,6 +691,98 @@ export async function listServicosAtivos() {
  * serviço rege a cobrança do credenciamento é decisão de negócio, não efeito colateral de salvar
  * um formulário.
  */
+/**
+ * LIGA (ou desliga) `campo` NUMA ÚNICA INSTRUÇÃO SQL — é o que fecha a corrida da edição.
+ *
+ * Ligar (`true`) só grava se NENHUMA OUTRA linha já tiver a marca: a condição ("ninguém mais
+ * marcado") e a gravação acontecem no MESMO round-trip ao banco, então não há janela entre
+ * "conferir" e "gravar" para uma segunda edição concorrente se enfiar — ao contrário da
+ * conferência de leitura (`recusarSegundaMarcaDeCredenciamento`/`recusarMarcaDeFaturamentoInvalida`),
+ * que sozinha tem exatamente essa janela (achado na auditoria de 04/09/2026). Mesmo espírito do
+ * `updateMany` condicionado da ADR-140 (a conta do honorário), generalizado com `NOT EXISTS`
+ * porque aqui a condição é sobre AS OUTRAS linhas, não sobre a própria.
+ *
+ * Desligar não compete com ninguém — sempre afeta a própria linha, sem condição extra.
+ *
+ * ⚠️ Os nomes de coluna são LITERAIS deste arquivo (nunca entrada de quem chama), então a query
+ * crua não abre brecha de injeção — é o mesmo motivo por trás de escrever duas consultas quase
+ * iguais em vez de interpolar o nome da coluna numa só.
+ */
+async function tentarMarcarAtomicamente(
+  id: string,
+  campo: "ehCredenciamento" | "ehFaturamento",
+  ligar: boolean,
+): Promise<boolean> {
+  if (!ligar) {
+    await prisma.servico.update({ where: { id }, data: { [campo]: false } });
+    return true;
+  }
+  try {
+    return await tentarLigarAtomicamente(id, campo);
+  } catch (e) {
+    // ⚠️ SOB CONCORRÊNCIA REAL, O MYSQL NEM SEMPRE RESPONDE "linha não afetada" — às vezes
+    // responde DEADLOCK (1213), quando duas destas mesmas instruções disputam a MESMA tabela
+    // derivada ao mesmo tempo e o InnoDB escolhe uma vítima em vez de simplesmente serializar.
+    // Achado escrevendo o teste desta corrida. Um retry único basta: na segunda tentativa a
+    // outra transação já terminou, e o resultado normal (afetou ou não) responde certo.
+    const meta = (e as { meta?: { code?: unknown } } | undefined)?.meta;
+    if (meta?.code === "1213") return tentarLigarAtomicamente(id, campo);
+    throw e;
+  }
+}
+
+async function tentarLigarAtomicamente(
+  id: string,
+  campo: "ehCredenciamento" | "ehFaturamento",
+): Promise<boolean> {
+  // ⚠️ MySQL RECUSA "UPDATE Servico ... WHERE NOT EXISTS (SELECT ... FROM Servico)" DIRETO — erro
+  // 1093, "You can't specify target table 'Servico' for update in FROM clause". A subconsulta
+  // precisa vir de uma TABELA DERIVADA (`SELECT ... FROM (SELECT ...) AS s2`): o truque força o
+  // MySQL a materializar o resultado antes, em vez de reabrir a tabela que está sendo escrita.
+  const linhas =
+    campo === "ehCredenciamento"
+      ? await prisma.$executeRaw`
+          UPDATE \`Servico\` SET \`ehCredenciamento\` = 1
+          WHERE \`id\` = ${id}
+            AND NOT EXISTS (
+              SELECT 1 FROM (
+                SELECT \`id\` FROM \`Servico\` WHERE \`ehCredenciamento\` = 1
+              ) AS s2 WHERE s2.\`id\` != ${id}
+            )
+        `
+      : await prisma.$executeRaw`
+          UPDATE \`Servico\` SET \`ehFaturamento\` = 1
+          WHERE \`id\` = ${id}
+            AND NOT EXISTS (
+              SELECT 1 FROM (
+                SELECT \`id\` FROM \`Servico\` WHERE \`ehFaturamento\` = 1
+              ) AS s2 WHERE s2.\`id\` != ${id}
+            )
+        `;
+  return linhas === 1;
+}
+
+/**
+ * Aplica a marca; se o UPDATE atômico não gravou (a corrida foi perdida), relê e recusa com a
+ * MESMA mensagem da conferência normal — em vez de deixar `atualizarServico` em silêncio.
+ *
+ * ⚠️ Entre o UPDATE que falhou e esta releitura ainda cabe uma janela rara (o concorrente que
+ * venceu pode ter desmarcado de novo nesse meio-tempo) — nesse caso `recusarSeOcupado` não acha
+ * ninguém e não lança, e a segunda tentativa abaixo cobre. Falhando as duas, o erro é genérico e
+ * explícito: nunca "sucesso" para uma marca que não foi gravada.
+ */
+async function aplicarMarcaOuRecusar(
+  id: string,
+  campo: "ehCredenciamento" | "ehFaturamento",
+  ligar: boolean,
+  recusarSeOcupado: () => Promise<void>,
+): Promise<void> {
+  if (await tentarMarcarAtomicamente(id, campo, ligar)) return;
+  await recusarSeOcupado();
+  if (await tentarMarcarAtomicamente(id, campo, ligar)) return;
+  throw new TRPCError({ code: "CONFLICT", message: "Não foi possível salvar a marca — tente de novo." });
+}
+
 async function recusarSegundaMarcaDeCredenciamento(idSendoEditado: string | null) {
   const outro = await prisma.servico.findFirst({
     where: { ehCredenciamento: true, ...(idSendoEditado ? { id: { not: idSendoEditado } } : {}) },
@@ -738,16 +830,21 @@ async function recusarMarcaDeFaturamentoInvalida(
   if (outro) throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_UNICA(outro.nome) });
 }
 
-// ⚠️ ACHADO DA AUDITORIA DE 04/09/2026, AINDA ABERTO: as duas funções acima conferem e o
-// `create`/`update` grava em chamadas SEPARADAS ao banco — duas requisições marcando serviços
-// DIFERENTES ao mesmo tempo passam as duas pela conferência antes de qualquer uma gravar (mesmo
-// modo de falha que a ADR-140 corrigiu para a conta do honorário, com `updateMany` condicionado).
-// Aqui a marca é um boolean comum, sem coluna própria para esse tipo de trava, e envolver a
-// checagem + gravação numa transação `SERIALIZABLE` esbarrou no tipo do client do Prisma
-// estendido (`packages/db`, `$extends`) — o `tx` da transação não é estruturalmente compatível
-// com `Prisma.TransactionClient`, e forçar `any` custaria a segurança de tipo do resto do
-// arquivo. Fica registrado para quem tiver tempo de resolver o atrito de tipo (ou migrar para um
-// índice único condicional, como o `Servico_nome_key` da ADR-147).
+// ⚠️ ACHADO DA AUDITORIA DE 04/09/2026, FECHADO EM 10/09/2026 PARA A EDIÇÃO (o caminho real do
+// relato — ver `marcarComoUnicaAtomicamente`, perto de `atualizarServico`). As duas funções acima
+// conferem e o `create`/`update` gravam em chamadas SEPARADAS ao banco — duas requisições
+// marcando serviços DIFERENTES ao mesmo tempo passavam as duas pela conferência antes de
+// qualquer uma gravar (mesmo modo de falha que a ADR-140 corrigiu para a conta do honorário, com
+// `updateMany` condicionado). Aqui o `updateMany` sozinho não bastava porque a condição é sobre
+// AS OUTRAS linhas, não sobre a própria — daí o UPDATE com `NOT EXISTS` que fecha a corrida numa
+// única instrução, sem transação nem migração. Envolver checagem + gravação numa transação
+// `SERIALIZABLE` foi tentado antes e esbarrou no tipo do client do Prisma estendido
+// (`packages/db`, `$extends` — ver a memória `prisma-extends-quebra-tipo-de-transacao-2026-09-04`).
+// ⚠️ **A CRIAÇÃO (`criarServico`) NÃO GANHOU A MESMA TRAVA ATÔMICA** — o relato e o uso real são
+// sobre EDITAR um serviço já existente (Ajustes → Serviços → Configurar), não sobre criar dois
+// serviços novos já marcados ao mesmo tempo. A conferência de leitura abaixo continua cobrindo o
+// caso comum (sequencial); o caso concorrente na CRIAÇÃO fica registrado como risco residual, bem
+// mais raro que o da edição.
 
 export async function criarServico(input: {
   nome: string;
@@ -921,11 +1018,9 @@ export async function atualizarServico(
   if (dados.clausulasContrato !== undefined) data.clausulasContrato = dados.clausulasContrato?.trim() || null;
   if (dados.condicaoPagamento !== undefined) data.condicaoPagamento = dados.condicaoPagamento?.trim() || null;
   if (dados.ativo !== undefined) data.ativo = dados.ativo;
-  if (dados.ehCredenciamento !== undefined) data.ehCredenciamento = dados.ehCredenciamento;
-  if (dados.ehFaturamento !== undefined) data.ehFaturamento = dados.ehFaturamento;
   if (dados.nome !== undefined) await recusarNomeDeServicoRepetido(dados.nome, id);
   try {
-    return mapServico(await prisma.servico.update({ where: { id }, data }));
+    await prisma.servico.update({ where: { id }, data });
   } catch (e) {
     // ⚠️ ESTE `catch` NASCEU PARA "id não existe" E PASSOU A PEGAR MAIS COISA. Com o índice único
     // em `Servico.nome`, um nome repetido chega aqui como P2002 — e virava
@@ -948,6 +1043,30 @@ export async function atualizarServico(
     }
     throw e;
   }
+
+  // ⚠️ AS MARCAS SÓ SÃO APLICADAS DEPOIS DO RESTO JÁ TER SIDO GRAVADO COM SUCESSO — achado da
+  // revisão especialista (10/09/2026). Na ORDEM ANTERIOR (marca primeiro), um pedido que trocasse
+  // o nome para um já usado E mexesse na marca no MESMO envio deixava a marca gravada em
+  // silêncio mesmo quando o erro de nome fazia a função inteira lançar: a tela dizia "nome já
+  // usado" e a Thaís concluía que nada foi salvo, mas a marca — inclusive tendo roubado a marca
+  // única de outro serviço — já estava no banco. Cada marca continua num UPDATE ATÔMICO PRÓPRIO
+  // (ver `tentarMarcarAtomicamente`, perto de `recusarSegundaMarcaDeCredenciamento`): é o que
+  // fecha a corrida entre duas edições concorrentes, sem reabrir a janela entre "conferir" e
+  // "gravar" que a auditoria de 04/09/2026 achou. As conferências de leitura já feitas acima
+  // continuam respondendo o caso comum (sequencial), com a mensagem amigável.
+  if (dados.ehCredenciamento !== undefined) {
+    await aplicarMarcaOuRecusar(id, "ehCredenciamento", dados.ehCredenciamento, () =>
+      recusarSegundaMarcaDeCredenciamento(id),
+    );
+  }
+  if (dados.ehFaturamento !== undefined) {
+    await aplicarMarcaOuRecusar(id, "ehFaturamento", dados.ehFaturamento, () =>
+      recusarMarcaDeFaturamentoInvalida(id, credenciamentoDepois),
+    );
+  }
+
+  const final = await prisma.servico.findUniqueOrThrow({ where: { id } });
+  return mapServico(final);
 }
 
 /** Salva o roteiro do projeto de um serviço (tarefas + checklist de cada) — ADR-37. */
