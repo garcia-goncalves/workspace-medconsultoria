@@ -206,7 +206,7 @@ export function ClienteDetailPage() {
                 {SITUACAO_COMERCIAL_LABEL[c.situacaoComercial as SituacaoComercial]}
               </Badge>
               {!podeAtivar ? (
-                <Link to="/leads" className="text-xs text-primary hover:underline" title="É um lead no Funil — a situação acompanha o funil">
+                <Link to="/funil-de-vendas" className="text-xs text-primary hover:underline" title="É um lead no Funil — a situação acompanha o funil">
                   no funil · ver →
                 </Link>
               ) : podeGerirCliente ? (
@@ -614,7 +614,7 @@ export function ClienteDetailPage() {
                             ))}
                           </div>
                         )}
-                        <Link to="/leads" className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
+                        <Link to="/funil-de-vendas" className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
                           Ver no funil →
                         </Link>
                       </div>
@@ -838,7 +838,7 @@ export function ClienteDetailPage() {
         onClose={() => setNovaOport(false)}
         clienteId={c.id}
         clienteNome={c.nome}
-        onCriada={() => navigate({ to: "/leads" })}
+        onCriada={() => navigate({ to: "/funil-de-vendas" })}
       />
 
       {resumoIA && (

@@ -40,7 +40,7 @@ describe("catálogo de páginas (busca do Ctrl+K)", () => {
   it("busca sem acento e por palavra-chave encontra a página certa", () => {
     const acha = (q: string) => PAGINAS.filter((p) => paginaCasa(p, q)).map((p) => p.to);
     expect(acha("saude")).toContain("/sistema"); // keyword, sem acento
-    expect(acha("funil")).toContain("/leads"); // keyword
+    expect(acha("funil")).toContain("/funil-de-vendas"); // keyword
     expect(acha("Serviços")).toContain("/servicos"); // com acento na consulta
     expect(acha("usuarios")).toContain("/usuarios"); // keyword ≠ rótulo ("Equipe e acessos")
     expect(acha("kanban")).toContain("/projetos");

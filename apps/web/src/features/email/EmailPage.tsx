@@ -838,7 +838,7 @@ export function EmailPage() {
                 )}
                 {contexto.data?.lead && (
                   <Link
-                    to="/leads"
+                    to="/funil-de-vendas"
                     className="inline-flex items-center rounded-md px-2 text-sm text-primary hover:underline"
                   >
                     <UserPlus className="mr-1.5 h-3.5 w-3.5" /> No funil: {contexto.data.lead.nome}
