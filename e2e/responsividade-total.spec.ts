@@ -414,11 +414,28 @@ async function verificarZeroErroConsole(page: Page, url: string, vpNome: string,
 
 async function verificarAlvosDeToque(page: Page, url: string, vpNome: string) {
   const culpados = await page.evaluate((minimo) => {
+    // WCAG 2.5.8 (Target Size Minimum) tem exceção (b) "Inline": link dentro de uma frase de
+    // texto corrido não precisa da caixa de 44px — inflar a área de toque ali distorceria o
+    // parágrafo sem necessidade (o alvo real é a leitura, não um botão). Só vale para <a>
+    // com display inline (o padrão) cujo elemento-pai também tem texto ao redor.
+    function estaEmTextoCorrido(el: HTMLElement): boolean {
+      if (el.tagName !== "A") return false;
+      if (getComputedStyle(el).display !== "inline") return false;
+      const pai = el.parentElement;
+      if (!pai) return false;
+      for (const filho of Array.from(pai.childNodes)) {
+        if (filho !== el && filho.nodeType === Node.TEXT_NODE && (filho.textContent ?? "").trim().length > 0) {
+          return true;
+        }
+      }
+      return false;
+    }
     const achados: Array<{ rotulo: string; w: number; h: number }> = [];
     const elems = document.querySelectorAll<HTMLElement>('button, a, [role="button"]');
     for (const el of elems) {
       const estilo = getComputedStyle(el);
       if (estilo.display === "none" || estilo.visibility === "hidden") continue;
+      if (estaEmTextoCorrido(el)) continue;
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) continue; // nem renderizado
       if (rect.width < minimo || rect.height < minimo) {

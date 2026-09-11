@@ -33,7 +33,7 @@ export function ServicosPicker({
             onClick={() => toggle(s.id)}
             title={s.descricao ?? undefined}
             className={cn(
-              "rounded-full border px-3 py-1 text-sm font-medium transition-colors",
+              "rounded-full border px-3 py-3 text-sm font-medium transition-colors",
               on ? "border-primary bg-primary/10 text-primary" : "border-input text-muted-foreground hover:bg-accent",
             )}
           >
