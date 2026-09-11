@@ -5,6 +5,7 @@ import { dataHora } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
 import { SignaturePad, type AssinaturaValor } from "./SignaturePad";
 import { TEXTO_CONSENTIMENTO_ASSINATURA } from "@app/shared";
+import { DocumentoBranded } from "../documentos/DocumentoBranded";
 
 function Casca({ children }: { children: React.ReactNode }) {
   return (
@@ -172,8 +173,11 @@ export function AssinarPage({ token }: { token: string }) {
           </div>
         ) : (
           <>
-            <div className="max-h-[45vh] overflow-y-auto whitespace-pre-wrap rounded-xl border bg-background p-5 text-sm leading-relaxed">
-              {d.documento.conteudo}
+            {/* Mesmo renderizador Markdown→HTML sanitizado (DocumentoBranded) usado na prévia e
+                no PDF — antes esta página mostrava o Markdown cru (`**negrito**`, `# título`)
+                para quem assina deslogado, achado da auditoria de 04/09. */}
+            <div className="max-h-[45vh] overflow-y-auto rounded-xl border bg-muted/30 p-2">
+              <DocumentoBranded titulo={d.documento.titulo} conteudoMarkdown={d.documento.conteudo} />
             </div>
 
             {listaSignatarios}
