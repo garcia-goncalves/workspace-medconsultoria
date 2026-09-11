@@ -94,7 +94,7 @@ export function LeadCard({
       {...dragProps}
       onClick={overlay ? undefined : onOpen}
       className={cn(
-        "rounded-md border bg-card p-3 shadow-sm transition-shadow hover:shadow-md",
+        "overflow-hidden rounded-md border bg-card p-3 shadow-sm transition-shadow hover:shadow-md",
         ativo && "touch-none cursor-grab active:cursor-grabbing hover:border-primary/40",
         className,
       )}
@@ -169,7 +169,11 @@ export function LeadCard({
 
       {!overlay && (
         <div
-          className="mt-2 flex items-center gap-1 border-t pt-2"
+          // Achado da auditoria: sem `flex-wrap` este conjunto (Converter + AcessoPortalBotao +
+          // Editar/Remover) não cabe em coluna estreita de Kanban nem no card mobile — mesma
+          // composição de botões que `LeadDetailPanel.tsx` já resolve com `flex-wrap` (ali com
+          // mais espaço, aqui com `gap` menor pelo card ser mais apertado).
+          className="mt-2 flex flex-wrap items-center gap-1 border-t pt-2"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >

@@ -143,7 +143,24 @@ async function verificarSemElementoEstourando(page: Page, url: string, vpNome: s
     // transforma `visible` em `auto` no eixo oposto assim que um dos dois deixa de ser visível,
     // então TODA lista com `overflow-y-auto` aparece como se rolasse na horizontal. Usar o estilo
     // calculado escondia defeito real (cartões de /clientes e /modelos estourando 36px a 360px).
-    const dentroDeAlgoQueRola = (el: HTMLElement) => !!el.parentElement?.closest("[data-rolagem-horizontal]");
+    //
+    // ⚠️ A MARCA NO TRILHO (a fileira inteira de colunas do Kanban, a tabela larga, a barra de
+    // abas) NÃO PODE isentar QUALQUER coisa aninhada lá dentro — achado numa auditoria de
+    // 11/09: um `closest()` sem mais nada isentava também o CONTEÚDO INTERNO de cada cartão
+    // individual (ex.: um botão sem `flex-wrap` furando a borda do próprio cartão), escondendo
+    // um defeito real de layout atrás da isenção do quadro. A isenção certa é só para o
+    // conteúdo que fica DENTRO da área que o trilho de fato rola (`scrollWidth`) — colunas mais
+    // à direita, células de tabela, abas extras, tudo por desenho; conteúdo que ESCAPA dessa
+    // área (a borda direita do próprio trilho) continua sendo defeito, mesmo estando aninhado.
+    const dentroDeAlgoQueRola = (el: HTMLElement) => {
+      const trilho = el.parentElement?.closest<HTMLElement>("[data-rolagem-horizontal]");
+      if (!trilho) return false;
+      const trilhoRect = trilho.getBoundingClientRect();
+      // Posição do elemento relativa ao INÍCIO do conteúdo rolável do trilho (independe de
+      // quanto já foi rolado no momento da medição).
+      const direitaRelativa = el.getBoundingClientRect().right - trilhoRect.left + trilho.scrollLeft;
+      return direitaRelativa <= trilho.scrollWidth + tolerancia;
+    };
 
     // Texto CORTADO COM RETICÊNCIAS (`truncate`) é desenho, não defeito: o `overflow:hidden` do pai
     // já recorta, e o usuário vê "Clínica São Fran…". Mas os pedaços de texto DENTRO dele continuam
