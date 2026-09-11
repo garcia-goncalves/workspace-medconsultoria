@@ -13,7 +13,80 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-11 · os 6 achados médio/baixo da auditoria de 04/09, FECHADOS — PR #193)
+## Estado atual (2026-09-11 · noite · Contrato do lead unificado + refino de responsividade em toda a interface — PR #195 e #196, os dois MESCLADOS)
+
+### 📄 O Contrato gerado pelo painel do lead deixou de usar um motor pobre (PR #195, `46683f3`)
+
+- **O achado:** `gerarParaLead("contrato")` era a SEGUNDA porta de geração de Contrato — a
+  primeira (construtor rico, usado pela ficha do cliente) monta a tabela de preço real de cada
+  serviço; esta segunda escrevia só "Conforme os valores da proposta..." em texto solto, sem
+  tabela nenhuma. Achado numa investigação de rodada anterior, corrigido nesta: a função passou a
+  delegar para `criarContrato`, o mesmo motor da ficha — **motor único, não um segundo criado**.
+- Zero migração. Mesclado direto (squash, CI 3/3 verde).
+
+### 📱 Refino de responsividade e layout em toda a interface (PR #196, `1dbc261`)
+
+- **Origem:** pedido do dono — *"refine todas as páginas, com o melhor design, impecável"*. Virou
+  esteira própria (`docs/esteira/refino-completo-interface-2026-09-11/`), com **6 auditorias de
+  código em paralelo** (uma por grupo do menu) achando ~20 defeitos reais de layout.
+- **O mais grave:** editar/apagar a **própria** mensagem (Mensagens) não funcionava no celular —
+  os botões só apareciam em `:hover`, sem gate de toque. O botão "⋮" (Opções) ao lado já usava o
+  padrão certo (`opacity-100 md:opacity-0 md:group-hover:opacity-100`); editar/apagar não tinham
+  copiado o padrão.
+- **Os 3 bugs de card relatados pelo dono no funil** (botão "Enviar acesso" pulando linha, botão
+  de remover vazando do card) — causa raiz: `LeadCard.tsx` sem `flex-wrap` (o painel de detalhe do
+  lead, ao lado, já tinha o padrão certo e não tinha sido copiado para o card).
+- **Menu "Vendas" → "Funil de Vendas"**, URL `/leads` → `/funil-de-vendas` (com redirect do link
+  antigo — nenhum consumidor ficou órfão, conferido nos 8 lugares que citavam a rota).
+- Mais: `<select>` do tamanho da opção mais longa (Agenda/Projetos), título do Kanban sem
+  truncar, nome de migração estourando a aba Manutenção do Sistema, texto sem `min-w-0` em
+  Suporte/Pessoas do Portal, botão de assinatura pequeno demais para toque no celular
+  (`AssinarPage`/`SignaturePad` — a tela onde o médico assina deslogado).
+- **🚨 A PRÓPRIA RÉGUA DE TESTE (`e2e/responsividade-total.spec.ts`) ESTAVA CEGA — a lição da
+  rodada, de novo.** A marca `data-rolagem-horizontal` (isenção para quadros com rolagem lateral
+  de propósito, como o Kanban) isentava também o CONTEÚDO INTERNO de cada card, não só a rolagem —
+  por isso o bug do item do funil nunca tinha sido pego por teste nenhum. Corrigida com checagem
+  geométrica de verdade, não só `closest()`.
+- **Cobertura nova de e2e**, escrita numa rodada separada e juntada depois: rotas públicas
+  (`/comecar`, `/login`, `/privacidade`, `/assinar/:token`, `/proposta/:token`, as duas últimas com
+  fixture criando contrato/proposta reais via API) e as 11 abas de Sistema + 4 modais de Ajustes,
+  nos 5 tamanhos de tela. **Rodando de verdade, achou 5 bugs REAIS e NOVOS de alvo de toque**
+  (< 44px), fora do escopo original — corrigidos na mesma rodada, a pedido do dono
+  (*"faça tudo e deixe impecável"*):
+  - Login: "Mostrar senha" (28×28) e "Esqueci minha senha" (128×16) — ganharam 44px de toque.
+  - `HintIcon` (o "?" de ajuda, **componente compartilhado usado na aplicação inteira**): 16×16 →
+    44×44 de área de toque via padding + margem negativa (`-m-3.5`), **sem** aumentar o ícone
+    visível nem empurrar o layout ao redor — o glifo continua do mesmo tamanho de sempre.
+  - `ServicosPicker` (as "pills" de serviço, usadas em 4 telas: cadastro público, lead, Nova
+    oportunidade, Portal): `py-1` → `py-3`.
+  - `OperadorasDialog`: a aba "Faturamento" com contador de 2 dígitos estourava o modal a
+    360/390px — rótulo e contador agora truncam/encolhem em vez de vazar.
+  - `PropostaPublicaPage`: os 6 botões de ação (Recusar/Aceitar + as duas telas de confirmação)
+    colapsavam para ~24px de altura. **Causa raiz, e ela é sutil:** dentro de
+    `flex flex-col ... sm:flex-row`, a classe `flex-1` usa `flex-basis:0%` como a ALTURA do item
+    no eixo em coluna — isso **ignora** o `h-11`/`h-10` fixo do botão, que encolhe até o tamanho
+    do conteúdo. Corrigido com `min-h-11` explícito nos 6 botões.
+  - **Um caso NÃO foi "corrigido" com CSS, de propósito:** o link de e-mail em `/privacidade`
+    fica no meio de uma frase de texto corrido — é a exceção "Inline" da própria WCAG 2.5.8
+    (Target Size Minimum). Inflar esse link distorceria o parágrafo sem necessidade. A régua do
+    teste passou a reconhecer esse caso (link `<a>` com texto ao redor no mesmo elemento-pai) em
+    vez de forçar o layout.
+  - **Achado de brinde pela própria CI (não pelo dono):** `flows-mensagens.spec.ts` presumia que
+    já existia uma conversa na lista do admin — verdade no banco local (cheio de resíduo de e2e),
+    falso no banco efêmero da CI, que zera a cada rodada. Corrigido criando a conversa via API
+    antes do teste, mesmo padrão já usado no teste seguinte do arquivo.
+- **⚠️ Armadilha do processo, registrada para não repetir:** despachar `Agent` em paralelo **sem**
+  `isolation: "worktree"` corrompe a branch, mesmo com arquivos disjuntos por agente — `git
+  checkout`/`commit` de um agente troca a árvore inteira de quem divide a mesma pasta. Duas
+  branches desta rodada ficaram apontando para o commit errado até serem refeitas isoladas.
+- **Provas:** typecheck do monorepo 0 erros · lint limpo · `@app/web` **226/226 testes verdes** ·
+  revisão `react-reviewer` + `typescript-reviewer` no diff final, os dois "pode mergear" (notas
+  cosméticas incorporadas) · **CI (e2e completo, banco efêmero) rodada 3 vezes ao longo da
+  correção — 3/3 verde na rodada final.**
+- **✅ MESCLADO na `main`: PR #196 → `1dbc261`** (squash), CI 3/3 verde. **Zero migração.** Não
+  está no ar — publicar continua sendo decisão do dono.
+
+## Estado anterior (2026-09-11 · os 6 achados médio/baixo da auditoria de 04/09, FECHADOS — PR #193)
 
 ### 📋 O que sobrou aberto da auditoria de 04/09 (a lista que só existia na conversa) — fechado
 
