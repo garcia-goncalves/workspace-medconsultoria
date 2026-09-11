@@ -92,7 +92,7 @@ function Linha({
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="truncate text-sm font-medium">{pessoa.nome}</span>
+          <span className="min-w-0 truncate text-sm font-medium">{pessoa.nome}</span>
           {souEu && <span className="text-xs text-muted-foreground">(você)</span>}
           <Badge variant={pessoa.papel === "EQUIPE" ? "default" : "primary"}>
             {pessoa.papel === "EQUIPE" ? (
