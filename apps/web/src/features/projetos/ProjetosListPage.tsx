@@ -248,7 +248,7 @@ export function ProjetosListPage() {
           })}
         </div>
 
-        <Select aria-label="Filtrar por responsável" value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} className="w-auto min-w-[160px]">
+        <Select aria-label="Filtrar por responsável" value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} className="min-w-[160px]">
           <option value="">Todos os responsáveis</option>
           {(equipe.data ?? []).map((u) => (
             <option key={u.id} value={u.id}>

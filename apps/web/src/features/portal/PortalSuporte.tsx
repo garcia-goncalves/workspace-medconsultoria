@@ -135,7 +135,7 @@ export function PortalSuporte() {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-medium">{c.assunto ?? "Chamado"}</span>
+                  <span className="min-w-0 truncate text-sm font-medium">{c.assunto ?? "Chamado"}</span>
                   <span className="text-xs text-muted-foreground">#{c.numero}</span>
                   {c.status && <Badge variant={statusBadge[c.status]}>{CHAMADO_STATUS_LABEL[c.status]}</Badge>}
                 </div>

@@ -46,8 +46,11 @@ interface Props {
   className?: string;
 }
 
+// `whitespace-nowrap`: o texto do botão ("Enviar acesso"/"Reenviar acesso"/"Painel") não pode
+// quebrar linha sozinho no meio do rótulo — quem decide se o botão inteiro desce de linha é o
+// `flex-wrap` do pai (`LeadCard.tsx`), não o próprio texto.
 const BOTAO =
-  "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60";
+  "inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60";
 
 export function AcessoPortalBotao({ portal, clienteId, temEmail, onEnviarAcesso, className }: Props) {
   const entrar = trpc.auth.entrarNoPainelDoCliente.useMutation({

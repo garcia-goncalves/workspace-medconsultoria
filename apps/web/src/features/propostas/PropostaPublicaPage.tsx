@@ -189,7 +189,7 @@ export function PropostaPublicaPage({ token }: { token: string }) {
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="outline"
-                className="flex-1"
+                className="min-h-11 flex-1"
                 disabled={responder.isPending}
                 onClick={() => setModo("acao")}
               >
@@ -197,7 +197,7 @@ export function PropostaPublicaPage({ token }: { token: string }) {
               </Button>
               <Button
                 variant="destructive"
-                className="flex-1"
+                className="min-h-11 flex-1"
                 disabled={!motivo.trim() || responder.isPending}
                 onClick={() => responder.mutate({ token, decisao: "RECUSADA", motivo: motivo.trim() })}
               >
@@ -219,14 +219,14 @@ export function PropostaPublicaPage({ token }: { token: string }) {
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="outline"
-                className="flex-1"
+                className="min-h-11 flex-1"
                 disabled={responder.isPending}
                 onClick={() => setModo("acao")}
               >
                 Voltar
               </Button>
               <Button
-                className="flex-1"
+                className="min-h-11 flex-1"
                 disabled={responder.isPending}
                 onClick={() => responder.mutate({ token, decisao: "ACEITA" })}
               >
@@ -240,14 +240,14 @@ export function PropostaPublicaPage({ token }: { token: string }) {
             <Button
               variant="outline"
               size="lg"
-              className="flex-1"
+              className="min-h-11 flex-1"
               disabled={responder.isPending}
               onClick={() => setModo("recusar")}
             >
               <ThumbsDown className="h-4 w-4" />
               Recusar
             </Button>
-            <Button size="lg" className="flex-1" disabled={responder.isPending} onClick={() => setModo("aceitar")}>
+            <Button size="lg" className="min-h-11 flex-1" disabled={responder.isPending} onClick={() => setModo("aceitar")}>
               <ThumbsUp className="h-4 w-4" />
               Aceitar proposta
             </Button>

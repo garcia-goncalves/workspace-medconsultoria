@@ -205,12 +205,12 @@ export function OperadorasDialog({ open, onClose }: { open: boolean; onClose: ()
               type="button"
               onClick={() => setAba(a.chave)}
               className={cn(
-                "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                "flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
                 aba === a.chave ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {a.rotulo}
-              <span className="ml-1.5 text-xs text-muted-foreground">
+              <span className="truncate">{a.rotulo}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
                 {a.chave === "TODAS"
                   ? local.length
                   : a.chave === "CREDENCIAMENTO"

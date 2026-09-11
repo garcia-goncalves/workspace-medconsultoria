@@ -105,7 +105,7 @@ export function NotificationBell() {
     else if (t === "cliente" && id) navigate({ to: "/clientes/$clienteId", params: { clienteId: id } });
     else if (t === "evento") navigate({ to: "/agenda" });
     else if (t === "conta") navigate({ to: "/financeiro" });
-    else if (t === "lead") navigate({ to: "/leads" });
+    else if (t === "lead") navigate({ to: "/funil-de-vendas" });
     else if (t === "incidente" || t === "erro") navigate({ to: "/sistema" });
   };
 

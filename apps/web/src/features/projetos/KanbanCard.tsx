@@ -85,7 +85,7 @@ export function KanbanCard({
       )}
     >
       <div className="flex items-start justify-between gap-1.5">
-        <div className="text-sm font-medium">{card.titulo}</div>
+        <div className="min-w-0 flex-1 truncate text-sm font-medium">{card.titulo}</div>
         {card.responsavel && (
           <span
             title={`Responsável: ${card.responsavel.nome}`}

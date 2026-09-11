@@ -19,6 +19,47 @@ async function dataJson(res: { json: () => Promise<unknown> }) {
   return (await res.json() as { result: { data: { json: unknown } } }).result.data.json;
 }
 
+// Regressão: editar/apagar a PRÓPRIA mensagem não pode depender de :hover — em celular/tablet
+// não há hover persistente e a pessoa ficaria sem forma de editar/apagar. O botão "⋮" (Opções)
+// já usava o padrão certo (`opacity-100 md:opacity-0 md:group-hover:opacity-100`); este teste
+// prova que editar/apagar segue o mesmo padrão numa viewport de celular, sem precisar de hover.
+test("editar/apagar a própria mensagem fica visível sem hover em tela de celular", async ({ browser, playwright }) => {
+  // Garante que existe ao menos UMA conversa: o banco da CI é efêmero (zera a cada rodada) e,
+  // sem isto, este teste dependeria de sorte de ordem de execução com os outros arquivos de e2e.
+  const cliente: APIRequestContext = await playwright.request.newContext({ baseURL: BASE, storageState: "e2e/.auth/cliente.json" });
+  await cliente.post("/trpc/portal.suporte.abrir", jsonBody({ assunto: `Chamado toque ${Date.now().toString().slice(-6)}`, mensagem: "Mensagem inicial E2E" }));
+  await cliente.dispose();
+
+  const ctx = await browser.newContext({ storageState: "e2e/.auth/admin.json", viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  await page.goto("/mensagens");
+
+  // Abre a primeira conversa da lista (qualquer uma serve — só precisamos mandar uma mensagem própria).
+  const primeiraLinha = page.locator("div.group.relative").first();
+  await expect(primeiraLinha).toBeVisible({ timeout: 15_000 });
+  await primeiraLinha.locator("button").first().click();
+
+  const texto = `Teste toque celular ${Date.now().toString().slice(-6)}`;
+  const composer = page.getByPlaceholder("Escreva uma mensagem…");
+  await composer.fill(texto);
+  await composer.press("Enter");
+
+  const bolha = page.getByText(texto, { exact: true });
+  await expect(bolha).toBeVisible({ timeout: 15_000 });
+
+  const grupoMsg = bolha.locator("xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' group/msg ')]");
+  const editar = grupoMsg.getByRole("button", { name: "Editar mensagem" });
+  const apagar = grupoMsg.getByRole("button", { name: "Remover mensagem" });
+
+  // Sem tocar/hover em nada: os dois botões já precisam estar visíveis e com opacidade 1.
+  await expect(editar).toBeVisible();
+  await expect(editar).toHaveCSS("opacity", "1");
+  await expect(apagar).toBeVisible();
+  await expect(apagar).toHaveCSS("opacity", "1");
+
+  await ctx.close();
+});
+
 test("chamado do cliente é isolado por sessão + realtime no ar", async ({ playwright }) => {
   const { outroConversaId: CONVERSA_ALHEIA } = lerFixtures();
   const cliente: APIRequestContext = await playwright.request.newContext({ baseURL: BASE, storageState: "e2e/.auth/cliente.json" });

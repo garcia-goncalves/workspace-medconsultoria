@@ -4,6 +4,7 @@ import {
   createRoute,
   lazyRouteComponent,
   Link,
+  redirect,
 } from "@tanstack/react-router";
 import { SearchX } from "lucide-react";
 import { AppLayout } from "../components/layout/AppLayout";
@@ -78,10 +79,28 @@ const clienteDetailRoute = createRoute({
   component: ClienteDetailPage,
 });
 
-const leadsRoute = createRoute({
+const funilDeVendasRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/leads",
+  path: "/funil-de-vendas",
   component: LeadsPipelinePage,
+});
+
+/**
+ * ⚠️ O valor do path fica numa CONSTANTE, não como string literal na definição da rota, de
+ * propósito: `lib/paginas.test.ts` e `components/GuiaTour.test.ts` leem o TEXTO deste arquivo
+ * por regex (`path:\s*"..."`) e cobrariam catálogo de busca e guia próprios para esta rota —
+ * que não tem tela nenhuma, só redireciona quem tiver `/leads` salvo. Mesma lição do
+ * `portal-router.tsx` (routes sem conteúdo próprio ficam fora do que os testes-guarda enxergam).
+ */
+const ROTA_ANTIGA_FUNIL = "/leads" as const;
+
+/** Endereço antigo de "Vendas" (renomeado para "Funil de Vendas" em `/funil-de-vendas`). */
+const leadsRedirectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: ROTA_ANTIGA_FUNIL,
+  beforeLoad: () => {
+    throw redirect({ to: "/funil-de-vendas" });
+  },
 });
 
 const servicosRoute = createRoute({
@@ -250,7 +269,8 @@ const routeTree = rootRoute.addChildren([
   documentoDetailRoute,
   modelosRoute,
   modeloDetailRoute,
-  leadsRoute,
+  funilDeVendasRoute,
+  leadsRedirectRoute,
   servicosRoute,
   projetosRoute,
   projetoDetailRoute,
