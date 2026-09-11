@@ -543,11 +543,14 @@ export function DashboardPage() {
   const vencidasTotal = g ? g.financeiro.vencidasPagar.total + g.financeiro.vencidasReceber.total : 0;
 
   const nEventos = d.eventosHoje.length;
-  const nTarefas = d.minhasTarefas;
+  // d.minhasTarefas conta Card (cartão do quadro de Projetos), não Tarefa (delegação
+  // interna, tabela `Tarefa`) — são dois conceitos diferentes do domínio (achado da
+  // auditoria de 04/09). O rótulo precisa dizer "cartão", nunca "tarefa".
+  const nCards = d.minhasTarefas;
   const resumoDia =
     `${dataTitulo} · ` +
     (nEventos === 0 ? "sem compromissos" : `${nEventos} compromisso${nEventos > 1 ? "s" : ""} hoje`) +
-    ` · ${nTarefas} tarefa${nTarefas !== 1 ? "s" : ""} sua${nTarefas !== 1 ? "s" : ""}` +
+    ` · ${nCards} ${nCards === 1 ? "cartão seu" : "cartões seus"}` +
     (vencidasCount > 0 ? ` · ${vencidasCount} conta${vencidasCount > 1 ? "s" : ""} vencendo` : "");
 
   const temAtencao =
