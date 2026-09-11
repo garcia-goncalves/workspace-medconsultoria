@@ -407,15 +407,15 @@ export function MensagensPage() {
                     )}
                     <div className={cn("group/msg flex items-end gap-2", minha ? "justify-end" : "justify-start", agrupaPrev ? "mt-0.5" : "mt-2")}>
                       {minha && !apagada && !editando && (
-                        <div className="flex gap-0.5 self-center opacity-0 transition-opacity group-hover/msg:opacity-100">
-                          <button onClick={() => (setEditId(m.id), setEditTexto(m.conteudo))} className="rounded p-1 text-muted-foreground hover:bg-accent" title="Editar" aria-label="Editar mensagem"><Pencil className="h-3 w-3" /></button>
-                          <button onClick={() => confirmarApagarMsg(m)} className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover" aria-label="Remover mensagem"><Trash2 className="h-3 w-3" /></button>
+                        <div className="flex gap-0.5 self-center opacity-100 transition-opacity md:opacity-0 md:group-hover/msg:opacity-100">
+                          <button onClick={() => (setEditId(m.id), setEditTexto(m.conteudo))} className="rounded p-2 text-muted-foreground hover:bg-accent" title="Editar" aria-label="Editar mensagem"><Pencil className="h-3 w-3" /></button>
+                          <button onClick={() => confirmarApagarMsg(m)} className="rounded p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover" aria-label="Remover mensagem"><Trash2 className="h-3 w-3" /></button>
                         </div>
                       )}
                       {!minha && emGrupo && (mostrarAvatar ? <Avatar id={m.autor.id} nome={m.autor.nome} avatarUrl={m.autor.avatarUrl} className="h-6 w-6" text="text-xs" /> : <span className="w-6 shrink-0" />)}
                       <div
                         className={cn(
-                          "max-w-[72%] rounded-2xl px-3.5 py-2 text-sm shadow-sm",
+                          "min-w-0 max-w-[72%] break-words rounded-2xl px-3.5 py-2 text-sm shadow-sm",
                           apagada
                             ? "border border-border/50 bg-muted/60 italic text-muted-foreground"
                             : minha
@@ -436,7 +436,7 @@ export function MensagensPage() {
                             <button onClick={() => setEditId(null)} className="rounded p-1 hover:bg-black/10" title="Cancelar" aria-label="Cancelar edição da mensagem"><X className="h-4 w-4" /></button>
                           </div>
                         ) : (
-                          <p className="whitespace-pre-wrap">{m.conteudo}</p>
+                          <p className="whitespace-pre-wrap break-words">{m.conteudo}</p>
                         )}
                         {!apagada && !editando && (
                           <div className={cn("mt-0.5 flex items-center justify-end gap-1 text-xs", minha ? "text-primary-foreground/70" : "text-muted-foreground")}>
