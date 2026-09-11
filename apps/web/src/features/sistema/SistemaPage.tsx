@@ -1584,7 +1584,7 @@ function AbaManutencao() {
               <ul className="divide-y">
                 {migracoes.data.map((mg) => (
                   <li key={mg.nome} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                    <code className="truncate text-xs">{mg.nome}</code>
+                    <code className="min-w-0 truncate text-xs">{mg.nome}</code>
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {mg.aplicadaEm ? dataHora(mg.aplicadaEm) : "pendente"}
                     </span>
@@ -1603,7 +1603,7 @@ function ConfigLinha({ rotulo, valor }: { rotulo: string; valor: string }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-dashed py-1 last:border-0 sm:border-0">
       <span className="text-muted-foreground">{rotulo}</span>
-      <span className="truncate font-medium">{valor}</span>
+      <span className="min-w-0 truncate font-medium">{valor}</span>
     </div>
   );
 }
