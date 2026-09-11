@@ -20,6 +20,7 @@ let atorId: string;
 let clienteId: string;
 let leadId: string;
 let servicoId: string;
+let etapaId: string;
 
 beforeAll(async () => {
   exigirBancoDeTeste();
@@ -33,6 +34,7 @@ beforeAll(async () => {
   const etapas = await listStages(); // semeia/backfilla as etapas padrão do funil
   const primeiraEtapa = etapas[0];
   if (!primeiraEtapa) throw new Error("banco de teste sem nenhuma etapa do funil");
+  etapaId = primeiraEtapa.id;
   leadId = (
     await prisma.lead.create({
       data: {
@@ -40,7 +42,7 @@ beforeAll(async () => {
         empresa: `${PFX}-clinica`,
         email: `${PFX}-lead@teste.local`,
         clienteId,
-        pipelineStageId: primeiraEtapa.id,
+        pipelineStageId: etapaId,
         ordem: 0,
         servicos: { connect: [{ id: servicoId }] },
       },
@@ -97,5 +99,59 @@ describe("Contrato só nasce depois de uma proposta ACEITA", () => {
     const contrato = await prisma.documento.findUniqueOrThrow({ where: { id: documentoId }, select: { conteudo: true } });
     expect(contrato.conteudo).toMatch(/R\$\s*3\.500,00/);
     expect(contrato.conteudo).not.toContain("Conforme os valores da proposta comercial aprovada pela CONTRATANTE.");
+  });
+
+  it("proposta aceita SEM itens estruturados (ex.: credenciamento) não gera contrato com objeto em branco", async () => {
+    // Achado da revisão especialista: uma proposta de credenciamento (grade médico × operadora,
+    // ou o formato antigo por operadora) nunca guarda `Documento.itens` — ver `criarProposta`,
+    // `itens: ehCredenciamento ? undefined : itensParaGravar`. Delegar direto para `criarContrato`
+    // com um array vazio produzia um contrato com `{{objeto}}`/`{{clausulas_servicos}}` em BRANCO,
+    // sem erro nem aviso — pior que o fallback textual que o código antigo tinha para esse caso.
+    const clienteCredId = (
+      await prisma.cliente.create({ data: { nome: `${PFX}-clinica-cred`, situacaoComercial: "PROSPECT" } })
+    ).id;
+    const leadCredId = (
+      await prisma.lead.create({
+        data: {
+          nome: `${PFX}-cred-contato`,
+          empresa: `${PFX}-clinica-cred`,
+          email: `${PFX}-cred-lead@teste.local`,
+          clienteId: clienteCredId,
+          pipelineStageId: etapaId,
+          ordem: 0,
+          // Sem `servicos` conectados — nem `ClienteServico`, nem serviço de catálogo no lead: a
+          // única fonte possível de itens estruturados é a proposta aceita, e ela não tem nenhum.
+        },
+      })
+    ).id;
+    try {
+      const modeloProposta = await prisma.modeloDocumento.findFirstOrThrow({ where: { tipo: "PROPOSTA", ativo: true } });
+      const propostaCred = await prisma.documento.create({
+        data: {
+          modeloId: modeloProposta.id,
+          clienteId: clienteCredId,
+          titulo: `${PFX}-proposta-credenciamento`,
+          conteudo: "proposta de credenciamento (sem itens estruturados)",
+          status: "ENVIADO",
+          criadoPorId: atorId,
+          propostaStatus: "ACEITA",
+          // `itens` fica de fora de propósito — é exatamente o que `criarProposta` grava para
+          // uma proposta de credenciamento.
+        },
+      });
+
+      await expect(gerarParaLead(leadCredId, "contrato", { id: atorId })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+      const total = await prisma.documento.count({ where: { clienteId: clienteCredId, modelo: { tipo: "CONTRATO" } } });
+      expect(total, "nenhum contrato — muito menos um com objeto em branco — pode ter sido criado").toBe(0);
+      void propostaCred;
+    } finally {
+      await prisma.leadPasso.deleteMany({ where: { leadId: leadCredId } });
+      await prisma.documentoVersao.deleteMany({ where: { documento: { clienteId: clienteCredId } } });
+      await prisma.documento.deleteMany({ where: { clienteId: clienteCredId } });
+      await prisma.lead.deleteMany({ where: { id: leadCredId } });
+      await prisma.cliente.deleteMany({ where: { id: clienteCredId } });
+    }
   });
 });

@@ -26,6 +26,7 @@ import {
   SITUACOES_CLIENTE,
   MODELO_ACEITA_LEAD,
   TIPO_MODELO_LABEL,
+  documentoServicoItemSchema,
 } from "@app/shared";
 import { aiService } from "../../lib/ai.js";
 import { avancarLeadPorClienteAuto, garantirClienteDoLead } from "../leads/leads.service.js";
@@ -1050,23 +1051,10 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
     // `propostas.service.ts` usa para sincronizar `ClienteServico` no aceite (`itensAceitos`).
     // Lida direto do documento da proposta, em vez de depender do sincronismo — que é
     // fire-and-forget e pode ainda não ter terminado quando este caminho manual é acionado.
-    itensDaPropostaAceita = Array.isArray(propostaAceita.itens)
-      ? (
-          propostaAceita.itens as {
-            servicoId: string;
-            valor?: number | null;
-            quantidade?: number;
-            recorrencia?: "AVULSO" | "MENSAL";
-            percentual?: number | null;
-          }[]
-        ).map((it) => ({
-          servicoId: it.servicoId,
-          valor: it.valor ?? 0,
-          quantidade: it.quantidade ?? 1,
-          recorrencia: it.recorrencia ?? "AVULSO",
-          percentual: it.percentual ?? null,
-        }))
-      : [];
+    // ⚠️ `safeParse`, não cast cru: `propostaAceita.itens` é `Prisma.JsonValue` — dado gravado
+    // pelo próprio sistema, mas por documentos antigos que podem ter forma diferente da atual.
+    const itensValidados = documentoServicoItemSchema.array().safeParse(propostaAceita.itens);
+    itensDaPropostaAceita = itensValidados.success ? itensValidados.data : [];
   }
 
   // PROPOSTA: monta a partir dos serviços escolhidos pelo mesmo construtor da "Nova proposta"
@@ -1089,7 +1077,29 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
   // `{{valor}}` numa frase fixa ("Conforme os valores da proposta comercial..."), que nunca
   // mostrava a tabela de preço real. Ver achado da auditoria de 04/09/2026.
   if (tipo === "contrato") {
-    const doc = await criarContrato({ clienteId, itens: itensDaPropostaAceita, vigenciaMeses: 12 }, ator.id);
+    let itensDoContrato = itensDaPropostaAceita;
+    // ⚠️ Achado da revisão especialista: proposta de CREDENCIAMENTO (grade ou por operadora)
+    // nunca guarda `Documento.itens` (`criarProposta`: `itens: ehCredenciamento ? undefined : …`).
+    // Sem este fallback, `criarContrato` receberia itens VAZIOS e geraria um contrato com
+    // `{{objeto}}`/`{{clausulas_servicos}}` em BRANCO, sem erro. Cai para a mesma fonte que o
+    // caminho automático usa (`gerarContratoAutoParaCliente` → `itensDoCliente`).
+    if (itensDoContrato.length === 0) {
+      const { itens } = await itensDoCliente(clienteId);
+      itensDoContrato = itens.map(({ servicoId, valor, quantidade, recorrencia, percentual }) => ({
+        servicoId,
+        valor,
+        quantidade,
+        recorrencia,
+        percentual,
+      }));
+    }
+    if (itensDoContrato.length === 0) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "A proposta aceita não tem serviços estruturados para montar o contrato.",
+      });
+    }
+    const doc = await criarContrato({ clienteId, itens: itensDoContrato, vigenciaMeses: 12 }, ator.id);
     await prisma.leadPasso.updateMany({ where: { leadId, acaoDoc: "contrato", documentoId: null }, data: { documentoId: doc.id } });
     return { documentoId: doc.id };
   }
