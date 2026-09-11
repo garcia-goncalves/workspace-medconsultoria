@@ -10,6 +10,7 @@ overrides:
   fast-uri: ^3.1.5
   find-my-way: ^9.7.0
   nanoid@3: ^3.3.17
+  nodemailer: ^9.1.1
   postcss: ^8.5.23
   socket.io-parser: ^4.2.7
 
@@ -112,8 +113,8 @@ importers:
         specifier: ^3.9.14
         version: 3.9.14
       nodemailer:
-        specifier: ^9.0.3
-        version: 9.0.3
+        specifier: ^9.1.1
+        version: 9.1.1
       sanitize-html:
         specifier: ^2.17.6
         version: 2.17.7
@@ -2887,8 +2888,8 @@ packages:
     resolution: {integrity: sha512-J6l92tKHX6w8Jy5nO1Vuc01NoIiRGi/d6qBKVxh+IQ8Cr3b6HbVNfKiF8ZpFKufTwpwxMmce2W3iQZ861ZRyTg==}
     engines: {node: '>=18'}
 
-  nodemailer@9.0.3:
-    resolution: {integrity: sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw==}
+  nodemailer@9.1.1:
+    resolution: {integrity: sha512-izw9mVKFix6YSnC9eLgV6g1opl9DUlRio9ZNcq+Wu9Ujn2UwF+8Nl0B8nz22kEC+CTZCvinkxwJ0DeFbb6NwcQ==}
     engines: {node: '>=6.0.0'}
 
   normalize-path@3.0.0:
@@ -6136,7 +6137,7 @@ snapshots:
       iconv-lite: 0.7.3
       libmime: 5.4.1
       linkify-it: 5.0.2
-      nodemailer: 9.0.3
+      nodemailer: 9.1.1
       punycode.js: 2.3.1
       tlds: 1.261.0
 
@@ -6206,7 +6207,7 @@ snapshots:
 
   node-releases@2.0.50: {}
 
-  nodemailer@9.0.3: {}
+  nodemailer@9.1.1: {}
 
   normalize-path@3.0.0: {}
 
