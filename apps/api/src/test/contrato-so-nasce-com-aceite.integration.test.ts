@@ -86,5 +86,16 @@ describe("Contrato só nasce depois de uma proposta ACEITA", () => {
     expect(documentoId).toBeTruthy();
     const total = await prisma.documento.count({ where: { clienteId, deletedAt: null, modelo: { tipo: "CONTRATO" } } });
     expect(total).toBe(1);
+
+    // Achado: este caminho manual (painel do lead) reescrevia `{{valor}}` à mão como uma frase
+    // FIXA — "Conforme os valores da proposta comercial aprovada pela CONTRATANTE." — em vez de
+    // trazer a tabela de preço REAL, como o caminho automático (`criarContrato`) já faz. O
+    // contrato precisa sair com o preço de verdade do serviço aceito (R$ 3.500,00), não com a
+    // frase genérica.
+    // ⚠️ `toLocaleString("pt-BR", { style: "currency", ... })` usa espaço NÃO separável
+    // (U+00A0) entre "R$" e o número — daí o `\s` na regex em vez de comparar string literal.
+    const contrato = await prisma.documento.findUniqueOrThrow({ where: { id: documentoId }, select: { conteudo: true } });
+    expect(contrato.conteudo).toMatch(/R\$\s*3\.500,00/);
+    expect(contrato.conteudo).not.toContain("Conforme os valores da proposta comercial aprovada pela CONTRATANTE.");
   });
 });

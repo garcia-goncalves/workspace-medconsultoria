@@ -1007,7 +1007,7 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
     where: { id: leadId, deletedAt: null },
     select: {
       id: true, nome: true, empresa: true, cnpj: true, email: true, telefone: true, observacoes: true, responsavelId: true, clienteId: true,
-      servicos: { select: { id: true, nome: true, valor: true, valorRecorrencia: true, percentual: true, categoria: true, clausulasContrato: true } },
+      servicos: { select: { id: true, nome: true, valor: true, valorRecorrencia: true, percentual: true, categoria: true } },
     },
   });
   if (!lead) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado." });
@@ -1026,6 +1026,9 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
   // uma proposta ACEITA por trás. A régua certa é essa: contrato só nasce se houver proposta
   // aceita para este cliente — não "se já é cliente" (a conta pode ser um PROSPECT recém-criado
   // pela linha acima) nem "se o tipo permite lead" (permite, DEPOIS do aceite).
+  // Os itens ACEITOS (congelados em `Documento.itens` da proposta) — usados abaixo para o
+  // CONTRATO delegar ao mesmo construtor rico do caminho automático (`criarContrato`).
+  let itensDaPropostaAceita: CriarContratoInput["itens"] = [];
   if (MODELO_ACEITA_LEAD[tipoModelo] === false) {
     if (tipoModelo !== "CONTRATO") {
       throw new TRPCError({
@@ -1035,7 +1038,7 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
     }
     const propostaAceita = await prisma.documento.findFirst({
       where: { clienteId, deletedAt: null, propostaStatus: "ACEITA", modelo: { tipo: "PROPOSTA" } },
-      select: { id: true },
+      select: { id: true, itens: true },
     });
     if (!propostaAceita) {
       throw new TRPCError({
@@ -1043,6 +1046,27 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
         message: "Ainda não há proposta aceita por este cliente — o contrato nasce do aceite, não pode ser gerado antes dele.",
       });
     }
+    // Mesmo formato que `criarContrato` grava/lê (`documentoServicoItemSchema`) e que
+    // `propostas.service.ts` usa para sincronizar `ClienteServico` no aceite (`itensAceitos`).
+    // Lida direto do documento da proposta, em vez de depender do sincronismo — que é
+    // fire-and-forget e pode ainda não ter terminado quando este caminho manual é acionado.
+    itensDaPropostaAceita = Array.isArray(propostaAceita.itens)
+      ? (
+          propostaAceita.itens as {
+            servicoId: string;
+            valor?: number | null;
+            quantidade?: number;
+            recorrencia?: "AVULSO" | "MENSAL";
+            percentual?: number | null;
+          }[]
+        ).map((it) => ({
+          servicoId: it.servicoId,
+          valor: it.valor ?? 0,
+          quantidade: it.quantidade ?? 1,
+          recorrencia: it.recorrencia ?? "AVULSO",
+          percentual: it.percentual ?? null,
+        }))
+      : [];
   }
 
   // PROPOSTA: monta a partir dos serviços escolhidos pelo mesmo construtor da "Nova proposta"
@@ -1060,6 +1084,16 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
     return { documentoId: doc.id };
   }
 
+  // CONTRATO: DELEGA ao mesmo construtor rico do caminho automático (`criarContrato`), com os
+  // itens negociados na proposta aceita — em vez de reescrever à mão as mesmas variáveis com
+  // `{{valor}}` numa frase fixa ("Conforme os valores da proposta comercial..."), que nunca
+  // mostrava a tabela de preço real. Ver achado da auditoria de 04/09/2026.
+  if (tipo === "contrato") {
+    const doc = await criarContrato({ clienteId, itens: itensDaPropostaAceita, vigenciaMeses: 12 }, ator.id);
+    await prisma.leadPasso.updateMany({ where: { leadId, acaoDoc: "contrato", documentoId: null }, data: { documentoId: doc.id } });
+    return { documentoId: doc.id };
+  }
+
   await listModelos(); // garante os modelos padrão semeados
   const modelo = await prisma.modeloDocumento.findFirst({ where: { tipo: tipoModelo, ativo: true }, orderBy: { createdAt: "asc" } });
   if (!modelo) throw new TRPCError({ code: "NOT_FOUND", message: `Nenhum modelo de ${tipo} cadastrado.` });
@@ -1069,36 +1103,8 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
     select: { nome: true, email: true, cnpj: true, telefone: true },
   });
 
-  // CONTRATO: pré-preenche os campos com o que já sabemos (objeto = serviços do lead; valor/
-  // prazo/foro com padrões editáveis) para o rascunho não nascer cheio de "a preencher".
+  // Sobra só BRIEFING neste ponto (proposta e contrato retornam antes) — sem variáveis próprias.
   const variaveis: Record<string, string> = {};
-  if (tipo === "contrato") {
-    // Objeto = LISTA dos serviços; as CLÁUSULAS de cada serviço vão para {{clausulas_servicos}}
-    // (seção 9, personalizada pelo que o cliente contratou). Fallback quando não há serviços.
-    variaveis.objeto = lead.servicos.length
-      ? lead.servicos.map((s) => `- **${s.nome}**`).join("\n")
-      : "Serviços de consultoria conforme a proposta comercial aprovada pela CONTRATANTE.";
-    variaveis.clausulas_servicos = lead.servicos.length
-      ? lead.servicos
-          .map((s) => {
-            const cl = s.clausulasContrato?.trim();
-            return `### ${s.nome}\n\n${cl || "Serviço prestado conforme a proposta comercial e o escopo de trabalho aprovados pela CONTRATANTE."}`;
-          })
-          .join("\n\n")
-      : "Condições conforme a proposta comercial e o escopo de trabalho aprovados pela CONTRATANTE.";
-    variaveis.valor = "Conforme os valores da proposta comercial aprovada pela CONTRATANTE.";
-    variaveis.prazo = textoVigencia(12);
-    // Foro e qualificação da CONTRATADA de Ajustes → Dados da empresa (editáveis pela Thaís).
-    const identidade = await getIdentidade();
-    // Sem "da" no início — o modelo já traz "...o foro de {{foro}}" (mesma correção do achado 3).
-    variaveis.foro = identidade.foro?.trim() || "comarca do domicílio da CONTRATANTE";
-    variaveis.contratada = qualificacaoContratada(identidade);
-    // ⚠️ O CONTRATO NASCE POR DUAS PORTAS, e esta é a segunda: o botão "Gerar contrato" do painel
-    // do lead. `render` troca marcador desconhecido por *(a preencher)*, então sem esta linha o
-    // papel entregue sairia dizendo "Os pagamentos serão realizados exclusivamente por PIX"
-    // seguido de "(a preencher)" — a frase apontando para um bloco que ninguém resolveu.
-    variaveis.dadosPagamento = montarDadosPagamento(identidade);
-  }
 
   const conteudo = render(modelo.corpo, variaveis, cliente);
   const titulo = `${modelo.nome} — ${cliente?.nome ?? lead.nome}`;
