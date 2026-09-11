@@ -66,7 +66,7 @@ const ROTAS_INTERNAS: RotaInterna[] = [
   { template: "/agenda" },
   { template: "/projetos" },
   { template: "/projetos/$id", idDe: "projetos.list" },
-  { template: "/leads" },
+  { template: "/funil-de-vendas" },
   { template: "/clientes" },
   { template: "/clientes/$id", idDe: "clientes.list" },
   { template: "/credenciamentos" },
