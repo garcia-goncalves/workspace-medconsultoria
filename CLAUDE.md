@@ -13,7 +13,52 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-10 · corrida de concorrência da marca única FECHADA)
+## Estado atual (2026-09-11 · os 6 achados médio/baixo da auditoria de 04/09, FECHADOS — PR #193)
+
+### 📋 O que sobrou aberto da auditoria de 04/09 (a lista que só existia na conversa) — fechado
+
+- **Contexto:** a auditoria de 04/09 (PR #191) tinha uma lista de achados médio/baixo que **não
+  foi salva em disco** — só existia na conversa que gerou aquele PR, e o CLAUDE.md a resumiu em uma
+  linha. Esta rodada localizou cada um no código (nenhum vinha com arquivo:linha) e corrigiu os
+  seis, cada um com teste, em commits separados, sem sobreposição de arquivo entre eles.
+- **Kanban de Projetos não mostrava o responsável do cartão** — o dado já vinha do servidor
+  (`CardItem.responsavel`); só faltava desenhar. `KanbanCard.tsx` ganhou avatar de iniciais com
+  `title` (mouse) **e** `aria-label` (leitor de tela — achado do `react-reviewer`, corrigido antes
+  do PR: `title` sozinho não é lido de forma confiável por leitor de tela).
+- **Saudação do Início chamava cartão de "tarefa"** — `DashboardPage.tsx` contava `Card` (Kanban de
+  Projetos) e dizia "N tarefas suas"; `Card` e `Tarefa` são entidades **diferentes** do domínio,
+  cada uma com página própria. Corrigido para "N cartões seus", coerente com o resto da tela.
+- **`AssinarPage` mostrava Markdown cru** — a página pública de assinatura exibia `**negrito**`,
+  `# título` literalmente. Passou a reusar `DocumentoBranded`, o mesmo motor de renderização já
+  usado na prévia e na proposta pública — nenhum segundo motor criado.
+- **"Enviado por você" no Portal atribuía a qualquer pessoa da clínica** um documento que outra
+  pessoa enviou — comparava só o TIPO de pessoa (lado do cliente), não a pessoa exata. O dado
+  (`Arquivo.enviadoPorId`) já existia no banco desde sempre; a tela é que não comparava certo.
+  **Zero migração.**
+- **Mudar o prazo de uma tarefa delegada não avisava o responsável** — `tarefas.service.ts` agora
+  compara prazo ANTES × DEPOIS e notifica cada responsável atual (exceto quem fez a própria
+  mudança), com categoria de e-mail nova `tarefa_prazo_alterado` (mesmo padrão de
+  `tarefa_delegada`/`tarefa_concluida`).
+- **Formulário "Novo serviço" não tinha a caixa de credenciamento na criação** (só na edição),
+  embora servidor e schema já aceitassem e validassem o campo desde sempre — extraído
+  `CredenciamentoCheckbox`, compartilhado entre criar e editar. **De brinde:** corrigida a colisão
+  de nome achada pela auditoria — em `NovoDocumentoDialog.tsx`, variáveis locais
+  `ehCredenciamento`/`ehFaturamento` (que descrevem o TIPO DE DOCUMENTO sendo montado, não o campo
+  do banco) tinham o mesmo nome do campo `Servico.ehCredenciamento`/`ehFaturamento` (a marca única,
+  ADR-144/145/152) — renomeadas para `ePropostaDeCredenciamento`/`ePropostaDeFaturamento`; nenhum
+  campo do banco mudou.
+- **Fora de escopo, de propósito:** "duas implementações divergentes de Contrato" (rica via aceite,
+  pobre via botão manual) — parece exigir decisão de arquitetura, fica para rodada própria. E a
+  trava de concorrência da **criação** de serviço (só a edição tem a trava atômica da ADR-152) —
+  risco residual já conhecido e registrado, não é o achado desta rodada.
+- **Provas:** typecheck do monorepo 0 erros · lint limpo · suíte completa `@app/api` (120
+  arquivos/956 testes) e `@app/web` (27 arquivos/225 testes), as duas verdes · 8 arquivos de teste
+  novos (alguns vistos reprovando antes da correção) · `typescript-reviewer` e `react-reviewer`
+  rodados no diff — o achado importante de acessibilidade do Kanban foi corrigido antes do PR.
+- **✅ MESCLADO na `main`: PR #193 → `5febfa8`** (squash), CI 3/3 verde. **Zero migração** neste
+  lote. Não está no ar — publicar continua sendo decisão do dono.
+
+## Estado anterior (2026-09-10 · corrida de concorrência da marca única FECHADA)
 
 > **Leia a ADR-152** em `docs/DECISIONS.md` — corpo tem o detalhe completo, inclusive o caminho
 > que foi tentado e revertido.
@@ -108,15 +153,17 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   Comentário no código (`servicos.service.ts`, perto de `recusarMarcaDeFaturamentoInvalida`)
   aponta o caminho: resolver o atrito de tipo, ou migrar para índice único condicional (molde da
   `Servico_nome_key`, ADR-147).
-- **📋 AINDA ABERTOS DA AUDITORIA (médio/baixo, não tocados nesta leva)** — arquivo:linha nos
-  relatórios dos 6 agentes, que não foram salvos em disco (só na conversa que gerou o PR):
-  Kanban de Projetos não mostra o responsável do cartão (dado já vem do servidor) · mudar o prazo
-  de uma tarefa já delegada não avisa o responsável · saudação do Início chama cartão de "tarefa"
-  · duas implementações divergentes de Contrato (rica via aceite, pobre via botão manual) ·
-  `AssinarPage` mostra Markdown cru, não renderizado · "Enviado por você" no Portal atribui a
-  qualquer pessoa da clínica um documento que outra pessoa enviou · alguns achados BAIXA de
+- **📋 AINDA ABERTOS DA AUDITORIA (médio/baixo, não tocados nesta leva) — SEIS FECHADOS em 11/09
+  (PR #193, ver "Estado atual" no topo deste arquivo), UM continua aberto de propósito** —
+  arquivo:linha nos relatórios dos 6 agentes, que não foram salvos em disco (só na conversa que
+  gerou o PR): ~~Kanban de Projetos não mostra o responsável do cartão (dado já vem do servidor)~~
+  · ~~mudar o prazo de uma tarefa já delegada não avisa o responsável~~ · ~~saudação do Início
+  chama cartão de "tarefa"~~ · **duas implementações divergentes de Contrato (rica via aceite,
+  pobre via botão manual) — continua aberto, parece exigir decisão de arquitetura** ·
+  ~~`AssinarPage` mostra Markdown cru, não renderizado~~ · ~~"Enviado por você" no Portal atribui a
+  qualquer pessoa da clínica um documento que outra pessoa enviou~~ · ~~alguns achados BAIXA de
   Serviços/Documentos (formulário "Novo serviço" não expõe a caixa de credenciamento na criação,
-  só na edição; nome de variável `ehCredenciamento` local colidindo semanticamente com a marca).
+  só na edição; nome de variável `ehCredenciamento` local colidindo semanticamente com a marca)~~.
 - **PR #191 aberto, CI e revisores especialistas (react/typescript/security) rodando no momento
   do handoff — confira `gh pr checks 191` e o resultado dos revisores antes de mesclar.**
 
