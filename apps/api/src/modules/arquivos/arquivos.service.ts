@@ -123,13 +123,26 @@ export async function listarArquivos(clienteId: string, servicoId?: string) {
       requisitoId: true,
       lado: true,
       enviadoPorTipo: true,
+      enviadoPorId: true,
       createdAt: true,
       servico: { select: { nome: true } },
       requisito: { select: { titulo: true } },
       profissional: { select: { id: true, nome: true } },
     },
   });
-  return rows;
+
+  // `enviadoPorId` é a PESSOA que enviou (ADR-131: vários usuários por clínica); `enviadoPorTipo`
+  // só diz CLIENTE × EQUIPE, o que fazia a tela do Portal ler "Enviado por você" para qualquer
+  // arquivo do lado do cliente, mesmo quando quem enviou foi um colega da mesma clínica. Sem
+  // relação de Prisma para `enviadoPorId` (o campo não tem `@relation` — criá-la pediria FK
+  // nova, migração), o nome de quem enviou é buscado à parte.
+  const idsUnicos = [...new Set(rows.map((r) => r.enviadoPorId).filter((id): id is string => Boolean(id)))];
+  const pessoas = idsUnicos.length
+    ? await prisma.user.findMany({ where: { id: { in: idsUnicos } }, select: { id: true, nome: true } })
+    : [];
+  const nomePorId = new Map(pessoas.map((p) => [p.id, p.nome]));
+
+  return rows.map((r) => ({ ...r, enviadoPorNome: r.enviadoPorId ? (nomePorId.get(r.enviadoPorId) ?? null) : null }));
 }
 
 /** Busca um arquivo para download (metadados + caminho). Lança se não existe/removido. */

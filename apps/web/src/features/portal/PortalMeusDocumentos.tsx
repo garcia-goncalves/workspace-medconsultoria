@@ -1,6 +1,7 @@
 import { FileUp, Trash2, User, Users } from "lucide-react";
 import { LADO_ARQUIVO_LABEL, type LadoArquivo } from "@app/shared";
 import { trpc } from "../../lib/trpc";
+import { useAuth } from "../../lib/auth-context";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
@@ -19,6 +20,7 @@ import { Skeleton } from "../../components/ui/skeleton";
 export function PortalMeusDocumentos() {
   const utils = trpc.useUtils();
   const confirm = useConfirm();
+  const { user } = useAuth();
   const q = trpc.portal.arquivos.useQuery();
   const invalidate = () => {
     // `q` é a lista que ESTA tela desenha: ela precisa do recarregamento duplo, não de um
@@ -90,6 +92,18 @@ export function PortalMeusDocumentos() {
                 .filter(Boolean)
                 .join(" · ");
               const doCliente = a.enviadoPorTipo === "CLIENTE";
+              // ⚠️ "Enviado por você" é sobre a PESSOA, não sobre o LADO (ADR-131: vários
+              // usuários por clínica). `doCliente` só diz que foi alguém do lado do cliente —
+              // comparar com `enviadoPorTipo` sozinho atribuía a um colega o envio de outro.
+              // A trava certa é o `enviadoPorId` (userId de quem de fato enviou) contra a sessão
+              // atual.
+              const porVoce = !!user && a.enviadoPorId === user.id;
+              const rotulo = porVoce ? "Você" : doCliente ? (a.enviadoPorNome ?? "Colega da clínica") : "MedConsultoria";
+              const tituloBadge = porVoce
+                ? "Enviado por você"
+                : doCliente
+                  ? `Enviado por ${a.enviadoPorNome ?? "outra pessoa da clínica"}`
+                  : "Anexado pela equipe MedConsultoria";
               return (
                 <div key={a.id} className="flex items-center gap-2.5 rounded-lg border px-3 py-2 text-sm">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/5 text-primary ring-1 ring-inset ring-primary/10">
@@ -103,13 +117,9 @@ export function PortalMeusDocumentos() {
                       {contexto} · {data(a.createdAt)}
                     </div>
                   </div>
-                  <Badge
-                    variant={doCliente ? "primary" : "default"}
-                    className="shrink-0"
-                    title={doCliente ? "Enviado por você" : "Anexado pela equipe MedConsultoria"}
-                  >
+                  <Badge variant={doCliente ? "primary" : "default"} className="shrink-0" title={tituloBadge}>
                     {doCliente ? <User className="h-3 w-3" /> : <Users className="h-3 w-3" />}
-                    {doCliente ? "Você" : "MedConsultoria"}
+                    {rotulo}
                   </Badge>
                   {doCliente && (
                     <button
