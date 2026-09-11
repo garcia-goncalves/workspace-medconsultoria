@@ -45,6 +45,7 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   { tipo: "tarefa_atribuida", label: "Tarefa atribuída a você", descricao: "Quando alguém atribui um cartão/tarefa a você.", grupo: "Agenda e tarefas" },
   { tipo: "tarefa_atrasada", label: "Tarefas atrasadas", descricao: "Resumo de tarefas suas que passaram do prazo.", grupo: "Agenda e tarefas" },
   { tipo: "tarefa_delegada", label: "Tarefa delegada a você", descricao: "Quando um colega delega uma tarefa/pedido a você.", grupo: "Agenda e tarefas" },
+  { tipo: "tarefa_prazo_alterado", label: "Prazo de tarefa alterado", descricao: "Quando o prazo de uma tarefa sua (delegada a você) muda.", grupo: "Agenda e tarefas" },
   { tipo: "tarefa_concluida", label: "Tarefa que você pediu foi concluída", descricao: "Quando o responsável conclui uma tarefa que você delegou.", grupo: "Agenda e tarefas" },
   { tipo: "projeto_participante", label: "Adicionado a um projeto", descricao: "Quando você é incluído na equipe de um projeto.", grupo: "Agenda e tarefas" },
   { tipo: "suporte", label: "Mensagens de suporte", descricao: "Novas mensagens no canal de suporte do cliente.", grupo: "Clientes e Portal" },

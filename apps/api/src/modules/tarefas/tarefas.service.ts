@@ -92,6 +92,18 @@ export async function avisarDelegacao(tarefa: { id: string; titulo: string; cria
   );
 }
 
+/** Avisa cada responsável de que o prazo da tarefa mudou (nunca avisa quem fez a própria mudança). */
+async function avisarMudancaDePrazo(tarefa: { id: string; titulo: string; prazo: Date | null }, responsavelIds: string[], porUserId: string) {
+  const destinatarios = [...new Set(responsavelIds)].filter((uid) => uid !== porUserId);
+  if (destinatarios.length === 0) return;
+  const prazo = tarefa.prazo ? tarefa.prazo.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "sem prazo";
+  await Promise.all(
+    destinatarios.map((uid) =>
+      notificar(uid, "tarefa_prazo_alterado", { tarefa: tarefa.titulo, prazo }, { entidadeTipo: "tarefa", entidadeId: tarefa.id }),
+    ),
+  );
+}
+
 /** Avisa quem pediu de que a tarefa foi concluída (não avisa quando é você mesmo quem pediu). */
 async function avisarConclusao(tarefa: { id: string; titulo: string; criadoPorId: string }, porUserId: string) {
   if (porUserId === tarefa.criadoPorId) return;
@@ -165,6 +177,11 @@ export async function updateTarefa(input: UpdateTarefaInput, ctx: Ctx) {
   const trocaResponsaveis = input.responsavelIds !== undefined;
   const novosIds = trocaResponsaveis ? normalizarResponsaveis(input.responsavelIds, ctx) : idsAntes;
 
+  // Prazo mudou? Compara ANTES × DEPOIS (null-safe) — só dispara aviso quando o valor de fato muda.
+  const prazoAntes = atual.prazo ? atual.prazo.getTime() : null;
+  const prazoDepois = input.prazo !== undefined ? (input.prazo ? input.prazo.getTime() : null) : prazoAntes;
+  const prazoMudou = input.prazo !== undefined && prazoAntes !== prazoDepois;
+
   // Concluir grava a data; reabrir limpa.
   let concluidaEm = atual.concluidaEm;
   if (input.status && input.status !== atual.status) {
@@ -193,6 +210,7 @@ export async function updateTarefa(input: UpdateTarefaInput, ctx: Ctx) {
     await avisarDelegacao(tarefa, adicionados);
   }
   if (input.status === "CONCLUIDA" && atual.status !== "CONCLUIDA") await avisarConclusao(tarefa, ctx.userId);
+  if (prazoMudou) await avisarMudancaDePrazo(tarefa, novosIds, ctx.userId);
   return tarefa;
 }
 

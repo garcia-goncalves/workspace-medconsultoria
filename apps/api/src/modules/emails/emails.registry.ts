@@ -339,6 +339,23 @@ export const EMAIL_TEMPLATES = {
       ctaTexto: "Ver tarefa",
     },
   },
+  tarefa_prazo_alterado: {
+    label: "Prazo de tarefa alterado",
+    descricao: "Quando o prazo de uma tarefa delegada a você muda.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "tarefa", rotulo: "Tarefa", descricao: "O que precisa ser feito", exemplo: "Ligar para o contador da clínica" },
+      { chave: "prazo", rotulo: "Novo prazo", descricao: "A nova data combinada", exemplo: "30/09/2026" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "O prazo de uma tarefa sua mudou",
+      titulo: "Prazo alterado: {{tarefa}}",
+      corpo: "O prazo da tarefa \"{{tarefa}}\" foi alterado. Novo prazo: {{prazo}}.",
+      ctaTexto: "Ver tarefa",
+    },
+  },
   tarefa_concluida: {
     label: "Tarefa que você pediu foi concluída",
     descricao: "Quando o responsável conclui uma tarefa que você havia delegado.",
