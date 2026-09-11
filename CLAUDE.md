@@ -15,6 +15,9 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ## Estado atual (2026-09-10 · corrida de concorrência da marca única FECHADA)
 
+> **Leia a ADR-152** em `docs/DECISIONS.md` — corpo tem o detalhe completo, inclusive o caminho
+> que foi tentado e revertido.
+
 ### 🔒 A corrida em `Servico.ehCredenciamento`/`ehFaturamento` — registrada na auditoria de 04/09, corrigida em 10/09
 
 - **O relato:** dois admins editando serviços DIFERENTES em Ajustes → Serviços, marcando
@@ -1835,7 +1838,7 @@ entre proxy e app.
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-150). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-152). Deploy: `docs/DEPLOY.md`.
    API do agente (integração com a Cora): `docs/API_AGENTE.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 

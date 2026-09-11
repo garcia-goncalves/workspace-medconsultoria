@@ -5651,3 +5651,69 @@ adaptados para `GEMINI_API_KEY` continuam verdes sem mudar de comportamento.
 
 ⚠️ **NÃO ESTÁ NO AR** — depende do dono gerar a chave e colar no `.env` local primeiro, depois
 publicar. Sem a chave, a IA local também fica desligada (mesmo comportamento de sempre).
+
+## ADR-152 — A marca única (credenciamento/faturamento) ganhou garantia de UM UPDATE atômico, não de índice no banco
+
+**O achado (04/09/2026, registrado como aberto) fechado em 10/09/2026:** dois admins editando
+serviços DIFERENTES em Ajustes → Serviços, marcando `ehCredenciamento`/`ehFaturamento` ao mesmo
+tempo, podiam passar os dois pela conferência de leitura (`recusarSegundaMarcaDeCredenciamento`/
+`recusarMarcaDeFaturamentoInvalida`) antes de qualquer um gravar — mesmo modo de falha que a
+ADR-140 corrigiu para a conta do honorário, com `updateMany` condicionado.
+
+- **🔑 A PRIMEIRA TENTATIVA FOI UM ÍNDICE ÚNICO CONDICIONAL NO BANCO** (coluna gerada
+  `GENERATED ALWAYS AS ... STORED` valendo 1 quando a marca liga e NULL quando desliga, com
+  índice único — o mesmo truque que contorna o MySQL não ter `WHERE` em índice único, como o
+  Postgres tem). Era a cura apontada como "mais robusta a longo prazo" quando o achado ficou
+  registrado. **Funcionou para a corrida e foi revertida mesmo assim**: quebrou ~15 arquivos de
+  teste de integração que criam serviços marcados DIRETO no banco, como fixture, contornando a
+  conferência da aplicação de propósito — padrão já estabelecido no projeto (comentário explícito
+  nesse sentido em `marca-faturamento.integration.test.ts`, escrito antes desta ADR). Um índice
+  único é uma restrição GLOBAL de schema; aqui o problema era local a duas chamadas concorrentes
+  de `atualizarServico`. Custo maior que o benefício — revertida por inteiro (migração, coluna,
+  comentário no schema), sem deixar rastro no banco.
+- **🔧 A CURA QUE FICOU: UM UPDATE ATÔMICO CONDICIONAL, sem migração, sem transação.**
+  `tentarMarcarAtomicamente`/`tentarLigarAtomicamente` (`servicos.service.ts`, perto de
+  `recusarSegundaMarcaDeCredenciamento`): ligar a marca é UMA instrução —
+  `UPDATE Servico SET campo=1 WHERE id=? AND NOT EXISTS (...)` —, então a condição ("ninguém mais
+  marcado") e a gravação acontecem no MESMO round-trip ao banco. Não há janela entre "conferir" e
+  "gravar" para uma segunda edição concorrente se enfiar. Só o caminho da APLICAÇÃO
+  (`atualizarServico`) passa por aqui; os ~15 arquivos de teste com fixture direta no banco
+  continuam exatamente como estavam, porque não existe restrição de schema para colidir com eles.
+- **🕳️ DOIS DEFEITOS DE MYSQL QUE SÓ A EXECUÇÃO REAL MOSTROU** (nenhuma leitura de código revela):
+  (1) `UPDATE X ... WHERE NOT EXISTS (SELECT ... FROM X)` é RECUSADO pelo MySQL — erro 1093,
+  *"You can't specify target table 'X' for update in FROM clause"* — porque a subconsulta reabre
+  a mesma tabela que está sendo escrita. Cura: embrulhar a subconsulta numa TABELA DERIVADA
+  (`SELECT ... FROM (SELECT ...) AS s2`), truque clássico que força o motor a materializar antes.
+  (2) Mesmo com a instrução atômica, o InnoDB às vezes responde **deadlock** (erro 1213,
+  *"Deadlock found when trying to get lock"*) em vez de simplesmente recusar, quando duas destas
+  instruções disputam a mesma tabela derivada ao mesmo tempo — o motor escolhe uma vítima em vez
+  de serializar. Um retry único (`meta.code === "1213"`) resolve: na segunda tentativa a outra
+  transação já terminou.
+- **🔴 O REVISOR ESPECIALISTA ACHOU UM BLOQUEANTE NA 1ª VERSÃO, E ELE NASCEU DELA MESMA** — o
+  padrão de sempre nesta casa. A marca era aplicada ANTES da conferência de nome duplicado: um
+  pedido que trocasse o nome para um já usado **e** mexesse na marca no MESMO envio deixava a
+  marca gravada em silêncio mesmo com o pedido inteiro lançando erro — a tela dizia "nome já
+  usado", a Thaís concluía que nada foi salvo, mas a marca (inclusive tendo roubado a marca única
+  de outro serviço) já estava no banco. **Cura: a marca virou o ÚLTIMO passo** de
+  `atualizarServico`, só depois do resto do pedido (nome incluído) já ter sido gravado com
+  sucesso. Visto reprovando antes da correção, com teste próprio.
+- **⚠️ A CRIAÇÃO (`criarServico`) NÃO GANHOU A MESMA TRAVA.** O relato e o uso real são sobre
+  EDITAR um serviço já existente (Ajustes → Serviços → Configurar), não criar dois serviços novos
+  já marcados ao mesmo tempo — cenário bem mais raro. Registrado no código como risco residual.
+- **Zero migração, zero mudança de schema** — o fix inteiro vive em `servicos.service.ts` mais um
+  arquivo de teste de integração novo.
+
+**Lição que fica, registrada na memória do harness:** quando "índice único no banco" parecer a
+resposta óbvia para uma corrida de aplicação, meça primeiro se a coluna/condição já é escrita por
+caminhos que bypassam a regra de propósito (fixture de teste, script, outro serviço) — um índice
+único vira um limite GLOBAL que pode quebrar esse padrão em massa. UPDATE condicional com
+`NOT EXISTS` é o meio-termo: fecha a corrida sem impor uma restrição permanente no schema.
+
+**Provas:** typecheck 0 erros · lint limpo · **suíte COMPLETA do `@app/api`, 117 arquivos, 948
+testes, rodada várias vezes seguidas, sempre verde** · 4 testes de integração novos
+(`marca-unica-por-indice.integration.test.ts`) forçam a corrida de verdade com
+`Promise.all`/`Promise.allSettled` contra o MySQL real (2 e 10 edições concorrentes disputando a
+mesma marca, mais o caso do bloqueante do revisor) · revisão `typescript-reviewer` rodada no
+diff, achado corrigido e confirmado.
+
+⚠️ **NÃO ESTÁ NO AR** — PR aberto (#192), aguardando CI verde e o sinal do dono para publicar.
