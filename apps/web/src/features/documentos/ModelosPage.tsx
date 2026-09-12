@@ -16,6 +16,7 @@ import { trpc } from "../../lib/trpc";
 import { Button } from "../../components/ui/button";
 import { PageHeader } from "../../components/ui/page-header";
 import { TableSkeleton } from "../../components/ui/skeleton";
+import { QueryError } from "../../components/ui/query-error";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { ModeloFormDialog } from "./ModeloFormDialog";
 import { CamposDialog, FormularioDialog, type FormRow } from "./FormulariosPanel";
@@ -86,7 +87,9 @@ export function ModelosPage() {
       </PageHeader>
 
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1">
-        {modelos.isLoading ? (
+        {modelos.isError || briefings.isError ? (
+          <QueryError onRetry={() => (modelos.isError ? modelos.refetch() : briefings.refetch())} />
+        ) : modelos.isLoading ? (
           <TableSkeleton rows={6} cols={2} />
         ) : (
           GRUPOS.map((g) => {
@@ -112,7 +115,7 @@ export function ModelosPage() {
                   {listaBriefings.map((f) => (
                     <div
                       key={f.id}
-                      className="group flex items-start gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+                      className="group flex min-w-0 items-start gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
                     >
                       <button
                         onClick={() => setCamposBriefing(f)}
@@ -135,7 +138,8 @@ export function ModelosPage() {
                       <div className="flex shrink-0 flex-col gap-1">
                         <button
                           onClick={() => setEditBriefing(f)}
-                          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          className="flex min-h-11 min-w-11 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                          aria-label="Renomear / descrição"
                           title="Renomear / descrição"
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -152,7 +156,8 @@ export function ModelosPage() {
                             )
                               removerBriefing.mutate({ id: f.id });
                           }}
-                          className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          className="flex min-h-11 min-w-11 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          aria-label="Remover briefing"
                           title="Remover"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -169,7 +174,7 @@ export function ModelosPage() {
                         key={m.id}
                         to="/modelos/$modeloId"
                         params={{ modeloId: m.id }}
-                        className="group flex items-start gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+                        className="group flex min-w-0 items-start gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
                       >
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/5 text-primary ring-1 ring-inset ring-primary/10">
                           <FileText className="h-5 w-5" />

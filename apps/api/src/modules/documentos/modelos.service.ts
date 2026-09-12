@@ -20,6 +20,8 @@ export const DEFAULTS: { nome: string; tipo: TipoModelo; corpo: string }[] = [
 
 {{servicos}}
 
+{{dadosPagamento}}
+
 Ficamos à disposição para qualquer dúvida e seguimos juntos no que você decidir. Será um prazer cuidar disso por você.
 
 Atenciosamente,
@@ -90,11 +92,110 @@ Cordialmente,
 | MedConsultoria | Cliente |`,
   },
   {
+    nome: "Proposta de faturamento médico",
+    tipo: "PROPOSTA",
+    // ADR-127. Este corpo é a TRANSCRIÇÃO do papel que a Thaís manda hoje ao cliente: lapidada
+    // na forma (ordem, títulos, listas) e intocada no conteúdo — o que ela pede e o que ela
+    // informa é decisão comercial dela, não minha.
+    //
+    // Três coisas que este modelo NÃO faz, e o porquê:
+    //
+    // 1. Não usa {{apresentacao}}. A abertura da Thaís é específica do faturamento ("com foco
+    //    em eficiência operacional, redução de glosas...") e está escrita aqui, como na
+    //    proposta de credenciamento. A genérica, com ou sem IA, diria menos.
+    // 2. Não imprime o faturamento médio mensal do cliente. Ele continua sendo perguntado no
+    //    construtor e continua alimentando o valor do negócio no funil (ADR-125), mas não vira
+    //    promessa no papel: o faturamento de uma clínica sobe e desce, e o documento assinado
+    //    não acompanha. O que sai é o percentual sobre o efetivamente faturado e recebido.
+    // 3. Não tem "Condições de pagamento". É sempre PIX. A frase de QUANDO o repasse é pago
+    //    entra junto com {{servicos}}, na seção 5, e o PIX vem em {{dadosPagamento}}.
+    //
+    // O Faturamento não tem valor fixo nem faixa de valor — é SÓ percentual, negociado cliente
+    // a cliente no próprio construtor da proposta. Os nomes de quem coordena e de quem dá
+    // suporte comercial moram AQUI de propósito: a Thaís os troca em Ajustes → Modelos, sem
+    // publicação nenhuma.
+    corpo: `**Proposta {{numero}}** &nbsp;·&nbsp; **Data:** {{data}}
+
+**{{cliente.nome}}**
+
+Prezado(a),
+
+Atendendo à solicitação, a MedConsultoria tem o prazer de apresentar sua proposta para a gestão do módulo de faturamento de contas médicas, com foco em eficiência operacional, redução de glosas e otimização do fluxo financeiro da Clínica.
+
+Nossa atuação é baseada em experiência prática, conhecimento técnico e acompanhamento próximo, proporcionando segurança no faturamento, previsibilidade de recebimentos e maior tranquilidade para a equipe médica — permitindo que o foco permaneça integralmente no cuidado ao paciente.
+
+Acreditamos que esta parceria contribuirá de forma direta para melhores resultados financeiros, processos mais organizados e um relacionamento mais eficiente com as operadoras de saúde, fortalecendo ainda mais a gestão da Clínica.
+
+## Objetivo da parceria
+
+Assumir integralmente as etapas do faturamento dos serviços médicos prestados aos beneficiários das operadoras abaixo, garantindo agilidade, conformidade e acompanhamento contínuo até o recebimento.
+
+{{convenios}}
+
+Convênio novo passa a ser atendido mediante simples comunicação, sem necessidade de nova proposta.
+
+## Como funciona o nosso serviço
+
+### O que a Clínica nos encaminha
+
+Para cada procedimento, a MedConsultoria precisa receber:
+
+- Dados do paciente, operadora e plano;
+- Cirurgião, hospital e data da cirurgia;
+- Acesso às autorizações e a descrição cirúrgica;
+- Acesso às tabelas e aos contratos de prestação de serviços;
+- Acesso à plataforma de gestão utilizada pela Clínica;
+- Acesso (login e senha) aos portais das operadoras.
+
+### O que a MedConsultoria faz
+
+1. Análise criteriosa das autorizações e dos códigos liberados;
+2. Auditoria preventiva, para minimizar o risco de glosa;
+3. Processamento completo do faturamento;
+4. Conciliação dos valores cobrados;
+5. Atuação ativa nos recursos de glosa;
+6. Acompanhamento contínuo dos pagamentos junto às operadoras.
+
+Nosso diferencial está na atuação proativa: maximizar o valor recebido e reduzir perdas financeiras.
+
+## Suporte comercial
+
+O suporte comercial fica a cargo de **Leandro**, à frente das negociações e das tratativas com as operadoras.
+
+## Gestão e acompanhamento
+
+A coordenação do serviço fica sob responsabilidade de **Thaís Garcia Fristachi**, que realiza o acompanhamento estratégico e apresenta **relatórios mensais de desempenho**.
+
+## Prazos e rotina de faturamento
+
+A MedConsultoria garante o envio do faturamento dentro dos prazos definidos por cada operadora.
+
+{{servicos}}
+
+A despesa do portador, para o envio do faturamento físico, fica por conta da CONTRATANTE.
+
+{{dadosPagamento}}
+
+## Confidencialidade
+
+A MedConsultoria compromete-se a manter absoluto sigilo sobre todas as informações de {{cliente.nome}}, utilizando-as exclusivamente para a execução dos serviços contratados.
+
+Qualquer demanda não contemplada neste escopo poderá ser avaliada e apresentada em proposta comercial complementar.
+
+Será um prazer construir esta parceria e contribuir ativamente para a organização, a eficiência e o crescimento financeiro da Clínica.
+
+Cordialmente,
+
+| | |
+| --- | --- |
+| \\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_ | \\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_\\_ |
+| **{{consultora}}** | **{{cliente.nome}}** |
+| MedConsultoria | Cliente |`,
+  },
+  {
     nome: "Contrato de prestação de serviços",
     tipo: "CONTRATO",
-    corpo: `**CONTRATO DE PRESTAÇÃO DE SERVIÇOS**
-
-Pelo presente instrumento particular, de um lado {{contratada}}, doravante denominada **CONTRATADA**; e de outro **{{cliente.nome}}**, inscrita sob o CNPJ nº {{cliente.cnpj}}, e-mail {{cliente.email}}, doravante denominada(o) **CONTRATANTE**; têm entre si justo e contratado o quanto segue.
+    corpo: `Pelo presente instrumento particular, de um lado {{contratada}}, doravante denominada **CONTRATADA**; e de outro **{{cliente.nome}}**, inscrita sob o CNPJ nº {{cliente.cnpj}}, e-mail {{cliente.email}}, doravante denominada(o) **CONTRATANTE**; têm entre si justo e contratado o quanto segue.
 
 ## 1. Objeto
 A CONTRATADA prestará à CONTRATANTE os seguintes serviços:
@@ -115,6 +216,10 @@ As condições específicas de **cada serviço contratado** estão detalhadas na
 
 ## 4. Valor e forma de pagamento
 {{valor}}
+
+Os pagamentos serão realizados exclusivamente por **PIX**.
+
+{{dadosPagamento}}
 
 Os valores serão reajustados a cada 12 (doze) meses pela variação acumulada do IPCA/IBGE (ou índice que venha a substituí-lo).
 
@@ -142,9 +247,7 @@ As condições abaixo se aplicam a cada serviço efetivamente contratado pela CO
   {
     nome: "Escopo de trabalho",
     tipo: "ESCOPO",
-    corpo: `**ESCOPO DE TRABALHO**
-
-**Cliente:** {{cliente.nome}}
+    corpo: `**Cliente:** {{cliente.nome}}
 **Serviço:** {{servico}}
 
 ## Objetivo
@@ -207,18 +310,16 @@ As condições abaixo se aplicam a cada serviço efetivamente contratado pela CO
   {
     nome: "Checklist de onboarding do cliente",
     tipo: "ONBOARDING",
-    corpo: `## Onboarding de {{cliente.nome}}
-
-**Boas-vindas e alinhamento**
+    corpo: `## Boas-vindas e alinhamento
 - [ ] Proposta aceita e contrato assinado
 - [ ] Reunião de kickoff realizada
 - [ ] Responsável e equipe definidos
 
-**Acessos e informações**
+## Acessos e informações
 - [ ] Documentos e acessos recebidos
 - [ ] Ferramentas e relatórios configurados
 
-**Plano de trabalho**
+## Plano de trabalho
 - [ ] Cronograma e metas acordados
 - [ ] Primeiro alinhamento de resultados agendado
 
@@ -236,7 +337,7 @@ As condições abaixo se aplicam a cada serviço efetivamente contratado pela CO
 - [ ] Título de especialista / RQE (se houver)
 - [ ] Comprovante de endereço
 - [ ] Dados bancários
-- [ ] Foto 3x4 (se solicitada pela operadora)
+- [ ] Foto 3×4 (se solicitada pela operadora)
 
 ## Da clínica / PJ (quando aplicável)
 - [ ] CNPJ e contrato social
@@ -359,9 +460,7 @@ _A lista pode variar conforme a operadora / convênio._
   {
     nome: "Recibo",
     tipo: "RECIBO",
-    corpo: `**RECIBO**
-
-Recebemos de **{{cliente.nome}}** a importância de **{{valor}}** ({{valor_extenso}}), referente a **{{referente}}**.
+    corpo: `Recebemos de **{{cliente.nome}}** a importância de **{{valor}}** ({{valor_extenso}}), referente a **{{referente}}**.
 
 **Forma de pagamento:** {{forma_pagamento}} &nbsp;·&nbsp; **Data:** {{data}}
 

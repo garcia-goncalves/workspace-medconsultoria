@@ -9,6 +9,7 @@ import type {
 } from "@app/shared";
 import { SITUACOES_CLIENTE } from "@app/shared";
 import { garantirAcessoPortal, convidarUsuario, reenviarConvite } from "../usuarios/usuarios.service.js";
+import { acessoAoPortal } from "../../lib/acesso-portal.js";
 import { emReais } from "../../lib/dinheiro.js";
 
 /** "" ou espaços → null; caso contrário, texto aparado. */
@@ -50,13 +51,17 @@ export async function listClientes(search?: string) {
         select: {
           contatos: true,
           projetos: { where: { deletedAt: null } },
-          // "Portal ativo" = já existe um acesso de cliente que consegue entrar (senha definida).
-          usuariosPortal: { where: { role: "CLIENTE", ativo: true, passwordHash: { not: null } } },
           // "No funil" = tem oportunidade aberta (upsell em andamento) ligada a este cliente.
           leadsPortal: { where: { deletedAt: null, convertidoEmClienteId: null, perdidoEm: null } },
           // Serviços contratados ativos (o que o cliente tem hoje).
           servicosContratados: { where: { status: "ATIVO" } },
         },
+      },
+      // A CONTA de Portal (ADR-128) — os três estados do card, não só "ativo ou não".
+      usuariosPortal: {
+        where: { role: "CLIENTE" },
+        select: { ativo: true, passwordHash: true, createdAt: true, ultimoAcessoEm: true },
+        orderBy: { createdAt: "asc" },
       },
     },
   });
@@ -77,11 +82,16 @@ export async function listClientes(search?: string) {
   });
   const proxMap = new Map(reunioes.map((r) => [r.clienteId, r._min.inicio]));
 
-  return clientes.map((c) => ({
-    ...c,
-    proximaReuniao: proxMap.get(c.id) ?? null,
-    emFunil: c._count.leadsPortal > 0,
-  }));
+  return clientes.map(({ usuariosPortal, ...c }) => {
+    const portal = acessoAoPortal(usuariosPortal);
+    return {
+      ...c,
+      proximaReuniao: proxMap.get(c.id) ?? null,
+      emFunil: c._count.leadsPortal > 0,
+      portalAtivo: portal.estado === "ATIVO",
+      portal,
+    };
+  });
 }
 
 /** Indicadores da base de CLIENTES (só ativos/inativos — prospects estão no Funil). */
@@ -89,7 +99,18 @@ export async function resumoClientes() {
   const [ativos, inativos, portaisAtivos] = await Promise.all([
     prisma.cliente.count({ where: { deletedAt: null, situacaoComercial: "ATIVO" } }),
     prisma.cliente.count({ where: { deletedAt: null, situacaoComercial: "INATIVO" } }),
-    prisma.user.count({ where: { role: "CLIENTE", ativo: true, deletedAt: null, passwordHash: { not: null } } }),
+    // O universo é o MESMO dos três acima: cliente da base (ATIVO/INATIVO). Contar todo
+    // Portal ativo traria junto o do PROSPECT — que vive no Funil e não entra no total
+    // (ADR-24) —, e a tela mostrava "Total de clientes 0" ao lado de "Com Portal ativo 1".
+    prisma.user.count({
+      where: {
+        role: "CLIENTE",
+        ativo: true,
+        deletedAt: null,
+        passwordHash: { not: null },
+        cliente: { deletedAt: null, situacaoComercial: { in: ["ATIVO", "INATIVO"] } },
+      },
+    }),
   ]);
   return { total: ativos + inativos, ativos, inativos, portaisAtivos };
 }
@@ -237,11 +258,12 @@ export async function getCliente(id: string) {
     include: {
       contatos: { orderBy: [{ principal: "desc" }, { nome: "asc" }] },
       responsavel: { select: { nome: true } },
-      _count: {
-        select: {
-          // acesso de Portal já ativo (senha definida) x convite pendente (sem senha).
-          usuariosPortal: { where: { role: "CLIENTE", ativo: true, passwordHash: { not: null } } },
-        },
+      // A CONTA de Portal (ADR-128): o card precisa dos três estados, e para isso precisa saber
+      // quando a conta nasceu e quando o cliente entrou pela última vez.
+      usuariosPortal: {
+        where: { role: "CLIENTE" },
+        select: { ativo: true, passwordHash: true, createdAt: true, ultimoAcessoEm: true },
+        orderBy: { createdAt: "asc" },
       },
     },
   });
@@ -253,7 +275,9 @@ export async function getCliente(id: string) {
     orderBy: { createdAt: "desc" },
   });
 
-  return { ...cliente, notas, portalAtivo: cliente._count.usuariosPortal > 0 };
+  const { usuariosPortal, ...semConta } = cliente;
+  const portal = acessoAoPortal(usuariosPortal);
+  return { ...semConta, notas, portalAtivo: portal.estado === "ATIVO", portal };
 }
 
 export async function createCliente(
@@ -274,12 +298,37 @@ export async function createCliente(
   await prisma.activityLog.create({
     data: { userId, acao: "cliente.criado", entidadeTipo: "cliente", entidadeId: cliente.id },
   });
-  // O acesso ao Portal + boas-vindas só é enviado se a equipe optar (checkbox na confirmação).
-  // Best-effort: a criação do cliente não falha se o e-mail/acesso não puder ser provido.
+  // Cadastro MANUAL: o acesso só é criado — e o e-mail só sai — se a equipe marcar a caixa na
+  // confirmação, que hoje nasce **desmarcada** (ADR-128). Sem marcar, nada é criado e nada é
+  // enviado; a Thaís avisa o cliente quando quiser, pelo botão "Enviar acesso" da ficha.
+  // Best-effort: a criação do cliente não falha se o acesso não puder ser provido.
+  //
+  // ⚠️ O QUE NÃO PODE VOLTAR A SER SILÊNCIO: marcar a caixa e não receber nada era
+  // indistinguível de "deu tudo certo" — o `catch` engolia tudo, e quem cadastrou ficava
+  // esperando um convite que nunca sairia. São TRÊS caminhos que terminam sem e-mail, e o mais
+  // provável não é o duplicado: é o servidor de e-mail fora do ar, que não lança exceção nenhuma
+  // (devolve `emailEnviado: false`) e já ficou meses assim em produção sem ninguém notar
+  // (ADR-122). O cadastro continua valendo nos três; o que muda é que o motivo CHEGA.
+  let avisoDoAcessoPortal: string | null = null;
   if (enviarAcessoPortal && cliente.email) {
-    await garantirAcessoPortal(cliente.id, cliente.nome, cliente.email).catch(() => {});
+    const acesso = await garantirAcessoPortal(cliente.id, cliente.nome, cliente.email, "EQUIPE_COM_AVISO").catch(
+      () => null,
+    );
+    const comoReenviar = ' Use o botão "Enviar acesso" na ficha quando quiser tentar de novo.';
+    if (acesso === null) {
+      avisoDoAcessoPortal =
+        "O cliente foi cadastrado, mas o acesso ao Portal não pôde ser criado agora." + comoReenviar;
+    } else if (acesso.emailEmUsoPorOutraConta) {
+      avisoDoAcessoPortal =
+        `O cliente foi cadastrado, mas o acesso ao Portal NÃO foi enviado: o e-mail ${cliente.email} ` +
+        "já pertence a outra conta do sistema. Use um e-mail próprio desta clínica e envie o acesso pela ficha.";
+    } else if (acesso.criou && !acesso.emailEnviado) {
+      avisoDoAcessoPortal =
+        "O cliente foi cadastrado e o acesso ao Portal foi criado, mas o e-mail com o link NÃO saiu — " +
+        "o servidor de e-mail não respondeu." + comoReenviar;
+    }
   }
-  return cliente;
+  return { ...cliente, avisoDoAcessoPortal };
 }
 
 export async function updateCliente(input: UpdateClienteInput) {
@@ -318,7 +367,15 @@ export async function excluirDefinitivoCliente(id: string, userId: string) {
   const cliente = await prisma.cliente.findUnique({ where: { id }, select: { id: true, nome: true } });
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado" });
 
-  const [projetos, documentos, contas, servicos, eventos, acessos, arquivosCli, conversas, respostas, leads] = await Promise.all([
+  // ⚠️ A LISTA TEM DE COBRIR TODA RELAÇÃO `onDelete: Cascade` QUE PARTE DE `Cliente`.
+  // O que não estiver aqui não bloqueia a exclusão — é apagado pelo banco, em silêncio, depois
+  // de a tela ter dito "sem vínculos, seguro remover". Faltavam três, e as três guardam
+  // trabalho que não se refaz: o histórico do chat de suporte, os médicos cadastrados e o
+  // andamento do credenciamento na operadora.
+  const [
+    projetos, documentos, contas, servicos, eventos, acessos, arquivosCli, conversas, respostas, leads,
+    suporte, profissionais, credenciamentos,
+  ] = await Promise.all([
     prisma.projeto.count({ where: { clienteId: id } }),
     prisma.documento.count({ where: { clienteId: id } }),
     prisma.conta.count({ where: { clienteId: id } }),
@@ -329,11 +386,15 @@ export async function excluirDefinitivoCliente(id: string, userId: string) {
     prisma.conversa.count({ where: { clienteId: id } }),
     prisma.formularioResposta.count({ where: { clienteId: id } }),
     prisma.lead.count({ where: { OR: [{ clienteId: id }, { convertidoEmClienteId: id }] } }),
+    prisma.suporteMensagem.count({ where: { clienteId: id } }),
+    prisma.profissional.count({ where: { clienteId: id } }),
+    prisma.credenciamento.count({ where: { clienteId: id } }),
   ]);
 
   const vinculos: Record<string, number> = {
     projetos, documentos, financeiro: contas, serviços: servicos, agenda: eventos,
     "acessos ao Portal": acessos, arquivos: arquivosCli, conversas, "respostas de formulário": respostas, leads,
+    "mensagens de suporte": suporte, "médicos cadastrados": profissionais, credenciamentos,
   };
   const bloqueios = Object.entries(vinculos).filter(([, n]) => n > 0);
   if (bloqueios.length) {

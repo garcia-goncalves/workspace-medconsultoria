@@ -28,6 +28,17 @@ enum Role {
   CLIENTE
 }
 
+/// Papel de uma pessoa DENTRO da clínica, no Portal do Cliente. Espelha PORTAL_PAPEIS em
+/// packages/shared. Só faz sentido em `User.role = CLIENTE`; nulo em conta interna.
+///
+/// Separa quem FALA PELA CLÍNICA (aceita proposta, contrata e cancela serviço) de quem toca o
+/// operacional (envia documento, responde formulário, fala com o suporte). A regra de o que cada
+/// um pode está em `podeNoPortal`, e é uma lista de LIBERAÇÕES: o padrão é negar.
+enum PortalPapel {
+  RESPONSAVEL
+  EQUIPE
+}
+
 /// Situação comercial da conta (Cliente). Estrutura controlada (enum) — ver decisão técnica #1.
 /// PROSPECT/NEGOCIACAO/PERDIDO = estados do funil; ATIVO/INATIVO = cliente de verdade.
 enum SituacaoComercial {
@@ -40,55 +51,91 @@ enum SituacaoComercial {
 
 /// Usuário interno ou cliente do Portal.
 model User {
-  id             String    @id @default(cuid())
-  nome           String
-  email          String    @unique
+  id               String       @id @default(cuid())
+  nome             String
+  email            String       @unique
   // Nulo enquanto o convite não foi aceito (usuário "pendente", sem senha definida).
-  passwordHash   String?
-  role           Role      @default(FUNCIONARIO)
-  ativo          Boolean   @default(true)
-  avatarUrl      String?
+  passwordHash     String?
+  role             Role         @default(FUNCIONARIO)
+  ativo            Boolean      @default(true)
+  avatarUrl        String?
   // Quando a pessoa definiu a PRÓPRIA senha (trocar/convite/reset). Nulo = nunca definiu —
   // a conta ainda usa a senha compartilhada do seed e é convidada a trocar no 1º acesso.
-  senhaTrocadaEm DateTime?
+  senhaTrocadaEm   DateTime?
+  /// Última vez que a pessoa ENTROU de verdade (login com senha). Nulo = nunca entrou.
+  /// Serve ao card do lead/cliente: sem ele, a Thaís sabe que mandou o convite mas não sabe se
+  /// alguém apareceu — e é justamente "convidei e ninguém entrou" que ela precisa cobrar.
+  /// ⚠️ NÃO é atualizado por sessão de suporte da equipe: o número tem de responder "o CLIENTE
+  /// veio?", e nós entrarmos no painel dele não é o cliente vindo.
+  ultimoAcessoEm   DateTime?
   // Se role = CLIENTE, define o escopo do Portal (FK adicionada quando o módulo Cliente existir).
-  clienteId      String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
+  clienteId        String?
+  /// PAPEL DENTRO DA CLÍNICA (ADR-131). Nulo em conta interna — e nulo também nas contas de
+  /// Portal criadas antes desta regra, que `podeNoPortal` trata como RESPONSAVEL de propósito:
+  /// eram a conta única da clínica e sempre puderam tudo. Rebaixá-las em silêncio tiraria o
+  /// poder de assinar de quem já assinava, e a clínica só descobriria na hora de aceitar uma
+  /// proposta. A migração marca as existentes explicitamente, para a tela não ficar muda.
+  papelPortal      PortalPapel?
+  /// Quem convidou esta pessoa para o Portal. Serve à pergunta "quem deu acesso a essa
+  /// secretária?" — que é uma pergunta de auditoria, não de curiosidade. Pode ser alguém da
+  /// equipe da Med OU o responsável da própria clínica.
+  convidadoPorId   String?
+  /// QUANDO O ACESSO FOI TIRADO (ADR-131). Nulo = nunca foi revogado.
+  ///
+  /// ⚠️ Existe porque `ativo = false` sozinho é AMBÍGUO, e a tela mostrou isso na primeira
+  /// rodada de teste: conta convidada e ainda sem senha também nasce inativa, então a
+  /// secretária recém-convidada aparecia na lista como **"acesso revogado"** — dizendo à
+  /// clínica que tiramos um acesso que acabáramos de dar. Um marcador explícito separa "ainda
+  /// não entrou" de "não entra mais", e de quebra responde *quando* o acesso caiu.
+  acessoRevogadoEm DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  deletedAt        DateTime?
 
-  sessions             Session[]
-  activityLogs         ActivityLog[]
-  cliente              Cliente?               @relation("UserCliente", fields: [clienteId], references: [id], onDelete: SetNull)
-  clientesResponsavel  Cliente[]              @relation("ClienteResponsavel")
-  leadsResponsavel     Lead[]                 @relation("LeadResponsavel")
-  projetosResponsavel  Projeto[]              @relation("ProjetoResponsavel")
-  projetosParticipa    ProjetoParticipante[]
-  cardsResponsavel     Card[]                 @relation("CardResponsavel")
-  timeEntries          TimeEntry[]
-  notas                Nota[]
-  eventos              Evento[]               @relation("EventoDono")
-  eventoParticipacoes  EventoParticipante[]
-  notificacoes         Notificacao[]
-  mensagens            Mensagem[]
-  conversaParticipa    ConversaParticipante[]
-  conversasResponsavel Conversa[]             @relation("ConversaResponsavel")
-  conversasCriadas     Conversa[]             @relation("ConversaCriador")
-  documentosCriados    Documento[]            @relation("DocCriador")
-  documentosAprovados  Documento[]            @relation("DocAprovador")
-  documentoVersoes     DocumentoVersao[]
-  suporteMensagens     SuporteMensagem[]
-  tokens               Token[]
-  preferenciasEmail    PreferenciaEmail[]
-  contas               Conta[]                @relation("ContaDono")
-  categorias           Categoria[]            @relation("CategoriaDono")
-  tarefasCriadas       Tarefa[]               @relation("TarefaCriador")
-  tarefasResponsavel   TarefaResponsavel[]
-  caixasEmail          CaixaEmail[]
-  producaoLotes        ProducaoLote[]         @relation("LoteImportadoPor")
+  sessions              Session[]
+  sessoesDeSuporte      Session[]              @relation("SessaoDeSuporte")
+  activityLogs          ActivityLog[]
+  cliente               Cliente?               @relation("UserCliente", fields: [clienteId], references: [id], onDelete: SetNull)
+  clientesResponsavel   Cliente[]              @relation("ClienteResponsavel")
+  leadsResponsavel      Lead[]                 @relation("LeadResponsavel")
+  projetosResponsavel   Projeto[]              @relation("ProjetoResponsavel")
+  projetosParticipa     ProjetoParticipante[]
+  cardsResponsavel      Card[]                 @relation("CardResponsavel")
+  timeEntries           TimeEntry[]
+  notas                 Nota[]
+  eventos               Evento[]               @relation("EventoDono")
+  eventoParticipacoes   EventoParticipante[]
+  notificacoes          Notificacao[]
+  mensagens             Mensagem[]
+  conversaParticipa     ConversaParticipante[]
+  conversasResponsavel  Conversa[]             @relation("ConversaResponsavel")
+  conversasCriadas      Conversa[]             @relation("ConversaCriador")
+  documentosCriados     Documento[]            @relation("DocCriador")
+  documentosAprovados   Documento[]            @relation("DocAprovador")
+  // Trilha de quem aceitou/assinou estando logado (ADR-137).
+  propostasRespondidas  Documento[]            @relation("PropostasRespondidas")
+  assinaturasFeitas     Assinatura[]           @relation("AssinaturasFeitas")
+  clientesAnonimizados  Cliente[]              @relation("ClientesAnonimizados")
+  documentoVersoes      DocumentoVersao[]
+  suporteMensagens      SuporteMensagem[]
+  tokens                Token[]
+  preferenciasEmail     PreferenciaEmail[]
+  contas                Conta[]                @relation("ContaDono")
+  categorias            Categoria[]            @relation("CategoriaDono")
+  tarefasCriadas        Tarefa[]               @relation("TarefaCriador")
+  tarefasResponsavel    TarefaResponsavel[]
+  caixasEmail           CaixaEmail[]
+  convidadoPor          User?                  @relation("ConvitePortal", fields: [convidadoPorId], references: [id], onDelete: SetNull)
+  convidou              User[]                 @relation("ConvitePortal")
+  // API DO AGENTE (ADR-149): delegações emitidas EM NOME desta pessoa, e as que ela emitiu.
+  delegacoesDeAgente    AgentDelegation[]      @relation("DelegacaoDoUsuario")
+  delegacoesEmitidas    AgentDelegation[]      @relation("DelegacaoEmitidaPor")
+  idempotenciasDeAgente AgentIdempotency[]     @relation("IdempotenciaDoAgente")
+  producaoLotes         ProducaoLote[]         @relation("LoteImportadoPor")
 
   @@index([role])
   @@index([clienteId])
+  @@index([convidadoPorId])
 }
 
 /// Personalização (override) do conteúdo de um e-mail transacional. Ausência = usa o padrão do código.
@@ -133,17 +180,33 @@ model Token {
 
 /// Sessão persistida (permite revogação). Referenciada pelo cookie httpOnly.
 model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  expiresAt DateTime
-  userAgent String?  @db.Text
-  ip        String?
-  createdAt DateTime @default(now())
+  id                  String   @id @default(cuid())
+  userId              String
+  expiresAt           DateTime
+  userAgent           String?  @db.Text
+  ip                  String?
+  createdAt           DateTime @default(now())
+  /// SESSÃO DE SUPORTE (ADR-128) — quem da EQUIPE abriu esta sessão para ver o Portal de um
+  /// cliente. Nulo na esmagadora maioria: sessão normal é a pessoa entrando como ela mesma.
+  ///
+  /// Existe porque "entrar como o cliente" sem marcar quem entrou faz o histórico culpar o
+  /// CLIENTE por tudo o que a equipe fizer lá dentro — e o cliente reclamaria de algo que não
+  /// fez, com o próprio sistema dando razão a ele. Com este campo, `userId` continua sendo o
+  /// dono do Portal (o isolamento do `portalProcedure` não muda uma linha) e o registro sabe
+  /// dizer "Thaís, vendo como Clínica X".
+  operadorId          String?
+  /// A sessão do OPERADOR, para o botão "voltar ao meu acesso" não pedir login de novo. A
+  /// sessão original continua viva enquanto a de suporte existe; voltar é trocar o cookie.
+  /// Sem FK de propósito: se a original expirar antes, voltar simplesmente manda para o login.
+  voltarParaSessionId String?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SetNull: apagar quem deu suporte não apaga a sessão nem some com o rastro do acesso.
+  operador User? @relation("SessaoDeSuporte", fields: [operadorId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([operadorId])
 }
 
 /// Log de auditoria genérico — alimenta timelines e rastreio LGPD.
@@ -217,12 +280,19 @@ model Cliente {
   observacoes       String?           @db.Text
   // Estágio na relação comercial: PROSPECT | NEGOCIACAO | ATIVO | PERDIDO (usado a partir da Fase 3).
   situacaoComercial SituacaoComercial @default(ATIVO)
+  /// LGPD (ADR-141) — quando o titular pediu a eliminação e os dados foram substituídos por
+  /// marcador. Eliminar de verdade é impossível aqui: contrato, nota e credenciamento têm
+  /// guarda obrigatória, e o `excluirDefinitivoCliente` bloqueia diante de QUALQUER vínculo.
+  /// Anonimizar é a saída que a lei aceita quando há dever de guarda. Nulo = caso normal.
+  anonimizadoEm     DateTime?
+  anonimizadoPorId  String?
   responsavelId     String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   deletedAt         DateTime?
 
   responsavel             User?                    @relation("ClienteResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  anonimizadoPor          User?                    @relation("ClientesAnonimizados", fields: [anonimizadoPorId], references: [id], onDelete: SetNull)
   contatos                Contato[]
   usuariosPortal          User[]                   @relation("UserCliente")
   leadsConvertidos        Lead[]                   @relation("LeadConvertido")
@@ -332,13 +402,28 @@ model Origem {
 
 /// Catálogo de operadoras/convênios para a Proposta de credenciamento (editável: a equipe
 /// renomeia e exclui permanentemente). Semeado com as operadoras comuns na primeira leitura.
+/// OPERADORA / CONVÊNIO — **um cadastro só**, usado por dois serviços diferentes (ADR-126).
+///
+/// A mesma Unimed que se credencia é a Unimed cujas contas se faturam. Manter duas listas faria
+/// a Thaís cadastrar o mesmo nome duas vezes e, pior, deixaria as duas divergirem com o tempo —
+/// a de credenciamento atualizada, a de faturamento esquecida. O que muda de um serviço para o
+/// outro é só PARA QUAL DELES aquela operadora serve, e isso são duas marcações.
+///
+/// Ambas nascem `true`: as operadoras que já existiam entram marcadas nas duas, senão a
+/// primeira proposta de faturamento abriria com a lista vazia e pareceria defeito.
 model Operadora {
-  id        String   @id @default(cuid())
-  nome      String
-  ordem     Int      @default(0)
-  createdAt DateTime @default(now())
+  id                String   @id @default(cuid())
+  nome              String
+  ordem             Int      @default(0)
+  /// Aparece na seleção da proposta de CREDENCIAMENTO e na grade médico × operadora.
+  usoCredenciamento Boolean  @default(true)
+  /// Aparece na seleção de convênios atendidos da proposta de FATURAMENTO.
+  usoFaturamento    Boolean  @default(true)
+  createdAt         DateTime @default(now())
 
   credenciamentos     Credenciamento[]
+  /// Convênios que o cliente atende, por serviço contratado (ADR-126).
+  clienteServicos     ClienteServico[]     @relation("ClienteServicoOperadoras")
   producaoConsultas   ProducaoConsulta[]
   mapeamentosConvenio MapeamentoConvenio[]
 
@@ -366,10 +451,33 @@ model IdentidadeInstitucional {
   cnpj                    String?
   enderecoCompleto        String?  @db.Text
   foro                    String?  @db.Text
+  /// DADOS PARA PAGAMENTO — o bloco `{{dadosPagamento}}` das propostas. Moram aqui, e não no
+  /// corpo do modelo, porque conta bancária é dado da EMPRESA e muda uma vez a cada anos: quem
+  /// digita é a Thaís, em Ajustes → Dados da empresa, sem publicação nenhuma. Todos nuláveis de
+  /// propósito — enquanto estiverem em branco, o bloco inteiro SOME do papel, em vez de sair
+  /// pela metade com "Agência: " vazio na frente do cliente. A proposta de CREDENCIAMENTO não
+  /// mostra este bloco: ali a Thaís só cobra depois do sucesso na operadora (ADR-104).
+  bancoNome               String?
+  bancoAgencia            String?
+  bancoConta              String?
+  bancoTitular            String?  @db.Text
+  pixChave                String?
   /// A partir de quantos dias sem andar um credenciamento pede atenção no painel.
   /// 60 é o prazo real das operadoras, dito pela Thaís em 11/08/2026. Editável porque
   /// operadora muda de ritmo e ela não deve precisar de alteração de código para ajustar.
   credenciamentoPrazoDias Int      @default(60)
+  /// LGPD (ADR-141) — PRAZOS DE GUARDA, editáveis em Ajustes porque prazo é decisão de
+  /// negócio, não de código. Depois deste prazo o CORPO do e-mail é apagado; o metadado
+  /// (para quem, assunto, quando, entregue ou não) FICA, que é do que o monitor precisa.
+  retencaoCorpoEmailDias  Int      @default(180)
+  /// Anos de guarda do acervo de credenciamento depois de encerrado o contrato. O sistema
+  /// AVISA que passou do prazo; NUNCA apaga sozinho — apagar o diploma de um médico por
+  /// conta própria é pior que guardar demais.
+  retencaoAcervoAnos      Int      @default(5)
+  /// Encarregado de dados (DPO) da LGPD. Nulos enquanto o dono não indicar alguém: a
+  /// página de privacidade cai no e-mail institucional e diz que o canal é esse.
+  encarregadoNome         String?
+  encarregadoEmail        String?
   atualizadoEm            DateTime @updatedAt
 }
 
@@ -399,6 +507,40 @@ model Servico {
   // automaticamente quando o cliente aceita a proposta, juntando as cláusulas de todos os
   // serviços contratados. Editável na tela de Serviços.
   clausulasContrato     String?          @db.Text
+  /// Condição de pagamento deste serviço, em português, como sai na PROPOSTA. Existe porque a
+  /// condição do Faturamento é sempre a mesma frase contratual ("o repasse é após o crédito na
+  /// conta da clínica") e dependia de alguém lembrar de digitá-la em toda proposta — proposta
+  /// muda sobre quando se paga é discussão garantida depois. Mora aqui, e não no código, pelo
+  /// mesmo motivo de `clausulasContrato`: quem escreve o texto comercial é a Thaís, na tela de
+  /// Serviços, sem precisar de uma publicação para mudar uma vírgula. Ver ADR-153.
+  condicaoPagamento     String?          @db.Text
+  /// ESTE SERVIÇO É O CREDENCIAMENTO? É a marca que decide TRÊS regras de dinheiro: ficar fora
+  /// da estimativa do funil, ficar fora do provisionamento da conversão do lead, e ter o
+  /// honorário nascendo só quando a operadora APROVA (ADR-104/108).
+  /// Existe porque até aqui a identificação era por NOME: bastava corrigir um typo em
+  /// Ajustes → Serviços para o cliente passar a ser cobrado na conversão e DE NOVO na
+  /// aprovação. A ADR-140 chamou isso de remendo assumido e apontou este campo como a cura.
+  /// ⚠️ NÃO EXISTE LADO SEGURO PARA ERRAR AQUI, e o padrão `false` não é um deles: um
+  /// credenciamento marcado como `false` volta a ser cobrado na conversão do lead E na
+  /// aprovação da operadora — as duas cobranças. O padrão é `false` porque serviço novo é
+  /// comum; para o credenciamento, quem garante a marca é a semeadura do catálogo e o backfill
+  /// da migração, e a migração seguinte (`20260829210500`) PARA a publicação se nenhuma linha
+  /// tiver sido marcada, em vez de deixar o dinheiro sair errado em silêncio.
+  ehCredenciamento      Boolean          @default(false)
+  /// ESTE SERVIÇO É O FATURAMENTO MÉDICO? É a marca que decide QUEM PODE SER COBRADO POR
+  /// PERCENTUAL do que a clínica fatura. Ordem do dono (31/08/2026): **só o faturamento médico
+  /// é percentual; todo o resto do catálogo é valor fixo**, avulso ou mensal.
+  /// Existe porque a tela oferecia o botão "% do faturamento" nos DEZ serviços — inclusive no
+  /// credenciamento, que é valor fixo cobrado só no sucesso da operadora. Trocar a forma de
+  /// cobrança de um serviço por engano não dá erro nenhum: muda o preço no papel do cliente, na
+  /// conta a receber e na estimativa do funil, todos em silêncio.
+  /// ⚠️ É uma MARCA, e não `categoria === "Faturamento"`: essa comparação já foi escrita e
+  /// removida CINCO vezes (ADR-153/126/127/137/138) porque bastava renomear a categoria em
+  /// Ajustes para o dinheiro mudar de regra. Mesmo molde de `ehCredenciamento` (ADR-144).
+  /// ⚠️ Só UM serviço pode estar marcado, e nenhum serviço pode ser as DUAS marcas ao mesmo
+  /// tempo — o servidor recusa, dizendo qual já está marcado.
+  /// ⚠️ Quem NÃO está marcado não pode ter `percentual`; o servidor recusa gravar.
+  ehFaturamento         Boolean          @default(false)
   ativo                 Boolean          @default(true)
   ordem                 Int              @default(0)
   createdAt             DateTime         @default(now())
@@ -411,6 +553,10 @@ model Servico {
   cards        Card[]
   projetos     Projeto[]
 
+  /// O nome IDENTIFICA o serviço, e por isso não pode repetir: a semeadura do catálogo casa
+  /// por nome (`semearCatalogoSeFaltar`) e a proposta lista os dois lado a lado sem nada que os
+  /// distinga. Ver a guarda da migração, que PARA a publicação se já houver duplicata.
+  @@unique([nome])
   @@index([ordem])
 }
 
@@ -437,8 +583,12 @@ model ClienteServico {
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
 
-  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  servico Servico @relation(fields: [servicoId], references: [id], onDelete: Cascade)
+  cliente    Cliente     @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  servico    Servico     @relation(fields: [servicoId], references: [id], onDelete: Cascade)
+  /// Os convênios que o cliente atende NESTE serviço (ADR-126). Nasce do que foi marcado na
+  /// proposta de faturamento e continua editável na ficha — a lista de convênios muda com o
+  /// tempo e é dado do cliente, não do documento que a originou.
+  operadoras Operadora[] @relation("ClienteServicoOperadoras")
 
   @@unique([clienteId, servicoId])
   @@index([clienteId])
@@ -652,6 +802,16 @@ model Credenciamento {
   @@index([contaId])
 }
 
+/// De quem o sistema está esperando para o passo andar.
+///
+/// MED = é a nossa vez de agir. CLIENTE = está parado esperando a clínica entregar,
+/// responder ou aprovar. Sem esta distinção, a pergunta que a Thaís faz toda manhã —
+/// *o que está parado esperando o cliente?* — só se responde abrindo lead por lead.
+enum QuemFaz {
+  MED
+  CLIENTE
+}
+
 /// Passo padrão de um serviço, atrelado a uma etapa do funil. Ao um lead escolher
 /// o serviço, estes passos entram no checklist da etapa correspondente. Editável.
 model ServicoPasso {
@@ -660,6 +820,10 @@ model ServicoPasso {
   titulo      String
   obrigatorio Boolean  @default(false)
   etapaChave  String // "novo"|"qualificacao"|"proposta"|"negociacao"|"fechado"
+  // Padrão MED de propósito: passo novo criado à mão pela equipe é trabalho nosso até
+  // alguém dizer o contrário. Errar para este lado mostra um passo a mais na nossa fila;
+  // errar para o outro faria a Thaís achar que está esperando o cliente e não cobrar nada.
+  quemFaz     QuemFaz  @default(MED)
   ordem       Int      @default(0)
   createdAt   DateTime @default(now())
 
@@ -670,35 +834,46 @@ model ServicoPasso {
 
 /// Lead (oportunidade). Percorre o pipeline até virar Cliente.
 model Lead {
-  id                    String    @id @default(cuid())
-  nome                  String
+  id                        String    @id @default(cuid())
+  nome                      String
   // Razão social / nome da clínica. Todo cliente da Med é PJ (ADR-119): esta é a conta
   // que vai nascer na conversão; `nome` é a PESSOA com quem se fala.
-  empresa               String?
-  cnpj                  String? // CNPJ da clínica, opcional no 1º contato (ADR-119)
-  email                 String?
-  telefone              String?
-  origem                String?
+  empresa                   String?
+  cnpj                      String? // CNPJ da clínica, opcional no 1º contato (ADR-119)
+  email                     String?
+  telefone                  String?
+  origem                    String?
   // Rastreio de atribuição (UTM/referrer capturados na captação) — de onde veio.
-  rastreio              String?   @db.Text
-  valorEstimado         Decimal?  @db.Decimal(12, 2) // estimativa comercial (não é contábil — ver Financeiro/Fase 4)
-  observacoes           String?   @db.Text
-  ordem                 Int       @default(0) // posição dentro da coluna
-  pipelineStageId       String
-  responsavelId         String?
-  convertidoEmClienteId String?
+  rastreio                  String?   @db.Text
+  valorEstimado             Decimal?  @db.Decimal(12, 2) // estimativa comercial (não é contábil — ver Financeiro/Fase 4)
+  // Faturamento mensal da clínica, estimado na Qualificação. Só é perguntado quando TODOS os
+  // serviços do lead são percentuais (hoje: só o Faturamento de contas médicas) — ali não existe
+  // valor fixo a estimar, e é DESTE número que sai o `valorEstimado` acima, pela conta
+  // faturamento × percentual. Ver ADR-153 e `planejarEstimativaDoLead` em @app/shared.
+  faturamentoMensalEstimado Decimal?  @db.Decimal(12, 2)
+  observacoes               String?   @db.Text
+  ordem                     Int       @default(0) // posição dentro da coluna
+  pipelineStageId           String
+  responsavelId             String?
+  convertidoEmClienteId     String?
   // Quando o lead virou cliente (data do ganho) — alimenta o "cliente desde" na ficha.
-  convertidoEm          DateTime?
+  convertidoEm              DateTime?
   // Perda (lado oposto do ganho): quando marcado, o lead sai do funil ativo e alimenta
   // o relatório de ganho/perda. Reversível (reabrir limpa os dois campos).
-  perdidoEm             DateTime?
-  motivoPerda           String?
+  perdidoEm                 DateTime?
+  motivoPerda               String?
   // Conta/cliente ligada (Portal do prospect). Independe de ganho/perdido — o lead
   // continua no funil enquanto convertidoEmClienteId for nulo.
-  clienteId             String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
-  deletedAt             DateTime?
+  clienteId                 String?
+  /// LGPD (ADR-141) — o aviso de privacidade que a pessoa aceitou ao se cadastrar em
+  /// /comecar, e QUAL versão dele. Guardar só a data não prova nada: o texto muda, e a
+  /// prova do consentimento é a data MAIS a versão vigente naquele dia. Nulo nos leads
+  /// anteriores à regra e nos cadastrados à mão pela equipe (que não passam pelo site).
+  privacidadeAceitaEm       DateTime?
+  privacidadeVersao         String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+  deletedAt                 DateTime?
 
   pipelineStage       PipelineStage @relation(fields: [pipelineStageId], references: [id])
   responsavel         User?         @relation("LeadResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
@@ -724,6 +899,10 @@ model LeadPasso {
   servicoId      String?
   titulo         String
   obrigatorio    Boolean   @default(false)
+  // Cópia do `quemFaz` do ServicoPasso no momento em que o passo foi materializado.
+  // É cópia, e não um join, porque o passo pode ser criado à mão (sem serviço por trás)
+  // e porque mudar o catálogo depois não deve reescrever o histórico de um lead em curso.
+  quemFaz        QuemFaz   @default(MED)
   // Ação de documento ligada ao passo (briefing|proposta|contrato) + documento gerado.
   acaoDoc        String?
   documentoId    String?
@@ -1042,24 +1221,32 @@ model Categoria {
 
 /// Conta a pagar ou a receber.
 model Conta {
-  id             String      @id @default(cuid())
-  tipo           ContaTipo
-  escopo         Escopo      @default(EMPRESA)
-  donoId         String? // dono da carteira PESSOAL (null = EMPRESA, compartilhada)
-  descricao      String
-  valor          Decimal     @db.Decimal(12, 2)
-  vencimento     DateTime
-  pago           Boolean     @default(false)
-  pagoEm         DateTime?
-  categoriaId    String?
-  clienteId      String?
-  recorrencia    Recorrencia @default(NENHUMA)
-  recorrenciaAte DateTime? // limite opcional da série recorrente
-  recorrenteId   String? // id da 1ª conta da série (herdado pelas geradas); agrupa a série
-  observacoes    String?     @db.Text
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  deletedAt      DateTime?
+  id              String      @id @default(cuid())
+  tipo            ContaTipo
+  escopo          Escopo      @default(EMPRESA)
+  donoId          String? // dono da carteira PESSOAL (null = EMPRESA, compartilhada)
+  descricao       String
+  valor           Decimal     @db.Decimal(12, 2)
+  vencimento      DateTime
+  pago            Boolean     @default(false)
+  pagoEm          DateTime?
+  categoriaId     String?
+  clienteId       String?
+  recorrencia     Recorrencia @default(NENHUMA)
+  // QUE SERVIÇO ORIGINOU ESTA COBRANÇA. Existe porque a conferência que impede cobrar duas
+  // vezes o mesmo serviço casava por TEXTO da descrição ("<Serviço> — <Cliente>"): renomear o
+  // cliente na ficha mudava a descrição das cobranças futuras, a conferência deixava de casar
+  // com as antigas, e aceitar uma segunda proposta que repetisse o serviço lançava a cobrança
+  // de novo — em silêncio, porque duas contas a receber com descrições diferentes não parecem
+  // duplicata para ninguém. Nulo nas contas anteriores a esta coluna e nas que não vêm de um
+  // serviço (aluguel, imposto): por isso a conferência olha as DUAS coisas.
+  origemServicoId String?
+  recorrenciaAte  DateTime? // limite opcional da série recorrente
+  recorrenteId    String? // id da 1ª conta da série (herdado pelas geradas); agrupa a série
+  observacoes     String?     @db.Text
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
 
   categoria       Categoria?       @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
   cliente         Cliente?         @relation(fields: [clienteId], references: [id], onDelete: SetNull)
@@ -1077,6 +1264,7 @@ model Conta {
   @@index([deletedAt])
   @@index([escopo, donoId])
   @@index([recorrenteId])
+  @@index([clienteId, origemServicoId])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1208,11 +1396,13 @@ model Tarefa {
   updatedAt   DateTime         @updatedAt
   deletedAt   DateTime?
 
-  criadoPor    User                @relation("TarefaCriador", fields: [criadoPorId], references: [id], onDelete: Cascade)
-  cliente      Cliente?            @relation(fields: [clienteId], references: [id], onDelete: SetNull)
-  projeto      Projeto?            @relation(fields: [projetoId], references: [id], onDelete: SetNull)
+  criadoPor     User                @relation("TarefaCriador", fields: [criadoPorId], references: [id], onDelete: Cascade)
+  cliente       Cliente?            @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  projeto       Projeto?            @relation(fields: [projetoId], references: [id], onDelete: SetNull)
   // Uma tarefa pode ser de VÁRIOS responsáveis (tarefa "da equipe").
-  responsaveis TarefaResponsavel[]
+  responsaveis  TarefaResponsavel[]
+  // Reserva de idempotência da API do agente (CORA-003). Some junto se a tarefa for apagada.
+  idempotencias AgentIdempotency[]
 
   @@index([criadoPorId, status])
   @@index([clienteId])
@@ -1309,6 +1499,11 @@ model Documento {
   propostaSolicitadaEm   DateTime?
   propostaRespondidaEm   DateTime?
   propostaRespIp         String?
+  // QUEM respondeu, quando a pessoa estava logada (ADR-137). Nulo no caminho normal — o link
+  // de e-mail é anônimo, e IP não identifica ninguém. Desde que cada pessoa da clínica tem
+  // conta própria (ADR-131), "quem aceitou" deixou de ser a clínica e passou a ser gente.
+  propostaRespPorId      String?
+  propostaRespPor        User?           @relation("PropostasRespondidas", fields: [propostaRespPorId], references: [id], onDelete: SetNull)
   propostaMotivoRecusa   String?         @db.Text
   // Itens estruturados do documento (proposta/contrato): serviços + valores + recorrência.
   // Fonte da verdade estruturada por trás do Markdown — permite o aceite sincronizar
@@ -1336,26 +1531,38 @@ model Documento {
 /// signatário. Guarda a trilha de auditoria (IP, user-agent, data/hora) e o HASH
 /// do conteúdo no momento do envio — prova de integridade (documento não alterado).
 model Assinatura {
-  id            String    @id @default(cuid())
-  documentoId   String
-  papel         String // "CLIENTE" | "MEDCONSULTORIA"
-  nome          String
-  email         String?
-  ordem         Int       @default(0)
+  id                  String    @id @default(cuid())
+  documentoId         String
+  papel               String // "CLIENTE" | "MEDCONSULTORIA"
+  nome                String
+  email               String?
+  ordem               Int       @default(0)
   // Token público do link de assinatura. Gerado na aplicação por `gerarTokenPublico()`
   // (randomBytes 256-bit, criptográfico) — ver decisão #2. Sem @default(cuid()) de propósito.
-  token         String    @unique
-  status        String    @default("PENDENTE") // PENDENTE | ASSINADO
-  metodo        String? // "DESENHO" | "DIGITADO"
-  imagem        String?   @db.Text // data-URI PNG do traço (quando DESENHO)
-  nomeDigitado  String?
-  hashDocumento String? // sha256 do conteúdo no envio
-  ip            String?
-  userAgent     String?   @db.Text
-  assinadoEm    DateTime?
-  criadoEm      DateTime  @default(now())
+  token               String    @unique
+  status              String    @default("PENDENTE") // PENDENTE | ASSINADO
+  metodo              String? // "DESENHO" | "DIGITADO"
+  imagem              String?   @db.Text // data-URI PNG do traço (quando DESENHO)
+  nomeDigitado        String?
+  hashDocumento       String? // sha256 do conteúdo no envio
+  ip                  String?
+  userAgent           String?   @db.Text
+  // QUEM clicou, quando a pessoa estava logada (ADR-137). Nulo no caminho normal (link de
+  // e-mail, sem login). IP e user-agent dizem de onde veio, nunca quem foi.
+  assinadoPorId       String?
+  assinadoEm          DateTime?
+  // A PROVA DO CONSENTIMENTO. A caixa "li e concordo" sempre foi exigida pela tela e pelo
+  // servidor, e nada disso ficava gravado: depois do clique não sobrava no sistema nenhum
+  // registro de que a pessoa consentiu, nem com que texto. Guarda a data E a versão do texto
+  // (`VERSAO_CONSENTIMENTO_ASSINATURA`, em `@app/shared`) — só a data não diria com o quê.
+  // Nulo nas assinaturas anteriores a esta coluna: elas foram dadas, o consentimento foi
+  // exigido na tela, mas a prova não existe e inventá-la seria pior que a ausência.
+  consentimentoEm     DateTime?
+  consentimentoVersao String?
+  criadoEm            DateTime  @default(now())
 
-  documento Documento @relation(fields: [documentoId], references: [id], onDelete: Cascade)
+  documento   Documento @relation(fields: [documentoId], references: [id], onDelete: Cascade)
+  assinadoPor User?     @relation("AssinaturasFeitas", fields: [assinadoPorId], references: [id], onDelete: SetNull)
 
   @@index([documentoId])
 }
@@ -1526,6 +1733,137 @@ model EmailAnexo {
   mensagem EmailMensagem @relation(fields: [mensagemId], references: [id], onDelete: Cascade)
 
   @@index([mensagemId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// API DO AGENTE (ADR-149) — como a Cora fala com o Workspace
+// ─────────────────────────────────────────────────────────────
+
+/// IDENTIDADE DO SERVIÇO que chama a API do agente (hoje: a Cora).
+///
+/// ⚠️ É a metade que responde "QUEM É O PROGRAMA", nunca "QUEM É A PESSOA". As duas coisas são
+/// separadas de propósito: um segredo de serviço vazado não pode virar acesso ao dado de
+/// ninguém sem a delegação da pessoa, e uma delegação vazada não serve a outro programa
+/// (ela é presa a este `AgentClient`).
+/// ⚠️ **O PRISMA NÃO EXPRESSA `COLLATE`, E ESSA DIVERGÊNCIA É PERMANENTE E ESPERADA.**
+///
+/// As colunas de identidade destes três modelos são `utf8mb4_bin` no banco (escrito à mão nas
+/// migrações), e **não há sintaxe no schema para dizer isso**. Consequência: `prisma migrate diff`
+/// e `prisma db pull` vão acusar diferença e propor um `ALTER TABLE ... COLLATE utf8mb4_unicode_ci`
+/// — que **reintroduz exatamente o defeito da ADR-147**, o banco voltando a ignorar maiúscula e
+/// acento na coluna por onde o servidor decide QUEM está chamando.
+///
+/// **NUNCA rode `prisma migrate diff` contra este schema para "consertar" isso.** A CI roda só
+/// `migrate deploy`, que aplica o SQL escrito à mão e preserva a colação.
+model AgentClient {
+  id          String    @id @default(cuid())
+  nome        String    @unique
+  /// SHA-256 do segredo, em hex. NUNCA o segredo. Ver o comentário sobre argon2 no serviço.
+  ///
+  /// ⚠️ **`utf8mb4_bin` de propósito.** A colação da casa é `utf8mb4_unicode_ci`, que **ignora
+  /// maiúscula e acento** — foi o que mordeu na ADR-147. Aqui a função de hash sempre devolve
+  /// hex minúsculo, então hoje não haveria colisão; o problema é a coluna depender disso. Esta é
+  /// a âncora de autenticação: se um dia o formato virar base64 (onde caixa É significativa) ou
+  /// alguém gravar por outro caminho, a comparação passaria a casar valores diferentes **sem
+  /// erro nenhum**. Colação binária fecha isso na estrutura, não na disciplina.
+  segredoHash String    @unique @db.VarChar(191)
+  ativo       Boolean   @default(true)
+  revogadoEm  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  delegacoes    AgentDelegation[]
+  idempotencias AgentIdempotency[]
+}
+
+/// RESERVA DE IDEMPOTÊNCIA E USO ÚNICO DA APROVAÇÃO — a escrita da Fase 2 (CORA-003).
+///
+/// ⚠️ **UMA LINHA GUARDA DUAS GARANTIAS DIFERENTES, e é de propósito.**
+///
+///  1. `@@unique([clientId, userId, ferramenta, chave])` — a **reserva da chave de
+///     idempotência**. É este índice, e não um nível de isolamento, que torna a reserva
+///     atômica: em `REPEATABLE READ` (o padrão do MySQL/MariaDB) duas conexões que leem e
+///     depois inserem **as duas passam** — o clássico "confere e grava" perdido. O índice
+///     único é imposto pelo motor de armazenamento e é a única coisa que continua valendo
+///     entre conexões diferentes do pool.
+///  2. `@@unique([jti])` — o **uso único do `approvalToken`**. O token é assinado e sem
+///     estado; o que o consome é o `INSERT` deste `jti`. Reapresentar o mesmo token com
+///     OUTRA chave de idempotência colide aqui e é recusado.
+///
+/// ⚠️ **A LINHA NASCE ANTES DA TAREFA, DENTRO DA MESMA TRANSAÇÃO.** É por isso que
+/// `tarefaId` é anulável — e ele nunca é observável nulo de fora: ou a transação inteira
+/// entra (reserva + tarefa + vínculo), ou nada entra. Em dois passos, uma queda entre eles
+/// deixaria a chave gravada sem tarefa (repetir nunca mais criaria) ou a tarefa sem chave
+/// (repetir criaria a segunda) — que é precisamente o que a idempotência existe para impedir.
+///
+/// ⚠️ **O ESCOPO INCLUI O SERVIÇO E A PESSOA, NUNCA A DELEGAÇÃO.** Presa à delegação, a chave
+/// morreria junto com o token — e renovar credencial perderia a idempotência exatamente
+/// depois de uma falha, que é quando a repetição é mais provável.
+///
+/// ⚠️ `ON DELETE CASCADE` no `tarefaId`: se a tarefa deixar de existir de verdade, a reserva
+/// vai junto e a chave volta a valer. Coerente — a tarefa aprovada não existe mais.
+model AgentIdempotency {
+  id         String   @id @default(cuid())
+  clientId   String
+  userId     String
+  /// Qual capacidade. Hoje só `tasks.create`. Faz parte do escopo da chave para a mesma chave
+  /// não significar duas operações diferentes.
+  ferramenta String   @db.VarChar(64)
+  /// A chave escolhida por quem chama (`Idempotency-Key`, UUID v4).
+  /// ⚠️ `utf8mb4_bin`: é por ela que o servidor decide "já fiz isto?" (a lição da ADR-147).
+  chave      String   @db.VarChar(191)
+  /// SHA-256 da forma canônica dos argumentos gravados. Mesma chave + argumentos diferentes
+  /// é conflito, e é esta coluna que prova a diferença.
+  argsHash   String   @db.VarChar(64)
+  /// Identificador do `approvalToken` consumido. `utf8mb4_bin` pelo mesmo motivo.
+  jti        String   @db.VarChar(64)
+  tarefaId   String?
+  criadaEm   DateTime @default(now())
+  /// Validade declarada no contrato: 24 h. Passado o prazo a chave é esquecida pelo expurgo e
+  /// repetir cria tarefa nova.
+  expiraEm   DateTime
+
+  client AgentClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User        @relation("IdempotenciaDoAgente", fields: [userId], references: [id], onDelete: Cascade)
+  tarefa Tarefa?     @relation(fields: [tarefaId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, userId, ferramenta, chave], map: "AgentIdempotency_reserva_key")
+  @@unique([jti], map: "AgentIdempotency_jti_key")
+  @@index([expiraEm])
+  @@index([userId])
+  @@index([tarefaId])
+}
+
+/// DELEGAÇÃO REVOGÁVEL: a pessoa autoriza o serviço a agir em nome dela, por um prazo e com
+/// escopos declarados. É daqui que sai o `requesterUserId` — nunca do corpo da requisição.
+model AgentDelegation {
+  id          String    @id @default(cuid())
+  clientId    String
+  userId      String
+  /// SHA-256 do token, em hex. O valor bruto existe só uma vez, na saída do comando que o emitiu.
+  /// ⚠️ `utf8mb4_bin` pelo mesmo motivo de `AgentClient.segredoHash` — e aqui pesa mais: é por
+  /// esta coluna que o servidor decide QUEM está chamando.
+  tokenHash   String    @unique @db.VarChar(191)
+  /// Escopos separados por espaço (ex.: "tasks:read"). Padrão NEGAR: sem o escopo, 403.
+  escopos     String    @db.Text
+  expiraEm    DateTime
+  revogadaEm  DateTime?
+  criadaPorId String?
+  ultimoUsoEm DateTime?
+  createdAt   DateTime  @default(now())
+
+  client    AgentClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user      User        @relation("DelegacaoDoUsuario", fields: [userId], references: [id], onDelete: Cascade)
+  criadaPor User?       @relation("DelegacaoEmitidaPor", fields: [criadaPorId], references: [id], onDelete: SetNull)
+  // ⚠️ NÃO existe índice em `expiraEm`, e a ausência é deliberada. Ninguém consulta por esse
+  // campo: a autenticação acha a linha pelo `tokenHash` e compara a data já com a linha em mãos.
+  // Índice que ninguém usa é custo de escrita e mentira sobre a intenção do código. Ele volta
+  // junto com o expurgo de delegações vencidas — que, por sua vez, entra quando houver volume
+  // (hoje cada delegação é emitida à mão, uma por pessoa). É o mesmo raciocínio da ADR-141:
+  // retenção sem rotina não é política de retenção, e rotina sem volume é cerimônia.
+
+  @@index([userId])
+  @@index([clientId])
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════

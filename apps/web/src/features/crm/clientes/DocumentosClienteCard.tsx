@@ -6,6 +6,7 @@ import { useConfirm } from "../../../components/ui/confirm-dialog";
 import { UploadArquivo, ArquivoLink } from "../../../components/ui/upload-arquivo";
 import { useAuth } from "../../../lib/auth-context";
 import { data } from "../../../lib/format-date";
+import { recarregarAposEnvio } from "../../../lib/recarregar-apos-envio";
 
 /**
  * Documentos DO CLIENTE (arquivos): os que o próprio cliente enviou pelo Portal e os que
@@ -16,8 +17,23 @@ export function DocumentosClienteCard({ clienteId }: { clienteId: string }) {
   const utils = trpc.useUtils();
   const confirm = useConfirm();
   const q = trpc.clientes.arquivos.useQuery({ id: clienteId });
+  // ⚠️ `cancelRefetch: true` NÃO É DETALHE — é o que faz o arquivo recém-enviado aparecer.
+  //
+  // A ficha carrega tudo num lote só de tRPC. Anexar um documento logo depois de abrir a página
+  // termina o upload com esse lote AINDA NO AR (medido: 117 ms depois de ele começar), e o
+  // `invalidate` do React Query, no padrão, **não reinicia uma busca em andamento**: a resposta
+  // antiga — de antes do upload — chega e é aceita como boa. O arquivo some da lista até alguém
+  // recarregar a página, e nada indica erro.
+  //
+  // Foi assim que o e2e `flows-documentos-ui` passou a reprovar: o upload respondeu 200, e a
+  // única releitura da página era anterior ao envio.
   const invalidate = () => {
-    utils.clientes.arquivos.invalidate({ id: clienteId });
+    // Recarregamento DUPLO, não `invalidate`: com a carga inicial da ficha ainda no ar (o
+    // upload termina ~120 ms depois de ela começar), o React Query reaproveita a busca em
+    // andamento e aceita a resposta ANTERIOR ao envio — o arquivo some da lista até alguém
+    // recarregar a página, sem nenhum sinal de erro. O porquê inteiro está em
+    // `recarregarAposEnvio`, onde esta regra passou a morar para as cinco telas.
+    recarregarAposEnvio(q);
     utils.clientes.servicos.invalidate({ id: clienteId });
   };
   const remover = trpc.clientes.removerArquivo.useMutation({ onSuccess: invalidate });

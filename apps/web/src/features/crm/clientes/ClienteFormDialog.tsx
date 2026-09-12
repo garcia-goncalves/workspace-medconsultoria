@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createClienteSchema, type CreateClienteInput } from "@app/shared";
+import { toast } from "../../../components/ui/toast";
 import { trpc } from "../../../lib/trpc";
 import { Modal } from "../../../components/ui/modal";
 import { Button } from "../../../components/ui/button";
@@ -69,9 +70,13 @@ export function ClienteFormDialog({
   }, [open, cliente, reset]);
 
   const create = trpc.clientes.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (novo) => {
       utils.clientes.list.invalidate();
       utils.clientes.resumo.invalidate();
+      // O cliente foi criado, mas o acesso ao Portal pode não ter saído — e o único motivo
+      // possível hoje é o e-mail já pertencer a outra conta. Antes isso era silêncio: quem
+      // cadastrou ficava esperando um convite que nunca sairia.
+      if (novo?.avisoDoAcessoPortal) toast(novo.avisoDoAcessoPortal, "error");
       onClose();
     },
   });
@@ -100,9 +105,12 @@ export function ClienteFormDialog({
         confirmText: "Cadastrar cliente",
         icon: UserPlus,
         checkbox: {
-          label: "Enviar dados de acesso ao Portal por e-mail",
-          hint: `O cliente recebe um e-mail em ${data.email!.trim()} com o link e as instruções para acompanhar o atendimento.`,
-          default: true,
+          // NASCE DESMARCADA (ADR-128). Cadastro feito pela equipe não avisa o cliente sozinho:
+          // e-mail de boas-vindas é para quem se cadastrou em /comecar e está esperando por ele.
+          // Marcada por padrão, ninguém desmarcava — o "automático" era o descuido de todo dia.
+          label: "Avisar o cliente agora, por e-mail",
+          hint: `Deixe desmarcado para cadastrar em silêncio. Você envia o acesso quando quiser, pelo botão "Enviar acesso" na ficha. Marcando, ${data.email!.trim()} recebe o link agora.`,
+          default: false,
         },
       });
       if (!confirmado) return;
@@ -137,8 +145,19 @@ export function ClienteFormDialog({
     >
       <form id="cliente-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         <div className="space-y-1.5">
-          <Label htmlFor="nome">Nome *</Label>
-          <Input id="nome" autoFocus autoComplete="name" {...register("nome")} />
+          <Label
+            htmlFor="nome"
+            hint="É o nome da CLÍNICA, não o do médico — todo cliente da Med é pessoa jurídica. As pessoas com quem você fala entram logo abaixo, em Contatos."
+          >
+            Nome da clínica *
+          </Label>
+          <Input
+            id="nome"
+            autoFocus
+            autoComplete="organization"
+            placeholder="Ex.: Clínica Vida Plena"
+            {...register("nome")}
+          />
           {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
         </div>
 

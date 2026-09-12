@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { celulaGradeSchema } from "./credenciamento.js";
+import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "../estimativa.js";
 
 // ── Assinatura eletrônica (Fase 3) ───────────────────────
 export const assinarSchema = z
@@ -59,6 +60,44 @@ export const DOC_INTERACAO: Record<TipoModelo, DocInteracao> = {
   CHECKLIST: "nenhum",
   RECIBO: "nenhum",
 };
+
+/**
+ * Um documento deste tipo pode ser feito para quem AINDA É LEAD?
+ *
+ * O funil da Med vende antes de o cliente existir: a Thaís manda proposta, escopo,
+ * diagnóstico e plano de ação para quem ainda está negociando — e marca reunião com
+ * ata e pauta antes de qualquer assinatura. Até 27/08/2026 o "Novo documento" só
+ * oferecia CLIENTES, e a única saída era converter o lead antes da hora, o que suja
+ * a base de clientes com quem talvez nunca feche.
+ *
+ * O corte é o ACEITE: o que nasce DEPOIS de fechar continua exigindo cliente —
+ * contrato (assinatura), recibo (cobrança), onboarding e checklist (execução) e os
+ * relatórios (acompanhamento de quem já paga). Quem aceita a proposta vira cliente
+ * automaticamente, então o contrato nunca precisa apontar para um lead.
+ *
+ * Lista de LIBERAÇÕES, como `ACOES_LIBERADAS_PARA_EQUIPE` (ADR-131): tipo novo nasce
+ * fechado, e quem o criar decide conscientemente se cabe pré-venda.
+ */
+export const MODELO_ACEITA_LEAD: Record<TipoModelo, boolean> = {
+  PROPOSTA: true, // o motivo de tudo — comercial, credenciamento e faturamento
+  ESCOPO: true, // anexo da proposta, apresentado junto
+  DIAGNOSTICO: true, // "Apresentar diagnóstico…" é passo da etapa Proposta do funil
+  PLANO_ACAO: true, // idem — plano de recuperação de glosas entra na negociação
+  ATA: true, // reunião com o lead também gera ata
+  PAUTA_REUNIAO: true, // e pauta, antes da reunião
+  BRIEFING: true, // o prospect já tem Portal e pode preencher formulário antes de fechar
+  CONTRATO: false, // nasce do aceite; quem aceitou já é cliente
+  RECIBO: false, // cobrança pressupõe contrato
+  ONBOARDING: false, // execução começa depois de contratar
+  CHECKLIST: false, // idem (documentos do credenciamento contratado)
+  RELATORIO: false, // acompanhamento de quem já é cliente
+  PAUTA_POSTAGEM: false, // calendário editorial de cliente ativo
+};
+
+/** `true` quando o tipo pode ser emitido para um lead. Sem modelo escolhido, `false`. */
+export function modeloAceitaLead(tipo: TipoModelo | null | undefined): boolean {
+  return tipo ? MODELO_ACEITA_LEAD[tipo] === true : false;
+}
 
 export const TIPO_MODELO_LABEL: Record<TipoModelo, string> = {
   PROPOSTA: "Proposta",
@@ -182,6 +221,19 @@ export const createDocumentoSchema = z.object({
 export type CreateDocumentoInput = z.infer<typeof createDocumentoSchema>;
 
 /**
+ * Para QUAL serviço uma operadora/convênio serve (ADR-126). O cadastro é um só — a Unimed que
+ * se credencia é a Unimed cujas contas se faturam —, e o que muda de um serviço para o outro
+ * são as marcações. Duas listas separadas divergiriam com o tempo.
+ */
+export const usoOperadoraEnum = z.enum(["CREDENCIAMENTO", "FATURAMENTO"]);
+export type UsoOperadora = z.infer<typeof usoOperadoraEnum>;
+
+export const USO_OPERADORA_LABEL: Record<UsoOperadora, string> = {
+  CREDENCIAMENTO: "Credenciamento",
+  FATURAMENTO: "Faturamento",
+};
+
+/**
  * Operadoras/convênios mais comuns no credenciamento médico/odontológico no Brasil — base para a
  * seleção na Proposta de credenciamento (a equipe pode adicionar outras). São nomes reais; a lista
  * definitiva por cliente depende da especialidade e da região.
@@ -221,8 +273,32 @@ export const documentoServicoItemSchema = z.object({
   // Cobrança do item: avulso (1x) ou mensal, e um % opcional (Faturamento).
   recorrencia: z.enum(["AVULSO", "MENSAL"]).default("AVULSO"),
   percentual: z.number().min(0).max(100).nullable().optional(),
+  /**
+   * Convênios que o cliente atende NESTE serviço (ADR-126), por id do catálogo de operadoras.
+   * Viaja aqui, dentro do item, e não solto no documento, porque é assim que ele atravessa o
+   * ACEITE: o mesmo caminho que já leva serviço e preço para `ClienteServico` leva a lista de
+   * convênios junto, sem uma segunda costura que pudesse ficar para trás.
+   */
+  conveniosIds: z.array(z.string().min(1)).max(80).optional(),
+}).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
+  // ⚠️ ESTA ERA A PORTA SEM TRAVA. A ADR-138 pôs o `refine` nos três schemas de PREÇO (criar
+  // serviço, editar serviço, contratação do cliente) e deixou este de fora — e ele é o que
+  // grava a linha do documento que vai ao cliente e que o ACEITE copia para `ClienteServico`.
+  // Um item com valor E percentual imprime "R$ 3.500,00/mês" e "5% do faturamento" na mesma
+  // linha da proposta, e faz `ehServicoSomentePercentual` virar `false` na contratação — o
+  // serviço percentual passa a ser cobrado por valor fixo, sem erro nenhum.
+  message: PRECO_VALOR_E_PERCENTUAL,
+  path: ["percentual"],
 });
 export type DocumentoServicoItem = z.infer<typeof documentoServicoItemSchema>;
+
+/**
+ * A proposta de credenciamento é de UMA operadora (ADR-126). Mensagem única, usada pelo schema
+ * e pelo servidor — a tela não deixa chegar aqui, mas quem chama a API direto precisa do mesmo
+ * recado. A grade médico × operadora **não** mudou: quem virou "uma só" é o documento.
+ */
+export const UMA_OPERADORA_POR_PROPOSTA =
+  "Cada proposta de credenciamento é de UMA operadora. Para credenciar em várias, gere uma proposta por operadora — cada uma recebe o próprio número.";
 
 export const criarPropostaSchema = z
   .object({
@@ -230,8 +306,14 @@ export const criarPropostaSchema = z
     /** Modelo de proposta escolhido (comercial × credenciamento) — vira a moldura do documento. */
     modeloId: z.string().optional(),
     itens: z.array(documentoServicoItemSchema).default([]),
-    /** Credenciamento: operadoras a credenciar (entram no corpo) — em vez do catálogo de serviços. */
-    operadoras: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
+    /**
+     * Credenciamento: a operadora a credenciar (entra no corpo) — em vez do catálogo de serviços.
+     * **Uma só por proposta** (ADR-126): o papel da Thaís negocia com uma operadora de cada vez,
+     * cada uma tem o próprio prazo e o próprio desfecho, e uma proposta com três operadoras
+     * dentro não pode ser aceita "pela metade". Três operadoras = três propostas = três números.
+     * Continua sendo array por compatibilidade com as propostas já emitidas.
+     */
+    operadoras: z.array(z.string().trim().min(1).max(80)).max(1, UMA_OPERADORA_POR_PROPOSTA).optional(),
     /** Credenciamento: investimento por operadora (o total = valor × nº de operadoras). */
     valorPorOperadora: z.number().nonnegative().optional(),
     /**
@@ -240,8 +322,26 @@ export const criarPropostaSchema = z
      * para o cliente que ainda não tem médico cadastrado, e a proposta sai por operadora.
      */
     grade: z.array(celulaGradeSchema).max(400).optional(),
+    /**
+     * FATURAMENTO (ADR-126): os convênios que a clínica atende, por id do catálogo. Não é
+     * cobrança — é a lista que entra no corpo da proposta, para o cliente conferir que estamos
+     * falando dos convênios certos. Guarda ids (não nomes) porque essa lista fica com o cliente
+     * depois do aceite; nome copiado não sobrevive a um "renomear" no catálogo.
+     */
+    conveniosIds: z.array(z.string().min(1)).max(80).optional(),
+    /**
+     * FATURAMENTO: quanto a clínica fatura por mês, em média. É a MESMA base que a Qualificação
+     * do funil pergunta (`Lead.faturamentoMensalEstimado`) — corrigi-la aqui corrige lá, um
+     * número só andando para frente. **Não sai no documento** (ADR-127): serve para calcular o
+     * valor do negócio no funil. Imprimir a conta no papel seria promessa que envelhece no mês
+     * seguinte, porque o faturamento da clínica sobe e desce e a proposta assinada não.
+     */
+    faturamentoMensal: z.number().nonnegative().max(1_000_000_000).optional(),
     prazo: z.string().trim().max(200).optional().or(z.literal("")),
-    condicoes: z.string().trim().max(300).optional().or(z.literal("")),
+    // `condicoes` (Condições de pagamento) foi REMOVIDO em 26/08/2026, ADR-127: não há condição
+    // a negociar — é sempre PIX, e o PIX sai no bloco `{{dadosPagamento}}`, vindo de Ajustes →
+    // Dados da empresa. Quando o repasse do faturamento é pago virou frase automática, montada a
+    // partir de `Servico.condicaoPagamento`.
     observacoes: z.string().trim().max(2000).optional().or(z.literal("")),
     titulo: textoOpcional,
     /** Se true, a IA escreve a apresentação/escopo (quando disponível). */
@@ -250,6 +350,12 @@ export const criarPropostaSchema = z
   .refine((v) => (v.itens?.length ?? 0) > 0 || (v.operadoras?.length ?? 0) > 0 || (v.grade?.length ?? 0) > 0, {
     message: "Escolha ao menos um serviço, uma operadora ou um cruzamento da grade.",
     path: ["itens"],
+  })
+  // A grade da proposta é de UMA operadora (ADR-126). A grade do CLIENTE segue com todas — o
+  // que se recorta aqui é o documento, não o acompanhamento.
+  .refine((v) => new Set((v.grade ?? []).map((c) => c.operadoraId)).size <= 1, {
+    message: UMA_OPERADORA_POR_PROPOSTA,
+    path: ["grade"],
   });
 export type CriarPropostaInput = z.infer<typeof criarPropostaSchema>;
 

@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 
 /**
- * CONCILIAÇÃO — o fluxo inteiro pela INTERFACE (ADR-125).
+ * CONCILIAÇÃO — o fluxo inteiro pela INTERFACE (ADR-153).
  *
  * Percorre o que a Thaís vai fazer todo mês: escolher o cliente, enviar a planilha, **conferir
  * antes de gravar**, importar, ligar o convênio que chegou novo e ver o resumo se corrigir

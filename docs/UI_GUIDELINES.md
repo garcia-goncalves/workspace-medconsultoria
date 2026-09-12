@@ -115,6 +115,38 @@ Use SEMPRE estes em vez de repetir classes inline — garante consistência de t
 - **`Modal`** — diálogo (Esc/click-fora fecham). Backdrop com blur, header com borda, corpo rolável (`max-h-[90vh]`), animação de entrada.
 - **`Skeleton` / `TableSkeleton`** — placeholders de carregamento. **Prefira-os a spinners** em telas com layout (listas, tabelas, cards). Spinner (`Loader2`) fica só para botões/ações inline.
 
+#### Acrescentados em 29/08/2026 (o refino responsivo)
+
+Até esta data o repositório **não tinha** abas, painel lateral, balão interativo, sanfona nem
+tabela de dados — cada tela inventava a sua, e é por isso que refino não "pegava" na tela
+seguinte. Continuam sendo implementação própria (Tailwind + `cva` + `cn`): **não há Radix,
+shadcn nem Headless UI instalados, e não devem ser.**
+
+- **`DataTable`** — a peça de maior alavancagem do refino. **Acima de `md` é tabela de verdade**
+  (reusa `Table`/`TH`/`TD`); **abaixo vira lista de cartões**: a coluna marcada `principal` é o
+  título do cartão, as demais viram pares rótulo/valor, as `ocultaEmCelular` somem, e as ações
+  ganham alvo de toque de 44px. Colunas são dados (`{ chave, cabecalho, render, alinhamento?,
+  ocultaEmCelular?, principal?, valorOrdenacao? }`), ordenação com `aria-sort` correto.
+  ⚠️ **Toda tabela nova nasce aqui** — tabela crua com `overflow-x` é inutilizável no telefone.
+- **`Tabs`** — abas com papéis ARIA, setas/Home/End e `roving tabindex`. ⚠️ Abaixo de `sm` as
+  abas **rolam na horizontal**; nunca quebram em duas linhas.
+- **`Sheet`** — painel que desliza. `lado`: `direita` · `esquerda` · `baixo`. ⚠️ **No celular o
+  padrão vira `baixo`** — é o gesto natural no telefone.
+- **`Popover`** — balão ancorado para conteúdo **clicável** (o `Tooltip` só serve para texto).
+  Em portal, vira sozinho quando falta espaço na tela. `role="dialog"` **sem** `aria-modal`:
+  não bloqueia a página, e é essa a diferença deliberada para o `Sheet`.
+- **`Accordion`** — seções recolhíveis, para encolher blocos longos no celular. ⚠️ Seção fechada
+  recebe `inert`: sai do `Tab` e do leitor de tela, em vez de só sumir visualmente.
+- **`dialog-stack.ts`** — a pilha de `Esc` e a prisão de foco, extraídas do `Modal`. ⚠️ **Overlay
+  novo usa esta pilha**, nunca uma segunda: com duas pilhas independentes, um `Esc` fecharia dois
+  overlays de uma vez quando um estivesse por cima do outro.
+- **`hint` em `PageHeader`, `Modal` e `CardTitle`** — o "?" com balão, mesmo padrão do `Label`.
+  É para onde vai o texto explicativo longo. Régua: **até ~25 palavras cabe no balão**; acima
+  disso, encurte ou mande para o Guia. ⚠️ **Nem todo texto longo é excesso** — aviso que evita
+  perda de dado, consequência antes de ação destrutiva e obrigação legal ficam na tela.
+- **`prefers-reduced-motion`** agora é honrado globalmente (`index.css`): quem pediu menos
+  movimento no sistema operacional tem toda animação e transição zeradas.
+
 Convenções: título de página `text-2xl font-semibold tracking-tight text-primary`; subtítulo `mt-1 text-sm text-muted-foreground`; grid de cards `gap-3`; seções `space-y-6`.
 
 ### Fundação elevada (tokens + shell)
@@ -151,7 +183,20 @@ Convenções: título de página `text-2xl font-semibold tracking-tight text-pri
 - **Feedback imediato:** toda mutação dá retorno (toast/optimistic update). Erros em linguagem humana, em PT-BR, dizendo o que fazer.
 - **Busca global (Cmd-K)** encontra cliente/projeto/tarefa rapidamente.
 - **Consistência:** mesma ação → mesmo lugar → mesmo rótulo em todo o app.
-- **Mobile:** o MVP é desktop-first (uso operacional interno), mas layout responsivo básico não deve quebrar. App mobile dedicado não está no escopo agora.
+- **Mobile — a regra MUDOU em 29/08/2026, por ordem do dono ("totalmente responsivo").**
+  A linha anterior dizia *"o MVP é desktop-first, layout responsivo básico não deve quebrar"*.
+  Não vale mais. Hoje:
+  - **A aplicação interna** continua **otimizada** para o computador — é onde a Thaís opera oito
+    horas —, mas precisa **funcionar de verdade** no celular, não só "não quebrar".
+  - **O Portal do cliente é projetado a partir do celular.** É lá que o médico e a secretária o
+    abrem, poucas vezes por mês, com pressa. Desenhar no desktop e encolher é o caminho errado.
+  - **A régua é 360px**, e ela é verificada por teste (`e2e/responsividade-total.spec.ts`):
+    nenhuma rota pode vazar na horizontal, nenhum elemento pode estourar a janela, e no Portal
+    nenhum alvo clicável pode ter lado menor que **44px**.
+  - ⚠️ **`title="..."` nativo não existe no toque.** Botão só-ícone precisa de `aria-label` e,
+    quando a explicação importa, do `Tooltip` do projeto. Foram medidos ~201 botões dependendo
+    só do `title` — no celular, ninguém descobre o que eles fazem.
+  - App nativo continua fora do escopo.
 
 ---
 
@@ -169,9 +214,31 @@ Tokens como CSS variables no `:root` (em `packages/ui`), mapeados no `tailwind.c
 
 ---
 
-## 10. Documentos — folha A4 + interação por tipo (ADR-47/48)
+## 10. Documentos — folha A4 + interação por tipo (ADR-47/48/129)
 
-- **Moldura branded (`DocumentoBranded`):** o corpo (Markdown) é renderizado numa folha na **proporção A4** (`aspect-[210/297]`) numa **escala de tela confortável** (`max-w-[640px]`, **não** o A4 real de 794px — que ocuparia a tela toda e ficava "gigante"). A folha aparece **inteira por padrão** (mesmo com pouco conteúdo, com espaço em branco embaixo como papel de verdade) e **cresce** quando há mais conteúdo; centralizada num *canvas* cinza (visualizador tipo Google Docs), com margens internas e **sombra de página**. **Impressão/PDF = A4 real:** a **mesma moldura** é reimpressa por `imprimirDocumento` com **`@page A4`** (independente da largura de tela) → o PDF sai em A4 verdadeiro, WYSIWYG, sem engine de PDF no servidor.
+- **Moldura branded (`DocumentoBranded`) — ATUALIZADA na ADR-129:** o corpo (Markdown) é
+  distribuído em **folhas A4 separadas**, e a folha tem o tamanho de uma **A4 de verdade**
+  (793×1122 px a 96dpi, margens 18mm × 16mm). Um `zoom` encolhe o conjunto para caber no
+  container **sem espremer o conteúdo**. ⚠️ **Medir no tamanho real é o que faz a tela e o PDF
+  concordarem** — a versão anterior media numa A4 encolhida de 620px com a fonte em tamanho
+  normal, e por isso preview e impressão nunca poderiam bater.
+- **Cabeçalho e rodapé em TODAS as folhas (ADR-129):** capa completa **só na 1ª**; nas seguintes,
+  um **cabeçalho corrido** de uma linha (logo pequeno + *título — tipo nº*). Rodapé institucional
+  em todas, com **"Página N de M"** quando há mais de uma; o **código de integridade sai só na
+  última**. Repetir a capa inteira é defeito, não recurso.
+- ⚠️ **A quebra de página é DECIDIDA por nós, não pelo navegador** (`paginacao.ts`, função pura
+  testada): tabela que cabe numa folha nunca é fatiada (é o que impede a **assinatura partida**),
+  tabela maior que a folha é fatiada por **linhas inteiras** repetindo o cabeçalho, e **título
+  carrega a fila de títulos abaixo dele + o começo do conteúdo** (título órfão). Ao mexer aqui,
+  rode `e2e/flows-documentos-paginacao.spec.ts`, que audita os 16 modelos na tela.
+- **Impressão/PDF = as MESMAS folhas do preview:** `imprimirDocumento` emite uma `.doc-sheet` por
+  folha com altura A4 exata e quebra forçada depois, usando `paginarDocumento` — a mesma função da
+  tela. As regras `break-inside`/`orphans` do CSS de impressão são **cinto de segurança**, não a
+  estratégia. ⚠️ A **última folha** é marcada por **classe** (`.ultima`), nunca por `:last-child`:
+  o último filho do corpo da janela de impressão é a tag `<script>`, e o seletor posicional
+  deixava uma **folha em branco no fim do PDF**.
+- **O Word (`.doc`) fica em fluxo único** de propósito — ele pagina sozinho; nossas folhas dentro
+  dele produziriam um arquivo impossível de editar.
 - **Sem scroll dentro do documento:** a leitura **não** usa `max-h/overflow` próprio — quem rola é a **página** (o `<main>` do shell).
 - **Editar (`DocumentoEditor`):** editor de duas colunas — **barra de formatação** (negrito/itálico/título/listas/citação/link/tabela/divisória, que agem sobre a seleção; atalhos Ctrl+B/Ctrl+I) + textarea Markdown à esquerda; **preview A4 ao vivo** à direita (sem scroll próprio — a página rola). A barra de ações (Cancelar/Salvar) e o editor são **`sticky`** — ficam visíveis enquanto se rola o preview. Não é preciso conhecer Markdown (a barra escreve por você); rodapé com contador de palavras.
 - **Interação por tipo (`DOC_INTERACAO` em `packages/shared/src/schemas/documento.ts`):** cada tipo tem UM modo — a ficha do documento renderiza o card certo (ou nenhum):

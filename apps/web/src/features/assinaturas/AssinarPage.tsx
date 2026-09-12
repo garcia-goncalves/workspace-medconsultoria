@@ -4,6 +4,8 @@ import { trpc } from "../../lib/trpc";
 import { dataHora } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
 import { SignaturePad, type AssinaturaValor } from "./SignaturePad";
+import { TEXTO_CONSENTIMENTO_ASSINATURA } from "@app/shared";
+import { DocumentoBranded } from "../documentos/DocumentoBranded";
 
 function Casca({ children }: { children: React.ReactNode }) {
   return (
@@ -37,6 +39,64 @@ export function AssinarPage({ token }: { token: string }) {
       </Casca>
     );
   }
+  // ⚠️ FALHA DE REDE NÃO É LINK INVÁLIDO — e a diferença aqui custa caro.
+  //
+  // Esta é a página que o médico abre DESLOGADO, no celular, numa rede qualquer. Juntar
+  // `isError` com `!data` fazia um blip de conexão dizer a ele que o link morreu (e o TanStack
+  // Query está com `retry: false`, então basta UMA tentativa falhar). Ele então pede outro link,
+  // e a Med emite um segundo documento para o mesmo negócio.
+  //
+  // ⚠️ **Mas token inválido TAMBÉM chega como erro** — o servidor responde `NOT_FOUND`. Quem
+  // separa as duas coisas é o CÓDIGO da resposta, não o fato de ter dado erro: só o que o
+  // servidor recusou explicitamente é "link inválido"; o resto (rede, 500, timeout) é
+  // "tente de novo". Um teste de ponta a ponta pegou exatamente esta confusão.
+  const codigo = q.error?.data?.code;
+  // PRECONDITION_FAILED = link EXPIRADO (ADR-141). Entra aqui para não ser lido como
+  // falha de rede — e ganha tela própria abaixo, porque expirado não é inválido.
+  const linkRecusadoPeloServidor =
+    codigo === "NOT_FOUND" || codigo === "BAD_REQUEST" || codigo === "FORBIDDEN" || codigo === "PRECONDITION_FAILED";
+  if (q.isError && !linkRecusadoPeloServidor) {
+    return (
+      <Casca>
+        <div className="rounded-xl border bg-background p-8 text-center">
+          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-warning" />
+          <h1 className="text-lg font-semibold">Não conseguimos carregar</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Seu link continua valendo — foi a conexão com o nosso servidor que falhou. Tente de novo
+            em alguns instantes.
+          </p>
+          <button
+            type="button"
+            onClick={() => void q.refetch()}
+            className="mt-4 rounded-lg border px-4 py-2 text-sm font-medium hover:bg-muted"
+          >
+            Tentar de novo
+          </button>
+        </div>
+      </Casca>
+    );
+  }
+  // ⚠️ TRÊS frases, não duas: falha de rede (acima), EXPIRADO (aqui) e inválido (abaixo).
+  // Dizer "link inválido" a quem tem o link certo, só velho, o faz achar que foi enganado —
+  // e a saída dele é outra: pedir um novo, não conferir o endereço.
+  if (codigo === "PRECONDITION_FAILED") {
+    return (
+      <Casca>
+        <div className="rounded-xl border bg-background p-8 text-center">
+          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-warning" />
+          <h1 className="text-lg font-semibold">Link expirado</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{q.error?.message}</p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Fale com a equipe da MedConsultoria pelo e-mail{" "}
+            <a className="font-medium underline" href="mailto:contato@medconsultoria.com.br">
+              contato@medconsultoria.com.br
+            </a>
+            .
+          </p>
+        </div>
+      </Casca>
+    );
+  }
   if (q.isError || !q.data) {
     return (
       <Casca>
@@ -44,7 +104,7 @@ export function AssinarPage({ token }: { token: string }) {
           <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-warning" />
           <h1 className="text-lg font-semibold">Link inválido</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Este link de assinatura não é válido ou expirou. Peça um novo à MedConsultoria.
+            Este link de assinatura não é válido. Confira se copiou o endereço inteiro, ou peça um novo à MedConsultoria.
           </p>
         </div>
       </Casca>
@@ -60,15 +120,15 @@ export function AssinarPage({ token }: { token: string }) {
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Signatários</h2>
       <div className="space-y-1.5">
         {d.todas.map((s, i) => (
-          <div key={i} className="flex items-center gap-2 text-sm">
+          <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
             {s.status === "ASSINADO" ? (
-              <CheckCircle2 className="h-4 w-4 text-success" />
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
             ) : (
-              <Circle className="h-4 w-4 text-muted-foreground/50" />
+              <Circle className="h-4 w-4 shrink-0 text-muted-foreground/50" />
             )}
-            <span className="font-medium">{s.nome}</span>
-            <span className="text-xs text-muted-foreground">({s.papel === "CLIENTE" ? "Cliente" : "MedConsultoria"})</span>
-            <span className="ml-auto text-xs text-muted-foreground">
+            <span className="min-w-0 truncate font-medium">{s.nome}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">({s.papel === "CLIENTE" ? "Cliente" : "MedConsultoria"})</span>
+            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
               {s.status === "ASSINADO" && s.assinadoEm ? dataHora(s.assinadoEm) : "pendente"}
             </span>
           </div>
@@ -113,8 +173,11 @@ export function AssinarPage({ token }: { token: string }) {
           </div>
         ) : (
           <>
-            <div className="max-h-[45vh] overflow-y-auto whitespace-pre-wrap rounded-xl border bg-background p-5 text-sm leading-relaxed">
-              {d.documento.conteudo}
+            {/* Mesmo renderizador Markdown→HTML sanitizado (DocumentoBranded) usado na prévia e
+                no PDF — antes esta página mostrava o Markdown cru (`**negrito**`, `# título`)
+                para quem assina deslogado, achado da auditoria de 04/09. */}
+            <div className="max-h-[45vh] overflow-y-auto rounded-xl border bg-muted/30 p-2">
+              <DocumentoBranded titulo={d.documento.titulo} conteudoMarkdown={d.documento.conteudo} />
             </div>
 
             {listaSignatarios}
@@ -130,10 +193,9 @@ export function AssinarPage({ token }: { token: string }) {
                   onChange={(e) => setConsentiu(e.target.checked)}
                   className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
                 />
-                <span className="text-muted-foreground">
-                  Li o documento e concordo em assiná-lo eletronicamente. Entendo que esta assinatura tem validade
-                  jurídica (Lei 14.063/2020).
-                </span>
+                {/* O texto vem do `@app/shared` porque é ELE que fica gravado como prova, por
+                    versão. Escrito aqui, a frase lida e a frase provada podiam divergir. */}
+                <span className="text-muted-foreground">{TEXTO_CONSENTIMENTO_ASSINATURA}</span>
               </label>
 
               {assinar.error && <p className="mt-2 text-sm text-destructive">{assinar.error.message}</p>}

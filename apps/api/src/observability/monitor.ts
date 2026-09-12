@@ -6,6 +6,7 @@ import {
   type EventLoopUtilization,
 } from "node:perf_hooks";
 import v8 from "node:v8";
+import { BUCKET_BOUNDS, percentilBuckets } from "./percentil.js";
 
 /**
  * Coletor de telemetria in-process (stdlib apenas). Mede os sinais que dizem se
@@ -35,9 +36,8 @@ const gcObs = new PerformanceObserver((list) => {
 gcObs.observe({ entryTypes: ["gc"] });
 
 // ── RED por endpoint (buckets exponenciais de latência) ──────────────────────
-const BUCKET_BOUNDS = [
-  1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, Infinity,
-];
+// Os limites e a conta do percentil vivem em `percentil.ts` — testáveis sem carregar este
+// módulo, que instala o observador de GC do processo já no import.
 
 interface EndpointStat {
   count: number;
@@ -70,21 +70,6 @@ export function recordCall(path: string, ok: boolean, durationMs: number): void 
   s.buckets[bi] = (s.buckets[bi] ?? 0) + 1;
   winReq++;
   if (!ok) winErr++;
-}
-
-/** Percentil aproximado a partir do histograma de buckets (limite superior do bucket). */
-function percentilBuckets(buckets: number[], count: number, p: number): number {
-  if (count === 0) return 0;
-  const alvo = Math.ceil((p / 100) * count);
-  let acc = 0;
-  for (let i = 0; i < buckets.length; i++) {
-    acc += buckets[i] ?? 0;
-    if (acc >= alvo) {
-      const bound = BUCKET_BOUNDS[i] ?? 0;
-      return bound === Infinity ? BUCKET_BOUNDS[i - 1] ?? 0 : bound;
-    }
-  }
-  return 0;
 }
 
 // ── Série temporal (ring buffer) ─────────────────────────────────────────────
@@ -172,7 +157,7 @@ export function getEndpoints(): EndpointResumo[] {
       errors: s.errors,
       taxaErro: s.count ? Math.round((s.errors / s.count) * 1000) / 10 : 0,
       mediaMs: s.count ? Math.round(s.totalMs / s.count) : 0,
-      p95Ms: percentilBuckets(s.buckets, s.count, 95),
+      p95Ms: percentilBuckets(s.buckets, s.count, 95, s.maxMs),
       maxMs: Math.round(s.maxMs),
     });
   }

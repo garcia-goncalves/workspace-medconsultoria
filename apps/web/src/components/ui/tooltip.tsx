@@ -63,7 +63,10 @@ export function HintIcon({ text, label = "Ajuda" }: { text: ReactNode; label?: s
         type="button"
         aria-label={label}
         aria-describedby={open ? id : undefined}
-        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 outline-none transition-colors hover:text-primary focus-visible:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+        // h-4/w-4 (16px) é o tamanho VISUAL do ícone; a caixa de toque real é 44px via
+        // padding compensado por margem negativa (-m-3.5) — técnica padrão para alvo
+        // pequeno sem inflar o layout ao redor (o ícone continua do mesmo tamanho de sempre).
+        className="-m-3.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 outline-none transition-colors hover:text-primary focus-visible:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
         // PC = hover (mouseenter/leave); celular/teclado = foco (o toque foca o botão → abre; tocar
         // fora tira o foco → fecha). Sem onClick para não conflitar (o clique dispara mouseenter+focus).
         onMouseEnter={abrir}

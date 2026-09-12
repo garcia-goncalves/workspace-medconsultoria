@@ -1,12 +1,13 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import type { CreateLeadInput, UpdateLeadInput, MoveLeadInput, CapturaLeadInput } from "@app/shared";
-import { situacaoDocumento } from "@app/shared";
+import { situacaoDocumento, planejarEstimativaDoLead, dividirEstimativaDoLead, tituloDoPassoDeEstimativa, AVISO_PRIVACIDADE_VERSAO } from "@app/shared";
 import { listStages } from "../pipeline/pipeline.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { convidarUsuario, reenviarConvite, garantirAcessoPortal } from "../usuarios/usuarios.service.js";
+import { acessoAoPortal } from "../../lib/acesso-portal.js";
 import { garantirCardDoServicoContratado } from "../projetos/projetos.service.js";
-import { planejarProvisaoDaConversao } from "../servicos/credenciamento.service.js";
+import { planejarProvisaoDaConversao, garantirCategoriaHonorarios } from "../servicos/credenciamento.service.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { config } from "../../config.js";
 import type { Role } from "@app/shared";
@@ -36,9 +37,12 @@ export function derivarRastreioOrigem(t: {
   utmSource?: string;
   utmMedium?: string;
   utmCampaign?: string;
+  utmTerm?: string;
+  utmContent?: string;
   gclid?: string;
   fbclid?: string;
   referrer?: string;
+  landing?: string;
 }): { origem: string; rastreio: string } {
   const refHost = hostDe(t.referrer);
   const s = (t.utmSource ?? "").toLowerCase();
@@ -63,10 +67,13 @@ export function derivarRastreioOrigem(t: {
   if (t.utmSource) partes.push(`Fonte (utm_source): ${t.utmSource}`);
   if (t.utmMedium) partes.push(`Meio (utm_medium): ${t.utmMedium}`);
   if (t.utmCampaign) partes.push(`Campanha: ${t.utmCampaign}`);
+  if (t.utmTerm) partes.push(`Termo de busca (utm_term): ${t.utmTerm}`);
+  if (t.utmContent) partes.push(`Conteúdo do anúncio (utm_content): ${t.utmContent}`);
   if (t.gclid) partes.push("Clique de anúncio do Google (gclid)");
   if (t.fbclid) partes.push("Clique de anúncio do Facebook/Instagram (fbclid)");
   if (refHost) partes.push(`Veio de: ${refHost}`);
   else if (!t.utmSource) partes.push("Acesso direto (digitou o link ou favorito)");
+  if (t.landing) partes.push(`Página de entrada: ${t.landing}`);
 
   return { origem, rastreio: `Recebido pelo formulário de captação do site.\n${partes.join("\n")}`.trim() };
 }
@@ -203,15 +210,18 @@ async function seedPassosSeVazio(leadId: string, stageId: string, chaveAuto: str
     servicoId: string | null;
     titulo: string;
     obrigatorio: boolean;
+    quemFaz: "MED" | "CLIENTE";
     acaoDoc: string | null;
     autoRegra: string | null;
     ordem: number;
   }[] = [];
 
+  // Os passos gerais da etapa (o PLAYBOOK) são todos trabalho nosso — quem cadastra serviço,
+  // registra valor e emite proposta é a Med. O que é do cliente vem do catálogo do serviço.
   const modelo = PLAYBOOK[chaveAuto];
   if (modelo)
     modelo.forEach((m, i) =>
-      dados.push({ leadId, stageId, servicoId: null, titulo: m.titulo, obrigatorio: m.obrigatorio, acaoDoc: m.acaoDoc ?? null, autoRegra: m.autoRegra ?? null, ordem: i }),
+      dados.push({ leadId, stageId, servicoId: null, titulo: m.titulo, obrigatorio: m.obrigatorio, quemFaz: "MED", acaoDoc: m.acaoDoc ?? null, autoRegra: m.autoRegra ?? null, ordem: i }),
     );
 
   const servicos = await prisma.servico.findMany({
@@ -222,7 +232,7 @@ async function seedPassosSeVazio(leadId: string, stageId: string, chaveAuto: str
   let ordem = dados.length;
   for (const s of servicos) {
     for (const sp of s.passos) {
-      dados.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, acaoDoc: null, autoRegra: null, ordem: ordem++ });
+      dados.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, quemFaz: sp.quemFaz, acaoDoc: null, autoRegra: null, ordem: ordem++ });
     }
   }
 
@@ -265,13 +275,14 @@ async function sincronizarPassosServicos(leadId: string, stageId: string, chaveA
     servicoId: string;
     titulo: string;
     obrigatorio: boolean;
+    quemFaz: "MED" | "CLIENTE";
     acaoDoc: null;
     ordem: number;
   }[] = [];
   for (const s of servicos) {
     for (const sp of s.passos) {
       if (jaTem.has(`${s.id}::${sp.titulo}`)) continue;
-      novos.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, acaoDoc: null, ordem: ordem++ });
+      novos.push({ leadId, stageId, servicoId: s.id, titulo: sp.titulo, obrigatorio: sp.obrigatorio, quemFaz: sp.quemFaz, acaoDoc: null, ordem: ordem++ });
     }
   }
   if (novos.length) await prisma.leadPasso.createMany({ data: novos });
@@ -297,9 +308,38 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
   try {
     const lead = await prisma.lead.findUnique({
       where: { id: leadId },
-      select: { valorEstimado: true, _count: { select: { servicos: true } } },
+      select: {
+        valorEstimado: true,
+        faturamentoMensalEstimado: true,
+        servicos: { select: { nome: true, valor: true, percentual: true, ehCredenciamento: true } },
+      },
     });
     if (!lead) return;
+
+    // Qual pergunta faz sentido para ESTES serviços? Serviço 100% percentual (hoje só o
+    // Faturamento de contas médicas) não tem valor fixo a estimar — o que se pergunta é o
+    // faturamento da clínica, e o valor do negócio sai da conta. Ver ADR-125.
+    const estimativa = planejarEstimativaDoLead(
+      lead.servicos.map((s) => ({
+        nome: s.nome,
+        valor: emReais(s.valor),
+        percentual: emReais(s.percentual),
+        ehCredenciamento: s.ehCredenciamento,
+      })),
+      emReais(lead.faturamentoMensalEstimado),
+    );
+
+    // No modo percentual o `valorEstimado` é DERIVADO: quem digita é a base, não o resultado.
+    // Gravar aqui (e não só na tela) mantém o card do funil, os totais da coluna e o relatório
+    // lendo um número só — e o passo automático abaixo confere contra ele.
+    if (estimativa.modo === "PERCENTUAL" && estimativa.valorEstimadoCalculado !== null) {
+      if (emReais(lead.valorEstimado) !== estimativa.valorEstimadoCalculado) {
+        await prisma.lead.update({
+          where: { id: leadId },
+          data: { valorEstimado: estimativa.valorEstimadoCalculado },
+        });
+      }
+    }
 
     // Marcos de documento (proposta/contrato) do lead — detectados pelos passos com
     // acaoDoc que já geraram documento. "enviado" = assinatura solicitada; "assinado" = concluído.
@@ -311,7 +351,14 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
     const docs = docIds.length
       ? await prisma.documento.findMany({
           where: { id: { in: docIds }, deletedAt: null },
-          select: { id: true, assinaturaSolicitadaEm: true, assinadoEm: true },
+          select: {
+            id: true,
+            assinaturaSolicitadaEm: true,
+            assinadoEm: true,
+            // O ACEITE ONLINE É O OUTRO CAMINHO, e ele faltava aqui (C1).
+            propostaSolicitadaEm: true,
+            propostaStatus: true,
+          },
         })
       : [];
     const docById = new Map(docs.map((d) => [d.id, d]));
@@ -320,8 +367,18 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
       const d = ds.documentoId ? docById.get(ds.documentoId) : undefined;
       if (!d) continue;
       if (ds.acaoDoc === "proposta") {
-        if (d.assinaturaSolicitadaEm) marco.proposta_enviada = true;
-        if (d.assinadoEm) marco.proposta_assinada = true;
+        // ⚠️ SÃO DUAS PORTAS PARA CADA MARCO, E A RÉGUA SÓ CONHECIA UMA (C1).
+        //
+        // Uma proposta chega ao cliente de dois jeitos: pedindo ASSINATURA
+        // (`assinaturaSolicitadaEm` → `assinadoEm`) ou habilitando o ACEITE ONLINE
+        // (`propostaSolicitadaEm` → `propostaStatus = ACEITA`), que é o caminho normal do
+        // link de e-mail e do Portal. Só a primeira contava.
+        //
+        // O efeito era o pior tipo de trabalho invisível: o cliente aceitava, a tela do
+        // documento dizia "ACEITA", e o passo OBRIGATÓRIO "Confirmar o aceite do cliente"
+        // seguia aberto — travando `avancarEtapa` sem que nada na tela explicasse por quê.
+        if (d.assinaturaSolicitadaEm || d.propostaSolicitadaEm) marco.proposta_enviada = true;
+        if (d.assinadoEm || d.propostaStatus === "ACEITA") marco.proposta_assinada = true;
       } else if (ds.acaoDoc === "contrato") {
         if (d.assinaturaSolicitadaEm) marco.contrato_enviado = true;
         if (d.assinadoEm) marco.contrato_assinado = true;
@@ -329,23 +386,40 @@ export async function reconciliarPassosAuto(leadId: string): Promise<void> {
     }
 
     const cumprida: Record<string, boolean> = {
-      servicos: lead._count.servicos > 0,
-      valor: emReaisOu(lead.valorEstimado) > 0,
+      servicos: lead.servicos.length > 0,
+      // No modo percentual o passo se cumpre com a BASE preenchida, não com o valor — o valor
+      // ali é calculado, e conferir contra ele seria conferir contra a própria conta.
+      valor:
+        estimativa.modo === "PERCENTUAL"
+          ? emReaisOu(lead.faturamentoMensalEstimado) > 0
+          : emReaisOu(lead.valorEstimado) > 0,
       ...marco,
     };
 
+    /** A pergunta que o passo automático da Qualificação deve estar fazendo agora. */
+    const tituloDaEstimativa = tituloDoPassoDeEstimativa(estimativa.modo);
+
     const autos = await prisma.leadPasso.findMany({
       where: { leadId, NOT: { autoRegra: null } },
-      select: { id: true, autoRegra: true, concluido: true },
+      select: { id: true, autoRegra: true, concluido: true, titulo: true },
     });
     for (const p of autos) {
       const regra = p.autoRegra ?? "";
       const alvo = cumprida[regra] ?? false;
       if (REGRAS_DERIVADAS.has(regra)) {
-        if (p.concluido !== alvo) {
+        // O passo do valor troca de PERGUNTA junto com o modo, e volta sozinho se depois
+        // entrar um serviço de preço fixo. Só passos automáticos são reescritos: passo que a
+        // equipe digitou nunca é tocado (eles não têm `autoRegra`).
+        const tituloNovo = regra === "valor" && p.titulo !== tituloDaEstimativa ? tituloDaEstimativa : null;
+        if (p.concluido !== alvo || tituloNovo) {
           await prisma.leadPasso.update({
             where: { id: p.id },
-            data: { concluido: alvo, concluidoEm: alvo ? new Date() : null, concluidoPorId: null },
+            data: {
+              ...(p.concluido !== alvo
+                ? { concluido: alvo, concluidoEm: alvo ? new Date() : null, concluidoPorId: null }
+                : {}),
+              ...(tituloNovo ? { titulo: tituloNovo } : {}),
+            },
           });
         }
       } else if (REGRAS_EVENTO.has(regra)) {
@@ -413,6 +487,40 @@ export async function getLeadDetalhe(id: string) {
     return { key: s.key, label: s.label, variant: s.variant };
   };
 
+  /**
+   * Documentos do lead (27/08/2026). Desde que a proposta pode ser emitida para quem ainda
+   * é lead, o painel precisa mostrá-la: emitir a proposta e depois não achá-la por lugar
+   * nenhum do funil é a mesma falha de costura das ADRs 105 e 128 — a tela ao lado dizendo
+   * uma coisa enquanto o dado diz outra.
+   *
+   * Os documentos vivem no `Cliente` PROSPECT por trás do lead; sem cliente ligado, não há
+   * documento a mostrar.
+   */
+  const documentosDoLead = lead.clienteId
+    ? (
+        await prisma.documento.findMany({
+          where: { clienteId: lead.clienteId, deletedAt: null },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          select: {
+            id: true, titulo: true, createdAt: true,
+            status: true, modelo: { select: { tipo: true } },
+            enviadoEm: true, propostaSolicitadaEm: true, propostaStatus: true,
+            assinaturaSolicitadaEm: true, assinadoEm: true, deletedAt: true,
+          },
+        })
+      ).map((d) => {
+        const s = situacaoDocumento(d);
+        return {
+          id: d.id,
+          titulo: d.titulo,
+          tipo: d.modelo?.tipo ?? null,
+          createdAt: d.createdAt,
+          situacao: { key: s.key, label: s.label, variant: s.variant },
+        };
+      })
+    : [];
+
   const stages = await prisma.pipelineStage.findMany({ orderBy: { ordem: "asc" } });
   const idx = stages.findIndex((s) => s.id === lead.pipelineStageId);
   const proxima = idx >= 0 && idx < stages.length - 1 ? stages[idx + 1]! : null;
@@ -449,6 +557,7 @@ export async function getLeadDetalhe(id: string) {
     telefone: lead.telefone,
     origem: lead.origem,
     valorEstimado: emReais(lead.valorEstimado),
+    faturamentoMensalEstimado: emReais(lead.faturamentoMensalEstimado),
     observacoes: lead.observacoes,
     rastreio: deOndeVeio,
     clienteId: lead.clienteId,
@@ -460,6 +569,9 @@ export async function getLeadDetalhe(id: string) {
       titulo: p.titulo,
       obrigatorio: p.obrigatorio,
       concluido: p.concluido,
+      // De quem o passo está esperando: "MED" = nossa vez, "CLIENTE" = parado na clínica.
+      // É o que permite a tela responder *o que está esperando o cliente?* sem abrir lead a lead.
+      quemFaz: p.quemFaz,
       grupo: p.servicoId ? servMap.get(p.servicoId) ?? "Serviço" : "Geral",
       acaoDoc: p.acaoDoc,
       documentoId: p.documentoId,
@@ -468,6 +580,7 @@ export async function getLeadDetalhe(id: string) {
       // Passos de evento (documento) continuam ticáveis na mão, então não travam.
       auto: p.autoRegra != null && REGRAS_DERIVADAS.has(p.autoRegra),
     })),
+    documentos: documentosDoLead,
     proxima: proxima ? { id: proxima.id, nome: proxima.nome } : null,
     faltamObrig,
     prontoParaAvancar: !!proxima && faltamObrig === 0 && passos.length > 0,
@@ -582,8 +695,20 @@ async function docsAoEntrarEtapa(leadId: string, chaveAuto: string | null, userI
     const m = await import("../documentos/documentos.service.js");
     if (chaveAuto === "proposta") await m.gerarPropostaAutoParaLead(leadId, userId);
     else if (chaveAuto === "negociacao") await m.gerarContratoAutoParaLead(leadId, userId);
-  } catch {
-    /* automação best-effort — nunca quebra o fluxo do funil */
+  } catch (e) {
+    // Achado do typescript-reviewer no PR #191: `gerarContratoAutoParaLead` (via
+    // `gerarParaLead("contrato", ...)`) passou a recusar contrato sem proposta ACEITA
+    // (04/09/2026). Antes, mover um lead para "Negociação" sem nunca ter enviado/aceito
+    // proposta (arraste no funil pula validação de passo) gerava um contrato GENÉRICO para
+    // revisão; hoje não gera nada. A recusa em si está certa — o silêncio total não estava:
+    // fica um rastro em `activityLog`, para quem investigar "cadê o contrato desse lead?".
+    if (chaveAuto === "negociacao" && e instanceof TRPCError && e.code === "BAD_REQUEST") {
+      await prisma.activityLog
+        .create({ data: { userId, acao: "documento.contrato_nao_gerado_sem_aceite", entidadeTipo: "lead", entidadeId: leadId } })
+        .catch(() => {});
+      return;
+    }
+    /* demais falhas: automação best-effort — nunca quebra o fluxo do funil */
   }
 }
 
@@ -631,9 +756,17 @@ export async function avancarEtapa(leadId: string, userId: string) {
  * Todo caminho que devolve um `Lead` passa por aqui — inclusive o retorno das mutations,
  * que hoje ninguém lê na tela, mas que amanhã alguém lê num `onSuccess`.
  */
-const mapLead = <T extends { valorEstimado: Prisma.Decimal | number | null }>(l: T) => ({
+const mapLead = <
+  T extends {
+    valorEstimado: Prisma.Decimal | number | null;
+    faturamentoMensalEstimado?: Prisma.Decimal | number | null;
+  },
+>(
+  l: T,
+) => ({
   ...l,
   valorEstimado: emReais(l.valorEstimado),
+  faturamentoMensalEstimado: emReais(l.faturamentoMensalEstimado),
 });
 
 /** Leads ativos (não removidos, não convertidos, não perdidos) para o board. */
@@ -643,18 +776,56 @@ export async function listLeads() {
     orderBy: [{ pipelineStageId: "asc" }, { ordem: "asc" }],
     include: {
       responsavel: { select: { nome: true } },
-      servicos: { select: { id: true, nome: true }, orderBy: { ordem: "asc" } },
-      // "Portal ativo" fiel = tem usuário de Portal que consegue entrar (senha definida) —
-      // mesmo critério da lista de clientes. Evita o falso-positivo de só ter clienteId.
+      // O PREÇO dos serviços vem junto por causa do F8: é ele — nunca a categoria — que diz se o
+      // valor do lead é receita que se repete todo mês ou cobrança de uma vez só. A conta é feita
+      // AQUI e não na tela, por duas razões: `valor` e `percentual` são `Decimal` e um `Decimal`
+      // atravessando o tRPC vira "R$ NaN" na tela sem erro nenhum (ADR-118); e o preço de cada
+      // serviço não é assunto do board — o que ele precisa é do total já classificado.
+      servicos: {
+        select: { id: true, nome: true, valor: true, valorRecorrencia: true, percentual: true, ehCredenciamento: true },
+        orderBy: { ordem: "asc" },
+      },
+      // A CONTA de Portal em si, não só a contagem (ADR-128): o card precisa dos TRÊS estados
+      // — sem acesso / convidado e ainda não entrou / entrou —, e para isso precisa saber
+      // quando a conta nasceu e quando o cliente entrou pela última vez.
       clientePortal: {
-        select: { _count: { select: { usuariosPortal: { where: { role: "CLIENTE", ativo: true, passwordHash: { not: null } } } } } },
+        select: {
+          usuariosPortal: {
+            where: { role: "CLIENTE" },
+            select: { ativo: true, passwordHash: true, createdAt: true, ultimoAcessoEm: true },
+            orderBy: { createdAt: "asc" },
+          },
+        },
       },
     },
   });
-  return leads.map(({ clientePortal, ...l }) => ({
-    ...mapLead(l),
-    portalAtivo: (clientePortal?._count.usuariosPortal ?? 0) > 0,
-  }));
+  return leads.map(({ clientePortal, servicos, ...l }) => {
+    const portal = acessoAoPortal(clientePortal?.usuariosPortal);
+    // O valor do lead separado pelo que ele significa (F8): o board somava R$ 3.500/mês com
+    // R$ 1.500 avulso e mostrava R$ 5.000, um número que não responde nem "por mês" nem "no
+    // total". A régua é a mesma do painel do Início (`dividirEstimativaDoLead`, em `@app/shared`).
+    const estimativa = dividirEstimativaDoLead(
+      servicos.map((s) => ({
+        nome: s.nome,
+        valor: emReais(s.valor),
+        valorRecorrencia: s.valorRecorrencia,
+        percentual: emReais(s.percentual),
+        ehCredenciamento: s.ehCredenciamento,
+      })),
+      emReais(l.valorEstimado),
+    );
+    // `portalAtivo` continua existindo com o MESMO significado de antes (entra de verdade) —
+    // várias telas já leem esse nome, e trocá-lo por prazer seria quebrar o que funciona.
+    return {
+      ...mapLead(l),
+      // O board só precisa de id e nome; preço de serviço não é assunto dele (e `Decimal` não
+      // atravessa o tRPC — ADR-118).
+      servicos: servicos.map((s) => ({ id: s.id, nome: s.nome })),
+      estimativa,
+      portalAtivo: portal.estado === "ATIVO",
+      portal,
+    };
+  });
 }
 
 /** Leads perdidos (para o relatório de ganho/perda e a reabertura). */
@@ -805,19 +976,43 @@ export async function solicitarServicosPeloCliente(clienteId: string, servicoIds
   const msg = clean(mensagem ?? null);
   const nota = [msg && `Pedido pelo Portal: ${msg}`, `Serviços pedidos pelo Portal: ${nomes}`].filter(Boolean).join("\n");
 
-  const existente = await prisma.lead.findFirst({
+  let existente = await prisma.lead.findFirst({
     where: { clienteId, deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
     orderBy: { createdAt: "desc" },
     include: { pipelineStage: { select: { id: true, chaveAuto: true } } },
   });
 
+  // M10: quem desistiu (lead PERDIDO) e volta pelo Portal pedindo serviço precisa REABRIR o
+  // negócio perdido, não ganhar um segundo card no funil — mesmo padrão de `retomarPeloCliente`
+  // (o mesmo lead, achado pelo `perdidoEm` mais recente) e da reabertura pelo site (ADR-132/140).
+  let estavaPerdido = false;
+  if (!existente) {
+    existente = await prisma.lead.findFirst({
+      where: { clienteId, deletedAt: null, convertidoEmClienteId: null, NOT: { perdidoEm: null } },
+      orderBy: { perdidoEm: "desc" },
+      include: { pipelineStage: { select: { id: true, chaveAuto: true } } },
+    });
+    estavaPerdido = !!existente;
+  }
+
   let alvo: { id: string; nome: string; empresa: string | null; responsavelId: string | null };
 
   if (existente) {
-    // Adiciona os serviços ao negócio aberto (connect é idempotente — não duplica).
+    const ordemNaColuna = estavaPerdido
+      ? ((
+          await prisma.lead.aggregate({
+            where: { pipelineStageId: existente.pipelineStageId, deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
+            _max: { ordem: true },
+          })
+        )._max.ordem ?? -1) + 1
+      : undefined;
+
+    // Adiciona os serviços ao negócio (connect é idempotente — não duplica); se estava
+    // perdido, reabre limpando `perdidoEm`/`motivoPerda` e pondo o card no fim da coluna.
     await prisma.lead.update({
       where: { id: existente.id },
       data: {
+        ...(estavaPerdido ? { perdidoEm: null, motivoPerda: null, ordem: ordemNaColuna } : {}),
         servicos: { connect: servicos.map((s) => ({ id: s.id })) },
         observacoes: [existente.observacoes, nota].filter(Boolean).join("\n\n") || existente.observacoes,
       },
@@ -825,6 +1020,11 @@ export async function solicitarServicosPeloCliente(clienteId: string, servicoIds
     await sincronizarPassosServicos(existente.id, existente.pipelineStage.id, existente.pipelineStage.chaveAuto);
     await reconciliarPassosAuto(existente.id);
     alvo = { id: existente.id, nome: existente.nome, empresa: existente.empresa, responsavelId: existente.responsavelId };
+    if (estavaPerdido) {
+      await prisma.activityLog.create({
+        data: { acao: "lead.reaberto", entidadeTipo: "lead", entidadeId: existente.id, dados: { origem: "portal", motivo: "solicitou serviço novamente" } },
+      });
+    }
   } else {
     // Sem negócio aberto: abre uma nova oportunidade na 1ª etapa com os serviços.
     const cliente = await prisma.cliente.findFirst({
@@ -1032,6 +1232,7 @@ export async function createLead(input: CreateLeadInput, userId: string, rastrei
       origem: origemManual,
       rastreio,
       valorEstimado: input.valorEstimado ?? null,
+      faturamentoMensalEstimado: input.faturamentoMensalEstimado ?? null,
       observacoes: clean(input.observacoes),
       pipelineStageId: stageId,
       ordem,
@@ -1060,6 +1261,8 @@ export async function updateLead(input: UpdateLeadInput, userId: string) {
   if (rest.telefone !== undefined) data.telefone = clean(rest.telefone);
   if (rest.origem !== undefined) data.origem = clean(rest.origem);
   if (rest.valorEstimado !== undefined) data.valorEstimado = rest.valorEstimado ?? null;
+  if (rest.faturamentoMensalEstimado !== undefined)
+    data.faturamentoMensalEstimado = rest.faturamentoMensalEstimado ?? null;
   if (rest.observacoes !== undefined) data.observacoes = clean(rest.observacoes);
   if (rest.responsavelId !== undefined) data.responsavelId = rest.responsavelId || null;
   if (pipelineStageId !== undefined) data.pipelineStageId = pipelineStageId;
@@ -1087,7 +1290,11 @@ export async function updateLead(input: UpdateLeadInput, userId: string) {
     await sincronizarPassosServicos(lead.id, lead.pipelineStageId, lead.pipelineStage.chaveAuto);
   }
   // Serviços e valor alimentam passos automáticos — reconcilia após a mudança.
-  if (rest.servicoIds !== undefined || rest.valorEstimado !== undefined) {
+  if (
+    rest.servicoIds !== undefined ||
+    rest.valorEstimado !== undefined ||
+    rest.faturamentoMensalEstimado !== undefined
+  ) {
     await reconciliarPassosAuto(lead.id);
   }
   return mapLead(lead);
@@ -1184,36 +1391,63 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
   });
 
   // Os serviços do lead viram serviços CONTRATADOS do cliente (origem FUNIL) — passam a
-  // ser a fonte da verdade dos "serviços contratados" na ficha. Herdam a precificação de
-  // referência do serviço (valor + recorrência + %), editável depois na ficha. Idempotente.
-  for (const s of lead.servicos) {
-    await prisma.clienteServico.upsert({
-      where: { clienteId_servicoId: { clienteId, servicoId: s.id } },
-      update: { status: "ATIVO", canceladoEm: null, canceladoPorTipo: null },
-      create: {
-        clienteId,
-        servicoId: s.id,
-        status: "ATIVO",
-        origem: "FUNIL",
-        valor: s.valor ?? null,
-        valorRecorrencia: s.valorRecorrencia,
-        percentual: s.percentual ?? null,
-        percentualRecorrencia: s.percentualRecorrencia,
-      },
-    });
+  // ser a fonte da verdade dos "serviços contratados" na ficha. Idempotente.
+  //
+  // ⚠️ **QUANDO HOUVE PROPOSTA ACEITA, QUEM MANDA É ELA, não o catálogo (ADR-137).** O aceite
+  // já gravou em `ClienteServico` os serviços e os valores que o cliente aceitou
+  // (`sincronizarServicosContratados`) — que são o preço NEGOCIADO, e podem ser um subconjunto
+  // do que o lead pediu lá atrás. Repassar `lead.servicos` por cima aqui contrataria serviço
+  // que ninguém vendeu e, logo abaixo, provisionaria dinheiro pelo preço de TABELA em vez do
+  // aceito: a ficha dizendo R$ 2.500 e o Financeiro cobrando R$ 3.500, sem nada explicando.
+  const propostaAceita = await prisma.documento.findFirst({
+    where: { clienteId, propostaStatus: "ACEITA", deletedAt: null },
+    select: { id: true },
+  });
+  if (!propostaAceita) {
+    for (const s of lead.servicos) {
+      await prisma.clienteServico.upsert({
+        where: { clienteId_servicoId: { clienteId, servicoId: s.id } },
+        update: { status: "ATIVO", canceladoEm: null, canceladoPorTipo: null },
+        create: {
+          clienteId,
+          servicoId: s.id,
+          status: "ATIVO",
+          origem: "FUNIL",
+          valor: s.valor ?? null,
+          valorRecorrencia: s.valorRecorrencia,
+          percentual: s.percentual ?? null,
+          percentualRecorrencia: s.percentualRecorrencia,
+        },
+      });
+    }
   }
+
+  // O que o cliente REALMENTE tem contratado agora — a fonte única do que a ficha mostra e do
+  // que o Financeiro provisiona logo abaixo. Ler de volta (em vez de reusar `lead.servicos`) é
+  // o que faz os dois números baterem, venha o preço da proposta aceita ou do catálogo.
+  const contratados = await prisma.clienteServico.findMany({
+    where: { clienteId, status: "ATIVO" },
+    select: {
+      servicoId: true,
+      valor: true,
+      valorRecorrencia: true,
+      percentual: true,
+      percentualRecorrencia: true,
+      servico: { select: { nome: true, ehCredenciamento: true } },
+    },
+  });
 
   // Integração: cria UM PROJETO POR SERVIÇO contratado (ADR-38), nome "<Serviço> — <Cliente>",
   // já com o roteiro (tarefas + checklists) e o card de entregas do cliente. Sem serviços →
   // um projeto geral vazio, para trabalho manual.
   const resp = lead.responsavelId ?? userId;
   let projetoId: string | null = null;
-  for (const s of lead.servicos) {
-    const pid = await garantirCardDoServicoContratado(clienteId, s.id, s.nome, resp).catch(() => null);
+  for (const s of contratados) {
+    const pid = await garantirCardDoServicoContratado(clienteId, s.servicoId, s.servico.nome, resp).catch(() => null);
     if (pid && !projetoId) projetoId = pid;
   }
   if (!projetoId) {
-    const geral = await prisma.projeto.create({ data: { clienteId, nome: `Projeto — ${nomeCliente}`, responsavelId: resp }, select: { id: true } });
+    const geral = await prisma.projeto.create({ data: { clienteId, nome: "Projeto geral", responsavelId: resp }, select: { id: true } });
     await prisma.activityLog.create({ data: { userId, acao: "projeto.criado", entidadeTipo: "projeto", entidadeId: geral.id } });
     projetoId = geral.id;
   }
@@ -1231,7 +1465,14 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
     vencimento.setHours(12, 0, 0, 0);
 
     const { avulso, mensal, percentuais, temCredenciamento, usarEstimativa } = planejarProvisaoDaConversao(
-      lead.servicos.map((s) => ({ ...s, valor: emReais(s.valor), percentual: emReais(s.percentual) })),
+      contratados.map((s) => ({
+        nome: s.servico.nome,
+        ehCredenciamento: s.servico.ehCredenciamento,
+        valor: emReais(s.valor),
+        valorRecorrencia: s.valorRecorrencia,
+        percentual: emReais(s.percentual),
+        percentualRecorrencia: s.percentualRecorrencia,
+      })),
       emReais(lead.valorEstimado),
     );
     const obsPct = percentuais.length ? ` Cobranças por % (variam com o faturamento do mês): ${percentuais.join("; ")}.` : "";
@@ -1240,8 +1481,16 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
     const obsCred = temCredenciamento
       ? " O credenciamento NÃO está neste valor: o honorário dele só vira conta quando a operadora aprova."
       : "";
+    // A CATEGORIA VEM JUNTO (B2). Conta criada por automação nascia sem categoria, e o relatório
+    // por categoria do Financeiro sub-contava exatamente a receita que o sistema gera sozinho.
+    // Esta é a TERCEIRA porta que cria conta automática — as outras duas (contratar pela ficha e
+    // aprovar credenciamento) já passam pela mesma função. Deixá-la de fora repetiria o padrão
+    // que a ADR-140 nomeou: uma segunda porta para o mesmo dado, que não conhece a regra.
+    const categoriaId = await garantirCategoriaHonorarios().catch(() => null);
     const criarConta = (valor: number, recorrencia: "NENHUMA" | "MENSAL", descricao: string, obs: string) =>
-      prisma.conta.create({ data: { tipo: "RECEBER", descricao, valor, vencimento, clienteId, recorrencia, observacoes: obs } });
+      prisma.conta.create({
+        data: { tipo: "RECEBER", descricao, valor, vencimento, clienteId, recorrencia, observacoes: obs, categoriaId },
+      });
 
     if (avulso > 0 || mensal > 0) {
       if (avulso > 0) {
@@ -1269,7 +1518,8 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
     const inicio = proximoDiaUtil(3, 10);
     await prisma.evento.create({
       data: {
-        titulo: `Reunião de kickoff — ${nomeCliente}`,
+        // Sem o nome do cliente: a Agenda já o mostra num selo próprio ao lado do título.
+        titulo: "Reunião de kickoff",
         descricao: "Alinhamento inicial do onboarding após o fechamento. Ajuste a data/hora conforme a agenda do cliente.",
         tipo: "REUNIAO",
         escopo: "EMPRESA",
@@ -1303,9 +1553,29 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
   // tinha (ex.: lead antigo), cria o acesso e as boas-vindas já saem com o link.
   if (enviarEmail) {
     try {
-      const acesso = await garantirAcessoPortal(clienteId, nomeCliente, lead.email);
-      if (acesso.jaTinhaAcesso && lead.email) {
+      const acesso = await garantirAcessoPortal(clienteId, nomeCliente, lead.email, "EQUIPE_COM_AVISO");
+      // ⚠️ AS BOAS-VINDAS SAEM TAMBÉM QUANDO O E-MAIL É DE OUTRA CONTA. Enquanto esse caso vinha
+      // marcado como `jaTinhaAcesso`, ele caía aqui por acidente e o cliente recebia a mensagem;
+      // separá-lo (M11) fez o e-mail sumir sem que ninguém pedisse. A mensagem não promete acesso
+      // ao Portal — só dá as boas-vindas —, então mandá-la continua certo; o que NÃO pode é o
+      // cliente ser convertido e não receber nada porque o endereço dele já estava cadastrado.
+      if ((acesso.jaTinhaAcesso || acesso.emailEmUsoPorOutraConta) && lead.email) {
         void enviarEmailTemplate("cliente_boas_vindas", lead.email, { nome: nomeCliente, link: config.WEB_ORIGIN }).catch(() => {});
+      }
+      // E o motivo de o ACESSO não ter sido criado fica registrado — sem isto, a equipe só
+      // descobriria pela ausência do convite, que é como esse defeito viveu até aqui.
+      if (acesso.emailEmUsoPorOutraConta) {
+        void prisma.activityLog
+          .create({
+            data: {
+              userId,
+              acao: "cliente.acesso_portal_nao_criado",
+              entidadeTipo: "cliente",
+              entidadeId: clienteId,
+              dados: { motivo: "e-mail já pertence a outra conta", email: lead.email },
+            },
+          })
+          .catch(() => {});
       }
     } catch {
       /* boas-vindas é best-effort — não bloqueia a conversão */
@@ -1316,8 +1586,16 @@ export async function convertLead(id: string, userId: string, enviarEmail = true
   try {
     const m = await import("../documentos/documentos.service.js");
     await m.gerarContratoAutoParaLead(id, userId);
-  } catch {
-    /* best-effort — nunca bloqueia a conversão */
+  } catch (e) {
+    // Mesmo achado do docsAoEntrarEtapa (04/09/2026): converter um lead manualmente sem
+    // nunca ter tido proposta aceita agora recusa o contrato genérico em vez de gerá-lo —
+    // certo por regra, mas silencioso demais sem este rastro.
+    if (e instanceof TRPCError && e.code === "BAD_REQUEST") {
+      await prisma.activityLog
+        .create({ data: { userId, acao: "documento.contrato_nao_gerado_sem_aceite", entidadeTipo: "cliente", entidadeId: clienteId } })
+        .catch(() => {});
+    }
+    /* demais falhas: best-effort — nunca bloqueia a conversão */
   }
 
   return { clienteId, projetoId };
@@ -1358,9 +1636,48 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
     });
     if (existente) {
       const msg = clean(input.mensagem);
+      // COMPLETA o que falta, nunca sobrescreve o que já tem valor (27/08/2026).
+      // Antes, a recaptura guardava só a mensagem: quem voltasse ao site informando a clínica
+      // que esqueceu, ou corrigindo o telefone, tinha o dado novo descartado em silêncio. E o
+      // inverso seria pior — deixar o formulário público apagar por cima a correção que a
+      // equipe fez à mão na ficha. Por isso a regra é "preenche buraco", e só.
+      const completar = (atual: string | null, novo: string | null) =>
+        atual == null || atual === "" ? novo ?? undefined : undefined;
+
+      // ⚠️ QUEM FOI DADO POR PERDIDO E VOLTA PELO SITE PRECISA VOLTAR AO FUNIL.
+      //
+      // A busca acima nunca filtrou `perdidoEm`, e isso é certo: é o MESMO lead, e criar outro
+      // duplicaria a ficha. Só que a atualização também não o limpava — então ele continuava
+      // fora do quadro (o board filtra `perdidoEm: null`) enquanto a equipe recebia o aviso de
+      // "novo lead, ver no funil" e não achava nada lá. Negócio voltando pela porta da frente e
+      // ninguém atendendo.
+      //
+      // Reabrir aqui faz o mesmo que `reabrirLead`: zera a perda e põe o card no fim da coluna
+      // em que ele estava.
+      const estavaPerdido = existente.perdidoEm !== null;
+      const ordemNaColuna = estavaPerdido
+        ? ((
+            await prisma.lead.aggregate({
+              where: {
+                pipelineStageId: existente.pipelineStageId,
+                deletedAt: null,
+                convertidoEmClienteId: null,
+                perdidoEm: null,
+              },
+              _max: { ordem: true },
+            })
+          )._max.ordem ?? -1) + 1
+        : undefined;
+
       await prisma.lead.update({
         where: { id: existente.id },
         data: {
+          ...(estavaPerdido ? { perdidoEm: null, motivoPerda: null, ordem: ordemNaColuna } : {}),
+          // Voltou pelo site: aceitou de novo, e possivelmente uma VERSÃO nova do aviso.
+          privacidadeAceitaEm: new Date(),
+          privacidadeVersao: AVISO_PRIVACIDADE_VERSAO,
+          empresa: completar(existente.empresa, clean(input.empresa)),
+          telefone: completar(existente.telefone, clean(input.telefone)),
           observacoes:
             [existente.observacoes, msg && `Novo contato pelo site: ${msg}`].filter(Boolean).join("\n\n") ||
             existente.observacoes,
@@ -1369,7 +1686,13 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
       });
       await sincronizarPassosServicos(existente.id, existente.pipelineStage.id, existente.pipelineStage.chaveAuto);
       await reconciliarPassosAuto(existente.id);
-      await prisma.activityLog.create({ data: { acao: "lead.recapturado", entidadeTipo: "lead", entidadeId: existente.id } });
+      await prisma.activityLog.create({
+        data: {
+          acao: estavaPerdido ? "lead.reaberto_pelo_site" : "lead.recapturado",
+          entidadeTipo: "lead",
+          entidadeId: existente.id,
+        },
+      });
       const contato = existente.empresa ? `${existente.nome} · ${existente.empresa}` : existente.nome;
       const equipe = await prisma.user.findMany({
         where: { ativo: true, deletedAt: null, role: { in: ["ADMIN", "ROOT"] } },
@@ -1395,6 +1718,11 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
       pipelineStageId: stageId,
       ordem: (max._max.ordem ?? -1) + 1,
       responsavelId: null,
+      // Consentimento do aviso de privacidade (LGPD, ADR-141). A data SOZINHA não prova
+      // nada — o texto muda; a prova é a data mais a VERSÃO que estava no ar naquele dia.
+      // Só o cadastro pelo site grava isto: quem a equipe cadastra à mão não viu o aviso.
+      privacidadeAceitaEm: new Date(),
+      privacidadeVersao: AVISO_PRIVACIDADE_VERSAO,
       servicos: input.servicoIds?.length ? { connect: input.servicoIds.map((id) => ({ id })) } : undefined,
     },
   });
@@ -1406,9 +1734,14 @@ export async function capturarLead(input: CapturaLeadInput, ip?: string) {
   // boas-vindas COM o link de acesso, para o lead já acompanhar tudo por lá. Best-effort:
   // nunca deixa a captação falhar. Se já houver acesso (e-mail conhecido), manda só a
   // confirmação simples de recebimento.
+  // ⚠️ A RESPOSTA DESTA ROTA NÃO PODE VARIAR COM O QUE EXISTE NO BANCO. Ela é `publicProcedure`:
+  // devolver "o acesso foi criado agora" só para e-mail inédito transformava a página num
+  // oráculo — um anônimo descobriria, com uma requisição por endereço, se aquele médico já é
+  // cliente da Med. A tela passou a dizer a mesma frase para todo mundo ("se este for seu
+  // primeiro contato, você vai receber..."), e por isso nada sobre o acesso volta daqui.
   try {
     const clienteId = await garantirClienteDoLead(lead, null);
-    const acesso = await garantirAcessoPortal(clienteId, lead.nome, lead.email);
+    const acesso = await garantirAcessoPortal(clienteId, lead.nome, lead.email, "AUTOCADASTRO");
     if (!acesso.criou && lead.email) {
       void enviarEmailTemplate("lead_confirmacao", lead.email, { nome: input.nome.trim() }).catch(() => {});
     }

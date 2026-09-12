@@ -72,6 +72,24 @@ await esbuild.build({
 // ficasse só no repositório, o passo seria impossível de executar lá — a TineHost não tem Git.
 cpSync(resolve(root, "scripts/preflight.mjs"), resolve(apiDist, "preflight.mjs"));
 
+// 2c) Comando de credencial do agente → dist/scripts/agente.js (ADR-149/150)
+// Mesmo motivo do seed.js: `pnpm agente ...` roda com `tsx`, que é devDependency e NÃO existe
+// no servidor (`npm ci --omit=dev`). Sem compilar, o workflow "Emitir credencial do agente"
+// não teria como executar o comando lá — só existiria no papel.
+// ⚠️ Continua RECUSANDO rodar em produção por padrão (`podeRodarDemoSeed`, a mesma trava do
+// seed) — quem dispara o workflow escolhe conscientemente contornar isso com `NODE_ENV`
+// sobrescrito na própria chamada SSH, nunca editando este script nem a trava.
+await esbuild.build({
+  entryPoints: [resolve(root, "apps/api/src/scripts/agente.ts")],
+  outfile: resolve(apiDist, "scripts/agente.js"),
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  target: "node20",
+  external: ["@prisma/client", ".prisma/client", "@node-rs/argon2", "dotenv"],
+  logLevel: "warning",
+});
+
 // 3) package.json de produção — só deps externas de runtime (sem workspace:*), MAIS os
 // `pnpm.overrides` da raiz. A montagem virou módulo testado (`scripts/lib/pacote-de-producao.mjs`,
 // ADR-116): sem os overrides, o npm do servidor resolvia a árvore do zero e reintroduzia

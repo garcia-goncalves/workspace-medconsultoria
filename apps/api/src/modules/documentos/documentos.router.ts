@@ -13,6 +13,7 @@ import {
   melhorarComIASchema,
   resumirReuniaoSchema,
   gerarPautaSchema,
+  usoOperadoraEnum,
 } from "@app/shared";
 import { router, funcionarioProcedure, adminProcedure } from "../../trpc/trpc.js";
 import * as modelos from "./modelos.service.js";
@@ -38,12 +39,25 @@ export const documentosRouter = router({
   }),
 
   // Catálogo de operadoras: FUNCIONARIO consulta (list); administrar é ADMIN+.
+  // `uso` filtra pela marcação por serviço (ADR-126) — a proposta de credenciamento pede
+  // CREDENCIAMENTO, a de faturamento pede FATURAMENTO, a tela de gestão não filtra nada.
   operadoras: router({
-    list: funcionarioProcedure.query(() => operadoras.listOperadoras()),
-    criar: adminProcedure.input(z.object({ nome: nomeOperadora })).mutation(({ input }) => operadoras.criarOperadora(input.nome)),
-    renomear: adminProcedure
-      .input(z.object({ id: z.string().min(1), nome: nomeOperadora }))
-      .mutation(({ input }) => operadoras.renomearOperadora(input.id, input.nome)),
+    list: funcionarioProcedure
+      .input(z.object({ uso: usoOperadoraEnum.optional() }).optional())
+      .query(({ input }) => operadoras.listOperadoras(input?.uso)),
+    criar: adminProcedure
+      .input(z.object({ nome: nomeOperadora, usoCredenciamento: z.boolean().optional(), usoFaturamento: z.boolean().optional() }))
+      .mutation(({ input }) => operadoras.criarOperadora(input)),
+    atualizar: adminProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          nome: nomeOperadora.optional(),
+          usoCredenciamento: z.boolean().optional(),
+          usoFaturamento: z.boolean().optional(),
+        }),
+      )
+      .mutation(({ input }) => operadoras.atualizarOperadora(input)),
     remover: adminProcedure
       .input(z.object({ id: z.string().min(1) }))
       .mutation(({ input }) => operadoras.removerOperadora(input.id)),
@@ -71,6 +85,21 @@ export const documentosRouter = router({
     .input(criarContratoSchema)
     .mutation(({ input, ctx }) => documentos.criarContrato(input, ctx.user.id)),
 
+  /**
+   * Quem pode receber um documento: clientes E leads em negociação (27/08/2026).
+   * A tela agrupa as duas listas; o corte de QUAIS tipos aceitam lead é do
+   * `MODELO_ACEITA_LEAD` em `@app/shared`, para servidor e tela não divergirem.
+   */
+  destinatarios: funcionarioProcedure.query(() => documentos.destinatariosDeDocumento()),
+
+  /**
+   * Traduz o lead escolhido no `Cliente` PROSPECT que o representa (criando-o se preciso),
+   * para o documento continuar apontando para `clienteId` como sempre. Idempotente.
+   */
+  clienteDoLead: funcionarioProcedure
+    .input(z.object({ leadId: z.string().min(1) }))
+    .mutation(({ input, ctx }) => documentos.clienteDoLeadParaDocumento(input.leadId, ctx.user.id)),
+
   /** Contexto do cliente (serviços contratados, investimento, proposta aceita) p/ auto-preencher. */
   contextoCliente: funcionarioProcedure
     .input(contextoClienteDocSchema)
@@ -93,7 +122,7 @@ export const documentosRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(({ input }) => documentos.removeDocumento(input.id)),
 
-  // ── IA (OpenAI) — a disponibilidade é consultada via `ia.disponivel` ──
+  // ── IA (Gemini) — a disponibilidade é consultada via `ia.disponivel` ──
   gerarComIA: funcionarioProcedure
     .input(gerarComIASchema)
     .mutation(({ input, ctx }) => documentos.gerarComIA(input, ctx.user.id)),

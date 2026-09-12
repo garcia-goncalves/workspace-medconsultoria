@@ -16,18 +16,31 @@ import { createContext } from "./trpc/context.js";
 import { initRealtime } from "./realtime/socket.js";
 import { registrarRotasArquivos } from "./http/uploads.js";
 import { registrarRotaCorpoEmail } from "./http/email-corpo.js";
+import { registrarRotaLinkDeAssinatura } from "./http/link-de-assinatura.js";
 import { registrarRotaAnexoEmail, iniciarLimpezaAnexosTemp } from "./http/email-anexo.js";
+import { registrarRotasDoAgente } from "./http/agent-v1.js";
+import { iniciarExpurgoDeRetencao } from "./modules/sistema/retencao.service.js";
+import { aquecerDefesaDeTempo } from "./modules/auth/auth.service.js";
 import { validarPastaUploads } from "./lib/storage.js";
 import { startReminderLoop } from "./realtime/reminders.js";
 import { startMonitor } from "./observability/monitor.js";
 import { startAlertas } from "./observability/alertas.js";
 import { registrarErro } from "./modules/sistema/sistema.service.js";
+import { marcarCspLigada } from "./lib/seguranca-http.js";
+import { PROXY_CONFIAVEL } from "./lib/proxy-confiavel.js";
 import type { Context } from "./trpc/context.js";
 
+// trustProxy: quem é o nosso proxy — a régua mora em `lib/proxy-confiavel.ts`, com o porquê
+// inteiro escrito lá (NUNCA `true`, e NUNCA MAIS o número `1`, que o Fastify 5.12 aposentou).
+//
 // maxParamLength: o tRPC httpBatchLink junta as procedures no path (`/trpc/a,b,c,…`);
 // com o batch cheio (ex.: a ficha do cliente) o path passa de 100 chars e o find-my-way
 // do Fastify devolveria 414. 5000 cobre qualquer batch com folga.
-const app = Fastify({ logger: true, trustProxy: true, maxParamLength: 5000 });
+const app = Fastify({
+  logger: true,
+  trustProxy: [...PROXY_CONFIAVEL],
+  maxParamLength: 5000,
+});
 
 await app.register(cookie, { secret: config.SESSION_SECRET });
 await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true });
@@ -40,7 +53,7 @@ await app.register(cors, { origin: config.WEB_ORIGIN, credentials: true });
 //  - connect-src inclui o WebSocket (Socket.IO) da mesma origem (ws/wss).
 //  - upgrade-insecure-requests só em produção (HTTPS).
 const wsOrigin = config.WEB_ORIGIN.replace(/^http/i, "ws"); // http→ws, https→wss
-await app.register(helmet, {
+const opcoesHelmet = {
   contentSecurityPolicy: {
     useDefaults: false,
     directives: {
@@ -59,9 +72,16 @@ await app.register(helmet, {
     },
   },
   // Permite abrir recursos próprios (ex.: download de arquivo/PDF) sem bloquear cross-origin legítimo.
-  crossOriginResourcePolicy: { policy: "same-origin" },
+  crossOriginResourcePolicy: { policy: "same-origin" as const },
   crossOriginEmbedderPolicy: false,
-});
+};
+await app.register(helmet, opcoesHelmet);
+// O painel SISTEMA → Manutenção LÊ daqui. E lê do objeto acima, não de uma segunda declaração:
+// o jeito mais provável de desligar a CSP não é apagar o `register`, é trocar
+// `contentSecurityPolicy` por `false` — e nesse caso o painel precisa dizer "Desligada" sozinho.
+// Marcar "ligada" à mão reintroduziria, a uma edição de distância, exatamente o defeito que a
+// ADR-135 corrigiu, e desta vez para o lado perigoso.
+marcarCspLigada(Boolean(opcoesHelmet.contentSecurityPolicy));
 
 // Limite de requisições por IP — baseline contra abuso/brute-force/scraping.
 // Folgado para o uso normal (o front agrupa queries); barra rajadas.
@@ -107,10 +127,15 @@ await registrarRotasArquivos(app);
 // Corpo do e-mail em documento próprio, com CSP própria (o `srcdoc` herdaria a CSP da app e
 // bloquearia a imagem remota mesmo depois de a pessoa clicar em "Mostrar imagens").
 registrarRotaCorpoEmail(app);
+registrarRotaLinkDeAssinatura(app);
 
 // Anexo de e-mail: baixar (stream) e anexar ao escrever (arquivo temporário). Depende do
 // @fastify/multipart registrado dentro de `registrarRotasArquivos`, acima.
 registrarRotaAnexoEmail(app);
+
+// API DO AGENTE (ADR-149): a porta versionada por onde a Cora fala com o Workspace. Fora do
+// tRPC, com contrato OpenAPI publicado, autenticação de serviço + delegação revogável.
+registrarRotasDoAgente(app);
 
 // Em produção, o mesmo processo serve o SPA buildado (copiado para dist/public no build).
 const here = dirname(fileURLToPath(import.meta.url));
@@ -130,6 +155,11 @@ startReminderLoop();
 startMonitor();
 startAlertas();
 iniciarLimpezaAnexosTemp();
+// Prazo de guarda da LGPD (ADR-141): retenção sem rotina não é política de retenção.
+iniciarExpurgoDeRetencao();
+// Gera o hash de descarte agora: deixá-lo para a 1ª tentativa faria justamente ela destoar no
+// relógio, que é o sinal que a defesa de tempo existe para apagar.
+aquecerDefesaDeTempo();
 
 await app.listen({ port: config.API_PORT, host: "0.0.0.0" });
 app.log.info(`API ouvindo na porta ${config.API_PORT}`);

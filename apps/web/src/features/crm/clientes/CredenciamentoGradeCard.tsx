@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, Building2, Loader2, RotateCcw } from "lucide-react";
 import {
   STATUS_CREDENCIAMENTO,
   STATUS_CREDENCIAMENTO_AJUDA,
@@ -46,6 +46,8 @@ type Celula = {
   tentativa: number;
   motivoNegativa: string | null;
   observacoes: string | null;
+  /** A conta a receber que ESTA tentativa já gerou. Nulo = ainda não cobrou (ADR-141). */
+  contaId: string | null;
   aprovadoEm: Date | string | null;
   negadoEm: Date | string | null;
   protocoladoEm: Date | string | null;
@@ -206,9 +208,15 @@ export function MudarStatusDialog({
 
   const mutar = trpc.credenciamento.mudarStatus.useMutation({
     onSuccess: () => {
+      // Achado da auditoria de 04/09/2026: o servidor só cria a conta a receber quando o
+      // honorário é > 0 (credenciamento-grade.service.ts) — com valor "a combinar" (R$ 0,00),
+      // dizer "a conta foi criada" é o painel mentindo (mesmo defeito que a ADR-135 tratou como
+      // prioridade máxima). O toast agora reflete o que realmente aconteceu.
       toast(
         status === "APROVADO"
-          ? "Aprovado! A conta a receber do honorário foi criada no Financeiro."
+          ? celula.valor > 0
+            ? "Aprovado! A conta a receber do honorário foi criada no Financeiro."
+            : "Aprovado! Como o honorário está \"a combinar\" (R$ 0,00), nenhuma conta foi criada — edite o valor para gerar a cobrança."
           : "Andamento atualizado.",
         "success",
       );
@@ -278,10 +286,16 @@ export function MudarStatusDialog({
           <Textarea id="cred-obs" rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
         </div>
 
-        {status === "APROVADO" && (
+        {status === "APROVADO" && celula.valor > 0 && (
           <p className="rounded-lg border border-success/30 bg-success/5 p-2.5 text-xs text-foreground">
             Ao salvar, o honorário de <strong>{formatBRL(celula.valor)}</strong> entra no Financeiro como conta a
             receber. É aqui que a cobrança nasce — não no aceite da proposta.
+          </p>
+        )}
+        {status === "APROVADO" && celula.valor <= 0 && (
+          <p className="rounded-lg border border-warning/30 bg-warning/5 p-2.5 text-xs text-foreground">
+            O honorário está "a combinar" (R$ 0,00) — ao salvar, <strong>nenhuma conta a receber é criada</strong>.
+            Para cobrar, edite o valor deste cruzamento antes ou depois de aprovar.
           </p>
         )}
       </div>
@@ -335,6 +349,26 @@ function NovaTentativaDialog({
           Uma negativa encerra o credenciamento, salvo acordo com o cliente. A tentativa anterior continua no
           histórico, com o motivo da recusa — nada é apagado.
         </p>
+        {/*
+          ⚠️ AVISO DE COBRANÇA REPETIDA (ADR-141, decisão do dono).
+          O honorário do credenciamento nasce na APROVAÇÃO (ADR-104), e a tentativa nova não
+          herda a conta da anterior — então um par já aprovado, encerrado e reaberto gera uma
+          SEGUNDA conta a receber. Isso está certo: a proposta real diz "somente no sucesso" e
+          "após 1 (uma) tentativa", e tentativa nova é trabalho novo. Errado era não avisar.
+          A faixa só aparece quando a anterior REALMENTE cobrou (`contaId`): uma tentativa
+          negada nunca gerou conta, e alarmar ali seria ruído.
+        */}
+        {celula.contaId && (
+          <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+            <span>
+              <strong>Isto vai cobrar de novo.</strong> A tentativa anterior já gerou uma conta a
+              receber. Se esta for aprovada, nasce <strong>outra</strong> conta de{" "}
+              {formatBRL(celula.valor)} — o honorário é por credenciamento conseguido. A anterior
+              continua valendo.
+            </span>
+          </p>
+        )}
         <div className="space-y-1">
           <Label htmlFor="cred-acordo" hint="Ex.: 'Cliente enviou o alvará atualizado e autorizou novo protocolo em 10/08.'">
             Qual foi o acordo? *

@@ -95,12 +95,12 @@ export const PAGINAS: Pagina[] = [
   { label: "Projetos", icon: FolderKanban, to: "/projetos", minRole: "FUNCIONARIO", grupo: "Meu trabalho", keywords: ["kanban", "quadro"] },
   // ── Negócio: quem pode virar cliente, quem já é, o papel que formaliza, o que entra ──
   {
-    label: "Vendas",
+    label: "Funil de Vendas",
     icon: Filter,
-    to: "/leads",
+    to: "/funil-de-vendas",
     minRole: "FUNCIONARIO",
     grupo: "Negócio",
-    keywords: ["funil", "leads", "oportunidades", "pipeline", "negocios"],
+    keywords: ["funil", "leads", "oportunidades", "pipeline", "negocios", "funil de vendas", "vendas"],
   },
   { label: "Clientes", icon: Users, to: "/clientes", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["contatos", "empresas"] },
   {

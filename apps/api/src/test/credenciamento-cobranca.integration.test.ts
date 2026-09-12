@@ -50,10 +50,18 @@ beforeAll(async () => {
     where: { nome: NOME_SERVICO_CREDENCIAMENTO },
     select: { id: true },
   });
+  // ⚠️ A MARCA VAI JUNTO, nos dois ramos. Quem decide que este serviço é o credenciamento é
+  // `ehCredenciamento`, não o nome — sem ela, num banco `_test` recém-migrado (que é o da CI,
+  // criado só com `migrate deploy`, sem semente), contratar passaria a provisionar os R$ 2.000
+  // e o primeiro caso deste arquivo reprovaria por culpa do fixture, não do código.
   const servico = existente
-    ? await prisma.servico.update({ where: { id: existente.id }, data: { valor: 2000 }, select: { id: true } })
+    ? await prisma.servico.update({
+        where: { id: existente.id },
+        data: { valor: 2000, ehCredenciamento: true },
+        select: { id: true },
+      })
     : await prisma.servico.create({
-        data: { nome: NOME_SERVICO_CREDENCIAMENTO, valor: 2000, valorRecorrencia: "AVULSO" },
+        data: { nome: NOME_SERVICO_CREDENCIAMENTO, valor: 2000, valorRecorrencia: "AVULSO", ehCredenciamento: true },
         select: { id: true },
       });
   servicoCredId = servico.id;

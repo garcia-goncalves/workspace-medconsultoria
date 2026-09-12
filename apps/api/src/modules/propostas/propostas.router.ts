@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { responderPropostaSchema } from "@app/shared";
-import { router, funcionarioProcedure, publicProcedure } from "../../trpc/trpc.js";
+import { router, aceiteProcedure, funcionarioProcedure, publicProcedure } from "../../trpc/trpc.js";
 import * as service from "./propostas.service.js";
 
 export const propostasRouter = router({
@@ -18,7 +18,9 @@ export const propostasRouter = router({
   porToken: publicProcedure
     .input(z.object({ token: z.string().min(1) }))
     .query(({ input }) => service.getPorToken(input.token)),
-  responder: publicProcedure
+  // Público por token, MAS com as travas do Portal valendo quando há sessão (ver `aceiteProcedure`):
+  // a secretária EQUIPE e a sessão de suporte da Med não aceitam proposta pela clínica.
+  responder: aceiteProcedure
     .input(responderPropostaSchema)
-    .mutation(({ input, ctx }) => service.responder(input, ctx.req.ip)),
+    .mutation(({ input, ctx }) => service.responder(input, ctx.req.ip, ctx.user?.id ?? null)),
 });

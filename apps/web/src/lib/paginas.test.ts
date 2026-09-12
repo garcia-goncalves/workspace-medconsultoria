@@ -40,7 +40,7 @@ describe("catálogo de páginas (busca do Ctrl+K)", () => {
   it("busca sem acento e por palavra-chave encontra a página certa", () => {
     const acha = (q: string) => PAGINAS.filter((p) => paginaCasa(p, q)).map((p) => p.to);
     expect(acha("saude")).toContain("/sistema"); // keyword, sem acento
-    expect(acha("funil")).toContain("/leads"); // keyword
+    expect(acha("funil")).toContain("/funil-de-vendas"); // keyword
     expect(acha("Serviços")).toContain("/servicos"); // com acento na consulta
     expect(acha("usuarios")).toContain("/usuarios"); // keyword ≠ rótulo ("Equipe e acessos")
     expect(acha("kanban")).toContain("/projetos");
@@ -75,7 +75,7 @@ const FORA_DO_MENU: Record<string, string> = {
   "/emails-enviados": "abre por Ajustes (monitor de envios)",
   "/usuarios": "abre por Ajustes (equipe e acessos)",
   "/configuracoes": "abre pelo menu do usuário, no rodapé da barra",
-  "/conciliacao": "abre pelo Ctrl+K e pelo card da ficha do cliente (não cabe no menu a 1280x580 — ADR-125)",
+  "/conciliacao": "abre pelo Ctrl+K e pelo card da ficha do cliente (não cabe no menu a 1280x580 — ADR-153)",
 };
 
 describe("menu lateral (barra da esquerda)", () => {

@@ -79,7 +79,7 @@ describe("Auth — login", () => {
 describe("Sessão", () => {
   it("cria, valida e destrói a sessão", async () => {
     const u = await criarUsuario("sess");
-    const sid = await createSession(u.id, "ua", ip());
+    const sid = await createSession(u.id, { userAgent: "ua", ip: ip() });
     const atual = await getUserFromSession(sid);
     expect(atual?.id).toBe(u.id);
     await destroySession(sid);

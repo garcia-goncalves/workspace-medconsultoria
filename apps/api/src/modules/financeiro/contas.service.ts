@@ -181,15 +181,27 @@ export async function marcarPaga(id: string, pago: boolean, ctx: Ctx) {
   return mapConta(conta);
 }
 
-/** Desfaz a materialização: soft-delete da próxima ocorrência gerada (se ainda pendente). */
+/**
+ * Desfaz a materialização: APAGA a próxima ocorrência gerada (se ainda pendente).
+ *
+ * ⚠️ **É apagar de verdade, e isso é o que dá UM significado só a `deletedAt` numa série.**
+ * Antes esta reversão fazia soft-delete e a geração ressuscitava o que encontrasse apagado —
+ * então "excluída" queria dizer duas coisas ao mesmo tempo: "o sistema desfez" e "a pessoa
+ * excluiu". A varredura noturna não sabia distinguir e **ressuscitava a parcela que alguém tinha
+ * excluído à mão** (C10). Hoje, numa série, `deletedAt` só pode ter sido posto por gente.
+ *
+ * Apagar aqui é seguro e é o que a operação significa: a linha foi criada pelo próprio sistema
+ * segundos antes, ao marcar a conta como paga; nunca foi paga; e desmarcar o pagamento é desfazer
+ * essa criação, não registrar uma exclusão. A guarda `pago: false` impede que uma parcela já
+ * quitada seja alcançada, e `recorrenteId` garante que a âncora da série nunca é atingida.
+ */
 async function reverterSucessora(conta: ContaSerie): Promise<void> {
   const serie = conta.recorrenteId ?? conta.id;
   // Mesma âncora usada para GERAR — senão o vencimento calculado aqui não bate com o da
   // sucessora e a reversão não acha a linha para apagar.
   const prox = proximo(conta.vencimento, conta.recorrencia, await diaAncoraDaSerie(conta));
-  await prisma.conta.updateMany({
+  await prisma.conta.deleteMany({
     where: { deletedAt: null, pago: false, vencimento: prox, recorrenteId: serie },
-    data: { deletedAt: new Date() },
   });
 }
 
@@ -210,46 +222,64 @@ type ContaSerie = {
   recorrenteId: string | null;
 };
 
-/** Cria a próxima ocorrência de uma conta recorrente (com dedup por série+vencimento). */
+/**
+ * Quantas ocorrências excluídas em sequência a geração pula antes de desistir. Existe só para
+ * fechar o laço: uma série cujas próximas três dezenas de datas foram todas excluídas à mão não
+ * é uma série que alguém queira materializar.
+ */
+const MAX_OCORRENCIAS_PULADAS = 36;
+
+/**
+ * Cria a próxima ocorrência de uma conta recorrente (com dedup por série+vencimento).
+ *
+ * ⚠️ **PARCELA EXCLUÍDA É UMA EXCEÇÃO DA SÉRIE, não uma linha para ressuscitar (C10).** A
+ * exclusão de conta é lógica, e a materialização ressuscitava o que achasse apagado na data —
+ * o que desfazia, na varredura da madrugada, a exclusão que a pessoa tinha feito na véspera.
+ * Como a reversão do pagamento agora apaga a sucessora de verdade (ver `reverterSucessora`),
+ * `deletedAt` numa série significa uma coisa só: alguém excluiu esta ocorrência de propósito.
+ *
+ * O que se faz com ela é **pular aquela data e seguir para a seguinte** — excluir a parcela de
+ * maio salta maio, não mata a série nem apaga o mês que vem. A linha excluída fica onde está:
+ * ela é o registro da exceção, e é ela que segura a data no índice único `(recorrenteId,
+ * vencimento)` para que ninguém recrie a parcela por outro caminho.
+ */
 async function gerarProximaOcorrencia(conta: ContaSerie): Promise<boolean> {
   if (conta.recorrencia === "NENHUMA") return false;
   const serie = conta.recorrenteId ?? conta.id;
-  const prox = proximo(conta.vencimento, conta.recorrencia, await diaAncoraDaSerie(conta));
-  if (conta.recorrenciaAte && prox > conta.recorrenciaAte) return false;
-  // Procura INCLUSIVE as apagadas: uma reversão (desmarcar pago) faz soft-delete da
-  // sucessora, e a linha continua na tabela. Se ignorássemos isso, remarcar como pago
-  // criaria uma SEGUNDA linha para a mesma data — a apagada viraria órfã, e um índice
-  // único em (recorrenteId, vencimento) recusaria o insert.
-  const existente = await prisma.conta.findFirst({
-    where: { vencimento: prox, OR: [{ id: serie }, { recorrenteId: serie }] },
-    select: { id: true, deletedAt: true },
-  });
-  if (existente?.deletedAt) {
-    // Ressuscita a ocorrência que a reversão tinha apagado, em vez de duplicar a data.
-    await prisma.conta.update({
-      where: { id: existente.id },
-      data: { deletedAt: null, pago: false, pagoEm: null },
+  const ancora = await diaAncoraDaSerie(conta);
+  let prox = proximo(conta.vencimento, conta.recorrencia, ancora);
+
+  for (let pulos = 0; pulos <= MAX_OCORRENCIAS_PULADAS; pulos++) {
+    if (conta.recorrenciaAte && prox > conta.recorrenciaAte) return false;
+    // Procura INCLUSIVE as apagadas: o índice único `(recorrenteId, vencimento)` alcança a
+    // tabela inteira, então uma data já ocupada por uma linha excluída não pode ser recriada.
+    const existente = await prisma.conta.findFirst({
+      where: { vencimento: prox, OR: [{ id: serie }, { recorrenteId: serie }] },
+      select: { id: true, deletedAt: true },
     });
-    return true;
+    if (!existente) {
+      await prisma.conta.create({
+        data: {
+          tipo: conta.tipo,
+          escopo: conta.escopo,
+          donoId: conta.donoId,
+          descricao: conta.descricao,
+          valor: conta.valor as never,
+          vencimento: prox,
+          categoriaId: conta.categoriaId,
+          clienteId: conta.clienteId,
+          observacoes: conta.observacoes,
+          recorrencia: conta.recorrencia,
+          recorrenciaAte: conta.recorrenciaAte,
+          recorrenteId: serie,
+        },
+      });
+      return true;
+    }
+    if (!existente.deletedAt) return false; // a ocorrência já existe e está viva: nada a fazer.
+    prox = proximo(prox, conta.recorrencia, ancora); // excluída de propósito: pula para a seguinte.
   }
-  if (existente) return false;
-  await prisma.conta.create({
-    data: {
-      tipo: conta.tipo,
-      escopo: conta.escopo,
-      donoId: conta.donoId,
-      descricao: conta.descricao,
-      valor: conta.valor as never,
-      vencimento: prox,
-      categoriaId: conta.categoriaId,
-      clienteId: conta.clienteId,
-      observacoes: conta.observacoes,
-      recorrencia: conta.recorrencia,
-      recorrenciaAte: conta.recorrenciaAte,
-      recorrenteId: serie,
-    },
-  });
-  return true;
+  return false;
 }
 
 /**

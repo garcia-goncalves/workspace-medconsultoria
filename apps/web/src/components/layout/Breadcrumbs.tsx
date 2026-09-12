@@ -24,7 +24,7 @@ const AJUSTES_CHILDREN: Record<string, string> = {
 
 /** Rótulo da seção principal por rota. */
 const SECTION_LABEL: Record<string, string> = {
-  "/leads": "Vendas",
+  "/funil-de-vendas": "Funil de Vendas",
   "/clientes": "Clientes",
   "/projetos": "Projetos",
   "/agenda": "Agenda",

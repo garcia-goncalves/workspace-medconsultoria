@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
-import type { ResponderPropostaInput } from "@app/shared";
+import { destinatarioDeAssinatura } from "../documentos/destinatario-de-assinatura.js";
+import { mensagemDeLinkExpirado, situacaoDoLinkPublico, type ResponderPropostaInput } from "@app/shared";
 import { hashConteudo } from "../../lib/hash.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
@@ -58,8 +59,11 @@ export async function habilitarAceite(
   });
 
   if (avisarPorEmail && doc.cliente.email) {
-    void enviarEmailTemplate("proposta_para_aceite", doc.cliente.email, {
-      nome: doc.cliente.nome,
+    // Para QUEM FALA PELA CLÍNICA, não para a caixa da recepção (ADR-137) — ver
+    // `destinatarioDeAssinatura`. Aceitar proposta é ação de responsável.
+    const destino = await destinatarioDeAssinatura(doc.cliente.id, { nome: doc.cliente.nome, email: doc.cliente.email });
+    void enviarEmailTemplate("proposta_para_aceite", destino.email, {
+      nome: destino.nome,
       documento: doc.titulo,
       link: linkProposta(token),
     }).catch(() => {});
@@ -104,15 +108,30 @@ export async function statusDoDocumento(documentoId: string) {
   };
 }
 
+/**
+ * Recusa link vencido (ADR-141). `PRECONDITION_FAILED`, e não `INTERNAL`, porque isto é
+ * estado ESPERADO: erro cru vira "erro do sistema" no painel do ROOT (a lição da ADR-135).
+ */
+function exigirLinkValido(doc: { propostaSolicitadaEm: Date | null; propostaRespondidaEm: Date | null }): void {
+  const s = situacaoDoLinkPublico({
+    emitidoEm: doc.propostaSolicitadaEm,
+    respondidoEm: doc.propostaRespondidaEm,
+    agora: new Date(),
+  });
+  if (!s.valido) throw new TRPCError({ code: "PRECONDITION_FAILED", message: mensagemDeLinkExpirado(s) });
+}
+
 /** Dados públicos da proposta (acesso por token, sem login). */
 export async function getPorToken(token: string) {
   const doc = await prisma.documento.findFirst({
     where: { propostaToken: token, deletedAt: null },
     select: {
+      id: true,
       titulo: true,
       conteudo: true,
       propostaStatus: true,
       propostaHash: true,
+      propostaSolicitadaEm: true,
       propostaRespondidaEm: true,
       propostaMotivoRecusa: true,
       cliente: { select: { nome: true } },
@@ -120,6 +139,13 @@ export async function getPorToken(token: string) {
     },
   });
   if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Link de proposta inválido." });
+  exigirLinkValido(doc);
+
+  // Quem abriu, e quando. Antes disto ninguém sabia (LGPD, ADR-141). Sem usuário: é gente de fora.
+  await prisma.activityLog.create({
+    data: { acao: "proposta.link_aberto", entidadeTipo: "documento", entidadeId: doc.id },
+  });
+
   return {
     documento: { titulo: doc.titulo, conteudo: doc.conteudo },
     clienteNome: doc.cliente?.nome ?? null,
@@ -136,15 +162,17 @@ export async function getPorToken(token: string) {
  * avisa a equipe; recusa grava o motivo e avisa a equipe. Trilha de auditoria (IP/quando).
  * Idempotente: se já respondida, não sobrescreve.
  */
-export async function responder(input: ResponderPropostaInput, ip?: string) {
+export async function responder(input: ResponderPropostaInput, ip?: string, respondidoPorId?: string | null) {
   const doc = await prisma.documento.findFirst({
     where: { propostaToken: input.token, deletedAt: null },
-    select: { id: true, titulo: true, conteudo: true, propostaStatus: true, propostaHash: true, clienteId: true, criadoPorId: true, itens: true, cliente: { select: { nome: true } } },
+    select: { id: true, titulo: true, conteudo: true, propostaStatus: true, propostaHash: true, propostaSolicitadaEm: true, propostaRespondidaEm: true, clienteId: true, criadoPorId: true, itens: true, cliente: { select: { nome: true } } },
   });
   if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Link de proposta inválido." });
   if (doc.propostaStatus !== "PENDENTE") {
     return { ok: true, jaRespondida: true, decisao: doc.propostaStatus };
   }
+  // ⚠️ Barrar só a LEITURA seria a segunda porta da ADR-140: o link expirado ainda aceitaria.
+  exigirLinkValido(doc);
   if (doc.propostaHash !== hashConteudo(doc.conteudo)) {
     throw new TRPCError({
       code: "BAD_REQUEST",
@@ -159,11 +187,14 @@ export async function responder(input: ResponderPropostaInput, ip?: string) {
       propostaStatus: aceita ? "ACEITA" : "RECUSADA",
       propostaRespondidaEm: new Date(),
       propostaRespIp: ip ?? null,
+      // Quem clicou, se estava logado (ADR-137). Nulo no link de e-mail, que é anônimo.
+      propostaRespPorId: respondidoPorId ?? null,
       propostaMotivoRecusa: aceita ? null : input.motivo?.trim() || null,
     },
   });
   await prisma.activityLog.create({
     data: {
+      userId: respondidoPorId ?? null,
       acao: aceita ? "proposta.aceita" : "proposta.recusada",
       entidadeTipo: "documento",
       entidadeId: doc.id,
@@ -183,7 +214,14 @@ export async function responder(input: ResponderPropostaInput, ip?: string) {
       const criadoPorId = doc.criadoPorId;
       // Itens estruturados congelados na proposta (serviços + valores aceitos).
       const itensAceitos = Array.isArray(doc.itens)
-        ? (doc.itens as { servicoId: string; valor?: number | null; recorrencia?: "AVULSO" | "MENSAL"; percentual?: number | null }[])
+        ? (doc.itens as {
+            servicoId: string;
+            valor?: number | null;
+            recorrencia?: "AVULSO" | "MENSAL";
+            percentual?: number | null;
+            /** Convênios atendidos naquele serviço (ADR-126) — viajam dentro do item aceito. */
+            conveniosIds?: string[];
+          }[])
         : [];
       void (async () => {
         // Ator das automações: quem criou a proposta; se o criador foi removido (criadoPorId nulo),
@@ -209,7 +247,29 @@ export async function responder(input: ResponderPropostaInput, ip?: string) {
         });
         const { gerarContratoAutoParaCliente } = await import("../documentos/documentos.service.js");
         await gerarContratoAutoParaCliente(clienteId, atorId, { leadId: lead?.id });
-      })().catch(() => {});
+      })().catch(async (e) => {
+        // ⚠️ AQUI ESTAVA UM `catch(() => {})` — o silêncio mais caro da aplicação.
+        //
+        // A proposta já está gravada como ACEITA (o `update` acima) e a equipe já recebeu o aviso
+        // de "proposta aceita" (o laço abaixo, fora deste bloco). Se a automação falhasse — banco
+        // fora do ar, serviço apagado do catálogo, qualquer coisa —, o cliente ficava com a ficha
+        // SEM o serviço contratado, SEM contrato e SEM conta a receber, e ninguém ficava sabendo:
+        // nem a tela, nem o painel de erros do ROOT, nem um log.
+        //
+        // Continua sendo best-effort de propósito (o aceite do cliente não pode cair porque a
+        // nossa automação tropeçou), mas agora a falha APARECE em SISTEMA → Erros, que é onde a
+        // Thaís e o ROOT olham. Sem isto, "vendi e não cobrei" só aparecia no Financeiro, meses
+        // depois, se alguém conferisse.
+        const { registrarErro } = await import("../sistema/sistema.service.js");
+        await registrarErro({
+          rota: "propostas.responder/automacao-pos-aceite",
+          mensagem:
+            `A proposta do documento ${doc.id} foi ACEITA, mas a automação seguinte falhou: ` +
+            `os serviços contratados, o contrato e a conta a receber podem NÃO ter sido criados. ` +
+            `Confira a ficha do cliente ${clienteId}. Causa: ${(e as Error)?.message ?? String(e)}`,
+          stack: (e as Error)?.stack ?? null,
+        }).catch(() => {});
+      });
     }
     for (const userId of await alvosDaEquipe(doc.clienteId)) {
       void notificar(

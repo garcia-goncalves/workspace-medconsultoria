@@ -13,12 +13,20 @@ import type {
 } from "@app/shared";
 import type { TipoModelo } from "@app/shared";
 import {
+  ehServicoSomentePercentual,
+  fraseDoRepasse,
+  montarDadosPagamento,
   formatarCNPJ,
   formatarNumeroProposta,
   NUMERO_PROPOSTA_INICIAL,
   qualificacaoContratada,
   totalDaGrade,
   valorPorExtenso,
+  UMA_OPERADORA_POR_PROPOSTA,
+  SITUACOES_CLIENTE,
+  MODELO_ACEITA_LEAD,
+  TIPO_MODELO_LABEL,
+  documentoServicoItemSchema,
 } from "@app/shared";
 import { aiService } from "../../lib/ai.js";
 import { avancarLeadPorClienteAuto, garantirClienteDoLead } from "../leads/leads.service.js";
@@ -177,17 +185,22 @@ function montarServicos(itens: ItemServico[], servicos: ServicoInfo[]): { tabela
     }
     if (it.percentual != null && it.percentual > 0) {
       partes.push(`${fmtPct(it.percentual)} do faturamento/mês`);
-      percentuais.push(`${fmtPct(it.percentual)} do faturamento (${s?.nome ?? "serviço"})`);
+      // "5% do faturamento (Faturamento) — por mês" punha o nome do serviço entre parênteses no
+      // meio do valor e repetia "por mês" logo depois de "do faturamento/mês". Vira rótulo.
+      percentuais.push(`**${s?.nome ?? "Serviço"}:** ${fmtPct(it.percentual)} do faturamento mensal`);
     }
     const preco = partes.length ? partes.join(" + ") : "a combinar";
     const nome = s?.nome ?? "Serviço";
-    const desc = s?.descricao ? ` — ${s.descricao}` : "";
+    // A descrição vai numa LINHA PRÓPRIA dentro da célula. Emendada ao nome com travessão, ela
+    // fazia a coluna "Serviço" ocupar quatro linhas enquanto a de investimento ficava com duas
+    // palavras espremidas — a tabela saía torta no papel que vai ao médico.
+    const desc = s?.descricao ? `<br>${s.descricao}` : "";
     return `| **${nome}**${desc} | ${preco} |`;
   });
   const investimento: string[] = [];
   if (totalAvulso > 0) investimento.push(`- **À vista (1x):** ${brl(totalAvulso)}`);
   if (totalMensal > 0) investimento.push(`- **Mensal:** ${brl(totalMensal)}/mês`);
-  for (const p of percentuais) investimento.push(`- **${p}** — por mês`);
+  for (const p of percentuais) investimento.push(`- ${p}`);
   if (investimento.length === 0) investimento.push("- A combinar");
   return {
     tabela: `| Serviço | Investimento |\n| --- | --- |\n${linhasTabela.join("\n")}`,
@@ -209,10 +222,11 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     : null;
 
   // Prazo/condições/observações entram nos dois formatos.
-  const extras = [
-    input.prazo?.trim() ? `**Prazo estimado:** ${input.prazo.trim()}` : "",
-    input.condicoes?.trim() ? `**Condições de pagamento:** ${input.condicoes.trim()}` : "",
-  ].filter(Boolean);
+  // **"Condições de pagamento" NÃO entra mais na proposta** (ADR-127): não há condição a
+  // negociar — é sempre PIX, e o PIX sai no bloco `{{dadosPagamento}}`, vindo de Ajustes. O que
+  // o cliente precisa saber sobre QUANDO o repasse do faturamento é pago virou frase própria,
+  // montada na seção do investimento.
+  const extras = [input.prazo?.trim() ? `**Prazo estimado:** ${input.prazo.trim()}` : ""].filter(Boolean);
 
   // Três trilhas de investimento: COMERCIAL (catálogo de serviços) × CREDENCIAMENTO POR PESSOA
   // (a grade médico × operadora, ADR-104) × CREDENCIAMENTO POR OPERADORA (o formato antigo, que
@@ -220,6 +234,19 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
   const grade = input.grade ?? [];
   const ehGrade = grade.length > 0;
   const ehCredenciamento = ehGrade || (input.operadoras?.length ?? 0) > 0;
+
+  // UMA OPERADORA POR PROPOSTA (ADR-126). O schema já barra, mas o servidor confere de novo:
+  // quem chama a API direto não passa pela tela, e uma proposta com duas operadoras dentro não
+  // pode ser aceita "pela metade".
+  if (new Set(grade.map((c) => c.operadoraId)).size > 1 || (input.operadoras?.length ?? 0) > 1) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: UMA_OPERADORA_POR_PROPOSTA });
+  }
+
+  // O faturamento mensal informado (proposta de faturamento) e o percentual somado dos itens.
+  // `0` é um número informado tão válido quanto outro, então o que separa "não informou" de
+  // "informou zero" é `undefined`, não a falsidade do valor.
+  const faturamentoMensal = input.faturamentoMensal ?? null;
+  const percentualDaProposta = input.itens.reduce((s, i) => s + (i.percentual ?? 0), 0);
   let servicosNomes: string[] = [];
   let blocoServicos: string;
   /** Nomes das operadoras que entram no corpo — da grade, quando há grade. */
@@ -277,15 +304,14 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     if (input.observacoes?.trim()) bloco.push(input.observacoes.trim());
     blocoServicos = bloco.join("\n\n");
   } else if (ehCredenciamento) {
-    // CREDENCIAMENTO POR OPERADORA (sem médico cadastrado): o investimento é por operadora.
+    // CREDENCIAMENTO POR OPERADORA (sem médico cadastrado): uma operadora, um investimento.
     const ops = input.operadoras ?? [];
     const fee = input.valorPorOperadora ?? 0;
-    const total = fee * ops.length;
-    totalCredenciamento = total;
+    totalCredenciamento = fee;
     const investeTxt =
       fee > 0
-        ? `**${brl(total)}** para o credenciamento em **${ops.length} operadora(s)** — ${brl(fee)} por operadora.`
-        : "Investimento a combinar conforme as operadoras selecionadas.";
+        ? `**${brl(fee)}** para o credenciamento junto à operadora **${ops[0] ?? ""}**.`
+        : "Investimento a combinar.";
     const bloco = [`## Investimento\n\n${investeTxt}`];
     if (extras.length) bloco.push(extras.join("  \n"));
     if (input.observacoes?.trim()) bloco.push(input.observacoes.trim());
@@ -294,7 +320,7 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     // COMERCIAL: catálogo de serviços com preços (tabela + investimento total).
     const servicos = await prisma.servico.findMany({
       where: { id: { in: input.itens.map((i) => i.servicoId) } },
-      select: { id: true, nome: true, descricao: true },
+      select: { id: true, nome: true, descricao: true, condicaoPagamento: true },
     });
     const r = montarServicos(input.itens, servicos);
     servicosNomes = r.nomes;
@@ -303,10 +329,52 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
       `## Serviços propostos\n\n${r.tabela}`,
       `## Investimento\n\n${r.investimento}`,
     ];
+    // A FRASE DO REPASSE (ADR-127). Sempre que a proposta inclui um serviço cobrado **só por
+    // percentual** — o Faturamento de contas médicas —, o papel precisa dizer QUANDO o repasse é
+    // pago. Vale também na proposta misturada: quem contrata Faturamento + Gestão lê a frase do
+    // mesmo jeito.
+    //
+    // Quem decide o que é "só percentual" é o PREÇO DO ITEM desta proposta, nunca a categoria do
+    // catálogo — é a quarta vez que essa comparação precisa sair daqui (ADR-125/126/127). O item
+    // manda, e não o catálogo, porque a porcentagem se negocia proposta a proposta.
+    //
+    // O que NÃO sai mais: a conta impressa "R$ 6.000,00/mês (5% de R$ 120.000,00)". Era uma
+    // promessa que envelhece no mês seguinte — o faturamento da clínica sobe e desce, o papel
+    // assinado não. O documento passa a dizer o percentual sobre o efetivamente faturado e
+    // recebido; o faturamento médio informado continua vivo, mas só do lado de dentro,
+    // alimentando o valor do negócio no funil (ADR-125).
+    const condicaoDoServico = new Map(servicos.map((sv) => [sv.id, sv.condicaoPagamento]));
+    const itensSoPercentual = input.itens.filter((i) => ehServicoSomentePercentual({ valor: i.valor, percentual: i.percentual ?? null }));
+    if (itensSoPercentual.length) {
+      bloco.push(fraseDoRepasse(itensSoPercentual.map((i) => condicaoDoServico.get(i.servicoId))));
+    }
     if (extras.length) bloco.push(extras.join("  \n"));
     if (input.observacoes?.trim()) bloco.push(input.observacoes.trim());
     blocoServicos = bloco.join("\n\n");
   }
+
+  // CONVÊNIOS ATENDIDOS (ADR-126) — a lista que o cliente confere na proposta de faturamento.
+  // Os nomes vêm do BANCO, pelos ids: nome copiado da tela não sobrevive a um "renomear" no
+  // catálogo, e este documento é o papel que vai ao cliente.
+  const conveniosIds = [...new Set(input.conveniosIds ?? [])];
+  const conveniosDoCorpo = conveniosIds.length
+    ? await prisma.operadora.findMany({
+        where: { id: { in: conveniosIds } },
+        orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+        select: { id: true, nome: true },
+      })
+    : [];
+  const conveniosBloco = conveniosDoCorpo.length
+    ? conveniosDoCorpo.map((o) => `- **${o.nome}**`).join("\n")
+    : "_(a definir com você)_";
+
+  // Os convênios entram no ITEM do serviço percentual, e não soltos no documento (ADR-126): é
+  // assim que eles atravessam o aceite e chegam ao `ClienteServico` pelo mesmo caminho que
+  // serviço e preço já percorrem. Uma segunda costura ficaria para trás no primeiro caso de borda.
+  const idsValidados = conveniosDoCorpo.map((o) => o.id);
+  const itensParaGravar = input.itens.map((i) =>
+    idsValidados.length && (i.percentual ?? 0) > 0 ? { ...i, conveniosIds: idsValidados } : i,
+  );
 
   // Operadoras selecionadas → {{operadoras}} (só o modelo de credenciamento tem esse marcador).
   const operadorasBloco = operadorasDoCorpo.length
@@ -315,6 +383,12 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
 
   // Usa o CORPO do modelo escolhido como moldura (proposta comercial ≠ credenciamento):
   // {{servicos}} = tabela/investimento; {{operadoras}} = operadoras; {{apresentacao}} = abertura.
+  // ⚠️ `listModelos()` garante os modelos padrão semeados ANTES da busca — sem isto, um banco
+  // onde ninguém nunca abriu "Modelos" (1ª proposta de uma instalação nova, ou a ordem em que os
+  // testes de integração rodam contra o banco isolado) gera o documento com `modeloId: null` em
+  // silêncio, e qualquer consulta que exija a RELAÇÃO com o modelo (`modelo: { tipo: "PROPOSTA" }`)
+  // deixa de achá-lo.
+  await listModelos();
   const modelo = input.modeloId
     ? await prisma.modeloDocumento.findUnique({ where: { id: input.modeloId } })
     : await prisma.modeloDocumento.findFirst({ where: { tipo: "PROPOSTA", ativo: true }, orderBy: { createdAt: "asc" } });
@@ -350,11 +424,32 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
   const consultora =
     (await prisma.user.findUnique({ where: { id: userId }, select: { nome: true } }))?.nome ?? "MedConsultoria";
 
+  // DADOS PARA PAGAMENTO (ADR-127). Saem em toda proposta cujo modelo declare o marcador — a
+  // comercial padrão e a de faturamento. A de CREDENCIAMENTO **não** o declara, de propósito:
+  // ali a Thaís só cobra depois do sucesso do credenciamento na operadora, e a conta a receber
+  // nasce na aprovação, não no aceite (ADR-104).
+  //
+  // Sem nada cadastrado em Ajustes, `montarDadosPagamento` devolve "" e o TÍTULO some junto —
+  // uma seção "Dados para pagamento" vazia no papel do cliente é pior que seção nenhuma.
+  const dadosBancarios = await prisma.identidadeInstitucional.findUnique({
+    where: { id: "default" },
+    select: { bancoNome: true, bancoAgencia: true, bancoConta: true, bancoTitular: true, pixChave: true },
+  });
+  const tabelaPagamento = dadosBancarios ? montarDadosPagamento(dadosBancarios) : "";
+  const dadosPagamentoBloco = tabelaPagamento ? `## Dados para pagamento
+
+${tabelaPagamento}` : "";
+
   let conteudo: string;
   if (modelo?.corpo?.includes("{{servicos}}")) {
     const comMarcadores = modelo.corpo
       .replace(/\{\{\s*servicos\s*\}\}/g, blocoServicos)
       .replace(/\{\{\s*operadoras\s*\}\}/g, operadorasBloco)
+      .replace(/\{\{\s*convenios\s*\}\}/g, conveniosBloco)
+      .replace(
+        /\{\{\s*percentual\s*\}\}/g,
+        percentualDaProposta > 0 ? fmtPct(percentualDaProposta) : "_(a combinar)_",
+      )
       .replace(/\{\{\s*profissionais\s*\}\}/g, profissionaisDoCorpo || "_(a definir com você)_")
       .replace(/\{\{\s*profissionais_nomes\s*\}\}/g, nomesDosProfissionais || "_(a definir com você)_")
       .replace(/\{\{\s*numero\s*\}\}/g, numero ? formatarNumeroProposta(numero) : "—")
@@ -364,6 +459,7 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
         /\{\{\s*valor_extenso\s*\}\}/g,
         totalCredenciamento > 0 ? valorPorExtenso(totalCredenciamento) : "_(a combinar)_",
       )
+      .replace(/\{\{\s*dadosPagamento\s*\}\}/g, dadosPagamentoBloco)
       .replace(/\{\{\s*apresentacao\s*\}\}/g, apresentacao);
     conteudo = render(comMarcadores, {}, cliente);
   } else {
@@ -392,7 +488,7 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     criadoPorId: userId,
     // Itens estruturados (só na proposta comercial) — o aceite os sincroniza com os serviços
     // contratados do cliente. Credenciamento (operadoras) não mapeia para o catálogo.
-    itens: ehCredenciamento ? undefined : (input.itens as object[]),
+    itens: ehCredenciamento ? undefined : (itensParaGravar as object[]),
     versoes: { create: { conteudo: corpo, autorId: userId, origem: input.usarIA ? ("IA" as const) : ("MANUAL" as const) } },
   });
 
@@ -423,13 +519,52 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
   // Import dinâmico para não fechar ciclo de módulos com o serviço de credenciamento.
   if (ehGrade && clienteId) {
     const { salvarGrade } = await import("../servicos/credenciamento-grade.service.js");
-    await salvarGrade({ clienteId, celulas: grade, documentoId: doc.id }, { id: userId });
+    // ⚠️ `somenteOperadorasDaGrade`: a proposta é de UMA operadora (ADR-126). Sem esta marca,
+    // emitir a 2ª proposta apagaria os cruzamentos `A_PROTOCOLAR` da 1ª — eles simplesmente não
+    // vêm nesta carga, e a grade os leria como "desmarcados".
+    await salvarGrade(
+      { clienteId, celulas: grade, documentoId: doc.id, somenteOperadorasDaGrade: true },
+      { id: userId },
+    );
+  }
+
+  // O NÚMERO ANDA PARA FRENTE (ADR-126): corrigir o faturamento mensal aqui corrige o LEAD.
+  //
+  // O lead existe antes da proposta, e o passo obrigatório da Qualificação pergunta esse mesmo
+  // número. Sem a escrita de volta, quem descobrisse o valor certo montando a proposta teria de
+  // ir digitar de novo no funil — e, esquecendo, o card mostraria um valor velho ao lado de um
+  // documento com o valor novo. Um número só, num lugar só.
+  //
+  // `reconciliarPassosAuto` recalcula o `valorEstimado` derivado e tica o passo — é a mesma
+  // função que a edição do lead chama, para as duas portas não divergirem.
+  if (clienteId && faturamentoMensal !== null) {
+    await escreverFaturamentoNoLead(clienteId, faturamentoMensal).catch(() => {});
   }
 
   await prisma.activityLog.create({
     data: { userId, acao: "documento.proposta_gerada", entidadeTipo: "documento", entidadeId: doc.id },
   });
   return doc;
+}
+
+/**
+ * Leva o faturamento mensal informado na proposta de volta ao lead em negociação do cliente.
+ *
+ * Best-effort de propósito: a proposta já foi emitida e existe: derrubá-la porque o funil não
+ * aceitou um número seria trocar um documento pronto por um erro. Só mexe no lead AINDA em
+ * negociação (não convertido, não excluído) — lead fechado é histórico.
+ */
+async function escreverFaturamentoNoLead(clienteId: string, faturamentoMensal: number) {
+  const lead = await prisma.lead.findFirst({
+    where: { clienteId, deletedAt: null, convertidoEmClienteId: null },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, faturamentoMensalEstimado: true },
+  });
+  if (!lead) return;
+  if (emReais(lead.faturamentoMensalEstimado) === faturamentoMensal) return;
+  await prisma.lead.update({ where: { id: lead.id }, data: { faturamentoMensalEstimado: faturamentoMensal } });
+  const { reconciliarPassosAuto } = await import("../leads/leads.service.js");
+  await reconciliarPassosAuto(lead.id);
 }
 
 /**
@@ -459,7 +594,7 @@ async function itensDoCliente(clienteId: string): Promise<{ itens: ItemContexto[
         valor: emReaisOu(c.valor),
         quantidade: 1,
         recorrencia: (c.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-        percentual: c.servico.categoria === "Faturamento" ? emReais(c.percentual) : null,
+        percentual: emReais(c.percentual),
       })),
     };
   }
@@ -479,7 +614,7 @@ async function itensDoCliente(clienteId: string): Promise<{ itens: ItemContexto[
         valor: emReaisOu(s.valor),
         quantidade: 1,
         recorrencia: (s.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-        percentual: s.categoria === "Faturamento" ? emReais(s.percentual) : null,
+        percentual: emReais(s.percentual),
       })),
     };
   }
@@ -501,14 +636,34 @@ export async function contextoClienteDoc(input: ContextoClienteDocInput) {
   const { itens, origem } = await itensDoCliente(input.clienteId);
 
   // Totais agregados (para sugerir valor/mensalidade e o resumo de investimento).
+  //
+  // ⚠️ **O PERCENTUAL PRECISA ENTRAR AQUI, SENÃO O RESUMO MENTE R$ 0,00 (F9).** Esta soma olhava
+  // só o valor FIXO, e o cliente de Faturamento não tem valor fixo nenhum: ele paga um percentual
+  // do que fatura (ADR-125/127). Para o serviço que é o carro-chefe da Med, o "Novo documento"
+  // abria dizendo **R$ 0,00** de investimento. O corpo do documento sempre esteve certo
+  // (`montarServicos` já escreve a linha do percentual) — quem mentia era o resumo que a Thaís lê
+  // antes de gerar, e é ele que decide se ela confere ou aprova no automático.
+  //
+  // O percentual **não vira reais aqui**: ele depende do faturamento do mês, que o documento não
+  // conhece. Vai em campo próprio, para quem desenha dizer "5% do faturamento/mês".
   let totalAvulso = 0;
   let totalMensal = 0;
+  let percentualMensal = 0;
   for (const it of itens) {
     const sub = (it.valor ?? 0) * (it.quantidade ?? 1);
     if (it.recorrencia === "MENSAL") totalMensal += sub;
     else totalAvulso += sub;
+    if (it.percentual != null && it.percentual > 0) percentualMensal += it.percentual;
   }
   const nomes = itens.map((i) => i.nome);
+
+  // O investimento em uma linha, pronto para a tela mostrar em vez de um número solto que não
+  // sabe dizer "por mês" nem "do faturamento".
+  const partesDoInvestimento: string[] = [];
+  if (totalMensal > 0) partesDoInvestimento.push(`${brl(totalMensal)}/mês`);
+  if (totalAvulso > 0) partesDoInvestimento.push(`${brl(totalAvulso)} à vista`);
+  if (percentualMensal > 0) partesDoInvestimento.push(`${fmtPct(percentualMensal)} do faturamento/mês`);
+  const investimentoEmTexto = partesDoInvestimento.join(" + ") || "A combinar";
 
   // Proposta aceita mais recente (referência comercial do que foi fechado).
   const propostaAceita = await prisma.documento.findFirst({
@@ -523,15 +678,37 @@ export async function contextoClienteDoc(input: ContextoClienteDocInput) {
     servicos: nomes.length ? nomes.map((n) => `- ${n}`).join("\n") : "",
     // "referente": nomes em linha (recibo).
     referente: nomes.join(", "),
-    // "valor"/"mensalidade": prioriza o mensal; senão o à vista.
+    // "valor"/"mensalidade": prioriza o mensal; senão o à vista. Continua sendo só o valor FIXO —
+    // percentual não cabe num campo de reais, e preencher 0 faria alguém aceitar um recibo de
+    // R$ 0,00 sem reparar. Quem paga só percentual não tem número aqui, e é o certo.
     valor: totalMensal > 0 ? totalMensal : totalAvulso,
+    // O investimento por extenso, que diz o que o número sozinho não consegue.
+    investimento: investimentoEmTexto,
   };
+
+  // O que o funil já sabe deste cliente (ADR-126): o faturamento mensal estimado e os convênios
+  // já registrados. A proposta de faturamento NASCE preenchida com eles — quem já respondeu na
+  // Qualificação não responde de novo, e a correção feita aqui volta para o lead.
+  const [leadEmNegociacao, contratacoes] = await Promise.all([
+    prisma.lead.findFirst({
+      where: { clienteId: input.clienteId, deletedAt: null, convertidoEmClienteId: null },
+      orderBy: { createdAt: "desc" },
+      select: { faturamentoMensalEstimado: true },
+    }),
+    prisma.clienteServico.findMany({
+      where: { clienteId: input.clienteId, status: "ATIVO" },
+      select: { operadoras: { select: { id: true } } },
+    }),
+  ]);
+  const conveniosAtuais = [...new Set(contratacoes.flatMap((c) => c.operadoras.map((o) => o.id)))];
 
   return {
     cliente,
     itens,
     origem, // CONTRATADO | LEAD | VAZIO — o dialog explica de onde veio
-    investimento: { avulso: totalAvulso, mensal: totalMensal },
+    faturamentoMensal: emReais(leadEmNegociacao?.faturamentoMensalEstimado ?? null),
+    conveniosAtuais,
+    investimento: { avulso: totalAvulso, mensal: totalMensal, percentualMensal },
     propostaAceita: propostaAceita
       ? { id: propostaAceita.id, titulo: propostaAceita.titulo, em: propostaAceita.propostaRespondidaEm }
       : null,
@@ -603,17 +780,41 @@ export async function criarContrato(input: CriarContratoInput, userId: string) {
   const prazoTxt = textoVigencia(input.vigenciaMeses);
   // Identidade da CONTRATADA e foro vêm de Ajustes → Dados da empresa (editáveis pela Thaís).
   const identidade = await getIdentidade();
-  const foroTxt = identidade.foro?.trim() || "da comarca do domicílio da CONTRATANTE";
+  // Achado da auditoria de 04/09/2026: o modelo já traz "Fica eleito o foro de {{foro}}" — um
+  // fallback começando em "da" duplicava a preposição ("...o foro de da comarca..."). Sem "da".
+  const foroTxt = identidade.foro?.trim() || "comarca do domicílio da CONTRATANTE";
 
+  // ⚠️ Mesmo motivo do `criarProposta`: garante os modelos padrão semeados antes da busca, para
+  // este caminho não depender de alguém já ter aberto "Modelos" (ou de outro teste, em outro
+  // arquivo, ter semeado por acaso) antes do primeiro contrato ser gerado.
+  await listModelos();
   const modelo = input.modeloId
     ? await prisma.modeloDocumento.findUnique({ where: { id: input.modeloId } })
     : await prisma.modeloDocumento.findFirst({ where: { tipo: "CONTRATO", ativo: true }, orderBy: { createdAt: "asc" } });
   if (!modelo) throw new TRPCError({ code: "NOT_FOUND", message: "Nenhum modelo de contrato cadastrado." });
 
   // Injeta os blocos ricos (Markdown preservado) e depois resolve {{cliente.*}}/{{data}}.
+  // DADOS PARA PAGAMENTO NO CONTRATO. A seção "Valor e forma de pagamento" prometia a forma de
+  // pagamento no título e não dizia nenhuma: `{{valor}}` traz só o investimento. A Med recebe
+  // **somente por PIX** (ADR-127 — foi por isso que "Condições de pagamento" saiu das
+  // propostas), e o contrato era o único papel que ficava calado sobre isso.
+  //
+  // ⚠️ A frase do PIX está no MODELO, não aqui, e é INCONDICIONAL e AUTOSSUFICIENTE de propósito:
+  // ela não pode dizer "nos dados abaixo", porque o bloco com banco/agência/conta/chave some
+  // inteiro quando não há nada cadastrado em Ajustes — a mesma regra da proposta
+  // (`montarDadosPagamento`), e uma tabela pela metade no contrato do cliente é pior que tabela
+  // nenhuma. Frase que aponta para um bloco que pode não existir é a forma de o papel do cliente
+  // sair dizendo "veja abaixo" com nada abaixo.
+  //
+  // ⚠️ SAI DE `identidade`, que já foi carregada acima: `getIdentidade` é um `upsert` do mesmo
+  // registro e já traz os cinco campos bancários. Uma segunda consulta seria um round-trip a
+  // mais e um ramo morto ("e se a linha não existir?" — depois do upsert ela existe sempre).
+  const tabelaPagamentoContrato = montarDadosPagamento(identidade);
+
   const comMarcadores = modelo.corpo
     .replace(/\{\{\s*objeto\s*\}\}/g, objeto)
     .replace(/\{\{\s*clausulas_servicos\s*\}\}/g, clausulasServicos)
+    .replace(/\{\{\s*dadosPagamento\s*\}\}/g, tabelaPagamentoContrato)
     .replace(/\{\{\s*valor\s*\}\}/g, valorBloco)
     .replace(/\{\{\s*prazo\s*\}\}/g, prazoTxt)
     .replace(/\{\{\s*foro\s*\}\}/g, foroTxt)
@@ -664,10 +865,49 @@ export async function gerarPropostaAutoParaLead(leadId: string, userId: string) 
       observacoes: true,
       responsavelId: true,
       clienteId: true,
+      createdAt: true,
       servicos: { select: { id: true, valor: true, valorRecorrencia: true, percentual: true, categoria: true } },
     },
   });
   if (!lead || lead.servicos.length === 0) return; // sem serviços = nada a propor ainda
+
+  // ⚠️ A GUARDA ACIMA OLHAVA O PASSO; O NÚMERO QUEIMA NO DOCUMENTO (C2).
+  //
+  // Há TRÊS portas para uma proposta nascer para um lead: esta automação, o botão do painel
+  // do lead (`gerarParaLead`) e o "Novo documento" (ADR-132). Só a primeira liga o passo do
+  // funil — e as outras duas costumam acontecer ANTES de o card entrar na etapa "Proposta",
+  // quando o passo com `acaoDoc: "proposta"` ainda nem existe (ele é semeado ao entrar na
+  // etapa). Resultado: `updateMany` casava zero linhas, a guarda não via nada, e arrastar o
+  // card emitia a SEGUNDA proposta.
+  //
+  // ⚠️ **Isso não é um documento a mais: é um buraco na numeração da Thaís**, que é a
+  // contagem manual dela e começou em 224 (ADR-104).
+  //
+  // A guarda passa a olhar a realidade — "este lead já tem proposta?" —, o mesmo formato de
+  // `gerarContratoAutoParaCliente`. O recorte por `createdAt` do lead é o que impede o
+  // oposto: um cliente já convertido que volta ao funil para um upsell tem propostas antigas,
+  // e elas não podem calar a proposta NOVA.
+  if (lead.clienteId) {
+    const jaExiste = await prisma.documento.findFirst({
+      where: {
+        clienteId: lead.clienteId,
+        deletedAt: null,
+        modelo: { tipo: "PROPOSTA" },
+        createdAt: { gte: lead.createdAt },
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    if (jaExiste) {
+      // ADOTA a que já existe: sem esta linha o painel do lead continuaria sem achar a
+      // proposta, e a régua de marcos do funil (C1) não teria documento para olhar.
+      await prisma.leadPasso.updateMany({
+        where: { leadId, acaoDoc: "proposta", documentoId: null },
+        data: { documentoId: jaExiste.id },
+      });
+      return;
+    }
+  }
 
   const clienteId = await garantirClienteDoLead(lead, userId);
   const itens = lead.servicos.map((s) => ({
@@ -675,7 +915,7 @@ export async function gerarPropostaAutoParaLead(leadId: string, userId: string) 
     valor: emReaisOu(s.valor),
     quantidade: 1,
     recorrencia: (s.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-    percentual: s.categoria === "Faturamento" ? emReais(s.percentual) : null,
+    percentual: emReais(s.percentual),
   }));
 
   const doc = await criarProposta({ clienteId, itens, usarIA: false }, userId);
@@ -778,12 +1018,54 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
     where: { id: leadId, deletedAt: null },
     select: {
       id: true, nome: true, empresa: true, cnpj: true, email: true, telefone: true, observacoes: true, responsavelId: true, clienteId: true,
-      servicos: { select: { id: true, nome: true, valor: true, valorRecorrencia: true, percentual: true, categoria: true, clausulasContrato: true } },
+      servicos: { select: { id: true, nome: true, valor: true, valorRecorrencia: true, percentual: true, categoria: true } },
     },
   });
   if (!lead) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado." });
 
   const clienteId = await garantirClienteDoLead(lead, ator.id);
+
+  // Achado da auditoria de 04/09/2026: esta é a SEGUNDA porta de geração de documento, e era a
+  // única que não consultava MODELO_ACEITA_LEAD (`@app/shared`) — o botão "Elaborar e enviar o
+  // contrato" do passo "Negociação" do funil conseguia gerar Contrato para um lead que nunca teve
+  // proposta aceita nenhuma, contrariando a regra ("nasce do aceite", ADR-132/133).
+  //
+  // ⚠️ Não pode ser um bloqueio CEGO por tipo: o próprio playbook do funil (leads.service.ts,
+  // PLAYBOOK.negociacao) chama este mesmo caminho como FALLBACK depois que uma proposta já foi
+  // aceita — e o `gerarContratoAutoParaCliente` disparado no aceite (propostas.service.ts) cai
+  // aqui quando o cliente ainda não tem serviço estruturado. Nos dois casos legítimos já existe
+  // uma proposta ACEITA por trás. A régua certa é essa: contrato só nasce se houver proposta
+  // aceita para este cliente — não "se já é cliente" (a conta pode ser um PROSPECT recém-criado
+  // pela linha acima) nem "se o tipo permite lead" (permite, DEPOIS do aceite).
+  // Os itens ACEITOS (congelados em `Documento.itens` da proposta) — usados abaixo para o
+  // CONTRATO delegar ao mesmo construtor rico do caminho automático (`criarContrato`).
+  let itensDaPropostaAceita: CriarContratoInput["itens"] = [];
+  if (MODELO_ACEITA_LEAD[tipoModelo] === false) {
+    if (tipoModelo !== "CONTRATO") {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `${TIPO_MODELO_LABEL[tipoModelo]} não pode ser gerado a partir do funil de vendas.`,
+      });
+    }
+    const propostaAceita = await prisma.documento.findFirst({
+      where: { clienteId, deletedAt: null, propostaStatus: "ACEITA", modelo: { tipo: "PROPOSTA" } },
+      select: { id: true, itens: true },
+    });
+    if (!propostaAceita) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Ainda não há proposta aceita por este cliente — o contrato nasce do aceite, não pode ser gerado antes dele.",
+      });
+    }
+    // Mesmo formato que `criarContrato` grava/lê (`documentoServicoItemSchema`) e que
+    // `propostas.service.ts` usa para sincronizar `ClienteServico` no aceite (`itensAceitos`).
+    // Lida direto do documento da proposta, em vez de depender do sincronismo — que é
+    // fire-and-forget e pode ainda não ter terminado quando este caminho manual é acionado.
+    // ⚠️ `safeParse`, não cast cru: `propostaAceita.itens` é `Prisma.JsonValue` — dado gravado
+    // pelo próprio sistema, mas por documentos antigos que podem ter forma diferente da atual.
+    const itensValidados = documentoServicoItemSchema.array().safeParse(propostaAceita.itens);
+    itensDaPropostaAceita = itensValidados.success ? itensValidados.data : [];
+  }
 
   // PROPOSTA: monta a partir dos serviços escolhidos pelo mesmo construtor da "Nova proposta"
   // (tabela + investimento reais, corpo do modelo como moldura) — nunca deixa {{servicos}} cru.
@@ -793,10 +1075,42 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
       valor: emReaisOu(s.valor),
       quantidade: 1,
       recorrencia: (s.valorRecorrencia ?? "AVULSO") as "AVULSO" | "MENSAL",
-      percentual: s.categoria === "Faturamento" ? emReais(s.percentual) : null,
+      percentual: emReais(s.percentual),
     }));
     const doc = await criarProposta({ clienteId, itens, usarIA: false }, ator.id);
     await prisma.leadPasso.updateMany({ where: { leadId, acaoDoc: "proposta", documentoId: null }, data: { documentoId: doc.id } });
+    return { documentoId: doc.id };
+  }
+
+  // CONTRATO: DELEGA ao mesmo construtor rico do caminho automático (`criarContrato`), com os
+  // itens negociados na proposta aceita — em vez de reescrever à mão as mesmas variáveis com
+  // `{{valor}}` numa frase fixa ("Conforme os valores da proposta comercial..."), que nunca
+  // mostrava a tabela de preço real. Ver achado da auditoria de 04/09/2026.
+  if (tipo === "contrato") {
+    let itensDoContrato = itensDaPropostaAceita;
+    // ⚠️ Achado da revisão especialista: proposta de CREDENCIAMENTO (grade ou por operadora)
+    // nunca guarda `Documento.itens` (`criarProposta`: `itens: ehCredenciamento ? undefined : …`).
+    // Sem este fallback, `criarContrato` receberia itens VAZIOS e geraria um contrato com
+    // `{{objeto}}`/`{{clausulas_servicos}}` em BRANCO, sem erro. Cai para a mesma fonte que o
+    // caminho automático usa (`gerarContratoAutoParaCliente` → `itensDoCliente`).
+    if (itensDoContrato.length === 0) {
+      const { itens } = await itensDoCliente(clienteId);
+      itensDoContrato = itens.map(({ servicoId, valor, quantidade, recorrencia, percentual }) => ({
+        servicoId,
+        valor,
+        quantidade,
+        recorrencia,
+        percentual,
+      }));
+    }
+    if (itensDoContrato.length === 0) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "A proposta aceita não tem serviços estruturados para montar o contrato.",
+      });
+    }
+    const doc = await criarContrato({ clienteId, itens: itensDoContrato, vigenciaMeses: 12 }, ator.id);
+    await prisma.leadPasso.updateMany({ where: { leadId, acaoDoc: "contrato", documentoId: null }, data: { documentoId: doc.id } });
     return { documentoId: doc.id };
   }
 
@@ -809,30 +1123,8 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
     select: { nome: true, email: true, cnpj: true, telefone: true },
   });
 
-  // CONTRATO: pré-preenche os campos com o que já sabemos (objeto = serviços do lead; valor/
-  // prazo/foro com padrões editáveis) para o rascunho não nascer cheio de "a preencher".
+  // Sobra só BRIEFING neste ponto (proposta e contrato retornam antes) — sem variáveis próprias.
   const variaveis: Record<string, string> = {};
-  if (tipo === "contrato") {
-    // Objeto = LISTA dos serviços; as CLÁUSULAS de cada serviço vão para {{clausulas_servicos}}
-    // (seção 9, personalizada pelo que o cliente contratou). Fallback quando não há serviços.
-    variaveis.objeto = lead.servicos.length
-      ? lead.servicos.map((s) => `- **${s.nome}**`).join("\n")
-      : "Serviços de consultoria conforme a proposta comercial aprovada pela CONTRATANTE.";
-    variaveis.clausulas_servicos = lead.servicos.length
-      ? lead.servicos
-          .map((s) => {
-            const cl = s.clausulasContrato?.trim();
-            return `### ${s.nome}\n\n${cl || "Serviço prestado conforme a proposta comercial e o escopo de trabalho aprovados pela CONTRATANTE."}`;
-          })
-          .join("\n\n")
-      : "Condições conforme a proposta comercial e o escopo de trabalho aprovados pela CONTRATANTE.";
-    variaveis.valor = "Conforme os valores da proposta comercial aprovada pela CONTRATANTE.";
-    variaveis.prazo = textoVigencia(12);
-    // Foro e qualificação da CONTRATADA de Ajustes → Dados da empresa (editáveis pela Thaís).
-    const identidade = await getIdentidade();
-    variaveis.foro = identidade.foro?.trim() || "da comarca do domicílio da CONTRATANTE";
-    variaveis.contratada = qualificacaoContratada(identidade);
-  }
 
   const conteudo = render(modelo.corpo, variaveis, cliente);
   const titulo = `${modelo.nome} — ${cliente?.nome ?? lead.nome}`;
@@ -928,7 +1220,7 @@ const SYSTEM_IA =
 
 function exigirIA() {
   if (!isAiEnabled) {
-    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "IA não configurada (OPENAI_API_KEY)." });
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "IA não configurada (GEMINI_API_KEY)." });
   }
 }
 
@@ -1116,4 +1408,81 @@ export async function gerarPautaReuniao(input: GerarPautaInput, userId: string) 
     data: { userId, acao: "documento.ia_pauta", entidadeTipo: "documento", entidadeId: doc.id },
   });
   return doc;
+}
+
+// ── Destinatário do documento: cliente OU lead (27/08/2026, ordem do dono) ──
+
+/**
+ * Quem pode receber um documento: os clientes de verdade **e** os leads ainda em negociação.
+ *
+ * Até 27/08/2026 o "Novo documento" só oferecia clientes (`clientes.list`, que exclui
+ * prospect de propósito — lead vive no Funil, ADR-24). Só que a proposta é justamente o
+ * documento que se manda para quem AINDA NÃO É cliente: a saída era converter o lead antes
+ * da hora, sujando a base com quem talvez nunca feche.
+ *
+ * Devolve as duas listas separadas para a tela agrupá-las — misturar num balaio só faria
+ * "Clínica X" aparecer duas vezes sem dizer qual é qual.
+ */
+export async function destinatariosDeDocumento() {
+  const [clientes, leads] = await Promise.all([
+    prisma.cliente.findMany({
+      where: { deletedAt: null, situacaoComercial: { in: [...SITUACOES_CLIENTE] } },
+      orderBy: { nome: "asc" },
+      select: { id: true, nome: true },
+    }),
+    prisma.lead.findMany({
+      // Lead ativo = não removido, não convertido e não perdido. Lead convertido já tem
+      // cliente próprio na lista de cima; oferecê-lo duas vezes seria a mesma armadilha
+      // que a ADR-128 pagou com as duas contas de Portal.
+      where: { deletedAt: null, convertidoEmClienteId: null, perdidoEm: null },
+      orderBy: [{ empresa: "asc" }, { nome: "asc" }],
+      select: {
+        id: true,
+        nome: true,
+        empresa: true,
+        pipelineStage: { select: { nome: true } },
+      },
+    }),
+  ]);
+
+  return {
+    clientes,
+    leads: leads.map((l) => {
+      const empresa = l.empresa?.trim();
+      return {
+        id: l.id,
+        // DUAS coisas diferentes, de propósito:
+        // `rotulo` é para ESCOLHER na lista — traz o nome de quem fala entre parênteses,
+        //   porque duas clínicas podem ter nome parecido e é a pessoa que desempata.
+        // `nomeNoDocumento` é o que sai IMPRESSO — só a clínica. Um papel que abre com
+        //   "Prezado(a) MedLar Home Care (Carlos Mendes)" não se manda para ninguém.
+        rotulo: empresa ? `${empresa} (${l.nome})` : l.nome,
+        nomeNoDocumento: empresa || l.nome,
+        etapa: l.pipelineStage?.nome ?? null,
+      };
+    }),
+  };
+}
+
+/**
+ * Traduz um lead no cliente que o representa, criando-o se ainda não existir.
+ *
+ * O truque que evita migração: **todo lead já pode ter um `Cliente` PROSPECT por trás** —
+ * é o mesmo que dá acesso ao Portal do prospect (`garantirClienteDoLead`, ADR-128). Então o
+ * documento continua apontando para `clienteId`, como sempre; quem muda é só quem a tela
+ * deixa escolher. Zero coluna nova, zero caminho paralelo de gravação.
+ *
+ * Idempotente: chamar duas vezes devolve o mesmo cliente.
+ */
+export async function clienteDoLeadParaDocumento(leadId: string, atorId?: string | null) {
+  const lead = await prisma.lead.findFirst({
+    where: { id: leadId, deletedAt: null },
+    select: {
+      id: true, nome: true, empresa: true, cnpj: true, email: true,
+      telefone: true, observacoes: true, responsavelId: true, clienteId: true,
+    },
+  });
+  if (!lead) throw new TRPCError({ code: "NOT_FOUND", message: "Lead não encontrado." });
+  const clienteId = await garantirClienteDoLead(lead, atorId ?? null);
+  return { clienteId };
 }

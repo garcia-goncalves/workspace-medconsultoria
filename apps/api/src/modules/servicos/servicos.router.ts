@@ -13,7 +13,7 @@ import * as service from "./servicos.service.js";
 
 export const servicosRouter = router({
   // Público: usado pelo formulário de captação do site.
-  publicos: publicProcedure.query(() => service.listServicosAtivos()),
+  publicos: publicProcedure.query(() => service.listServicosPublicos()),
   // Interno: lista para o cadastro de leads.
   ativos: funcionarioProcedure.query(() => service.listServicosAtivos()),
   // Gestão (ADMIN/ROOT): catálogo completo + CRUD.

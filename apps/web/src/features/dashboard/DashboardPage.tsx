@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -51,7 +51,8 @@ import { PageHeader } from "../../components/ui/page-header";
 import { Badge, type BadgeProps } from "../../components/ui/badge";
 import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
-import { formatBRL, formatBRLCompact } from "../../lib/masks";
+import { Popover } from "../../components/ui/popover";
+import { formatBRL, formatEstimativaDoFunil } from "../../lib/masks";
 import { hora, dataUTC, haQuanto, diaSemana } from "../../lib/format-date";
 
 const diaCurto = (d: Date) =>
@@ -195,7 +196,10 @@ function AttentionChip({ to, icon: Icon, count, label, tone }: { to: string; ico
     <Link
       to={to}
       className={cn(
-        "group flex items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md",
+        // `min-w-0`: item de grid nasce com `min-width:auto` (= min-content dele) e estoura a
+        // trilha. Estes avisos só existem quando há alerta de verdade, então o defeito não aparece
+        // em banco vazio — apareceu na CI, a 360px, com 21px de excesso.
+        "group flex min-w-0 items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md",
         t.box,
       )}
     >
@@ -234,20 +238,25 @@ function MiniStat({ to, label, value, tone = "neutro" }: { to: string; label: st
 function BarRow({ label, value, max, valueLabel, sub, danger }: { label: string; value: number; max: number; valueLabel?: string; sub?: string; danger?: number }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
-    <div className="flex items-center gap-3 text-sm">
-      <div className="w-28 shrink-0 truncate text-muted-foreground" title={label}>
+    <div className="flex items-center gap-2 text-sm sm:gap-3">
+      <div className="w-16 shrink-0 truncate text-muted-foreground sm:w-28" title={label}>
         {label}
       </div>
       <div className="relative h-5 flex-1 overflow-hidden rounded-md bg-muted">
         <div className="h-full rounded-md bg-primary/70" style={{ width: `${pct}%` }} />
       </div>
-      <div className="flex w-24 shrink-0 items-center justify-end gap-1.5 tabular-nums">
+      {/* min-w (não w-fixo): com o crachá "N atr." somado ao rótulo, o conteúdo pode passar dos
+          96px de antes — largura fixa cortava/vazava. min-w preserva o alinhamento comum sem
+          travar o que precisar de mais espaço. */}
+      <div className="flex min-w-[4rem] shrink-0 items-center justify-end gap-1.5 tabular-nums sm:min-w-[6rem]">
         {danger != null && danger > 0 && (
           <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[11px] font-semibold text-destructive">{danger} atr.</span>
         )}
         <span className="font-medium">{valueLabel ?? value}</span>
       </div>
-      {sub && <div className="w-16 shrink-0 text-right text-xs text-muted-foreground">{sub}</div>}
+      {/* sub (a estimativa em dinheiro por etapa) some no celular: o total já aparece embaixo da
+          lista, e a 360px ele não cabia — vazava a linha para fora do card. */}
+      {sub && <div className="hidden w-16 shrink-0 text-right text-xs text-muted-foreground sm:block">{sub}</div>}
     </div>
   );
 }
@@ -285,7 +294,7 @@ function PlanoDoDia() {
 function AcoesRapidas() {
   const [novaTarefa, setNovaTarefa] = useState(false);
   const acoes: { to: string; icon: LucideIcon; label: string }[] = [
-    { to: "/leads", icon: Filter, label: "Novo lead" },
+    { to: "/funil-de-vendas", icon: Filter, label: "Novo lead" },
     { to: "/clientes", icon: Building2, label: "Novo cliente" },
     { to: "/documentos", icon: FileText, label: "Nova proposta" },
     { to: "/agenda", icon: Calendar, label: "Novo evento" },
@@ -427,15 +436,6 @@ function PersonalizarMenu({
   personalizado: boolean;
 }) {
   const [aberto, setAberto] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!aberto) return;
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setAberto(false);
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [aberto]);
 
   const grupos: { titulo: string; grupo: Grupo }[] = [
     { titulo: "Meu dia", grupo: "dia" },
@@ -443,48 +443,56 @@ function PersonalizarMenu({
   ];
 
   return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setAberto((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-lg border bg-card px-3 py-2 text-sm font-medium shadow-sm outline-none transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-primary/40"
-      >
-        <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-        Personalizar
-      </button>
-      {aberto && (
-        <div className="absolute right-0 z-40 mt-2 w-72 origin-top-right animate-scale-in overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-lg">
-          <div className="flex items-center justify-between border-b px-3 py-2.5">
-            <span className="text-sm font-semibold">O que mostrar no Início</span>
-            {personalizado && (
-              <button onClick={onRestaurar} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                <RotateCcw className="h-3 w-3" /> Padrão
-              </button>
-            )}
-          </div>
-          <div className="max-h-[60vh] overflow-y-auto p-1.5">
-            {grupos.map((gr) => {
-              const itens = defs.filter((d) => d.grupo === gr.grupo);
-              if (itens.length === 0) return null;
-              return (
-                <div key={gr.grupo} className="mb-1">
-                  <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{gr.titulo}</p>
-                  {itens.map((d) => {
-                    const visivel = !ocultos.includes(d.id);
-                    return (
-                      <label key={d.id} className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent">
-                        <input type="checkbox" checked={visivel} onChange={() => onToggle(d.id)} className="h-4 w-4 accent-[var(--primary)]" />
-                        <d.icon className="h-4 w-4 text-muted-foreground" />
-                        <span className={cn("min-w-0 flex-1 truncate", !visivel && "text-muted-foreground line-through")}>{d.titulo}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+    // O balão custom antigo era `absolute right-0` ancorado num botão à ESQUERDA do cabeçalho
+    // (no celular o PageHeader empilha e o botão fica alinhado à esquerda) — um balão de 288px
+    // "crescendo para a esquerda" a partir dali vazava para fora da tela a 360px. O `Popover` do
+    // kit mede a si mesmo e desliza para caber, sem vazar (ver docs/UI_GUIDELINES.md §4).
+    <Popover
+      open={aberto}
+      onOpenChange={setAberto}
+      ariaLabel="Personalizar o que mostrar no Início"
+      trigger={(p) => (
+        <button
+          {...p}
+          className="inline-flex items-center gap-1.5 rounded-lg border bg-card px-3 py-2 text-sm font-medium shadow-sm outline-none transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+          Personalizar
+        </button>
       )}
-    </div>
+    >
+      <div className="w-72 max-w-[80vw]">
+        <div className="flex items-center justify-between border-b px-1 pb-2">
+          <span className="text-sm font-semibold">O que mostrar no Início</span>
+          {personalizado && (
+            <button onClick={onRestaurar} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+              <RotateCcw className="h-3 w-3" /> Padrão
+            </button>
+          )}
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto pt-1.5">
+          {grupos.map((gr) => {
+            const itens = defs.filter((d) => d.grupo === gr.grupo);
+            if (itens.length === 0) return null;
+            return (
+              <div key={gr.grupo} className="mb-1">
+                <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{gr.titulo}</p>
+                {itens.map((d) => {
+                  const visivel = !ocultos.includes(d.id);
+                  return (
+                    <label key={d.id} className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent">
+                      <input type="checkbox" checked={visivel} onChange={() => onToggle(d.id)} className="h-4 w-4 accent-[var(--primary)]" />
+                      <d.icon className="h-4 w-4 text-muted-foreground" />
+                      <span className={cn("min-w-0 flex-1 truncate", !visivel && "text-muted-foreground line-through")}>{d.titulo}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </Popover>
   );
 }
 
@@ -535,11 +543,14 @@ export function DashboardPage() {
   const vencidasTotal = g ? g.financeiro.vencidasPagar.total + g.financeiro.vencidasReceber.total : 0;
 
   const nEventos = d.eventosHoje.length;
-  const nTarefas = d.minhasTarefas;
+  // d.minhasTarefas conta Card (cartão do quadro de Projetos), não Tarefa (delegação
+  // interna, tabela `Tarefa`) — são dois conceitos diferentes do domínio (achado da
+  // auditoria de 04/09). O rótulo precisa dizer "cartão", nunca "tarefa".
+  const nCards = d.minhasTarefas;
   const resumoDia =
     `${dataTitulo} · ` +
     (nEventos === 0 ? "sem compromissos" : `${nEventos} compromisso${nEventos > 1 ? "s" : ""} hoje`) +
-    ` · ${nTarefas} tarefa${nTarefas !== 1 ? "s" : ""} sua${nTarefas !== 1 ? "s" : ""}` +
+    ` · ${nCards} ${nCards === 1 ? "cartão seu" : "cartões seus"}` +
     (vencidasCount > 0 ? ` · ${vencidasCount} conta${vencidasCount > 1 ? "s" : ""} vencendo` : "");
 
   const temAtencao =
@@ -599,13 +610,17 @@ export function DashboardPage() {
           {g && g.financeiro.aVencer7.count > 0 && (
             <AttentionChip to="/financeiro" icon={Clock} count={g.financeiro.aVencer7.count} label={`conta(s) a vencer (7 dias) · ${formatBRL(g.financeiro.aVencer7.total)}`} tone="warning" />
           )}
+          {/* O número conta RASCUNHO + EM_REVISAO (`dashboard.service.ts`), e o rótulo dizia só
+              "aguardando revisão": o Início mostrava 28, a pessoa clicava e a página Documentos
+              dizia 10. Três telas sobre o mesmo assunto precisam contar a mesma coisa — ou dizer,
+              cada uma, exatamente o que estão contando. */}
           {g && g.docsPendentesCount > 0 && (
-            <AttentionChip to="/documentos" icon={FileText} count={g.docsPendentesCount} label="documento(s) aguardando revisão" tone="info" />
+            <AttentionChip to="/documentos" icon={FileText} count={g.docsPendentesCount} label="documento(s) em rascunho ou revisão" tone="info" />
           )}
           {g && g.docsAguardandoClienteCount > 0 && (
             <AttentionChip to="/documentos" icon={FileText} count={g.docsAguardandoClienteCount} label="documento(s) parado(s) aguardando o cliente" tone="warning" />
           )}
-          {g && g.funil.parados > 0 && <AttentionChip to="/leads" icon={Filter} count={g.funil.parados} label="lead(s) parado(s) há +14 dias" tone="info" />}
+          {g && g.funil.parados > 0 && <AttentionChip to="/funil-de-vendas" icon={Filter} count={g.funil.parados} label="lead(s) parado(s) há +14 dias" tone="info" />}
           {g && g.projetos.parados > 0 && (
             <AttentionChip to="/projetos" icon={FolderKanban} count={g.projetos.parados} label="projeto(s) parado(s) há +14 dias" tone="warning" />
           )}
@@ -653,7 +668,7 @@ export function DashboardPage() {
         />
         {g ? (
           <>
-            <StatCard to="/leads" icon={Filter} label="Leads no funil" value={g.funil.total} sub={`${formatBRL(g.funil.valor)} estimado`} />
+            <StatCard to="/funil-de-vendas" icon={Filter} label="Leads no funil" value={g.funil.total} sub={formatEstimativaDoFunil(g.funil) || "sem valor estimado"} />
             <StatCard to="/projetos" icon={FolderKanban} label="Projetos ativos" value={g.projetos.ativos} sub={g.projetos.parados > 0 ? `${g.projetos.parados} parado(s)` : "em movimento"} />
           </>
         ) : (
@@ -836,7 +851,7 @@ export function DashboardPage() {
       icon: TrendingUp,
       grupo: "gestao",
       span: 1,
-      link: { to: "/leads", label: "Ver funil" },
+      link: { to: "/funil-de-vendas", label: "Ver funil" },
       render: () => (
         <div className="space-y-3 p-4">
           {g.funil.total === 0 ? (
@@ -844,12 +859,12 @@ export function DashboardPage() {
           ) : (
             <div className="space-y-2">
               {g.funil.etapas.map((e) => (
-                <BarRow key={e.nome} label={e.nome} value={e.count} max={Math.max(1, ...g.funil.etapas.map((x) => x.count))} sub={e.valor > 0 ? formatBRLCompact(e.valor) : undefined} />
+                <BarRow key={e.nome} label={e.nome} value={e.count} max={Math.max(1, ...g.funil.etapas.map((x) => x.count))} sub={formatEstimativaDoFunil(e, { compacto: true }) || undefined} />
               ))}
             </div>
           )}
           <div className="flex flex-wrap gap-4 border-t pt-3 text-xs text-muted-foreground">
-            <span>Valor estimado: <strong>{formatBRL(g.funil.valor)}</strong></span>
+            <span>Previsto: <strong>{formatEstimativaDoFunil(g.funil) || "—"}</strong></span>
             <span>Novos (7d): <strong>{g.funil.novos7}</strong></span>
             <span>Convertidos (30d): <strong className="text-success">{g.funil.convertidos30}</strong></span>
           </div>
@@ -906,7 +921,7 @@ export function DashboardPage() {
         <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
           <MiniStat to="/clientes" label="Total de clientes" value={g.clientes.total} />
           <MiniStat to="/clientes" label="Novos (30 dias)" value={g.clientes.novos30} />
-          <MiniStat to="/clientes" label="Prospects" value={g.clientes.prospects} />
+          <MiniStat to="/clientes" label="Em prospecção" value={g.clientes.prospects} />
           <MiniStat to="/clientes" label="Querendo mais (upsell)" value={g.clientes.querendoMais} tone={g.clientes.querendoMais > 0 ? "warning" : "neutro"} />
         </div>
       ),
@@ -914,14 +929,14 @@ export function DashboardPage() {
 
     defs.push({
       id: "docs",
-      titulo: "Documentos aguardando revisão",
+      titulo: "Documentos em rascunho ou revisão",
       icon: FileText,
       grupo: "gestao",
       span: 1,
       link: { to: "/documentos", label: "Ver tudo" },
       render: () =>
         g.docsPendentes.length === 0 ? (
-          <p className="px-4 py-10 text-center text-sm text-muted-foreground">Nada aguardando revisão.</p>
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">Nenhum documento em rascunho ou revisão.</p>
         ) : (
           <div className="divide-y divide-border/60">
             {g.docsPendentes.map((doc) => (

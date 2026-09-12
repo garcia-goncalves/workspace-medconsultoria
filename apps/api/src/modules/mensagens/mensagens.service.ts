@@ -3,6 +3,9 @@ import { prisma } from "@app/db";
 import type { ChamadoStatus, ChamadoPrioridade } from "@app/shared";
 import { notificationService } from "../../realtime/socket.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
+import { enviarEmailTemplate } from "../emails/enviados.service.js";
+import { destinatariosDaRespostaAoCliente } from "./aviso-de-resposta.js";
+import { config } from "../../config.js";
 
 async function ensureParticipant(conversaId: string, userId: string) {
   const p = await prisma.conversaParticipante.findUnique({ where: { conversaId_userId: { conversaId, userId } } });
@@ -356,7 +359,15 @@ export async function listMensagens(conversaId: string, userId: string) {
 }
 
 async function pushParaParticipantes(conversaId: string, evento: string, payload: unknown, exceto?: string) {
-  const parts = await prisma.conversaParticipante.findMany({ where: { conversaId }, select: { userId: true, user: { select: { role: true } } } });
+  const parts = await prisma.conversaParticipante.findMany({
+    where: { conversaId },
+    // `nome`, `email` e `acessoRevogadoEm` vêm junto porque a resposta da equipe precisa
+    // alcançar o cliente por e-mail (M8) — e `ativo` não distingue revogado de convidado.
+    select: {
+      userId: true,
+      user: { select: { role: true, nome: true, email: true, ativo: true, acessoRevogadoEm: true } },
+    },
+  });
   for (const p of parts) if (p.userId !== exceto) notificationService.emitToUser(p.userId, evento, payload);
   return parts;
 }
@@ -371,6 +382,40 @@ export async function sendMensagem(conversaId: string, conteudo: string, userId:
   await prisma.conversaParticipante.updateMany({ where: { conversaId, NOT: { ocultoEm: null } }, data: { ocultoEm: null } });
 
   const parts = await pushParaParticipantes(conversaId, "mensagem", { conversaId, mensagem: msg }, userId);
+
+  // ⚠️ A VOLTA DO CANAL DE SUPORTE (M8) — a equipe responde e o cliente fica sabendo.
+  //
+  // A ida (abaixo) sempre existiu; esta metade não. O cliente abria o chamado, a equipe
+  // respondia, e ele só descobria se voltasse ao Portal por conta própria — trabalho feito e
+  // invisível para quem pediu. O push em tempo real acima só alcança quem está com o Portal
+  // ABERTO neste segundo, que é justamente quem não precisa de aviso.
+  //
+  // Vai por `enviarEmailTemplate`, e não por `notificar`: é e-mail transacional PARA O CLIENTE,
+  // como as boas-vindas e o "serviço ativado" — não um aviso interno com interruptor na tela de
+  // preferências da equipe (o cliente nem abre aquela tela). Best-effort: a mensagem não deixa
+  // de ser gravada porque o e-mail tropeçou.
+  if (conv?.tipo === "CLIENTE" && msg.autor.role !== "CLIENTE") {
+    const assunto = (await prisma.conversa.findUnique({ where: { id: conversaId }, select: { assunto: true } }))?.assunto;
+    const destinos = destinatariosDaRespostaAoCliente(
+      parts.map((p) => ({ userId: p.userId, ...p.user })),
+      userId,
+    );
+    // `allSettled` e não `void`: o envio precisa ficar OBSERVÁVEL (é ele que grava a linha em
+    // `EmailEnviado`, de onde sai o monitor de entregas). Uma caixa fora do ar não derruba a
+    // mensagem — cada destinatário falha sozinho —, mas some do monitor era como a ADR-122
+    // passou meses sem ninguém notar que NENHUM e-mail saía.
+    await Promise.allSettled(
+      destinos.map((d) =>
+        enviarEmailTemplate("suporte_resposta", d.email, {
+          nome: d.nome,
+          assunto: assunto ?? "seu chamado",
+          mensagem: conteudo.trim().slice(0, 200),
+          link: config.WEB_ORIGIN,
+        }),
+      ),
+    );
+  }
+
   // Chamado: cliente escreveu → avisa a equipe (respeita silenciar via notificar? notificação sempre; e-mail sim).
   if (conv?.tipo === "CLIENTE" && msg.autor.role === "CLIENTE") {
     const cliente = conv.clienteId ? await prisma.cliente.findUnique({ where: { id: conv.clienteId }, select: { nome: true } }) : null;

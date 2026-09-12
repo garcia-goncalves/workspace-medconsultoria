@@ -239,7 +239,7 @@ const LACUNAS: { titulo: string; sev: "bloqueante" | "grave" | "atencao"; texto:
     titulo: "Pendências de segredo, só o dono executa",
     sev: "atencao",
     texto:
-      "Rotacionar a chave da OpenAI no .env do servidor e conferir se as 4 contas semeadas ainda aceitam a senha de desenvolvimento que vazou — o root@ primordial é o candidato, porque ninguém o usa para entrar. A senha do SMTP saiu da lista de suspeitos: ela estava certa o tempo todo, como a entrega de 22/08 provou; rotacioná-la virou higiene, não conserto.",
+      "Conferir se as 4 contas semeadas ainda aceitam a senha de desenvolvimento que vazou — o root@ primordial é o candidato, porque ninguém o usa para entrar. A senha do SMTP saiu da lista de suspeitos: ela estava certa o tempo todo, como a entrega de 22/08 provou; rotacioná-la virou higiene, não conserto. [SUPERADO em 04/09/2026, ADR-151: a IA trocou de OpenAI para Gemini — não há mais chave OpenAI para rotacionar; a chave Gemini nasceu nova, nunca vazou.]",
     meta: "Só o dono · 30 min · ADR-98",
   },
   {
@@ -256,7 +256,7 @@ const PLANO: { acao: string; quem: string; esforco: string; destrava: string }[]
   { acao: "Abrir /clientes em produção e converter um lead de verdade", quem: "Dono ou Dev", esforco: "15 min", destrava: "Fecha a dúvida da migração irreversível" },
   { acao: "Apontar um monitor externo para /health", quem: "Dono", esforco: "20 min", destrava: "Aviso de queda mesmo com o servidor fora" },
   { acao: "Alertar quando a taxa de entrega de e-mail cair", quem: "Dev", esforco: "meio dia", destrava: "O e-mail não volta a ficar mudo por semanas" },
-  { acao: "Rotacionar a chave da OpenAI e conferir as 4 contas semeadas", quem: "Dono", esforco: "30 min", destrava: "Fecha a dívida do vazamento (ADR-98)" },
+  { acao: "Conferir as 4 contas semeadas (item da chave OpenAI SUPERADO pela ADR-151 — trocou para Gemini, chave nova, nunca vazou)", quem: "Dono", esforco: "30 min", destrava: "Fecha a dívida do vazamento (ADR-98)" },
   { acao: "Instalar a chave pública de deploy no servidor (DirectAdmin)", quem: "Dono", esforco: "5 min", destrava: "Publicar sem depender do GitHub" },
   { acao: "Ensaiar a restauração do backup num banco descartável", quem: "Dev", esforco: "meia tarde", destrava: "Backup deixa de ser hipótese" },
   { acao: "Cobrir leads.service.ts, o ponto cego real (16,8%)", quem: "Dev", esforco: "contínuo", destrava: "Tira a conversão e a captação do escuro" },

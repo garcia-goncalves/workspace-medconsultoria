@@ -9,12 +9,19 @@ import {
   cancelarServicoClienteSchema,
   atualizarContratacaoClienteSchema,
   hasRoleLevel,
+  convidarPessoaPortalSchema,
+  papelDaPessoaPortalSchema,
+  pessoaPortalSchema,
 } from "@app/shared";
 import { router, funcionarioProcedure, adminProcedure, rootProcedure } from "../../trpc/trpc.js";
+import { anonimizarCliente } from "./anonimizar.service.js";
 import * as service from "./clientes.service.js";
 import * as servicosCliente from "../servicos/servicos-cliente.service.js";
 import * as arquivos from "../arquivos/arquivos.service.js";
 import { listChamadosDoCliente } from "../mensagens/mensagens.service.js";
+import * as pessoas from "../portal/pessoas.service.js";
+// A MESMA régua do Painel do Cliente (ADR-128): ADMIN+ sempre, funcionário só nos clientes dele.
+import { assertPodeVerOPainel } from "../auth/painel-cliente.service.js";
 
 export const clientesRouter = router({
   // Chamados de suporte do cliente (lista na ficha; a conversa fica em Mensagens).
@@ -61,6 +68,57 @@ export const clientesRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(({ input, ctx }) => service.convidarPortalCliente(ctx.user, input.id)),
 
+  // AS PESSOAS DA CLÍNICA NO PORTAL (ADR-131) — médicos e secretárias, cada um com o acesso
+  // dele. Aqui é o lado da EQUIPE DA MED: a Thaís convida e revoga pela ficha do cliente. O
+  // responsável da própria clínica faz o mesmo por `portal.pessoas`, chamando as MESMAS funções.
+  //
+  // ⚠️ DUAS PERGUNTAS DIFERENTES, E POR MUITO TEMPO SÓ UMA ERA FEITA.
+  //
+  // `pessoas.service` confere o vínculo PESSOA↔CLÍNICA em toda função — mas ninguém conferia
+  // ATOR↔CLÍNICA. Com o `clienteId` vindo do input, qualquer FUNCIONARIO convidava a si mesmo
+  // como RESPONSAVEL de QUALQUER clínica, aceitava o convite que chegava na própria caixa e
+  // entrava no Portal alheio com sessão normal de cliente — sem a marca de sessão de suporte
+  // que a ADR-128 criou justamente para isto ficar rastreável. E, no sentido inverso, trancava
+  // o responsável de verdade para fora.
+  //
+  // As MUTAÇÕES passam agora pela mesma régua do Painel do Cliente: ADMIN+ sempre, funcionário
+  // só nos clientes dele. A leitura (`list`) segue como o resto da ficha, que já é assim.
+  pessoas: router({
+    list: funcionarioProcedure
+      .input(z.object({ clienteId: z.string() }))
+      .query(({ input }) => pessoas.listarPessoasDoPortal(input.clienteId)),
+    convidar: funcionarioProcedure
+      .input(convidarPessoaPortalSchema.extend({ clienteId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await assertPodeVerOPainel(ctx.user, input.clienteId);
+        return pessoas.convidarPessoaDoPortal({ ...input, autorId: ctx.user.id });
+      }),
+    alterarPapel: funcionarioProcedure
+      .input(papelDaPessoaPortalSchema.extend({ clienteId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await assertPodeVerOPainel(ctx.user, input.clienteId);
+        return pessoas.alterarPapelDaPessoa({ ...input, autorId: ctx.user.id });
+      }),
+    revogar: funcionarioProcedure
+      .input(pessoaPortalSchema.extend({ clienteId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await assertPodeVerOPainel(ctx.user, input.clienteId);
+        return pessoas.revogarAcessoDaPessoa({ ...input, autorId: ctx.user.id });
+      }),
+    devolver: funcionarioProcedure
+      .input(pessoaPortalSchema.extend({ clienteId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await assertPodeVerOPainel(ctx.user, input.clienteId);
+        return pessoas.devolverAcessoDaPessoa({ ...input, autorId: ctx.user.id });
+      }),
+    reenviarConvite: funcionarioProcedure
+      .input(pessoaPortalSchema.extend({ clienteId: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await assertPodeVerOPainel(ctx.user, input.clienteId);
+        return pessoas.reenviarConviteDaPessoa({ ...input, autorId: ctx.user.id });
+      }),
+  }),
+
   // Arquivar cliente (exclusão LÓGICA: some das listas, preserva histórico) — só ADMIN+.
   remove: adminProcedure
     .input(z.object({ id: z.string() }))
@@ -71,6 +129,12 @@ export const clientesRouter = router({
   excluirDefinitivo: rootProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ input, ctx }) => service.excluirDefinitivoCliente(input.id, ctx.user.id)),
+
+  // ELIMINAÇÃO PELO TITULAR (LGPD, ADR-141) — a resposta que faltava a um pedido de
+  // exclusão. ROOT, como a exclusão definitiva, e só depois de o cliente estar arquivado.
+  anonimizar: rootProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ input, ctx }) => anonimizarCliente(input.id, ctx.user.id)),
 
   addContato: funcionarioProcedure
     .input(createContatoSchema)
@@ -103,6 +167,14 @@ export const clientesRouter = router({
         { id: ctx.user.id },
       ),
     ),
+  /**
+   * O que o cancelamento vai fazer com o dinheiro — lido ANTES do clique, para a confirmação
+   * dizer a verdade. É a MESMA função que o cancelamento executa; separá-las faria a tela
+   * prometer um número e o servidor fazer outro.
+   */
+  previaCancelamento: funcionarioProcedure
+    .input(cancelarServicoClienteSchema)
+    .query(({ input }) => servicosCliente.previaDoCancelamento(input.clienteId, input.servicoId)),
   cancelarServico: funcionarioProcedure
     .input(cancelarServicoClienteSchema)
     .mutation(({ input, ctx }) =>

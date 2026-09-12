@@ -51,7 +51,7 @@ Regra de ouro de segurança: **default-deny**. Nenhum endpoint/mutação sem che
 | Auth         | Cookie httpOnly assinado + argon2id    | Sem token em localStorage (anti-XSS)           |
 | Hospedagem   | TineHost / DirectAdmin (Node + MySQL)  | Requisito                                      |
 
-**Proibido:** .NET. **IA:** `AiService` real, provedor **OpenAI (gpt-4o-mini)** — usada em Documentos (gerar/melhorar/resumir), **transcrição de áudio** (`whisper-1`, em Ata/Pauta/Gerar com IA) e no assistente de busca; aprovação humana sempre obrigatória (a IA nunca envia documento).
+**Proibido:** .NET. **IA:** `AiService` real, provedor **Gemini (`gemini-3.6-flash`, ADR-151)** — REST direto sem SDK — usada em Documentos (gerar/melhorar/resumir), **transcrição de áudio** (multimodal do próprio Gemini, ainda não validada com áudio real) e no assistente de busca; aprovação humana sempre obrigatória (a IA nunca envia documento).
 
 ---
 
@@ -110,7 +110,7 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 3. Deploy por SSH + rsync (TineHost não tem Git no servidor).
 4. Sessão por cookie httpOnly (não JWT em localStorage).
 5. IDs `cuid` não-sequenciais.
-6. IA (`AiService`) real sobre **OpenAI** — decisão de custo (Claude/Anthropic era a recomendação original); aprovação humana sempre.
+6. IA (`AiService`) real sobre **Gemini** (trocou de OpenAI em 04/09/2026, ADR-151 — decisão de custo, mesma config já provada pela Cora); aprovação humana sempre.
 7. Chat adiado (na origem); notificações real-time cedo — chat entregue na Fase 6.
 8. Busca global interna (módulo `busca`) + assistente de IA (`ia.perguntar`) dentro da paleta de busca (Ctrl+K).
 9. Autocomplete (`Combobox`) como padrão de seleção de entidades (cliente em projeto/conta/evento/documento/portal).
@@ -198,6 +198,35 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
 91. **A auditoria de TELA do credenciamento**: cinco defeitos que os 338 testes não pegavam, todos na costura entre telas. O maior: **médico desativado sumia da grade e levava junto os credenciamentos dele** — inclusive um **APROVADO** cuja conta a receber continuava viva no Financeiro, com o cabeçalho do card anunciando "1 de 5 aprovado(s)" que não existia em lugar nenhum da tela. `removerProfissional` desativa justamente para PRESERVAR (ADR-104 §4), e a listagem por `ativo: true` fazia o contrário. Agora ele vem com `ativo: false`: o card de andamento mostra, o construtor da proposta não oferece. Também: aprovar não invalidava o card Financeiro **da ficha** (`clientes.relacionados`, outra query que a página Financeiro); o acervo mostrava seis "Diploma" idênticos sem dizer **de qual médico e qual lado**; aprovação e negativa **não avisavam ninguém**; e a tabela de assinatura da proposta saía com **tarja azul vazia** no PDF (Markdown não tem tabela sem cabeçalho) — ADR-105.
 92. **O Painel de Credenciamentos** (`/credenciamentos`, menu em Negócio): uma linha por cruzamento médico × operadora de **todos** os clientes, respondendo a pergunta que a Thaís faz de manhã — *o que travou?*. O andamento só existia dentro da ficha de cada cliente, um por vez, e ela mantinha planilha paralela. A tela **abre pelo que está parado há mais tempo**, ao contrário do padrão de listagem daqui: a ordenação **é** a resposta. Marca o que passou de **60 dias** sem andar — número que veio da Thaís, não da engenharia (a sugestão era 30), editável em Ajustes → Dados da empresa. O tempo conta do **carimbo da situação atual**, não da criação (criado há 100 dias e protocolado ontem está parado há 1). `A_PROTOCOLAR` conta como atraso — ali a culpa é nossa e é o mais barato de resolver; estado final **nunca** é marcado e mostra a **data** do desfecho, porque "parado há 3 dias" num aprovado seria mentir com uma palavra. Mudar a situação pelo painel reusa a **mesma** `mudarStatusCredenciamento` da ficha (regra de dinheiro em dois lugares são dois relógios). Negócio passou a ter 5 itens, contra a diretriz de 4 do ADR-94: o limite que continua lei é **o menu não rolar** — ADR-106.
 88. **A página de e-mail para de mentir quando algo falha**: erro da consulta de caixas renderizava a tela de boas-vindas "Conecte a sua caixa" para quem já tinha caixa (a pessoa redigitava a senha do webmail e ouvia "você já plugou esta caixa"); a lista dizia "pasta vazia" numa falha de rede; a mensagem que não abre ficava em branco. Todos ganharam texto próprio. Junto: **desplugar caixa** (a rota existia sem tela), **"carregar mais antigos"** (só os 50 mais recentes eram alcançáveis), aviso do estado `ERRO`, "Reconectar" sem F5, e remoção de `email.doCliente`/`doLead` (órfãs e sem filtro por dono da caixa) — ADR-102.
+
+93. **O serviço percentual parou de pedir um valor fixo que não existe (ADR-125).** O Faturamento de contas médicas não tem preço fixo — a Med ganha um **percentual** do que a clínica fatura —, mas o passo obrigatório da Qualificação exigia "Registrar o valor estimado da oportunidade" e travava a etapa. Pior: o lead valia **R$ 0,00** no card e no total da coluna, então o negócio mais valioso do mês podia aparecer como zero. Agora a regra (`planejarEstimativaDoLead`, pura, em `@app/shared`) lê o **preço** dos serviços, nunca o nome: havendo qualquer valor fixo pergunta a estimativa como sempre; sendo tudo percentual pergunta o **faturamento mensal da clínica** (`Lead.faturamentoMensalEstimado`) e **calcula** o `valorEstimado` (faturamento × percentual), gravado pelo servidor para card, totais e relatório lerem um número só. O passo troca de título sozinho e **tem volta** quando entra um serviço de preço fixo. O credenciamento fica fora da conta, igual ao provisionamento da conversão — e para as duas regras não divergirem, `ehServicoDeCredenciamento` mudou de casa para o `shared`. Junto: **`Servico.condicaoPagamento`** tira da memória de quem digita a frase contratual do Faturamento ("O recebimento do Repasse será sempre feito após o crédito na conta da Clínica"), que a **proposta pré-preenche** e para de mexer assim que alguém edita; a ficha do cliente deixou de **omitir** o valor contratado de quem só paga percentual; e o editor de preço parou de **apagar o percentual em silêncio** de serviço fora da categoria "Faturamento" — ADR-125.
+
+94. **Uma proposta por operadora, e a proposta de faturamento nasceu (ADR-126).** Cada operadora tem prazo, documentação e desfecho próprios — uma proposta com três dentro não pode ser aceita pela metade, então **cada proposta de credenciamento é de UMA operadora** (três operadoras = três propostas = três números). ⚠️ A **grade médico × operadora não mudou**: quem virou "uma só" é o documento; o construtor só inverteu a ordem (operadora primeiro, médicos depois). Nasceu o modelo **"Proposta de faturamento médico"**, reconhecido pelo marcador `{{convenios}}`: a linha do serviço percentual **perdeu valor, quantidade e avulso/mensal** — e quem decide isso é o **preço** (`ehServicoSomentePercentual`), nunca a categoria, com teste que reprova a volta da comparação. O papel mostra a **conta feita** (faturamento × percentual), os **convênios atendidos** e o **faturamento médio mensal**. A **operadora virou um cadastro só** com `usoCredenciamento`/`usoFaturamento` (ambas `true` para as existentes; marcada para nada é recusada), e os **convênios passaram a ficar com o cliente** (`ClienteServico.operadoras[]`, N-N) — nascem da proposta aceita viajando **dentro do item**, seguem editáveis na ficha e aparecem no Portal. O faturamento informado na proposta **volta para o lead** e recalcula o valor do negócio: um número só, andando para frente — ADR-126.
+
+95. **A proposta de faturamento virou o papel real da Thaís, e o dinheiro saiu de dois lugares novos (ADR-127).** O corpo do modelo passou a ser a **transcrição** do papel que ela manda hoje — lapidado na forma, intocado no conteúdo — com abertura própria, **Objetivo da parceria**, **Como funciona o nosso serviço** (o que a Clínica precisa entregar, antes das seis etapas), **Suporte comercial**, **Gestão e acompanhamento**, **Prazos e rotina**, investimento, dados para pagamento e **Confidencialidade**. ⚠️ **O Faturamento é SÓ percentual, e a porcentagem varia por cliente** (ordem do dono, que corrigiu o próprio papel de exemplo): a tabela de faixas **não entrou**, e o sistema já fazia isso — `Servico.percentual` como padrão, editável dentro de cada proposta. Nasceu o bloco **{{dadosPagamento}}** (banco, agência, conta, titular, chave PIX em `IdentidadeInstitucional`, editáveis em Ajustes → Dados da empresa), que sai na comercial e na de faturamento e **NÃO sai na de credenciamento** — ali a cobrança só nasce na aprovação da operadora (ADR-104); ⚠️ campo em branco **some** do papel em vez de virar rótulo solto. **"Condições de pagamento" saiu das propostas** (é sempre PIX) e a **frase do repasse virou automática** sempre que há serviço cobrado só por percentual, vinda de `Servico.condicaoPagamento` (ADR-125), inclusive em proposta misturada. ⚠️ **O faturamento médio mensal saiu do papel do cliente e ficou no funil**: imprimir a conta era promessa que envelhece no mês seguinte, e sem o número o lead voltaria a valer R$ 0,00 — o marcador `{{faturamento_mensal}}` foi **removido** do servidor e da prévia, e o campo do construtor passou a avisar que não sai no documento. Achado de passagem: `categoria === "Faturamento"` estava de volta em **quatro** lugares do `documentos.service.ts` (4ª vez) — corrigido, com teste que agora lê também o arquivo do servidor — ADR-127.
+
+96. **Quem avisa o cliente é a Thaís, e a equipe pode ver o Painel dele sem assinar por ele (ADR-128).** E-mail de boas-vindas/acesso passou a ser **só do autocadastro em `/comecar`**: `garantirAcessoPortal` exige uma `OrigemDoAcesso` (`AUTOCADASTRO` · `EQUIPE` · `EQUIPE_COM_AVISO`), e as caixinhas de confirmação de cadastrar cliente e converter lead nascem **desmarcadas** — antes vinham marcadas, e o "automático" era o descuido de todo dia. Nasceu o botão **Painel**: uma **sessão de suporte** onde `Session.operadorId` guarda quem entrou e o `userId` continua sendo o cliente, então ⚠️ **o isolamento do Portal não muda uma linha**. A equipe **vê tudo e não assina nada** — a trava mora no `portalProcedure`, barrando toda **mutação**, porque no Portal escrever é sempre falar pelo cliente; o `/upload` a repete. Dura 30 min, volta em um clique sem novo login, ADMIN+ sempre e funcionário só nos clientes dele, tudo registrado em `activityLog`. O card do Portal passou a ter **três estados** (enviar · reenviar, dizendo há quantos dias o convite está parado · Painel, com o último acesso), o que pediu `User.ultimoAcessoEm` — marcado só no login do CLIENTE. ⚠️ Defeito achado na tela: um cliente pode ter **duas** contas de Portal, e pegar "a primeira por data" mostrava "Enviar acesso" para quem já entrava — ADR-128.
+
+97. **Vários usuários por clínica: cada médico e cada secretária com o próprio acesso (ADR-131).** Acabou a conta única cuja senha circulava entre a equipe da clínica. `User.papelPortal` separa **RESPONSAVEL** (fala pela clínica: aceita proposta, contrata, cancela, convida) de **EQUIPE** (o operacional: documento, formulário, agenda, suporte). ⚠️ **A trava é sobre ASSINAR, não sobre VER** — os dois leem tudo daquela clínica, valores inclusive, pela mesma razão da ADR-128. ⚠️ **`ACOES_LIBERADAS_PARA_EQUIPE` é lista de LIBERAÇÕES e o padrão é NEGAR**, no `portalProcedure` e só em mutação: **ação nova nasce fechada**. Papel nulo vale como RESPONSAVEL (contas anteriores à regra). `sobraResponsavel` impede a clínica de ficar sem quem assine; revogar **desativa, nunca exclui**, e derruba as sessões. Duas telas — card na ficha e seção no Portal — com um componente e um serviço só. ⚠️ Dois defeitos achados clicando: `ativo = false` é **ambíguo** (convidado × revogado), o que fez nascer `User.acessoRevogadoEm`; e a **primeira** pessoa entrava como *Equipe*, deixando a clínica sem ninguém para assinar — ADR-131.
+98. **Documento para quem ainda é LEAD (ADR-132).** O "Novo documento" passou a oferecer **clientes E leads em negociação** — a proposta é justamente o papel que se manda para quem ainda não é cliente, e antes a única saída era converter o lead antes da hora. O corte é o **aceite**: pré-venda aceita lead (proposta, escopo, diagnóstico, plano de ação, ata, pauta de reunião, briefing); pós-venda continua exigindo cliente (contrato, recibo, onboarding, checklist, relatórios, pauta de postagem). ⚠️ **`MODELO_ACEITA_LEAD` é lista de LIBERAÇÕES com padrão fechado** — tipo novo nasce fechado e o teste cobra a decisão. ⚠️ **Zero migração:** o documento continua em `clienteId`, porque o lead já tem um `Cliente` **PROSPECT** por trás (`garantirClienteDoLead`, ADR-128); a tela troca um pelo outro ao gerar. ⚠️ **Propor NÃO converte** — o lead segue no funil e o cliente fica `PROSPECT`, fora da página Clientes. ⚠️ O **rótulo da lista** (`Clínica X (Fulano)`) **não é** o nome impresso (só `Clínica X`) — ADR-132.
+
+99. **O aviso de lead novo parou de virar ruído (ADR-134).** Um lead pelo site mandava e-mail para **toda** conta ADMIN/ROOT ativa — quatro em produção. **Não é esquecimento:** o lead nasce **sem responsável**, então o sistema avisa quem poderia atender. Três mudanças: a **conta de sistema** (`root@`, o ROOT primordial da ADR-89) nunca recebe e-mail operacional, ⚠️ **nem com a preferência ligada à mão**; **"lead novo" nasce ligado só para ADMIN** (o ROOT nominal vê pelo sininho e liga se quiser); e a tela de preferências virou **seis seções** com o aviso de que desligar o e-mail **não** esconde o aviso do sistema. De 4 e-mails por lead para 2. ⚠️ **`padraoDesligadoPara` é lista de EXCEÇÕES com padrão LIGADO** — o oposto de `MODELO_ACEITA_LEAD` e `ACOES_LIBERADAS_PARA_EQUIPE`, e de propósito: lá o risco é fazer demais, aqui é **avisar de menos**. ⚠️ A régua inteira (oito condições) mora em `decidirEmailOperacional` (`@app/shared`), **e a tela lê a mesma função** — duas cópias fariam a tela mentir sobre o que está sendo enviado, o modo de falha da ADR-133. Zero migração — ADR-134.
+
+100. **A porta por onde um programa DE FORA lê dado do Workspace (ADR-149).** Nasceu
+     `GET /api/agent/v1/tasks` — REST/JSON, **fora do tRPC**, com contrato OpenAPI versionado em
+     `med-coordination/contracts/workspace-agent-v1.openapi.yaml` (0.1.0) + SHA-256. O tRPC daqui é
+     transporte do nosso próprio navegador e muda de forma quando refatoramos; entregá-lo à assistente
+     **Cora** faria uma refatoração interna quebrar a assistente **sem quebrar nenhum teste nosso**.
+     ⚠️ **Duas identidades separadas:** `AgentClient` (que programa chama) e `AgentDelegation` (em nome de
+     que pessoa, com escopo, prazo de **24 h** e revogação). Juntá-las faria o segredo do serviço virar,
+     sozinho, acesso a dado de gente. ⚠️ **`userId` no payload não autentica nada** — o `requesterUserId`
+     sai do token e de lugar nenhum mais, e a pessoa é revalidada **a cada chamada**. ⚠️ **A delegação cai
+     junto com a senha:** `changePassword`, `redefinirSenha` e a desativação revogam todas as vivas — sem
+     isso, trocar a senha (o gesto de "fui comprometido") deixaria de pé uma credencial que nenhuma tela
+     mostra. ⚠️ **Indisponibilidade nunca vira lista vazia** (`503`, nunca `200` com `items: []`), porque
+     `{"items":[]}` se lê como *"você está em dia"*. ⚠️ **O freio é por IP**, e não por cabeçalho: chave
+     que quem chama escolhe não é freio (ADR-148 de novo). Detalhe operacional em `docs/API_AGENTE.md` —
+     ADR-149.
 
 ---
 
@@ -371,7 +400,316 @@ jurídica" em lugar nenhum: `Cliente.tipo` e o enum `ClienteTipo` foram removido
 - **Armadilha repetida da ADR-118:** typecheck verde não prova. `createLead`/`updateLead` montam os
   campos um a um e descartavam o `cnpj` **em silêncio**.
 
+
+## 12.7. O dinheiro que é percentual (ADR-125, e a trava da ADR-145)
+
+**Só o faturamento médico é percentual — e desde a ADR-145 isso é uma REGRA, não um retrato.**
+Ordem do dono (31/08/2026): todo o resto do catálogo é valor fixo, avulso ou mensal. Quem libera o
+percentual é a marca **`Servico.ehFaturamento`** (`ehServicoDeFaturamento`, no `shared`), com
+caixinha em Ajustes → Serviços; **só um serviço pode estar marcado**, e nenhum pode ser faturamento
+**e** credenciamento ao mesmo tempo. A trava vale em quatro portas: o Zod da criação, o servidor na
+criação, o servidor na **edição** (sobre o ANTES + o DEPOIS — a edição é parcial) e **a ficha do
+cliente**, que é a segunda porta.
+
+⚠️ **`ehServicoDeFaturamento` e `ehServicoSomentePercentual` respondem perguntas DIFERENTES.** A
+primeira diz *quem pode* ser percentual (identidade, vem do banco); a segunda diz *como esta linha
+está cobrada* (preço, vem do registro) — e **continua igual**. Misturá-las faria a linha de uma
+proposta antiga trocar de forma sozinha no dia em que alguém desmarcasse o serviço.
+
+⚠️ **A marca NÃO é a categoria.** `categoria === "Faturamento"` já foi escrita e removida cinco
+vezes neste código; a marca existe justamente para o nome voltar a ser rótulo editável.
+
+O resto abaixo continua valendo: **nenhuma regra de ESTIMATIVA casa por nome** — quem decide é o
+preço do serviço
+(`valor` × `percentual`), em `planejarEstimativaDoLead` (`packages/shared/src/estimativa.ts`),
+pura e usada pelos DOIS lados — o servidor decide o passo obrigatório do funil, a tela decide qual
+campo mostrar. Duas implementações discordariam no primeiro caso de borda.
+
+- **Negócio 100% percentual:** a Qualificação pergunta `Lead.faturamentoMensalEstimado`, e
+  `Lead.valorEstimado` vira **derivado** (faturamento × percentual), gravado pelo servidor.
+- **Caso misturado** (Faturamento + um serviço de preço fixo): volta a pedir o valor estimado —
+  esconder o valor fixo sujaria o relatório. A troca é automática, nos dois sentidos.
+- **Credenciamento fora da conta**, como já ficava fora do provisionamento da conversão
+  (ADR-104/108). `ehServicoDeCredenciamento` mora no `shared` para as duas regras não divergirem.
+- **`Servico.condicaoPagamento`** é a frase que a **proposta pré-preenche**. Mora no cadastro do
+  serviço, editável em Serviços — nunca no código, pelo mesmo motivo de `clausulasContrato`.
+- ⚠️ **O total do funil soma mensal com avulso.** Já era assim antes desta mudança (Gestão
+  Operacional é R$ 3.500/mês); não foi criado aqui e continua em aberto.
+- **A forma de pagamento é sempre PIX (ADR-127/145).** Não há cartão, boleto nem parcelamento em
+  lugar nenhum que vá ao cliente: a proposta traz `{{dadosPagamento}}`, o contrato diz
+  *"exclusivamente por PIX"* e o **recibo** tem a forma fixa em `PIX` (era um seletor de seis
+  opções que imprimia "Cartão de crédito" no papel timbrado). ⚠️ A categoria *"Cartão de crédito"*
+  do Financeiro é **despesa** — dinheiro que a Med paga — e não tem relação com isto.
+
 ---
+
+
+## 12.8. Operadoras, convênios e o recorte de cada proposta (ADR-126)
+
+**A operadora é UM cadastro, com duas marcações.** A mesma Unimed que se credencia é a Unimed
+cujas contas se faturam. `Operadora.usoCredenciamento` e `Operadora.usoFaturamento` (ambas
+`@default(true)`) decidem em qual lista ela aparece; em **Ajustes → Operadoras e convênios** a
+tela mostra abas, mas o registro é o mesmo. Duas listas separadas divergiriam com o tempo — a do
+credenciamento atualizada, a do faturamento esquecida.
+
+- ⚠️ **Marcada para nada é recusado** (serviço e tela). Ela sumiria de todas as listas sem aviso,
+  e isso se lê como perda de dado.
+- ⚠️ **A grade do credenciamento mostra também a operadora desmarcada que já tem processo** daquele
+  cliente. Mesma lição da ADR-105: filtrar por marcação atual apagaria da tela o que foi
+  preservado de propósito.
+
+**Cada proposta de credenciamento é de UMA operadora.** Cada operadora tem prazo, documentação e
+desfecho próprios; uma proposta com três dentro não pode ser aceita pela metade. Três operadoras
+= três propostas = três números. ⚠️ **A grade médico × operadora não mudou** (ADR-104): quem virou
+"uma só" é o DOCUMENTO. O construtor inverteu a ordem — operadora primeiro, médicos depois.
+A regra está no schema (`UMA_OPERADORA_POR_PROPOSTA`) **e** conferida de novo no servidor, porque
+quem chama a API direto não passa pela tela.
+
+**A proposta de faturamento é reconhecida pelo MODELO**, pelo marcador `{{convenios}}` no corpo —
+mesma lógica do credenciamento, que se reconhece por `{{operadoras}}`. Nunca pelo nome do serviço
+nem pela categoria. Ela leva os convênios atendidos, o faturamento médio mensal, e mostra a
+**conta feita** (faturamento × percentual), não o percentual solto.
+
+**Os convênios ficam com o CLIENTE.** `ClienteServico.operadoras[]` (N-N). Nascem da proposta
+aceita, seguem editáveis na ficha (Serviços → Editar preço → "Preço e convênios") e aparecem no
+Portal. ⚠️ **Viajam DENTRO do item da proposta** (`conveniosIds`), não soltos no documento: é
+assim que atravessam o aceite, pelo mesmo caminho que serviço e preço já percorrem até
+`sincronizarServicosContratados`. E são **ids, não nomes** — nome copiado não sobrevive a um
+"renomear" no catálogo.
+
+**O faturamento informado na proposta volta para o lead.** É o mesmo número que a Qualificação
+pergunta (ADR-125): corrigi-lo na proposta grava no lead e recalcula o valor do negócio, pela
+mesma `reconciliarPassosAuto`. Um número só, andando para frente. É best-effort de propósito —
+proposta emitida não cai porque o funil recusou um número — e só toca lead **ainda em negociação**.
+
+---
+
+---
+
+## 12.9. O que a proposta diz sobre dinheiro a receber (ADR-127)
+
+**"Condições de pagamento" não existe mais na proposta.** Não há condição a negociar: é sempre
+PIX. O campo livre saiu do construtor, do schema (`condicoes`) e dos três formatos de proposta.
+
+**Onde o cliente paga: `{{dadosPagamento}}`.** Banco, agência, conta, titular e chave PIX moram em
+`IdentidadeInstitucional`, editáveis em **Ajustes → Dados da empresa** — dado da empresa, digitado
+uma vez, nunca escrito no código. O bloco sai na **Proposta comercial** e na **Proposta de
+faturamento médico**, e ⚠️ **não sai na de credenciamento**: ali a Thaís só cobra depois do sucesso
+do credenciamento na operadora, e a conta a receber nasce na aprovação (ADR-104).
+
+⚠️ **A regra do vazio.** Campo em branco **não** vira `Agência: ` na frente do cliente — a linha
+some. Com os cinco em branco, a **seção inteira** some. Melhor faltar do que sair pela metade.
+Quem monta é `montarDadosPagamento`, função pura testada em `@app/shared`.
+
+**Quando o repasse cai: frase automática.** Sempre que a proposta inclui um serviço cobrado **só
+por percentual** (`ehServicoSomentePercentual`, lendo o PREÇO DO ITEM, nunca a categoria), o
+documento traz sozinho a frase do repasse — inclusive em proposta misturada com serviços de valor
+fixo. O texto vem de `Servico.condicaoPagamento` (ADR-125), editável na tela de Serviços;
+`FRASE_REPASSE_FATURAMENTO` é só o valor de partida.
+
+**O faturamento médio mensal NÃO sai no papel.** Imprimir *"R$ 6.000,00/mês (5% de R$ 120.000,00)"*
+é promessa que envelhece no mês seguinte — o faturamento da clínica sobe e desce, a proposta
+assinada não. O marcador `{{faturamento_mensal}}` foi **removido** do servidor e da prévia: o
+número não pode nem ter caminho até o cliente. Ele continua sendo perguntado no construtor
+(marcado *"não aparece no documento"*) e continua alimentando o valor do negócio no funil — sem
+ele o lead de faturamento voltaria a valer R$ 0,00, o defeito que a ADR-125 consertou.
+
+---
+
+97. **O PDF do documento não usava a paginação que a tela mostrava (ADR-129).** O preview media os blocos e distribuía o conteúdo em folhas A4; `imprimirDocumento` jogava o documento **inteiro numa folha só** e deixava o navegador cortar onde quisesse, **sem uma regra `break-inside` sequer** — o que a Thaís conferia na tela **não era** o que chegava ao médico. Hoje tela e impressão usam a **mesma** `paginarDocumento`, e a folha da tela virou uma **A4 de verdade** (793×1122 px a 96dpi), porque medir numa A4 encolhida com a fonte em tamanho normal fazia o texto ocupar proporcionalmente mais espaço na tela do que no papel. Cabeçalho e rodapé passam a sair em **todas** as folhas — capa completa só na 1ª, **cabeçalho corrido** nas demais — e nasceu o **"Página N de M"**. ⚠️ A decisão de onde quebrar virou **função pura testada** (`paginacao.ts`): tabela que cabe numa folha **nunca** é fatiada (é o que impede a **assinatura partida**), tabela maior é fatiada por **linhas inteiras** repetindo o cabeçalho, e **título carrega a fila de títulos abaixo dele mais o começo do conteúdo**. ⚠️ Três defeitos só a tela mostrou, com os testes verdes: duas versões da régua do título órfão (parágrafo não se parte; título pode ser seguido de outro título) e a **última folha quebrando depois**, que punha uma folha em branco no fim do PDF — `:last-child` não casa porque o último filho da janela de impressão é a tag `<script>`. Auditado na tela: **16/16 modelos** e **18 documentos reais (45 folhas)** sem defeito — ADR-129.
+
+## 12.10. O Painel do cliente visto pela equipe (ADR-128)
+
+**É sessão de suporte, não login emprestado.** `Session.operadorId` guarda quem da equipe entrou;
+o `userId` continua sendo o dono do Portal. Consequência que importa: **o `portalProcedure` não
+mudou** — ele segue filtrando tudo pelo `clienteId` da sessão, e a sessão de suporte enxerga
+exatamente o que aquele cliente enxerga, nem um registro a mais.
+
+**Vê tudo, não assina nada.** O `portalProcedure` recusa toda **mutação** vinda de sessão com
+`operadorId`. A trava é uma só, e não uma lista de ações, porque no Portal escrever é sempre
+falar pelo cliente — desistir do atendimento, cancelar serviço, pedir serviço novo, enviar
+briefing, apagar documento, abrir chamado. Ação nova nasce protegida. O `/upload` repete a trava
+porque não passa pelo `portalProcedure`.
+
+**30 minutos, e volta em um clique.** `voltarParaSessionId` guarda a sessão do operador, que
+continua viva: voltar troca o cookie, não pede login. Expirada a original, a tela manda para o
+login em vez de prender a pessoa numa sessão que ela não quer mais.
+
+**Quem pode:** ADMIN+ sempre; FUNCIONÁRIO só nos clientes sob a responsabilidade dele. Registrado
+em `activityLog` (`painel_cliente.entrou` / `.saiu`) — acesso a dado pessoal de terceiro precisa
+ser auditável.
+
+**Não aninha:** quem está em suporte volta ao próprio acesso antes de abrir outro painel.
+
+⚠️ **Ficou de fora:** o cliente não é avisado de que a equipe entrou (fica registrado, mas sem
+aviso ativo), e não há tela para ler esse histórico.
+
+## 12.11. As pessoas de uma clínica no Portal (ADR-131)
+
+**Uma clínica não é uma pessoa.** Cada médico e cada secretária tem conta própria, ligada ao mesmo
+`Cliente` por `User.clienteId` — o modelo já tolerava isso desde sempre; o que faltava era o
+recurso de produto (convidar, nomear, dar papel, revogar).
+
+**Dois papéis, e a fronteira é ASSINAR.** `RESPONSAVEL` fala pela clínica; `EQUIPE` toca o
+operacional. Os dois **leem tudo** daquela clínica, valores inclusive — a mesma escolha da ADR-128:
+esconder número da secretária resolveria um problema que ninguém relatou e criaria um que morde
+toda semana.
+
+**A lista é de LIBERAÇÕES, e o padrão é negar.** `ACOES_LIBERADAS_PARA_EQUIPE` (em `@app/shared`)
+diz o que a EQUIPE pode; tudo o mais é do RESPONSAVEL, **inclusive o que ainda não foi escrito**.
+A trava mora no `portalProcedure`, ao lado da trava da sessão de suporte, e só vale para mutação.
+⚠️ É o inverso de uma lista de proibições de propósito: naquela, a ação que alguém esquecer de
+proibir é justamente a que vai morder.
+
+**Papel nulo = RESPONSAVEL.** São as contas anteriores à regra, que sempre puderam tudo.
+Rebaixá-las em silêncio tiraria o poder de assinar de quem já assinava.
+
+**A clínica nunca fica sem quem assine.** `sobraResponsavel` (pura, testada) recusa rebaixar,
+desativar ou revogar o último responsável. Ninguém revoga o próprio acesso.
+
+**Revogar é desativar, nunca excluir** — a conta aparece no histórico, e apagá-la deixaria
+"alguém" no lugar do nome de quem agiu (ADR-109). As sessões abertas caem junto.
+
+⚠️ **`ativo = false` é AMBÍGUO.** Conta convidada e ainda sem senha também nasce inativa. Quem
+decide "revogado" é **`User.acessoRevogadoEm`**, e não a coluna `ativo` — três lugares erraram isso
+antes de o marcador existir: a situação da lista, a mensagem de e-mail duplicado e a régua do
+"sobra responsável".
+
+---
+
+## 12.12. Documento para quem ainda é lead (ADR-132)
+
+O seletor de **Novo documento** oferece duas listas: **Clientes** e **Leads em negociação** (estes
+marcados com a etapa do funil, que é o que diz se cabe propor agora).
+
+**Quem decide o que aparece:** `MODELO_ACEITA_LEAD`, em `@app/shared` — lida pelo servidor e pela
+tela, para não divergirem. É lista de **liberações**, padrão **fechado**:
+
+| Aceita lead (pré-venda) | Só cliente (pós-venda) |
+|---|---|
+| Proposta · Escopo · Diagnóstico · Plano de ação · Ata · Pauta de reunião · Briefing | Contrato · Recibo · Onboarding · Checklist · Relatórios · Pauta de postagem |
+
+⚠️ **Tipo de modelo novo nasce FECHADO** e `documento-aceita-lead.test.ts` reprova quem o
+acrescentar sem decidir.
+
+**Como funciona por baixo, sem migração:** o `Documento` continua apontando para `clienteId`. O
+lead já tem (ou ganha) um `Cliente` **PROSPECT** — o mesmo do acesso ao Portal do prospect
+(ADR-128). Ao gerar, a tela chama `documentos.clienteDoLead` (idempotente) e troca um pelo outro;
+as seis formas de gerar documento não mudaram uma linha.
+
+⚠️ **Propor não converte.** O cliente fica `PROSPECT` (fora da página Clientes, ADR-24) e o lead
+segue no funil com `convertidoEmClienteId` nulo — travado por teste de integração. Sem isso,
+emitir proposta viraria conversão silenciosa, com a provisão financeira da ADR-108 junto.
+
+⚠️ **Dois nomes, de propósito:** `rotulo` (`Clínica X (Fulano)`) serve para **escolher** entre
+clínicas parecidas; `nomeNoDocumento` (`Clínica X`) é o que sai **impresso**. Trocar um pelo outro
+faz o papel abrir com *"Prezado(a) Clínica X (Fulano)"*.
+
+O painel do lead ganhou o bloco **Documentos** — sem ele a Thaís emitiria a proposta e não a
+acharia mais pelo funil (a falha de costura das ADR-105 e ADR-128).
+
+## 12.13. Conformidade com a lei — o que não pode ser desfeito sem decisão (ADR-141)
+
+> **NO AR desde 28/08/2026 às 23:27, na v1.3.0** (execução `33218952176`, commit `bed5f1a`,
+> migração `20260828220208` aplicada). Conferido na tela de produção como ROOT.
+>
+> ⚠️ **PENDÊNCIA DE CADASTRO, NÃO DE CÓDIGO:** em produção a razão social, o CNPJ, o endereço e o
+> foro estão **em branco**, e por isso o aviso em `/privacidade` diz só "MedConsultoria" — sem
+> identificar o controlador, que é o que a LGPD manda a página trazer. O comportamento do código é
+> o correto (não inventar dado jurídico); o que falta é o dono preencher **Ajustes → Dados da
+> empresa**. Os cinco campos bancários e o encarregado de dados também estão vazios.
+
+**O Gemini nunca vê dado pessoal identificável** (trocou de provedor na ADR-151; o mecanismo
+continua o mesmo). A peneira (`redigirDadoPessoal`, `@app/shared`)
+mora na **porta única** — `gerarRascunho`, em `apps/api/src/lib/ai.ts`. ⚠️ **Não mova a peneira para
+os pontos de chamada**: são 16 hoje, e o filtro no portão é o que faz a chamada de amanhã nascer
+coberta. ⚠️ **Não troque redigir+restaurar por "apagar"**: "melhorar com IA" devolve o corpo do
+documento, e um contrato voltando com `[removido]` no lugar do CNPJ é perda de dado. ⚠️ Regex só
+pega o que tem FORMA — por isso `observacoes` foi retirado do contexto **na origem**, e campo de
+texto livre novo deve ser tratado do mesmo jeito.
+
+**O nome do cliente CONTINUA sendo enviado**, de propósito: sem ele o resumo não serve. Trocá-lo por
+identificador é decisão jurídica em aberto, registrada em `docs/IA_PRIVACIDADE.md`.
+
+**Link público expira, e a trava está nas QUATRO portas.** `getPorToken` **e** `assinar`/`responder`,
+nos dois serviços. ⚠️ Barrar só a leitura deixaria o link vencido assinando — a segunda porta da
+ADR-140. 30 dias para abrir, +90 depois de respondido, derivados de datas que já existem (zero
+migração). Link vencido responde `PRECONDITION_FAILED`, nunca erro cru (ADR-135).
+
+**A eliminação do titular é anonimização**, e a tela mora na aba *Privacidade* do painel do ROOT —
+não na ficha, porque toda tela de cliente filtra `deletedAt: null`. ⚠️ **Exige o cliente arquivado.**
+⚠️ **O corpo dos contratos já emitidos NÃO é reescrito** — é o dever de guarda que justifica manter,
+e reescrever destruiria a prova.
+
+**Os prazos de guarda vêm do banco** (`IdentidadeInstitucional.retencaoCorpoEmailDias` = 180,
+`retencaoAcervoAnos` = 5), editáveis em Ajustes. ⚠️ **Nunca transforme em constante no código:** a
+página `/privacidade` promete exatamente o que o expurgo cumpre, e os dois leem o mesmo campo.
+⚠️ **O acervo vencido é AVISADO, nunca apagado.**
+
+**`AVISO_PRIVACIDADE_VERSAO` (`@app/shared`) sobe sempre que o texto da página muda.** O
+consentimento do lead grava data **e** versão; sem subir, a prova aponta para um texto que já não é
+o que ele leu.
+
+**Credenciamento reaberto cobra de novo** (decisão do dono). ⚠️ A tentativa nova **não herda**
+`contaId` — quem "consertar" isso estará dando de graça o segundo credenciamento. O aviso na tela é
+que faltava.
+
+---
+
+## 12.14. A API do agente — a Cora falando com o Workspace (ADR-149/150)
+
+> ✅ **NO AR desde 04/09/2026 (v1.7.0), leitura E escrita.** As cinco migrações do lote (ADR-147 a
+> 150) foram aplicadas em produção; confirmado por HTTP real, de fora: `GET /api/agent/v1/tasks`
+> sem credencial responde `401`. ⚠️ Nenhuma credencial de produção foi emitida ainda — os comandos
+> `pnpm agente cliente|delegar` recusam rodar fora desta máquina, de propósito, e não há exceção
+> por variável de ambiente daqui. **O mecanismo para emitir existe** (workflow "Emitir credencial
+> do agente", `docs/API_AGENTE.md` § *Emitir credenciais em PRODUÇÃO*) — a decisão de acionar
+> continua sendo do dono.
+
+**Detalhe operacional (comandos, cabeçalhos, erros): `docs/API_AGENTE.md`.** O contrato canônico é
+`med-coordination/contracts/workspace-agent-v1.openapi.yaml`, versão **0.2.1**, com o SHA-256 ao
+lado. **O contrato é o arquivo; este texto explica o porquê.**
+
+**Não expor o tRPC foi a primeira decisão, e ela vem antes de todas.** O tRPC daqui fala superjson,
+agrupa chamadas em lote e muda de forma quando refatoramos. Um consumidor externo amarrado a ele
+quebraria numa refatoração interna — **sem quebrar nenhum teste nosso**, porque o outro lado nem
+compila junto. Cada capacidade nova é um endpoint desenhado, com escopo próprio e subida de versão.
+
+**Duas identidades, e juntá-las seria o defeito.** `AgentClient` responde *que programa está
+chamando*; `AgentDelegation`, *em nome de que pessoa*. Separadas, um segredo de serviço vazado não
+lê o dado de ninguém, e **a delegação é presa ao serviço** que a recebeu.
+
+⚠️ **`userId` no corpo, na query ou em cabeçalho livre não autentica nada.** O `requesterUserId`
+sai do token e de lugar nenhum mais — a função que consulta recebe o id que a autenticação
+devolveu, e não existe caminho para o pedido escolher a pessoa. Mesma escolha do `clienteId` do
+`portalProcedure` (ADR-128), pelo mesmo motivo: quem pede é a parte interessada em mentir.
+
+⚠️ **A pessoa é revalidada a cada chamada** — ativa, não excluída, sem acesso revogado, papel
+interno, escopo presente (padrão NEGAR). Delegação de 24 h emitida de manhã não vale depois de o
+acesso cair ao meio-dia.
+
+⚠️ **A delegação cai junto com a senha.** `changePassword`, `redefinirSenha` e a
+desativação/troca de e-mail em `updateUser` chamam `revogarDelegacoesDoUsuario`. Sem isso, trocar a
+senha — que nesta casa é o gesto de *"fui comprometido"* — deixaria de pé uma credencial de leitura
+que **nenhuma tela mostra**, e `SISTEMA → Sessões` apareceria limpo. É a terceira porta da
+revogação, ao lado de sessão e token (ADR-140).
+
+⚠️ **Indisponibilidade nunca vira lista vazia.** `{"items":[]}` só sai com `200`, e significa "não
+há tarefas abertas". Banco fora do ar é `503 UPSTREAM_UNAVAILABLE`, e o assistente tem de dizer
+"não consegui consultar" — dizer *"você está em dia"* é a pior frase que ele pode errar.
+
+⚠️ **O freio é por IP, não por cabeçalho.** `config.rateLimit` numa rota **substitui** o freio
+global de 300/min; chavear pelo cabeçalho de cliente dava um balde novo por requisição a quem o
+rotacionasse. É a ADR-148 pela segunda vez: **freio cuja chave o atacante escolhe não é freio.**
+
+⚠️ **Só `Tarefa`.** Não `Card` (etapa de projeto), não `Evento` (agenda) — o briefing da Cora
+proíbe fundir as três, e a proibição é de negócio. `scope=mine` é *sou responsável*, a mesma régua
+da aba **Comigo**; nunca "tudo o que eu posso ver". E `descricao` **não** é exposta: texto livre
+pode conter dado de cliente (minimização, ADR-141).
+
+**Migração `20260902200000`:** duas tabelas novas, aditiva, sem backfill; reverter são dois
+`DROP TABLE`. Credenciais nascem só pelo comando `pnpm agente`, que **recusa rodar em produção**
+com a mesma régua do `demo-seed` (`podeRodarDemoSeed`).
 
 ---
 

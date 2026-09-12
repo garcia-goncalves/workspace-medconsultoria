@@ -1,11 +1,15 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
+import { revogarDelegacoesDoUsuario } from "../agente/agente.service.js";
 import { ROLE_LEVEL, type Role } from "@app/shared";
 import type { CreateUsuarioInput, UpdateUsuarioInput, InviteUsuarioInput } from "@app/shared";
 import { hashPassword } from "../../lib/password.js";
 import { criarToken } from "../../lib/tokens.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { config } from "../../config.js";
+// A tela interna *Equipe e acessos* também cria e desativa conta de Portal. Sem passar por
+// estas duas regras, ela furava as travas das ADR-131/137 pela porta dos fundos.
+import { papelPortalPadraoDaClinica, assertSobraResponsavel } from "../portal/papel-da-clinica.js";
 
 /** Convite válido por 72h. */
 const CONVITE_TTL_MS = 72 * 60 * 60 * 1000;
@@ -15,7 +19,7 @@ const CONVITE_TTL_MS = 72 * 60 * 60 * 1000;
  * O template acompanha o PAPEL: CLIENTE recebe as boas-vindas quentes do Portal;
  * a equipe interna recebe o convite padrão do Workspace.
  */
-async function gerarConvite(userId: string, nome: string, email: string, role: Role) {
+export async function gerarConvite(userId: string, nome: string, email: string, role: Role) {
   const token = await criarToken(userId, "CONVITE", CONVITE_TTL_MS);
   const url = `${config.WEB_ORIGIN}/definir-senha?token=${token}`;
   const template = role === "CLIENTE" ? "portal_boas_vindas" : "convite";
@@ -26,17 +30,51 @@ async function gerarConvite(userId: string, nome: string, email: string, role: R
 }
 
 /**
- * Garante o acesso ao Portal do Cliente de forma AUTOMÁTICA (captação, novo cliente,
- * conversão): cria a conta CLIENTE pendente ligada ao cliente e envia o e-mail de
- * boas-vindas com o link de acesso. Idempotente e best-effort — se já existe conta
- * (por cliente ou por e-mail), não recria nem reenvia (retorna `jaTinhaAcesso`).
+ * De ONDE veio o pedido de acesso ao Portal. Existe porque **só o cliente que se cadastra
+ * sozinho recebe e-mail sem ninguém mandar** (ordem do dono, 26/08/2026 — ADR-128).
+ *
+ * `AUTOCADASTRO` — o próprio cliente se inscreveu em `/comecar`. Ele está esperando o e-mail
+ *   naquele instante; não mandar seria deixá-lo sem porta de entrada.
+ * `EQUIPE` — alguém da casa cadastrou, converteu ou contratou por ele. Aqui o e-mail **NÃO sai**:
+ *   quem decide quando o cliente é avisado é a Thaís, pelo botão "Enviar acesso" do card.
+ * `EQUIPE_COM_AVISO` — alguém da casa cadastrou **e marcou, naquele momento, a caixa "avisar o
+ *   cliente agora"**. É o mesmo pedido do botão "Enviar acesso", feito um passo antes. A caixa
+ *   nasce **desmarcada**: marcar é um ato, não um descuido.
+ *
+ * ⚠️ É um parâmetro OBRIGATÓRIO de propósito. A regra anterior morava numa caixinha marcada por
+ * padrão, e caixinha marcada por padrão é regra que depende de alguém lembrar de desmarcar —
+ * daqui a três meses alguém remarca "por praticidade" e o comportamento volta calado. Obrigando
+ * cada chamada a declarar a origem, o compilador cobra a decisão de quem escrever a próxima.
+ */
+export type OrigemDoAcesso = "AUTOCADASTRO" | "EQUIPE" | "EQUIPE_COM_AVISO";
+
+/**
+ * Garante o acesso ao Portal do Cliente: cria a conta CLIENTE pendente ligada ao cliente.
+ * Idempotente e best-effort — se já existe conta (por cliente ou por e-mail), não recria nem
+ * reenvia (retorna `jaTinhaAcesso`).
+ *
+ * ⚠️ **O e-mail de boas-vindas NÃO sai quando `origem` é `EQUIPE`.** Ver `OrigemDoAcesso`.
  */
 export async function garantirAcessoPortal(
   clienteId: string,
   nome: string,
   email: string | null,
-): Promise<{ criou: boolean; jaTinhaAcesso: boolean; emailEnviado: boolean; conviteUrl: string | null }> {
-  const nada = { criou: false, jaTinhaAcesso: false, emailEnviado: false, conviteUrl: null };
+  origem: OrigemDoAcesso,
+): Promise<{
+  criou: boolean;
+  jaTinhaAcesso: boolean;
+  /**
+   * M11: o e-mail já é usado por OUTRA conta (outra clínica ou uma conta interna) — bem
+   * diferente de "este cliente já tinha acesso". Continua recusando criar (um e-mail não pode
+   * abrir o Portal de duas clínicas — ADR-128/ADR-131), mas agora DIZ qual dos dois motivos foi:
+   * `jaTinhaAcesso` (nada a fazer, é o mesmo cliente) ou este campo (o convite não sai porque o
+   * e-mail pertence a outro cadastro, e é isso que quem convidou precisa descobrir na tela).
+   */
+  emailEmUsoPorOutraConta: boolean;
+  emailEnviado: boolean;
+  conviteUrl: string | null;
+}> {
+  const nada = { criou: false, jaTinhaAcesso: false, emailEmUsoPorOutraConta: false, emailEnviado: false, conviteUrl: null };
   if (!email) return nada;
 
   // Já existe conta de Portal para este cliente? (continuidade lead → cliente)
@@ -46,16 +84,39 @@ export async function garantirAcessoPortal(
   });
   if (doCliente) return { ...nada, jaTinhaAcesso: true };
 
-  // Já existe QUALQUER usuário com este e-mail? Não duplica acesso.
-  const doEmail = await prisma.user.findFirst({ where: { email, deletedAt: null }, select: { id: true } });
-  if (doEmail) return { ...nada, jaTinhaAcesso: true };
+  // Já existe QUALQUER usuário com este e-mail? Não duplica acesso — mas o motivo importa:
+  // se for de OUTRO cliente (ou conta interna), não é "já tinha acesso", é "e-mail em uso".
+  const doEmail = await prisma.user.findFirst({
+    where: { email, deletedAt: null },
+    select: { id: true, clienteId: true },
+  });
+  if (doEmail) {
+    if (doEmail.clienteId !== clienteId) return { ...nada, emailEmUsoPorOutraConta: true };
+    return { ...nada, jaTinhaAcesso: true };
+  }
 
   const usuario = await prisma.user.create({
-    data: { nome: nome.trim(), email, passwordHash: null, ativo: false, role: "CLIENTE", clienteId },
+    data: {
+      nome: nome.trim(),
+      email,
+      passwordHash: null,
+      ativo: false,
+      role: "CLIENTE",
+      clienteId,
+      // A PRIMEIRA pessoa da clínica é o RESPONSAVEL (ADR-131) — é ela que aceita a proposta que
+      // deu origem a esta conta. As seguintes entram pelo convite explícito, onde quem convida
+      // escolhe o papel; e não pode ser o contrário: uma clínica cuja única pessoa fosse
+      // "equipe" nasceria sem ninguém que pudesse assinar nada.
+      papelPortal: "RESPONSAVEL",
+    },
     select: { id: true, nome: true, email: true },
   });
+  // Cadastro feito pela EQUIPE sem pedir aviso: a conta nasce, o e-mail NÃO sai. O cliente é
+  // avisado quando a Thaís quiser, pelo botão "Enviar acesso" do card.
+  if (origem === "EQUIPE")
+    return { criou: true, jaTinhaAcesso: false, emailEmUsoPorOutraConta: false, emailEnviado: false, conviteUrl: null };
   const r = await gerarConvite(usuario.id, usuario.nome, usuario.email, "CLIENTE");
-  return { criou: true, jaTinhaAcesso: false, ...r };
+  return { criou: true, jaTinhaAcesso: false, emailEmUsoPorOutraConta: false, ...r };
 }
 
 /** Campos públicos de um usuário (nunca expõe passwordHash). */
@@ -68,6 +129,10 @@ const publicSelect = {
   avatarUrl: true,
   clienteId: true,
   createdAt: true,
+  // Papel DENTRO da clínica (ADR-131). A coluna "Papel" da tela dizia só "Cliente", e quem
+  // olhava não sabia se aquela secretária pode assinar pela clínica. Nulo vale como
+  // RESPONSAVEL — são as contas anteriores à regra.
+  papelPortal: true,
   cliente: { select: { nome: true } },
 } as const;
 
@@ -146,6 +211,11 @@ export async function createUsuario(atorRole: Role, input: CreateUsuarioInput) {
       passwordHash: await hashPassword(input.senha),
       role: input.role,
       clienteId: input.role === "CLIENTE" ? clienteId : null,
+      // ⚠️ SEM ESTA LINHA A CONTA NASCIA COM O PAPEL NULO — e nulo vale como RESPONSAVEL
+      // (contas anteriores à ADR-131). Ou seja: toda secretária cadastrada pela tela da Med
+      // podia aceitar proposta e assinar contrato, desfazendo na origem a trava da ADR-137.
+      papelPortal:
+        input.role === "CLIENTE" && clienteId ? await papelPortalPadraoDaClinica(clienteId) : null,
     },
     select: publicSelect,
   });
@@ -180,6 +250,9 @@ export async function convidarUsuario(atorRole: Role, input: InviteUsuarioInput)
       ativo: false,
       role: input.role,
       clienteId: input.role === "CLIENTE" ? clienteId : null,
+      // Mesmo motivo de `createUsuario`: papel nulo = quem assina.
+      papelPortal:
+        input.role === "CLIENTE" && clienteId ? await papelPortalPadraoDaClinica(clienteId) : null,
     },
     select: publicSelect,
   });
@@ -227,6 +300,7 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
     ativo?: boolean;
     clienteId?: string | null;
     passwordHash?: string;
+    acessoRevogadoEm?: Date | null;
   } = {};
 
   if (input.nome !== undefined) data.nome = input.nome.trim();
@@ -262,7 +336,25 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
     if (protegido && input.ativo === false) {
       throw new TRPCError({ code: "FORBIDDEN", message: "O root principal não pode ser desativado." });
     }
+    // A MESMA TRAVA DA ADR-131, AGORA TAMBÉM AQUI. A tela do Portal e a ficha do cliente já
+    // recusavam deixar a clínica sem ninguém que assine; *Equipe e acessos* não perguntava, e
+    // por ela dava para desativar o único responsável — em silêncio.
+    if (input.ativo === false && alvo.role === "CLIENTE" && alvo.clienteId) {
+      await assertSobraResponsavel(alvo.clienteId, { id: alvo.id, ativo: false });
+    }
     data.ativo = input.ativo;
+    // ⚠️ `ativo = false` É AMBÍGUO — e por isso desativar aqui não bastava (C8).
+    //
+    // Conta convidada que ainda não definiu senha TAMBÉM nasce inativa. Quem lê a situação
+    // (`pessoas.service`: REVOGADO × CONVIDADO × ATIVO, e o `destinatarioDeAssinatura`) só
+    // consegue distinguir os dois estados por `acessoRevogadoEm`. Sem a marca, quem teve o
+    // acesso encerrado por esta tela aparecia como "convidado, ainda não entrou" — e a Med
+    // ficava esperando o cliente aparecer num acesso que ela mesma tinha fechado.
+    //
+    // É a segunda porta do mesmo dado: `revogarAcessoDaPessoa` (a tela do Portal) já marcava;
+    // *Equipe e acessos* não. Reativar apaga a marca pelo mesmo motivo, e é o que devolve o
+    // caminho do convite/redefinição (`recusarSeAcessoRevogado`, em `auth.service`).
+    data.acessoRevogadoEm = input.ativo === false ? new Date() : null;
   }
 
   const finalRole = data.role ?? alvo.role;
@@ -290,6 +382,22 @@ export async function updateUsuario(atorId: string, atorRole: Role, input: Updat
   // Desativação, troca de senha ou de e-mail invalida as sessões abertas do alvo.
   if (data.ativo === false || data.passwordHash || data.email) {
     await prisma.session.deleteMany({ where: { userId: input.id } });
+  }
+
+  // ⚠️ DERRUBAR A SESSÃO NÃO BASTA: o convite vale 72 h e o reset, 1 h. Sem apagar os tokens,
+  // quem foi desativado com um link ainda na caixa clicava nele, e `aceitarConvite`/
+  // `redefinirSenha` gravam `ativo: true` — a conta desativada voltava a entrar sozinha.
+  if (data.ativo === false || data.passwordHash) {
+    await prisma.token.deleteMany({ where: { userId: input.id, usedAt: null } });
+  }
+
+  // ⚠️ **A TERCEIRA PORTA (ADR-149).** Derrubar a sessão e apagar o token não bastava: a
+  // delegação do agente é uma credencial de leitura que vive fora das duas coisas. Trocar a
+  // senha é, nesta casa, o gesto de "fui comprometido" — e sem esta linha o painel
+  // `SISTEMA → Sessões` mostraria tudo limpo enquanto um token vazado continuava lendo as
+  // tarefas da pessoa até o prazo vencer, por uma via que **nenhuma tela mostra**.
+  if (data.ativo === false || data.passwordHash || data.email) {
+    await revogarDelegacoesDoUsuario(input.id);
   }
 
   return user;

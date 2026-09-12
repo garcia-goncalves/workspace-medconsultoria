@@ -38,6 +38,64 @@ export function PropostaPublicaPage({ token }: { token: string }) {
       </Casca>
     );
   }
+  // ⚠️ FALHA DE REDE NÃO É LINK INVÁLIDO — e a diferença aqui custa caro.
+  //
+  // Esta é a página que o médico abre DESLOGADO, no celular, numa rede qualquer. Juntar
+  // `isError` com `!data` fazia um blip de conexão dizer a ele que o link morreu (e o TanStack
+  // Query está com `retry: false`, então basta UMA tentativa falhar). Ele então pede outro link,
+  // e a Med emite um segundo documento para o mesmo negócio.
+  //
+  // ⚠️ **Mas token inválido TAMBÉM chega como erro** — o servidor responde `NOT_FOUND`. Quem
+  // separa as duas coisas é o CÓDIGO da resposta, não o fato de ter dado erro: só o que o
+  // servidor recusou explicitamente é "link inválido"; o resto (rede, 500, timeout) é
+  // "tente de novo". Um teste de ponta a ponta pegou exatamente esta confusão.
+  const codigo = q.error?.data?.code;
+  // PRECONDITION_FAILED = link EXPIRADO (ADR-141). Entra aqui para não ser lido como
+  // falha de rede — e ganha tela própria abaixo, porque expirado não é inválido.
+  const linkRecusadoPeloServidor =
+    codigo === "NOT_FOUND" || codigo === "BAD_REQUEST" || codigo === "FORBIDDEN" || codigo === "PRECONDITION_FAILED";
+  if (q.isError && !linkRecusadoPeloServidor) {
+    return (
+      <Casca>
+        <div className="rounded-xl border bg-background p-8 text-center">
+          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-warning" />
+          <h1 className="text-lg font-semibold">Não conseguimos carregar</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Seu link continua valendo — foi a conexão com o nosso servidor que falhou. Tente de novo
+            em alguns instantes.
+          </p>
+          <button
+            type="button"
+            onClick={() => void q.refetch()}
+            className="mt-4 rounded-lg border px-4 py-2 text-sm font-medium hover:bg-muted"
+          >
+            Tentar de novo
+          </button>
+        </div>
+      </Casca>
+    );
+  }
+  // ⚠️ TRÊS frases, não duas: falha de rede (acima), EXPIRADO (aqui) e inválido (abaixo).
+  // Dizer "link inválido" a quem tem o link certo, só velho, o faz achar que foi enganado —
+  // e a saída dele é outra: pedir um novo, não conferir o endereço.
+  if (codigo === "PRECONDITION_FAILED") {
+    return (
+      <Casca>
+        <div className="rounded-xl border bg-background p-8 text-center">
+          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-warning" />
+          <h1 className="text-lg font-semibold">Link expirado</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{q.error?.message}</p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Fale com a equipe da MedConsultoria pelo e-mail{" "}
+            <a className="font-medium underline" href="mailto:contato@medconsultoria.com.br">
+              contato@medconsultoria.com.br
+            </a>
+            .
+          </p>
+        </div>
+      </Casca>
+    );
+  }
   if (q.isError || !q.data) {
     return (
       <Casca>
@@ -45,7 +103,7 @@ export function PropostaPublicaPage({ token }: { token: string }) {
           <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-warning" />
           <h1 className="text-lg font-semibold">Link inválido</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Este link de proposta não é válido ou expirou. Peça um novo à MedConsultoria.
+            Este link de proposta não é válido. Confira se copiou o endereço inteiro, ou peça um novo à MedConsultoria.
           </p>
         </div>
       </Casca>
@@ -131,7 +189,7 @@ export function PropostaPublicaPage({ token }: { token: string }) {
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="outline"
-                className="flex-1"
+                className="min-h-11 flex-1"
                 disabled={responder.isPending}
                 onClick={() => setModo("acao")}
               >
@@ -139,7 +197,7 @@ export function PropostaPublicaPage({ token }: { token: string }) {
               </Button>
               <Button
                 variant="destructive"
-                className="flex-1"
+                className="min-h-11 flex-1"
                 disabled={!motivo.trim() || responder.isPending}
                 onClick={() => responder.mutate({ token, decisao: "RECUSADA", motivo: motivo.trim() })}
               >
@@ -161,14 +219,14 @@ export function PropostaPublicaPage({ token }: { token: string }) {
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="outline"
-                className="flex-1"
+                className="min-h-11 flex-1"
                 disabled={responder.isPending}
                 onClick={() => setModo("acao")}
               >
                 Voltar
               </Button>
               <Button
-                className="flex-1"
+                className="min-h-11 flex-1"
                 disabled={responder.isPending}
                 onClick={() => responder.mutate({ token, decisao: "ACEITA" })}
               >
@@ -182,14 +240,14 @@ export function PropostaPublicaPage({ token }: { token: string }) {
             <Button
               variant="outline"
               size="lg"
-              className="flex-1"
+              className="min-h-11 flex-1"
               disabled={responder.isPending}
               onClick={() => setModo("recusar")}
             >
               <ThumbsDown className="h-4 w-4" />
               Recusar
             </Button>
-            <Button size="lg" className="flex-1" disabled={responder.isPending} onClick={() => setModo("aceitar")}>
+            <Button size="lg" className="min-h-11 flex-1" disabled={responder.isPending} onClick={() => setModo("aceitar")}>
               <ThumbsUp className="h-4 w-4" />
               Aceitar proposta
             </Button>

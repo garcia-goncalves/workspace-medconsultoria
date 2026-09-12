@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { LogOut, UserCog, ChevronDown, Lock, HelpCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Outlet } from "@tanstack/react-router";
+import { LogOut, UserCog, ChevronDown, Lock, HelpCircle, Users } from "lucide-react";
 import { GuiaPortal } from "./GuiaPortal";
+import { FaixaDeSuporte } from "./FaixaDeSuporte";
+import { PortalTabBar } from "./PortalTabBar";
+import { usePortalNavegar } from "./navegar";
 import { useAuth } from "../../lib/auth-context";
 import { trpc } from "../../lib/trpc";
 import { Avatar, AvatarUpload } from "../../components/ui/avatar";
@@ -13,8 +17,15 @@ import { useConfirm } from "../../components/ui/confirm-dialog";
 import { maskCNPJ, maskTelefone } from "../../lib/masks";
 import { validarCNPJ } from "@app/shared";
 
-/** Botão de perfil no header: avatar + nome → menu (Editar perfil, Sair). */
-function ProfileMenu({ onEditar }: { onEditar: () => void }) {
+/**
+ * Botão de perfil no cabeçalho: avatar + nome → menu.
+ *
+ * O menu passou a guardar o que NÃO é trabalho do dia a dia: a equipe da clínica (configuração,
+ * que se mexe uma vez por semestre) e o guia. Cada um deles na barra de seções custaria um dos
+ * quatro ou cinco lugares que ela tem.
+ */
+function ProfileMenu({ onEditar, onGuia }: { onEditar: () => void; onGuia: () => void }) {
+  const navegar = usePortalNavegar();
   const { user, logout, loggingOut } = useAuth();
   const [aberto, setAberto] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -32,7 +43,7 @@ function ProfileMenu({ onEditar }: { onEditar: () => void }) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setAberto((v) => !v)}
-        className="flex items-center gap-2 rounded-full border bg-card py-1 pl-1 pr-2.5 shadow-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="flex min-h-11 items-center gap-2 rounded-full border bg-card py-1 pl-1 pr-2.5 shadow-sm outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-primary/40"
       >
         <Avatar id={user.id} nome={user.nome} avatarUrl={user.avatarUrl} className="h-8 w-8" text="text-xs" />
         <span className="hidden max-w-[160px] truncate text-sm font-medium sm:block">{user.nome}</span>
@@ -49,11 +60,24 @@ function ProfileMenu({ onEditar }: { onEditar: () => void }) {
           </div>
           <div className="p-1.5">
             <button
+              onClick={() => (setAberto(false), navegar("/portal/equipe"))}
+              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
+            >
+              <Users className="h-4 w-4 text-muted-foreground" /> Equipe da clínica
+            </button>
+            <button
               onClick={() => (setAberto(false), onEditar())}
               className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
             >
               <UserCog className="h-4 w-4 text-muted-foreground" /> Editar perfil
             </button>
+            <button
+              onClick={() => (setAberto(false), onGuia())}
+              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
+            >
+              <HelpCircle className="h-4 w-4 text-muted-foreground" /> Guia do Portal
+            </button>
+            <div className="my-1.5 border-t" />
             <button
               onClick={() => logout()}
               disabled={loggingOut}
@@ -222,7 +246,11 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
             <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Seus dados são tratados conforme a <strong>LGPD</strong> (Lei nº 13.709/2018) e usados apenas para o seu atendimento. Você pode consultar e corrigir seus
-              dados aqui a qualquer momento.
+              dados aqui a qualquer momento — e ler o{" "}
+              <a href="/privacidade" target="_blank" rel="noreferrer" className="underline">
+                aviso de privacidade
+              </a>{" "}
+              para saber por quanto tempo cada coisa é guardada.
             </span>
           </p>
         </div>
@@ -231,28 +259,50 @@ function EditarPerfilModal({ open, onClose }: { open: boolean; onClose: () => vo
   );
 }
 
-export function PortalLayout({ children }: { children: ReactNode }) {
+/**
+ * A CASCA DO PORTAL — cabeçalho, barra de seções e o lugar onde cada seção desenha.
+ *
+ * Virou o componente da rota-raiz do `portal-router`: em vez de receber `children`, desenha o
+ * `Outlet` — o buraco onde o TanStack Router encaixa a seção do endereço atual.
+ *
+ * Empilhamento a respeitar, de baixo para cima: abas do computador (`z-20`), cabeçalho (`z-30`),
+ * faixa de suporte e barra do celular (`z-40`, extremidades opostas da tela), modais (`z-50`).
+ */
+export function PortalLayout() {
   const [editar, setEditar] = useState(false);
   const [guia, setGuia] = useState(false);
+
+  // Marca a raiz enquanto o Portal está aberto. Serve para o que é fixo FORA desta árvore
+  // saber que existe uma barra no rodapé — hoje, o selo "AMBIENTE LOCAL", que caía em cima
+  // dela e escondia dois rótulos. A régua de largura fica no CSS, não aqui.
+  useEffect(() => {
+    document.documentElement.classList.add("portal-montado");
+    return () => document.documentElement.classList.remove("portal-montado");
+  }, []);
+
   return (
-    <div className="min-h-screen bg-muted/30">
-      <header className="sticky top-0 z-30 border-b bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
+    <div className="min-h-dvh overscroll-y-contain bg-muted/30">
+      {/* Sessão de suporte da equipe (ADR-128) — some para o cliente de verdade. */}
+      <FaixaDeSuporte />
+      {/* O cabeçalho gruda ABAIXO da faixa, não no topo absoluto: com a faixa presente (e ela
+          quebra em duas linhas a 360px), grudar em 0 faria o logotipo passar por trás dela. */}
+      <header
+        className="sticky z-30 border-b bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80"
+        style={{ top: "var(--portal-faixa-h)" }}
+      >
         <div className="mx-auto flex h-16 max-w-4xl items-center gap-3 px-4">
           <img src="/logo.png" alt="MedConsultoria" className="h-8 w-auto" />
           <div className="ml-auto flex items-center gap-1">
-            <button
-              onClick={() => setGuia(true)}
-              className="rounded-md p-2 text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
-              title="Guia do Portal"
-              aria-label="Guia de instruções"
-            >
-              <HelpCircle className="h-5 w-5" />
-            </button>
-            <ProfileMenu onEditar={() => setEditar(true)} />
+            <ProfileMenu onEditar={() => setEditar(true)} onGuia={() => setGuia(true)} />
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-4xl px-4 py-6 md:py-8">{children}</main>
+      <PortalTabBar />
+      {/* O respiro de baixo existe só onde a barra é fixa (abaixo de `md`): sem ele, o último
+          cartão de cada seção fica embaixo da barra e o cliente não alcança o botão dele. */}
+      <main className="mx-auto max-w-4xl px-4 pb-[calc(var(--portal-tabbar-h)+env(safe-area-inset-bottom)+1rem)] pt-6 md:pb-8 md:pt-8">
+        <Outlet />
+      </main>
       {/* Modais FORA do header: um ancestral com backdrop-filter prende elementos position:fixed. */}
       <EditarPerfilModal open={editar} onClose={() => setEditar(false)} />
       <GuiaPortal open={guia} onClose={() => setGuia(false)} />

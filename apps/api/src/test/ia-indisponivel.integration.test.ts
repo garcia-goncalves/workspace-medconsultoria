@@ -5,12 +5,12 @@ import { describe, it, expect, afterEach, afterAll, vi } from "vitest";
 // process.env ajustado para exercer cada estado de verdade, e conferimos o gate (exigirIA/getClient).
 // O estado A (chave real, chamada externa) fica em e2e-integration/ia-estado-a.spec.ts.
 
-const KEY_ORIG = process.env.OPENAI_API_KEY;
+const KEY_ORIG = process.env.GEMINI_API_KEY;
 const IAEN_ORIG = process.env.IA_ENABLED;
 
 function restoreEnv() {
-  if (KEY_ORIG === undefined) delete process.env.OPENAI_API_KEY;
-  else process.env.OPENAI_API_KEY = KEY_ORIG;
+  if (KEY_ORIG === undefined) delete process.env.GEMINI_API_KEY;
+  else process.env.GEMINI_API_KEY = KEY_ORIG;
   if (IAEN_ORIG === undefined) delete process.env.IA_ENABLED;
   else process.env.IA_ENABLED = IAEN_ORIG;
 }
@@ -25,9 +25,9 @@ afterAll(() => {
 });
 
 describe("IA indisponível — gate sem chave / desligada (estados B e C)", () => {
-  it("Estado B (sem OPENAI_API_KEY): isAiEnabled=false; gerarRascunho e as sugestões falham com erro claro", async () => {
+  it("Estado B (sem GEMINI_API_KEY): isAiEnabled=false; gerarRascunho e as sugestões falham com erro claro", async () => {
     vi.resetModules();
-    delete process.env.OPENAI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
     delete process.env.IA_ENABLED;
 
     const { isAiEnabled } = await import("../config.js");
@@ -46,7 +46,7 @@ describe("IA indisponível — gate sem chave / desligada (estados B e C)", () =
 
   it("Estado C (IA_ENABLED=false com chave presente): interruptor global desliga a IA", async () => {
     vi.resetModules();
-    process.env.OPENAI_API_KEY = "chave-dummy"; // valor fictício — só precisa ser truthy
+    process.env.GEMINI_API_KEY = "chave-dummy"; // valor fictício — só precisa ser truthy
     process.env.IA_ENABLED = "false";
 
     const { isAiEnabled } = await import("../config.js");
@@ -58,7 +58,7 @@ describe("IA indisponível — gate sem chave / desligada (estados B e C)", () =
 
   it("Estado A (chave presente e não desligada): isAiEnabled=true (habilita o gate)", async () => {
     vi.resetModules();
-    process.env.OPENAI_API_KEY = "chave-dummy"; // valor fictício — só precisa ser truthy
+    process.env.GEMINI_API_KEY = "chave-dummy"; // valor fictício — só precisa ser truthy
     delete process.env.IA_ENABLED;
 
     const { isAiEnabled } = await import("../config.js");

@@ -42,24 +42,45 @@ cada uma na sua sala.
 | Endereço | O que faz |
 | -------- | --------- |
 | http://localhost:4319/health | Diz se o motor está vivo |
-| `http://localhost:4319/trpc/…` | Por onde a tela conversa com o motor (não é para abrir no navegador) |
+| `http://localhost:4319/trpc/…` | Por onde a **nossa tela** conversa com o motor (não é para abrir no navegador) |
+| `http://localhost:4319/api/agent/v1/tasks` | Por onde a **assistente Cora** lê as tarefas de uma pessoa, e por onde ela **cria** tarefa (precisa de credencial — abrir no navegador devolve `401`) |
+| `http://localhost:4319/api/agent/v1/tasks/preview` | A **prévia** que a Cora mostra à Thaís antes de gravar qualquer coisa. Não escreve nada. |
 
 ---
 
 ## 3. ❓ "Cadê o Swagger?"
 
-**Este projeto não tem Swagger — e isso é de propósito, não é falta.**
+**Para a nossa própria tela, não existe e é de propósito.** A tela e o motor compartilham o mesmo
+código de tipos (é o que se chama de **tRPC**): se alguém escrever uma chamada errada, **o projeto
+não compila** — o erro aparece na hora de escrever, não depois de publicar. Swagger ali seria um
+documento a mais para manter desatualizado.
 
-Swagger é uma tela que lista os endereços de uma API para quem for programar contra ela. Ele
-existe porque, numa API tradicional (REST), o programador do front precisa **descobrir** o que o
-back-end aceita.
+**Para quem é de fora, existe — e nasceu em 02/09/2026.** ⚠️ *Esta seção dizia "hoje ninguém de fora
+consome esta API" até 03/09/2026, e virou mentira no dia em que a Cora passou a consumir.*
 
-Aqui a API é **tRPC**: o front e o back compartilham o mesmo código de tipos. Se alguém escrever
-uma chamada errada, **o projeto não compila** — o erro aparece na hora de escrever, não depois de
-publicar. Swagger seria um documento a mais para manter desatualizado.
+A **Cora** é a assistente que a Thaís vai usar por voz e por celular. Ela é outro programa, em outro
+repositório, e por isso **não pode** usar o caminho da nossa tela: o tRPC muda de forma toda vez que
+reorganizamos o código por dentro, e a assistente quebraria **sem quebrar nenhum teste nosso**.
 
-Se um dia um sistema **de fora** (outra empresa, um app) precisar conversar com esta aplicação,
-aí sim vale criar endereços REST com Swagger. Hoje ninguém de fora consome esta API.
+Então existe uma porta separada, `/api/agent/v1`, com um contrato escrito num arquivo:
+
+- **O contrato:** `med-coordination/contracts/workspace-agent-v1.openapi.yaml` (versão `0.2.1`), com
+  o SHA-256 ao lado. É o equivalente ao Swagger, só que num arquivo versionado em vez de uma tela.
+- **Como operar:** `docs/API_AGENTE.md` — comandos, cabeçalhos, erros.
+- **O porquê de cada escolha:** ADR-149 (a leitura) e ADR-150 (a escrita) em `docs/DECISIONS.md`.
+
+**A Cora já escreve, e o desenho protege a Thaís de um jeito específico:** ela nunca grava direto.
+Primeiro pede a **prévia** — o Workspace resolve "a Clínica Mooca" num cliente de verdade e devolve
+o nome por extenso —, a Thaís aprova **aquilo**, e só então a tarefa é criada. Se houver duas
+clínicas com nome parecido, o sistema **não escolhe**: ele devolve as duas com um fato que as
+distingue (o CNPJ, por exemplo) para a Cora perguntar. E se a mesma criação for enviada duas vezes
+por uma falha de rede, **a segunda não cria tarefa nova** — devolve a primeira.
+
+✅ **NO AR desde 04/09/2026, na v1.7.0.** `https://workspace.medconsultoria.com.br/api/agent/v1/tasks`
+responde (`401` sem credencial, `200` com uma delegação válida). ⚠️ **Nenhuma credencial de
+PRODUÇÃO foi emitida ainda para a Cora.** Existe agora um botão para isso — Actions →
+**"Emitir credencial do agente"** — mas ninguém apertou. Até lá a Cora continua falando só com
+`localhost:4319`. Detalhe de como funciona: `docs/API_AGENTE.md` § *Emitir credenciais em PRODUÇÃO*.
 
 ---
 
@@ -273,16 +294,34 @@ use **"Esqueci minha senha"** na tela de login.
 ### Trocar a senha de teste da sua máquina
 
 Serve quando a senha de desenvolvimento pode ter sido vista por alguém (foi o caso em
-05/08/2026). **Só afeta esta máquina** — produção não é tocada.
+05/08/2026), ou quando você simplesmente quer uma senha que saiba de cor. **Só afeta esta
+máquina** — produção não é tocada.
+
+**Se você quer escolher a senha** (o caso comum — é para você entrar):
+
+```
+pnpm senha:rotacionar minhasenha123
+```
+
+**Se você quer uma senha sorteada** (mais segura, mas você terá de abrir o arquivo para lê-la):
 
 ```
 pnpm senha:rotacionar
 ```
 
-O que aparece se der certo: uma linha `✔ senha reescrita no banco` para cada conta interna e,
-no fim, `✓ Senha de seed rotacionada`. **A senha nova não é mostrada de propósito** (o terminal
-guarda o que passa por ele): ela fica na linha `SEED_ROOT_PASSWORD` do arquivo `.env`, na raiz do
-projeto — abra o arquivo se precisar digitá-la.
+O que aparece se der certo, nos dois casos: uma linha `✔ senha reescrita` para cada conta
+interna e, no fim, `✓ Senha de seed rotacionada em N conta(s)`.
+
+⚠️ **Ela troca a senha de TODAS as contas internas de uma vez** — todas as que ainda usavam a
+senha de desenvolvimento. Quem já definiu uma senha própria não é tocado.
+
+**A senha nunca é repetida na tela**, nem a escolhida (o terminal guarda o que passa por ele).
+Se você escolheu, é a que você digitou. Se foi sorteada, ela fica na linha `SEED_ROOT_PASSWORD`
+do arquivo `.env`, na raiz do projeto.
+
+A senha escolhida é conferida antes: se tiver menos de 8 caracteres, aspas duplas, barra
+invertida, quebra de linha ou espaço nas pontas, o comando **recusa e não altera nada** — esses
+caracteres corromperiam o arquivo `.env` em silêncio e trancariam você fora de tudo no local.
 
 Se der errado, a mensagem diz o motivo e **nada muda** (o `.env` volta como estava). O erro mais
 comum é o banco desligado: rode `pnpm db:up` e tente de novo. Depois, confira com `pnpm acessos`

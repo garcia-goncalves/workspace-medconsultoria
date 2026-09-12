@@ -133,10 +133,17 @@ export async function painelCredenciamentos(filtro: FiltroPainel = {}) {
       total: visiveis.length,
       precisamAtencao: visiveis.filter((l) => l.precisaAtencao).length,
       porStatus,
-      // Só o que está em curso ou aprovado soma — mesma regra do total da grade, para os
-      // dois números não se contradizerem na frente dela.
+      // ⚠️ "EM CURSO" E "APROVADO" SÃO CONJUNTOS SEPARADOS, e é assim que a tela os apresenta:
+      // dois cartões lado a lado, o primeiro dizendo "honorário ainda não aprovado" e o
+      // segundo "já virou conta a receber". Este filtro excluía só NEGADO e ENCERRADO, então
+      // somava os aprovados dentro do "ainda não aprovado" — e quem lia os dois cartões
+      // juntos contava o mesmo dinheiro duas vezes. Medido na tela: R$ 2.020 de fato em
+      // andamento apareciam como R$ 2.770, que é 2.020 + os R$ 750 já aprovados ao lado.
+      //
+      // O total do processo (em curso + aprovado) continua existindo onde ele é a pergunta
+      // certa: o cabeçalho da grade na ficha, que é o valor que vai para a proposta.
       valorEmCurso: visiveis
-        .filter((l) => l.status !== "NEGADO" && l.status !== "ENCERRADO")
+        .filter((l) => l.status !== "APROVADO" && l.status !== "NEGADO" && l.status !== "ENCERRADO")
         .reduce((s, l) => s + l.valor, 0),
       valorAprovado: visiveis.filter((l) => l.status === "APROVADO").reduce((s, l) => s + l.valor, 0),
     },

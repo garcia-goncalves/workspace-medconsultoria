@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { assinarSchema } from "@app/shared";
-import { router, funcionarioProcedure, publicProcedure } from "../../trpc/trpc.js";
+import { router, aceiteProcedure, funcionarioProcedure, publicProcedure } from "../../trpc/trpc.js";
 import * as service from "./assinaturas.service.js";
 
 export const assinaturasRouter = router({
@@ -22,7 +22,9 @@ export const assinaturasRouter = router({
   porToken: publicProcedure
     .input(z.object({ token: z.string().min(1) }))
     .query(({ input }) => service.getPorToken(input.token)),
-  assinar: publicProcedure.input(assinarSchema).mutation(({ input, ctx }) =>
-    service.assinar(input, ctx.req.ip, ctx.req.headers["user-agent"]),
+  // Público por token, MAS com as travas do Portal valendo quando há sessão (ver `aceiteProcedure`):
+  // a secretária EQUIPE e a sessão de suporte da Med não assinam pela clínica.
+  assinar: aceiteProcedure.input(assinarSchema).mutation(({ input, ctx }) =>
+    service.assinar(input, ctx.req.ip, ctx.req.headers["user-agent"], ctx.user?.id ?? null),
   ),
 });

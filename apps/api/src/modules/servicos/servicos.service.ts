@@ -1,7 +1,19 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { emReais } from "../../lib/dinheiro.js";
+import {
+  temValorEPercentual,
+  PRECO_VALOR_E_PERCENTUAL,
+  NOME_SERVICO_CREDENCIAMENTO,
+  NOME_SERVICO_FATURAMENTO,
+  percentualForaDoFaturamento,
+  PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
+  MARCA_FATURAMENTO_UNICA,
+  MARCA_FATURAMENTO_E_CREDENCIAMENTO,
+  NOME_DE_SERVICO_DUPLICADO,
+} from "@app/shared";
 import { Prisma } from "@prisma/client";
+import { chaveDoNomeDeServico } from "./chave-de-nome.js";
 
 /**
  * Catálogo inicial COMPLETO — os serviços reais da MedConsultoria com detalhes,
@@ -12,7 +24,18 @@ import { Prisma } from "@prisma/client";
  * junto com os formulários-modelo (`formularios.service`), pois dependem de um formulário.
  */
 type ReqSeed = { titulo: string; tipo: "DOCUMENTO" | "INFORMACAO"; obrigatorio: boolean; descricao?: string };
-type PassoSeed = { titulo: string; etapaChave: string; obrigatorio: boolean };
+/**
+ * `quemFaz` responde "de quem o passo está esperando".
+ *
+ * Antes desta rodada TODO passo era escrito do ponto de vista da Med ("Apresentar proposta",
+ * "Negociar tabelas") — o trabalho da CLÍNICA simplesmente não existia no funil, vivia só na
+ * lista de documentos do Portal. Resultado: a pergunta que a Thaís faz toda manhã — *o que
+ * está parado esperando o cliente?* — não tinha resposta na tela, só abrindo lead por lead.
+ * Agora os dois lados da dança estão no mesmo checklist, e dá para separá-los.
+ *
+ * Omitir o campo vale MED (é o padrão da coluna no banco).
+ */
+type PassoSeed = { titulo: string; etapaChave: string; obrigatorio: boolean; quemFaz?: "MED" | "CLIENTE" };
 type Recorr = "AVULSO" | "MENSAL";
 type ServicoSeed = {
   nome: string;
@@ -55,7 +78,7 @@ const CLAUSULAS_SERVICOS: Record<string, string> = {
     "A CONTRATADA planejará, configurará e gerenciará campanhas de tráfego pago (anúncios) conforme o plano contratado, com acompanhamento e otimização dos resultados. O investimento em mídia (verba dos anúncios) é custeado diretamente pela CONTRATANTE e não integra os honorários da CONTRATADA. Os resultados dependem das plataformas e do mercado; não há garantia de retorno específico.",
 };
 
-const CONTEUDO_SERVICOS: ServicoSeed[] = [
+export const CONTEUDO_SERVICOS: ServicoSeed[] = [
   {
     nome: "Gestão Operacional",
     categoria: "Gestão",
@@ -74,13 +97,18 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Quais sistemas a clínica usa hoje?", tipo: "INFORMACAO", obrigatorio: false, descricao: "Agenda, prontuário, financeiro — cite os nomes (sem senhas)." },
     ],
     passos: [
+      { titulo: "Clínica enviar a lista da equipe e o organograma", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Mapear os processos atuais da clínica", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Levantar equipe e ferramentas em uso", etapaChave: "qualificacao", obrigatorio: false },
+      { titulo: "Clínica responder o diagnóstico operacional", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Aplicar diagnóstico operacional (da agenda ao pagamento)", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Montar plano de organização operacional", etapaChave: "proposta", obrigatorio: true },
       { titulo: "Apresentar indicadores e metas de melhoria", etapaChave: "proposta", obrigatorio: true },
       { titulo: "Definir escopo e cronograma de implantação", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar o escopo e o cronograma", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Alinhar responsáveis e rotina de acompanhamento", etapaChave: "negociacao", obrigatorio: false },
+      { titulo: "Clínica indicar quem responde pela implantação", etapaChave: "negociacao", obrigatorio: false, quemFaz: "CLIENTE" },
+      { titulo: "Clínica reunir a equipe para o kickoff", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Kickoff de implantação com a equipe", etapaChave: "fechado", obrigatorio: true },
       { titulo: "Configurar a rotina de monitoramento de resultados", etapaChave: "fechado", obrigatorio: false },
     ],
@@ -89,7 +117,8 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
     nome: "Faturamento",
     categoria: "Faturamento",
     // Faturamento de contas médicas: normalmente um % sobre o valor faturado, cobrado por mês.
-    // (É o único serviço com opção de %.) A Med pode ajustar para valor fixo + % se quiser.
+    // (É o único serviço cobrado por % — a marca `ehFaturamento`, ADR-145. Valor fixo junto
+    // com percentual é recusado pelo servidor desde a ADR-138.)
     valor: null,
     percentual: 5,
     percentualRecorrencia: "MENSAL",
@@ -100,16 +129,23 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Demonstrativos de pagamento das operadoras (últimos 3 meses)", tipo: "DOCUMENTO", obrigatorio: true, descricao: "Extratos/demonstrativos que mostram pagamentos e glosas." },
       { titulo: "Tabelas de procedimentos das operadoras", tipo: "DOCUMENTO", obrigatorio: false },
       { titulo: "Relatório de glosas do período (se houver)", tipo: "DOCUMENTO", obrigatorio: false },
-      { titulo: "Quais operadoras você atende?", tipo: "INFORMACAO", obrigatorio: true, descricao: "Liste os convênios (Unimed, Bradesco, Amil, SUS…)." },
+      // "Quais operadoras você atende?" saiu daqui na ADR-126: a lista de convênios virou campo
+      // estruturado no serviço contratado (`ClienteServico.operadoras`), e o Portal mostrava a
+      // mesma pergunta duas vezes. Quem apaga a linha de quem já tem banco é a migração
+      // `20260826213000_remove_exigencia_operadoras_duplicada` — a semente só roda com a tabela vazia.
       { titulo: "Qual o volume médio de guias por mês?", tipo: "INFORMACAO", obrigatorio: false },
       { titulo: "Como a equipe acessa os portais das operadoras?", tipo: "INFORMACAO", obrigatorio: false, descricao: "Descreva o acesso aos portais de faturamento (sem senhas por escrito)." },
     ],
     passos: [
+      { titulo: "Clínica enviar os demonstrativos das operadoras (3 meses)", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica informar o faturamento médio mensal", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Analisar histórico de faturamento e glosas", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Auditar uma amostra de guias e glosas", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Apresentar diagnóstico e plano de recuperação de glosas", etapaChave: "proposta", obrigatorio: true },
       { titulo: "Estimar o valor recuperável de glosas", etapaChave: "proposta", obrigatorio: false },
       { titulo: "Definir a rotina de auditoria e relatórios", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar o percentual e a rotina de envio", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica liberar o acesso aos portais das operadoras", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Implantar a conferência pré-envio das guias", etapaChave: "fechado", obrigatorio: true },
       { titulo: "Definir o relatório gerencial mensal", etapaChave: "fechado", obrigatorio: false },
     ],
@@ -135,12 +171,17 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
     ],
     passos: [
       { titulo: "Levantar operadoras de interesse", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica indicar os profissionais a credenciar", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica enviar a documentação de cada profissional", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Coletar documentos do profissional/clínica", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Conferir documentação e apontar pendências", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica regularizar as pendências apontadas", etapaChave: "qualificacao", obrigatorio: false, quemFaz: "CLIENTE" },
       { titulo: "Apresentar proposta de credenciamento", etapaChave: "proposta", obrigatorio: true },
       { titulo: "Definir operadoras-alvo e prioridades", etapaChave: "proposta", obrigatorio: false },
+      { titulo: "Clínica confirmar as operadoras-alvo", etapaChave: "proposta", obrigatorio: false, quemFaz: "CLIENTE" },
       { titulo: "Negociar tabelas e contrato com a operadora", etapaChave: "negociacao", obrigatorio: true },
       { titulo: "Protocolar a solicitação junto às operadoras", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica assinar os contratos exigidos pela operadora", etapaChave: "negociacao", obrigatorio: false, quemFaz: "CLIENTE" },
       { titulo: "Acompanhar a análise e efetivar o credenciamento", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -158,10 +199,13 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Qual seu volume mensal com cada operadora?", tipo: "INFORMACAO", obrigatorio: false },
     ],
     passos: [
+      { titulo: "Clínica enviar os contratos e tabelas vigentes", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Levantar contratos e tabelas vigentes", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Comparar valores com a média de mercado", etapaChave: "qualificacao", obrigatorio: false },
       { titulo: "Apresentar diagnóstico e metas de reajuste", etapaChave: "proposta", obrigatorio: true },
+      { titulo: "Clínica autorizar a Med a representá-la na negociação", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Conduzir a negociação com a operadora", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica assinar o aditivo com a operadora", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Formalizar o aditivo / atualização de tabela", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -178,11 +222,13 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Marcas/concorrentes que você admira", tipo: "INFORMACAO", obrigatorio: false },
     ],
     passos: [
-      { titulo: "Enviar e receber o briefing de identidade", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Enviar o briefing de identidade para a clínica", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica preencher o briefing de identidade", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Analisar posicionamento e público", etapaChave: "qualificacao", obrigatorio: false },
       { titulo: "Apresentar proposta e conceito criativo", etapaChave: "proposta", obrigatorio: true },
-      { titulo: "Aprovar a direção visual (moodboard)", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar a direção visual (moodboard)", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Entregar logo e aplicações finais", etapaChave: "fechado", obrigatorio: true },
+      { titulo: "Clínica confirmar o recebimento dos arquivos finais", etapaChave: "fechado", obrigatorio: false, quemFaz: "CLIENTE" },
     ],
   },
   {
@@ -196,9 +242,10 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Onde a marca será mais usada?", tipo: "INFORMACAO", obrigatorio: false, descricao: "Site, redes, fachada, jaleco, papelaria…" },
     ],
     passos: [
+      { titulo: "Clínica enviar os arquivos da identidade aprovada", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Reunir os elementos da identidade aprovada", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Apresentar a estrutura do manual", etapaChave: "proposta", obrigatorio: true },
-      { titulo: "Aprovar as diretrizes de uso", etapaChave: "negociacao", obrigatorio: false },
+      { titulo: "Clínica aprovar as diretrizes de uso", etapaChave: "negociacao", obrigatorio: false, quemFaz: "CLIENTE" },
       { titulo: "Entregar o manual da marca (PDF)", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -218,10 +265,13 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
     ],
     passos: [
       { titulo: "Entender objetivos de marca e presença digital", etapaChave: "qualificacao", obrigatorio: true },
-      { titulo: "Enviar e receber o briefing de site", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Enviar o briefing de site para a clínica", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica preencher o briefing de site", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica enviar logo, fotos e textos", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Apresentar proposta de site", etapaChave: "proposta", obrigatorio: true },
       { titulo: "Apresentar a estrutura de páginas (sitemap)", etapaChave: "proposta", obrigatorio: false },
-      { titulo: "Aprovar escopo criativo e cronograma", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar o escopo criativo e o cronograma", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica informar domínio e hospedagem", etapaChave: "negociacao", obrigatorio: false, quemFaz: "CLIENTE" },
       { titulo: "Publicar o site e configurar o SEO básico", etapaChave: "fechado", obrigatorio: true },
       { titulo: "Treinar o cliente para atualizar o conteúdo", etapaChave: "fechado", obrigatorio: false },
     ],
@@ -240,10 +290,12 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Frequência de postagem desejada", tipo: "INFORMACAO", obrigatorio: false },
     ],
     passos: [
-      { titulo: "Enviar e receber o briefing de redes", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Enviar o briefing de redes para a clínica", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica preencher o briefing de redes", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Auditar a presença atual nas redes", etapaChave: "qualificacao", obrigatorio: false },
       { titulo: "Apresentar plano de conteúdo e frequência", etapaChave: "proposta", obrigatorio: true },
-      { titulo: "Aprovar a linha editorial e o tom de voz", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar a linha editorial e o tom de voz", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica dar acesso de administrador aos perfis", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Montar o calendário do 1º mês", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -260,9 +312,11 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
       { titulo: "Cidade/região que você quer atingir", tipo: "INFORMACAO", obrigatorio: true, descricao: "Importante para o SEO local." },
     ],
     passos: [
+      { titulo: "Clínica indicar especialidades e região-alvo", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Levantar palavras-chave e concorrentes", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Apresentar o plano de conteúdo e SEO", etapaChave: "proposta", obrigatorio: true },
-      { titulo: "Aprovar a pauta e o cronograma", etapaChave: "negociacao", obrigatorio: false },
+      { titulo: "Clínica aprovar a pauta e o cronograma", etapaChave: "negociacao", obrigatorio: false, quemFaz: "CLIENTE" },
+      { titulo: "Clínica dar acesso ao site e ao Search Console", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Publicar os primeiros conteúdos otimizados", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -282,9 +336,11 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
     ],
     passos: [
       { titulo: "Definir objetivo e público da campanha", etapaChave: "qualificacao", obrigatorio: true },
+      { titulo: "Clínica definir a verba mensal de anúncios", etapaChave: "qualificacao", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Verificar a conformidade com o CFM", etapaChave: "qualificacao", obrigatorio: true },
       { titulo: "Apresentar o plano de mídia e a verba", etapaChave: "proposta", obrigatorio: true },
-      { titulo: "Aprovar criativos e segmentação", etapaChave: "negociacao", obrigatorio: true },
+      { titulo: "Clínica aprovar criativos e segmentação", etapaChave: "negociacao", obrigatorio: true, quemFaz: "CLIENTE" },
+      { titulo: "Clínica dar acesso à conta de anúncios", etapaChave: "fechado", obrigatorio: true, quemFaz: "CLIENTE" },
       { titulo: "Subir a campanha e configurar as métricas", etapaChave: "fechado", obrigatorio: true },
     ],
   },
@@ -294,6 +350,21 @@ const CONTEUDO_SERVICOS: ServicoSeed[] = [
  * Roteiro de execução (por nome de serviço): cada TAREFA vira um cartão do projeto quando o
  * serviço é contratado, com o checklist da tarefa. Ponto de partida editável (ADR-37).
  */
+/**
+ * CONDIÇÃO DE PAGAMENTO por serviço, como sai na PROPOSTA (ADR-125).
+ *
+ * Só o Faturamento de contas médicas tem condição própria hoje, e é uma frase contratual: a Med
+ * é remunerada por um percentual do que a clínica recebe, então o repasse depende do dinheiro
+ * ter entrado na conta dela. Antes disso a condição dependia de alguém lembrar de digitá-la em
+ * toda proposta — e proposta muda sobre quando se paga vira discussão depois.
+ *
+ * Isto é só o PONTO DE PARTIDA: o texto é editável em Serviços → Configurar → Detalhes, e o
+ * backfill abaixo nunca sobrescreve o que a equipe escreveu.
+ */
+const CONDICOES_PAGAMENTO_SERVICOS: Record<string, string> = {
+  Faturamento: "O recebimento do Repasse será sempre feito após o crédito na conta da Clínica.",
+};
+
 const ROTEIROS_SERVICO: Record<string, { titulo: string; itens: string[] }[]> = {
   "Gestão Operacional": [
     { titulo: "Diagnóstico da operação", itens: ["Mapear os processos atuais", "Levantar equipe e ferramentas em uso", "Aplicar o diagnóstico (da agenda ao pagamento)"] },
@@ -362,11 +433,71 @@ const ROTEIROS_SERVICO: Record<string, { titulo: string; itens: string[] }[]> = 
  * equipe editou e nunca recria o que foi removido de propósito... — exceto que remover um serviço
  * é `ativo: false` (soft), então o nome continua ocupado e ele não volta.
  */
-async function seedIfEmpty() {
-  const existentes = new Set((await prisma.servico.findMany({ select: { nome: true } })).map((s) => s.nome));
-  const faltando = CONTEUDO_SERVICOS.filter((s) => !existentes.has(s.nome));
+/**
+ * Memória curta do "catálogo já conferido nesta janela".
+ *
+ * O trabalho abaixo é semeadura: na esmagadora maioria das chamadas ele não faz nada, mas
+ * paga de 4 a 6 idas ao banco (uma delas com dois laços `await` dentro) — e isso rodava em
+ * TODA leitura do catálogo. É a origem medida do `portal.servicosDisponiveis` de 11,9 s em
+ * produção.
+ *
+ * ⚠️ A memória tem PRAZO de propósito, e não é "para sempre". A lição da ADR-139 foi
+ * exatamente esta: `sincronizarRequisitosCredenciamento` memorizava "serviço inexistente"
+ * permanentemente, e nunca mais rodava nem depois de o serviço aparecer. Com prazo, o pior
+ * caso é uma janela de 30 s de defasagem num banco recém-criado — que se cura sozinha.
+ *
+ * Em teste a memória fica desligada: fixture que limpa a tabela e relê no mesmo processo
+ * precisa ver o banco de verdade.
+ */
+const VALIDADE_DA_MEMORIA_MS = 30_000;
+let catalogoConferidoEm = 0;
+let conferindoCatalogo: Promise<void> | null = null;
+
+async function seedIfEmpty(): Promise<void> {
+  if (process.env.NODE_ENV === "test") return semearCatalogoSeFaltar();
+  if (Date.now() - catalogoConferidoEm < VALIDADE_DA_MEMORIA_MS) return;
+  // Chamadas simultâneas esperam a MESMA execução, em vez de semearem em paralelo.
+  conferindoCatalogo ??= semearCatalogoSeFaltar()
+    .then(() => {
+      catalogoConferidoEm = Date.now();
+    })
+    .finally(() => {
+      conferindoCatalogo = null;
+    });
+  return conferindoCatalogo;
+}
+
+async function semearCatalogoSeFaltar() {
+  // ⚠️ A COMPARAÇÃO USA A MESMA RÉGUA DO BANCO, não a igualdade do JavaScript. A coluna é
+  // `utf8mb4_unicode_ci`: com `Set` de strings cruas, um serviço gravado como "Conteudo & SEO"
+  // (sem acento) não casaria com o canônico "Conteúdo & SEO", a semeadura tentaria criá-lo, e o
+  // índice único devolveria P2002 — numa função que roda em TODA leitura de catálogo, inclusive
+  // na página pública. Ver `chave-de-nome.ts`.
+  const existentes = new Set(
+    (await prisma.servico.findMany({ select: { nome: true } })).map((s) => chaveDoNomeDeServico(s.nome)),
+  );
+  // ⚠️ O CREDENCIAMENTO SE RECONHECE PELA MARCA TAMBÉM AQUI.
+  // A semeadura procura o catálogo canônico por NOME — e o nome do credenciamento voltou a ser
+  // editável. Renomeado, ele sumiria de `existentes`, e a próxima leitura de catálogo criaria um
+  // SEGUNDO serviço marcado: o clone apareceria no catálogo sem ninguém ter cadastrado, os 14
+  // requisitos passariam a ser sincronizados no serviço errado, e o Portal do cliente que
+  // contratou o original voltaria a dizer "0/0" com a papelada inteira faltando.
+  //
+  // ⚠️ Vale IGUAL para o faturamento: renomeado na tela, a semeadura criaria um clone marcado, e
+  // aí haveria DOIS serviços percentuais no catálogo — o estado que a ordem do dono proíbe.
+  const jaTemCredenciamento = (await prisma.servico.count({ where: { ehCredenciamento: true } })) > 0;
+  const jaTemFaturamento = (await prisma.servico.count({ where: { ehFaturamento: true } })) > 0;
+  const faltando = CONTEUDO_SERVICOS.filter(
+    (s) =>
+      !existentes.has(chaveDoNomeDeServico(s.nome)) &&
+      !(jaTemCredenciamento && s.nome === NOME_SERVICO_CREDENCIAMENTO) &&
+      !(jaTemFaturamento && s.nome === NOME_SERVICO_FATURAMENTO),
+  );
   if (faltando.length > 0) {
     await prisma.servico.createMany({
+      // ⚠️ Rede de segurança da conferência acima: entre ela e este `createMany` cabe outra
+      // requisição criando o mesmo nome. Sem isto, a corrida derruba uma rota PÚBLICA.
+      skipDuplicates: true,
       data: faltando.map((s) => ({
         nome: s.nome,
         categoria: s.categoria,
@@ -377,6 +508,15 @@ async function seedIfEmpty() {
         descricao: s.descricao,
         roteiro: ROTEIROS_SERVICO[s.nome] ?? undefined,
         clausulasContrato: CLAUSULAS_SERVICOS[s.nome] ?? null,
+        condicaoPagamento: CONDICOES_PAGAMENTO_SERVICOS[s.nome] ?? null,
+        // A MARCA do credenciamento nasce aqui, na semeadura — é o único lugar que ainda usa o
+        // nome canônico para decidi-la, e de propósito: depois disso quem manda é a marca, e o
+        // nome vira rótulo editável. Ver `ehServicoDeCredenciamento` em `@app/shared`.
+        ehCredenciamento: s.nome === NOME_SERVICO_CREDENCIAMENTO,
+        // A MARCA do faturamento nasce aqui pelo mesmo motivo e com a mesma ressalva: semear é o
+        // único momento em que o nome canônico decide algo. Depois disso quem manda é a marca —
+        // e é ela que libera o percentual deste serviço, e só dele.
+        ehFaturamento: s.nome === NOME_SERVICO_FATURAMENTO,
         // Mantém a ordem canônica do catálogo, independente do que já houvesse no banco.
         ordem: CONTEUDO_SERVICOS.findIndex((c) => c.nome === s.nome),
       })),
@@ -390,6 +530,14 @@ async function seedIfEmpty() {
       await prisma.servico.updateMany({ where: { nome, clausulasContrato: null }, data: { clausulasContrato: clausula } });
     }
   }
+
+  // Mesmo padrão para a condição de pagamento (ADR-125): só onde está NULL, nunca por cima do
+  // que a equipe escreveu. Serviço já cadastrado antes desta versão recebe a frase aqui.
+  if ((await prisma.servico.count({ where: { condicaoPagamento: null } })) > 0) {
+    for (const [nome, condicao] of Object.entries(CONDICOES_PAGAMENTO_SERVICOS)) {
+      await prisma.servico.updateMany({ where: { nome, condicaoPagamento: null }, data: { condicaoPagamento: condicao } });
+    }
+  }
   // Passos padrão, casando pelo nome do serviço. Também POR SERVIÇO, não tudo-ou-nada: com o
   // guard global (`servicoPasso.count() === 0`), um único passo criado em qualquer serviço
   // impedia todos os outros de receberem os seus.
@@ -401,9 +549,47 @@ async function seedIfEmpty() {
     const def = CONTEUDO_SERVICOS.find((c) => c.nome === s.nome)?.passos;
     if (def?.length) {
       await prisma.servicoPasso.createMany({
-        data: def.map((d, i) => ({ servicoId: s.id, titulo: d.titulo, obrigatorio: d.obrigatorio, etapaChave: d.etapaChave, ordem: i })),
+        data: def.map((d, i) => ({
+          servicoId: s.id,
+          titulo: d.titulo,
+          obrigatorio: d.obrigatorio,
+          etapaChave: d.etapaChave,
+          quemFaz: d.quemFaz ?? "MED",
+          ordem: i,
+        })),
       });
     }
+  }
+
+  // Backfill dos passos DO CLIENTE, para serviços que já existiam antes desta versão.
+  //
+  // ⚠️ A guarda é "este serviço não tem NENHUM passo do cliente" — e é ela que impede o
+  // backfill de virar um zumbi. Um serviço nessas condições é necessariamente anterior à
+  // versão que introduziu o `quemFaz`, porque o catálogo canônico sempre traz pelo menos um
+  // passo do cliente. Depois do primeiro backfill a condição nunca mais é verdadeira, então
+  // um passo que a equipe apagar de propósito NÃO volta — que é o modo de falha clássico
+  // deste tipo de semeadura.
+  const semPassoDoCliente = await prisma.servico.findMany({
+    where: { passos: { some: {} }, NOT: { passos: { some: { quemFaz: "CLIENTE" } } } },
+    select: { id: true, nome: true, passos: { select: { titulo: true, ordem: true } } },
+  });
+  for (const s of semPassoDoCliente) {
+    const doCliente = CONTEUDO_SERVICOS.find((c) => c.nome === s.nome)?.passos.filter((p) => p.quemFaz === "CLIENTE");
+    if (!doCliente?.length) continue;
+    const jaTem = new Set(s.passos.map((p) => p.titulo));
+    const novos = doCliente.filter((p) => !jaTem.has(p.titulo));
+    if (!novos.length) continue;
+    let ordem = Math.max(-1, ...s.passos.map((p) => p.ordem)) + 1;
+    await prisma.servicoPasso.createMany({
+      data: novos.map((d) => ({
+        servicoId: s.id,
+        titulo: d.titulo,
+        obrigatorio: d.obrigatorio,
+        etapaChave: d.etapaChave,
+        quemFaz: "CLIENTE" as const,
+        ordem: ordem++,
+      })),
+    });
   }
 }
 
@@ -422,6 +608,21 @@ const mapServico = <
   percentual: emReais(s.percentual),
 });
 
+/**
+ * Garante o catálogo canônico SEM ler a lista inteira.
+ *
+ * Existe porque o catálogo é criado **sob demanda**, e até 28/08/2026 quem o criava era, na
+ * prática, quem listasse serviços primeiro. No Portal isso era o `servicosDisponiveis` da página
+ * única — e ele deixou de rodar na abertura quando o Portal virou seções (ADR-139), porque leva
+ * 11,9 s em produção. Num banco recém-criado, o cliente que abrisse **Convênios** primeiro
+ * encontrava catálogo vazio: sem serviço de credenciamento, sem exigências, "Tudo enviado 0/0".
+ *
+ * Custa uma leitura de nomes. Quem precisa do catálogo garantido, e não da lista, chama isto.
+ */
+export async function garantirCatalogoDeServicos() {
+  await seedIfEmpty();
+}
+
 /** Todos os serviços (gestão) — inclui inativos + contagens de exigências e passos. */
 export async function listServicos() {
   await seedIfEmpty();
@@ -432,7 +633,25 @@ export async function listServicos() {
   return servicos.map(mapServico);
 }
 
-/** Serviços ativos para o formulário público / cadastro (sem dados sensíveis). */
+/**
+ * Serviços ativos para o formulário PÚBLICO de captação — só o que a página desenha.
+ *
+ * Existe separado de `listServicosAtivos` porque as duas rotas chamavam a mesma função e, com
+ * ela, o preço de tabela (valor e percentual) saía para qualquer visitante anônimo de
+ * `/comecar`, antes de qualquer contato comercial. A página nunca imprimiu esses números — eram
+ * dado a mais viajando, e dado que viaja é dado que alguém lê. Quem precisa de preço é a tela
+ * interna, que passa por `funcionarioProcedure`.
+ */
+export async function listServicosPublicos() {
+  await seedIfEmpty();
+  return prisma.servico.findMany({
+    where: { ativo: true },
+    orderBy: { ordem: "asc" },
+    select: { id: true, nome: true, descricao: true, categoria: true },
+  });
+}
+
+/** Serviços ativos para o cadastro INTERNO — com preço, que é o que a estimativa do funil usa. */
 export async function listServicosAtivos() {
   await seedIfEmpty();
   const servicos = await prisma.servico.findMany({
@@ -447,10 +666,185 @@ export async function listServicosAtivos() {
       valorRecorrencia: true,
       percentual: true,
       percentualRecorrencia: true,
+      // A proposta pré-preenche "Condições de pagamento" com a condição de cada serviço
+      // escolhido (ADR-125) — vem daqui para o construtor não precisar de outra chamada.
+      condicaoPagamento: true,
+      // A marca do credenciamento: a tela usa a MESMA régua do servidor para decidir o campo da
+      // estimativa e o que o construtor da proposta oferece (ver `ehServicoDeCredenciamento`).
+      ehCredenciamento: true,
+      // A marca do faturamento: decide QUEM PODE ser cobrado por percentual. A tela lê esta
+      // mesma marca para mostrar (ou esconder) o botão "% do faturamento".
+      ehFaturamento: true,
     },
   });
   return servicos.map(mapServico);
 }
+
+/**
+ * DOIS SERVIÇOS MARCADOS COMO CREDENCIAMENTO É UM ESTADO SEM RESPOSTA CERTA.
+ *
+ * Os consumidores procuram o credenciamento com `findFirst({ where: { ehCredenciamento: true } })`
+ * — com dois marcados, um deles é escolhido, e a partir daí os 14 requisitos passam a ser
+ * sincronizados no serviço errado e o Portal do cliente mostra a papelada do outro.
+ *
+ * A recusa diz QUAL já está marcado, em vez de desmarcar o primeiro em silêncio: trocar qual
+ * serviço rege a cobrança do credenciamento é decisão de negócio, não efeito colateral de salvar
+ * um formulário.
+ */
+/**
+ * LIGA (ou desliga) `campo` NUMA ÚNICA INSTRUÇÃO SQL — é o que fecha a corrida da edição.
+ *
+ * Ligar (`true`) só grava se NENHUMA OUTRA linha já tiver a marca: a condição ("ninguém mais
+ * marcado") e a gravação acontecem no MESMO round-trip ao banco, então não há janela entre
+ * "conferir" e "gravar" para uma segunda edição concorrente se enfiar — ao contrário da
+ * conferência de leitura (`recusarSegundaMarcaDeCredenciamento`/`recusarMarcaDeFaturamentoInvalida`),
+ * que sozinha tem exatamente essa janela (achado na auditoria de 04/09/2026). Mesmo espírito do
+ * `updateMany` condicionado da ADR-140 (a conta do honorário), generalizado com `NOT EXISTS`
+ * porque aqui a condição é sobre AS OUTRAS linhas, não sobre a própria.
+ *
+ * Desligar não compete com ninguém — sempre afeta a própria linha, sem condição extra.
+ *
+ * ⚠️ Os nomes de coluna são LITERAIS deste arquivo (nunca entrada de quem chama), então a query
+ * crua não abre brecha de injeção — é o mesmo motivo por trás de escrever duas consultas quase
+ * iguais em vez de interpolar o nome da coluna numa só.
+ */
+async function tentarMarcarAtomicamente(
+  id: string,
+  campo: "ehCredenciamento" | "ehFaturamento",
+  ligar: boolean,
+): Promise<boolean> {
+  if (!ligar) {
+    await prisma.servico.update({ where: { id }, data: { [campo]: false } });
+    return true;
+  }
+  try {
+    return await tentarLigarAtomicamente(id, campo);
+  } catch (e) {
+    // ⚠️ SOB CONCORRÊNCIA REAL, O MYSQL NEM SEMPRE RESPONDE "linha não afetada" — às vezes
+    // responde DEADLOCK (1213), quando duas destas mesmas instruções disputam a MESMA tabela
+    // derivada ao mesmo tempo e o InnoDB escolhe uma vítima em vez de simplesmente serializar.
+    // Achado escrevendo o teste desta corrida. Um retry único basta: na segunda tentativa a
+    // outra transação já terminou, e o resultado normal (afetou ou não) responde certo.
+    const meta = (e as { meta?: { code?: unknown } } | undefined)?.meta;
+    if (meta?.code === "1213") return tentarLigarAtomicamente(id, campo);
+    throw e;
+  }
+}
+
+async function tentarLigarAtomicamente(
+  id: string,
+  campo: "ehCredenciamento" | "ehFaturamento",
+): Promise<boolean> {
+  // ⚠️ MySQL RECUSA "UPDATE Servico ... WHERE NOT EXISTS (SELECT ... FROM Servico)" DIRETO — erro
+  // 1093, "You can't specify target table 'Servico' for update in FROM clause". A subconsulta
+  // precisa vir de uma TABELA DERIVADA (`SELECT ... FROM (SELECT ...) AS s2`): o truque força o
+  // MySQL a materializar o resultado antes, em vez de reabrir a tabela que está sendo escrita.
+  const linhas =
+    campo === "ehCredenciamento"
+      ? await prisma.$executeRaw`
+          UPDATE \`Servico\` SET \`ehCredenciamento\` = 1
+          WHERE \`id\` = ${id}
+            AND NOT EXISTS (
+              SELECT 1 FROM (
+                SELECT \`id\` FROM \`Servico\` WHERE \`ehCredenciamento\` = 1
+              ) AS s2 WHERE s2.\`id\` != ${id}
+            )
+        `
+      : await prisma.$executeRaw`
+          UPDATE \`Servico\` SET \`ehFaturamento\` = 1
+          WHERE \`id\` = ${id}
+            AND NOT EXISTS (
+              SELECT 1 FROM (
+                SELECT \`id\` FROM \`Servico\` WHERE \`ehFaturamento\` = 1
+              ) AS s2 WHERE s2.\`id\` != ${id}
+            )
+        `;
+  return linhas === 1;
+}
+
+/**
+ * Aplica a marca; se o UPDATE atômico não gravou (a corrida foi perdida), relê e recusa com a
+ * MESMA mensagem da conferência normal — em vez de deixar `atualizarServico` em silêncio.
+ *
+ * ⚠️ Entre o UPDATE que falhou e esta releitura ainda cabe uma janela rara (o concorrente que
+ * venceu pode ter desmarcado de novo nesse meio-tempo) — nesse caso `recusarSeOcupado` não acha
+ * ninguém e não lança, e a segunda tentativa abaixo cobre. Falhando as duas, o erro é genérico e
+ * explícito: nunca "sucesso" para uma marca que não foi gravada.
+ */
+async function aplicarMarcaOuRecusar(
+  id: string,
+  campo: "ehCredenciamento" | "ehFaturamento",
+  ligar: boolean,
+  recusarSeOcupado: () => Promise<void>,
+): Promise<void> {
+  if (await tentarMarcarAtomicamente(id, campo, ligar)) return;
+  await recusarSeOcupado();
+  if (await tentarMarcarAtomicamente(id, campo, ligar)) return;
+  throw new TRPCError({ code: "CONFLICT", message: "Não foi possível salvar a marca — tente de novo." });
+}
+
+async function recusarSegundaMarcaDeCredenciamento(idSendoEditado: string | null) {
+  const outro = await prisma.servico.findFirst({
+    where: { ehCredenciamento: true, ...(idSendoEditado ? { id: { not: idSendoEditado } } : {}) },
+    orderBy: { createdAt: "asc" },
+    select: { nome: true },
+  });
+  if (outro) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        `O serviço “${outro.nome}” já está marcado como o credenciamento, e só pode haver um. ` +
+        "Desmarque-o antes, se a intenção é trocar qual serviço rege essa cobrança.",
+    });
+  }
+}
+
+/**
+ * DOIS SERVIÇOS MARCADOS COMO FATURAMENTO, OU UM SERVIÇO MARCADO COMO AS DUAS COISAS.
+ *
+ * A marca responde "quem pode ser cobrado por percentual?", e a resposta tem de ser uma só: com
+ * dois marcados, a Thaís acabaria com dois serviços percentuais no catálogo — que é exatamente
+ * o que a ordem do dono proíbe — e o segundo passaria a cobrar percentual sem ninguém ter
+ * decidido isso.
+ *
+ * A segunda metade é a combinação impossível: faturamento é percentual todo mês; credenciamento
+ * é valor fixo pago só quando a operadora aprova (ADR-104/108). Um serviço marcado como os dois
+ * ficaria fora da estimativa do funil (regra do credenciamento) E cobrando percentual (regra do
+ * faturamento) — sem lado certo para errar.
+ *
+ * Recusa em vez de desmarcar o outro em silêncio: trocar qual serviço é o faturamento é decisão
+ * de negócio, não efeito colateral de salvar um formulário.
+ */
+async function recusarMarcaDeFaturamentoInvalida(
+  idSendoEditado: string | null,
+  tambemCredenciamento: boolean,
+) {
+  if (tambemCredenciamento) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_E_CREDENCIAMENTO });
+  }
+  const outro = await prisma.servico.findFirst({
+    where: { ehFaturamento: true, ...(idSendoEditado ? { id: { not: idSendoEditado } } : {}) },
+    orderBy: { createdAt: "asc" },
+    select: { nome: true },
+  });
+  if (outro) throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_UNICA(outro.nome) });
+}
+
+// ⚠️ ACHADO DA AUDITORIA DE 04/09/2026, FECHADO EM 10/09/2026 PARA A EDIÇÃO (o caminho real do
+// relato — ver `marcarComoUnicaAtomicamente`, perto de `atualizarServico`). As duas funções acima
+// conferem e o `create`/`update` gravam em chamadas SEPARADAS ao banco — duas requisições
+// marcando serviços DIFERENTES ao mesmo tempo passavam as duas pela conferência antes de
+// qualquer uma gravar (mesmo modo de falha que a ADR-140 corrigiu para a conta do honorário, com
+// `updateMany` condicionado). Aqui o `updateMany` sozinho não bastava porque a condição é sobre
+// AS OUTRAS linhas, não sobre a própria — daí o UPDATE com `NOT EXISTS` que fecha a corrida numa
+// única instrução, sem transação nem migração. Envolver checagem + gravação numa transação
+// `SERIALIZABLE` foi tentado antes e esbarrou no tipo do client do Prisma estendido
+// (`packages/db`, `$extends` — ver a memória `prisma-extends-quebra-tipo-de-transacao-2026-09-04`).
+// ⚠️ **A CRIAÇÃO (`criarServico`) NÃO GANHOU A MESMA TRAVA ATÔMICA** — o relato e o uso real são
+// sobre EDITAR um serviço já existente (Ajustes → Serviços → Configurar), não sobre criar dois
+// serviços novos já marcados ao mesmo tempo. A conferência de leitura abaixo continua cobrindo o
+// caso comum (sequencial); o caso concorrente na CRIAÇÃO fica registrado como risco residual, bem
+// mais raro que o da edição.
 
 export async function criarServico(input: {
   nome: string;
@@ -460,10 +854,26 @@ export async function criarServico(input: {
   valorRecorrencia?: "AVULSO" | "MENSAL";
   percentual?: number | null;
   percentualRecorrencia?: "AVULSO" | "MENSAL";
+  ehCredenciamento?: boolean;
+  ehFaturamento?: boolean;
 }) {
+  if (input.ehCredenciamento && input.ehFaturamento) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_E_CREDENCIAMENTO });
+  }
+  if (input.ehCredenciamento) await recusarSegundaMarcaDeCredenciamento(null);
+  if (input.ehFaturamento) {
+    await recusarMarcaDeFaturamentoInvalida(null, input.ehCredenciamento === true);
+  }
+  // Percentual só existe no faturamento médico. O Zod já recusa na criação (o pedido traz tudo);
+  // esta é a segunda camada, para quem chamar a API direto.
+  if (percentualForaDoFaturamento({ valor: input.valor, percentual: input.percentual }, input.ehFaturamento)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
+  }
+  await recusarNomeDeServicoRepetido(input.nome, null);
   const max = await prisma.servico.aggregate({ _max: { ordem: true } });
-  return mapServico(
-    await prisma.servico.create({
+  try {
+    return mapServico(
+      await prisma.servico.create({
       data: {
         nome: input.nome.trim(),
         descricao: input.descricao?.trim() || null,
@@ -472,10 +882,45 @@ export async function criarServico(input: {
         valorRecorrencia: input.valorRecorrencia ?? "AVULSO",
         percentual: input.percentual ?? null,
         percentualRecorrencia: input.percentualRecorrencia ?? "MENSAL",
+        ehCredenciamento: input.ehCredenciamento ?? false,
+        ehFaturamento: input.ehFaturamento ?? false,
         ordem: (max._max.ordem ?? -1) + 1,
-      },
-    }),
-  );
+        },
+      }),
+    );
+  } catch (e) {
+    // ⚠️ A conferência acima responde o caso normal; isto é a corrida entre dois cliques em
+    // "Salvar" numa conexão lenta. Sem este ramo o P2002 subiria cru: erro genérico de servidor
+    // na tela E uma ocorrência nova em SISTEMA → Erros, que é o ruído que a ADR-135 eliminou.
+    if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") {
+      throw new TRPCError({ code: "CONFLICT", message: NOME_DE_SERVICO_DUPLICADO(input.nome.trim()) });
+    }
+    throw e;
+  }
+}
+
+/**
+ * Recusa nome de serviço já usado — a mensagem em português, antes de o banco falar.
+ *
+ * ⚠️ A CONFERÊNCIA É SOBRE O NOME JÁ APARADO. O `trim()` acontece na hora de gravar, então sem
+ * normalizar aqui `"  Faturamento  "` passaria por esta porta e só seria barrado pelo índice
+ * único, com erro cru do MySQL na cara de quem está na tela.
+ *
+ * ⚠️ E ELA NÃO SUBSTITUI O ÍNDICE. Duas requisições ao mesmo tempo passam as duas por aqui antes
+ * de qualquer uma gravar; quem garante é o banco. Esta função existe para a MENSAGEM, o índice
+ * existe para a GARANTIA — tirar um dos dois deixa um buraco diferente.
+ *
+ * `ignorarId` é o próprio serviço na edição: salvar o formulário sem mexer no nome não pode ser
+ * lido como duplicata de si mesmo.
+ */
+async function recusarNomeDeServicoRepetido(nome: string, ignorarId: string | null) {
+  const jaExiste = await prisma.servico.findFirst({
+    where: { nome: nome.trim(), ...(ignorarId ? { id: { not: ignorarId } } : {}) },
+    select: { nome: true },
+  });
+  if (jaExiste) {
+    throw new TRPCError({ code: "CONFLICT", message: NOME_DE_SERVICO_DUPLICADO(jaExiste.nome) });
+  }
 }
 
 export async function atualizarServico(
@@ -489,9 +934,79 @@ export async function atualizarServico(
     percentual?: number | null;
     percentualRecorrencia?: "AVULSO" | "MENSAL";
     clausulasContrato?: string | null;
+    condicaoPagamento?: string | null;
     ativo?: boolean;
+    ehCredenciamento?: boolean;
+    ehFaturamento?: boolean;
   },
 ) {
+  // ⚠️ A COMBINAÇÃO IMPOSSÍVEL É CONFERIDA ANTES DE TUDO, para a mensagem ser a certa. Sem isto,
+  // um pedido que marque as duas coisas num catálogo que já tem credenciamento respondia "já
+  // existe um credenciamento marcado" — verdadeiro, mas não é o que a pessoa precisa saber.
+  if (dados.ehCredenciamento && dados.ehFaturamento) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_E_CREDENCIAMENTO });
+  }
+  if (dados.ehCredenciamento) await recusarSegundaMarcaDeCredenciamento(id);
+  // ⚠️ **A TRAVA PRECISA SER AQUI, não só no Zod (ADR-137).** O `refine` do schema só vê o que
+  // veio no pedido, e a edição é parcial: mandar só `percentual` num serviço que já tem `valor`
+  // gravado passaria batido e deixaria o serviço com as duas cobranças — que é o estado que
+  // reconfigura preço, proposta, funil e provisão em silêncio. Aqui a conferência é sobre o
+  // ANTES + o DEPOIS, que é o que de fato vai ficar na linha.
+  const antes = await prisma.servico.findUnique({
+    where: { id },
+    select: { valor: true, percentual: true, ehCredenciamento: true, ehFaturamento: true },
+  });
+  if (!antes) throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado." });
+  const depois = {
+    valor: dados.valor !== undefined ? dados.valor : emReais(antes.valor),
+    percentual: dados.percentual !== undefined ? dados.percentual : emReais(antes.percentual),
+  };
+  if (temValorEPercentual(depois)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_VALOR_E_PERCENTUAL });
+  }
+
+  // ⚠️ MESMA RAZÃO, MESMO LUGAR: a marca do faturamento também é conferida sobre o ANTES + o
+  // DEPOIS. Desmarcar o faturamento sem limpar o percentual, ou pôr percentual num serviço que
+  // já era fixo, são dois pedidos parciais que o `refine` do Zod não consegue ver — e os dois
+  // deixam o catálogo num estado que a tela não sabe desenhar.
+  const marcaDepois = dados.ehFaturamento !== undefined ? dados.ehFaturamento : antes.ehFaturamento;
+  const credenciamentoDepois =
+    dados.ehCredenciamento !== undefined ? dados.ehCredenciamento : antes.ehCredenciamento;
+  // ⚠️ A UNICIDADE É CONFERIDA NA TRANSIÇÃO desmarcado→marcado, e NÃO a cada salvamento — e a
+  // escolha é deliberada, contra a recomendação de um dos revisores.
+  //
+  // A preocupação dele é real: se DOIS serviços ficassem marcados, conferir só na transição
+  // deixaria o estado proibido virar permanente e mudo, porque salvar qualquer um dos dois
+  // passaria batido. Mas conferir sempre tem um preço pior: com dois marcados, os DOIS ficam
+  // impossíveis de salvar pela tela — inclusive para desmarcar um deles —, e a Thaís fica
+  // trancada do lado de fora de um conserto que só sairia por SQL no banco de produção.
+  //
+  // Quem impede o estado de existir é a migração `20260901010500`, que PARA a publicação se o
+  // backfill não deixar exatamente um marcado. Essa é a defesa certa: acontece antes, uma vez, e
+  // no único caminho pelo qual o estado poderia nascer de verdade.
+  if (marcaDepois && !antes.ehFaturamento) {
+    await recusarMarcaDeFaturamentoInvalida(id, credenciamentoDepois);
+  } else if (marcaDepois && credenciamentoDepois) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: MARCA_FATURAMENTO_E_CREDENCIAMENTO });
+  }
+  if (percentualForaDoFaturamento(depois, marcaDepois)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
+  }
+
+  // O NOME DO SERVIÇO DE CREDENCIAMENTO DEIXOU DE SER REGRA DE COBRANÇA — e por isso não há
+  // mais trava de renomear aqui.
+  //
+  // Até a migração `20260829203721`, "este serviço é o credenciamento?" era respondido
+  // comparando o nome com uma constante, e três decisões de dinheiro dependiam da resposta
+  // (ADR-104/108): ficar fora da estimativa do funil, ficar fora do provisionamento da conversão,
+  // e ter o honorário nascendo só na aprovação da operadora. Corrigir um typo em
+  // Ajustes → Serviços fazia a conversão gerar uma conta a receber e a aprovação gerar a SEGUNDA
+  // pelo mesmo honorário — cliente cobrado duas vezes, sem aviso. A trava existia para impedir
+  // isso, e a própria ADR-140 a registrou como remendo assumido, apontando a cura.
+  //
+  // A cura agora existe: a marca `Servico.ehCredenciamento`. Com ela o nome voltou a ser rótulo,
+  // e a Thaís pode escrevê-lo como quiser sem tocar em regra nenhuma.
+
   const data: Record<string, unknown> = {};
   if (dados.nome !== undefined) data.nome = dados.nome.trim();
   if (dados.descricao !== undefined) data.descricao = dados.descricao?.trim() || null;
@@ -501,12 +1016,57 @@ export async function atualizarServico(
   if (dados.percentual !== undefined) data.percentual = dados.percentual ?? null;
   if (dados.percentualRecorrencia !== undefined) data.percentualRecorrencia = dados.percentualRecorrencia;
   if (dados.clausulasContrato !== undefined) data.clausulasContrato = dados.clausulasContrato?.trim() || null;
+  if (dados.condicaoPagamento !== undefined) data.condicaoPagamento = dados.condicaoPagamento?.trim() || null;
   if (dados.ativo !== undefined) data.ativo = dados.ativo;
+  if (dados.nome !== undefined) await recusarNomeDeServicoRepetido(dados.nome, id);
   try {
-    return mapServico(await prisma.servico.update({ where: { id }, data }));
-  } catch {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado." });
+    await prisma.servico.update({ where: { id }, data });
+  } catch (e) {
+    // ⚠️ ESTE `catch` NASCEU PARA "id não existe" E PASSOU A PEGAR MAIS COISA. Com o índice único
+    // em `Servico.nome`, um nome repetido chega aqui como P2002 — e virava
+    // "Serviço não encontrado." para quem acabou de abrir o serviço na tela e só trocou o nome.
+    // A conferência acima já responde o caso normal; isto é a rede para a corrida entre duas
+    // gravações simultâneas, que a conferência não consegue cobrir.
+    const codigo = e && typeof e === "object" ? (e as { code?: string }).code : undefined;
+    if (codigo === "P2002") {
+      throw new TRPCError({ code: "CONFLICT", message: NOME_DE_SERVICO_DUPLICADO(String(data.nome ?? "")) });
+    }
+    // ⚠️ SÓ "id não existe" VIRA "não encontrado". O `antes` acima já provou que o id existe, então
+    // o que chega aqui de desconhecido é quase sempre INFRAESTRUTURA — e o mais provável neste
+    // servidor é `P1001` ("Can't reach database server"), que a documentação registra como
+    // recorrente. Engolir isso fazia duas coisas ruins de uma vez: a Thaís lia "Serviço não
+    // encontrado." e ia procurar um serviço que está lá; e o erro virava `NOT_FOUND` no tRPC, que
+    // NÃO entra em SISTEMA → Erros (o filtro é `INTERNAL_SERVER_ERROR`, ADR-135). A queda do banco
+    // ficava invisível justamente no caminho de escrita. Relançar é o certo.
+    if (codigo === "P2025") {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado." });
+    }
+    throw e;
   }
+
+  // ⚠️ AS MARCAS SÓ SÃO APLICADAS DEPOIS DO RESTO JÁ TER SIDO GRAVADO COM SUCESSO — achado da
+  // revisão especialista (10/09/2026). Na ORDEM ANTERIOR (marca primeiro), um pedido que trocasse
+  // o nome para um já usado E mexesse na marca no MESMO envio deixava a marca gravada em
+  // silêncio mesmo quando o erro de nome fazia a função inteira lançar: a tela dizia "nome já
+  // usado" e a Thaís concluía que nada foi salvo, mas a marca — inclusive tendo roubado a marca
+  // única de outro serviço — já estava no banco. Cada marca continua num UPDATE ATÔMICO PRÓPRIO
+  // (ver `tentarMarcarAtomicamente`, perto de `recusarSegundaMarcaDeCredenciamento`): é o que
+  // fecha a corrida entre duas edições concorrentes, sem reabrir a janela entre "conferir" e
+  // "gravar" que a auditoria de 04/09/2026 achou. As conferências de leitura já feitas acima
+  // continuam respondendo o caso comum (sequencial), com a mensagem amigável.
+  if (dados.ehCredenciamento !== undefined) {
+    await aplicarMarcaOuRecusar(id, "ehCredenciamento", dados.ehCredenciamento, () =>
+      recusarSegundaMarcaDeCredenciamento(id),
+    );
+  }
+  if (dados.ehFaturamento !== undefined) {
+    await aplicarMarcaOuRecusar(id, "ehFaturamento", dados.ehFaturamento, () =>
+      recusarMarcaDeFaturamentoInvalida(id, credenciamentoDepois),
+    );
+  }
+
+  const final = await prisma.servico.findUniqueOrThrow({ where: { id } });
+  return mapServico(final);
 }
 
 /** Salva o roteiro do projeto de um serviço (tarefas + checklist de cada) — ADR-37. */

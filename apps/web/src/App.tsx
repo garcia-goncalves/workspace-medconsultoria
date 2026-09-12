@@ -17,11 +17,14 @@ const DefinirSenhaPage = lazy(() => import("./features/auth/DefinirSenhaPage").t
 const EsqueciSenhaPage = lazy(() => import("./features/auth/EsqueciSenhaPage").then((m) => ({ default: m.EsqueciSenhaPage })));
 const RedefinirSenhaPage = lazy(() => import("./features/auth/RedefinirSenhaPage").then((m) => ({ default: m.RedefinirSenhaPage })));
 const TrocarSenhaPrimeiroAcessoPage = lazy(() => import("./features/auth/TrocarSenhaPrimeiroAcessoPage").then((m) => ({ default: m.TrocarSenhaPrimeiroAcessoPage })));
+const PrivacidadePage = lazy(() => import("./features/publico/PrivacidadePage").then((m) => ({ default: m.PrivacidadePage })));
 const CapturaLeadPage = lazy(() => import("./features/captura/CapturaLeadPage").then((m) => ({ default: m.CapturaLeadPage })));
 const AssinarPage = lazy(() => import("./features/assinaturas/AssinarPage").then((m) => ({ default: m.AssinarPage })));
 const PropostaPublicaPage = lazy(() => import("./features/propostas/PropostaPublicaPage").then((m) => ({ default: m.PropostaPublicaPage })));
-const PortalLayout = lazy(() => import("./features/portal/PortalLayout").then((m) => ({ default: m.PortalLayout })));
-const PortalHome = lazy(() => import("./features/portal/PortalHome").then((m) => ({ default: m.PortalHome })));
+// O Portal virou um roteador próprio (`app/portal-router.tsx`). O que se carrega sob demanda é
+// o `PortalApp`, um arquivo fino que só devolve o `RouterProvider` dele — uma instância de
+// roteador não é um componente, e o `lazy` precisa de um.
+const PortalApp = lazy(() => import("./features/portal/PortalApp").then((m) => ({ default: m.PortalApp })));
 import { AuthProvider } from "./lib/auth-context";
 import { router } from "./app/router";
 import { DialogsProvider } from "./components/ui/confirm-dialog";
@@ -53,6 +56,9 @@ export function App() {
   if (publicPath === "/redefinir-senha") return <SobDemanda><RedefinirSenhaPage /></SobDemanda>;
   // Caminho amigável para o lead. Nome antigo (`/captura`) foi removido de propósito:
   // "captura" assustava o futuro cliente. Só existe `/comecar`.
+  // Aviso de privacidade (LGPD, ADR-141). Pública de propósito: ela é a prova de
+  // transparência, e exigir login para ler a política de dados seria o contrário disso.
+  if (publicPath === "/privacidade") return <SobDemanda><PrivacidadePage /></SobDemanda>;
   if (publicPath === "/comecar") return <SobDemanda><CapturaLeadPage /></SobDemanda>;
   if (publicPath.startsWith("/assinar/")) return <SobDemanda><AssinarPage token={decodeURIComponent(publicPath.slice("/assinar/".length))} /></SobDemanda>;
   if (publicPath.startsWith("/proposta/")) return <SobDemanda><PropostaPublicaPage token={decodeURIComponent(publicPath.slice("/proposta/".length))} /></SobDemanda>;
@@ -61,6 +67,30 @@ export function App() {
     return (
       <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // ⚠️ "NÃO ESTÁ LOGADO" E "NÃO CONSEGUI PERGUNTAR" SÃO COISAS DIFERENTES.
+  //
+  // `auth.me` falhando — banco fora do ar, timeout, 500 — deixava `me.data` indefinido e caía na
+  // mesma linha do deslogado: a pessoa era jogada na tela de login no meio do trabalho, perdia o
+  // formulário aberto e concluía que a sessão tinha caído. Com `retry: false` no Query, UMA falha
+  // basta. E a queda de banco não é hipótese aqui: acontece em produção.
+  if (me.isError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="text-base font-semibold">Não conseguimos falar com o servidor</p>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Você continua conectado — foi a conexão que falhou. Tente de novo em alguns instantes.
+        </p>
+        <button
+          type="button"
+          onClick={() => void me.refetch()}
+          className="rounded-lg border px-4 py-2 text-sm font-medium hover:bg-muted"
+        >
+          Tentar de novo
+        </button>
       </div>
     );
   }
@@ -88,9 +118,7 @@ export function App() {
       <DialogsProvider>
         {me.data.role === "CLIENTE" ? (
           <SobDemanda>
-            <PortalLayout>
-              <PortalHome />
-            </PortalLayout>
+            <PortalApp />
           </SobDemanda>
         ) : (
           <RouterProvider router={router} />

@@ -16,7 +16,7 @@ import {
   explicarIncidente,
 } from "./ia.service.js";
 
-// Assistente de IA (OpenAI) — disponível só com OPENAI_API_KEY; acesso da equipe.
+// Assistente de IA (Gemini) — disponível só com GEMINI_API_KEY; acesso da equipe.
 // Todas as sugestões seguem o padrão "a IA propõe, o usuário aprova".
 export const iaRouter = router({
   disponivel: funcionarioProcedure.query(() => ({ disponivel: isAiEnabled })),

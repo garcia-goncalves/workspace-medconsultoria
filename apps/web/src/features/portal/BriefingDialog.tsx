@@ -71,21 +71,27 @@ export function BriefingDialog({ requisitoId, onClose, onSaved }: { requisitoId:
 
   const footer = q.data ? (
     <>
-      <Button variant="outline" size="sm" onClick={onClose} disabled={salvar.isPending}>
+      <Button variant="outline" size="sm" className="min-h-11" onClick={onClose} disabled={salvar.isPending}>
         Cancelar
       </Button>
-      <Button variant="outline" size="sm" onClick={baixar}>
+      <Button variant="outline" size="sm" className="min-h-11" onClick={baixar}>
         <Download className="h-4 w-4" /> Baixar
       </Button>
       <Button
         variant="outline"
         size="sm"
+        className="min-h-11"
         disabled={salvar.isPending}
         onClick={() => salvar.mutate({ requisitoId, respostas: valores, enviar: false })}
       >
         Salvar rascunho
       </Button>
-      <Button size="sm" disabled={salvar.isPending || faltamObrig} onClick={() => salvar.mutate({ requisitoId, respostas: valores, enviar: true })}>
+      <Button
+        size="sm"
+        className="min-h-11"
+        disabled={salvar.isPending || faltamObrig}
+        onClick={() => salvar.mutate({ requisitoId, respostas: valores, enviar: true })}
+      >
         <Send className="h-4 w-4" /> Enviar
       </Button>
     </>
@@ -128,7 +134,7 @@ export function BriefingDialog({ requisitoId, onClose, onSaved }: { requisitoId:
                         type="button"
                         onClick={() => set(c.id, op)}
                         className={
-                          "rounded-md border px-3 py-1.5 text-sm transition-colors " +
+                          "min-h-11 rounded-md border px-3 py-1.5 text-sm transition-colors " +
                           (valores[c.id] === op ? "border-primary bg-primary/10 font-medium text-primary" : "hover:bg-accent")
                         }
                       >
@@ -139,7 +145,7 @@ export function BriefingDialog({ requisitoId, onClose, onSaved }: { requisitoId:
                 ) : c.tipo === "ESCOLHA" ? (
                   <div className="space-y-1">
                     {c.opcoes.map((op) => (
-                      <label key={op} className="flex cursor-pointer items-center gap-2 text-sm">
+                      <label key={op} className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
                         <input type="radio" name={c.id} checked={valores[c.id] === op} onChange={() => set(c.id, op)} className="accent-[var(--primary)]" />
                         {op}
                       </label>
@@ -150,7 +156,7 @@ export function BriefingDialog({ requisitoId, onClose, onSaved }: { requisitoId:
                     {c.opcoes.map((op) => {
                       const arr = (valores[c.id] as string[]) ?? [];
                       return (
-                        <label key={op} className="flex cursor-pointer items-center gap-2 text-sm">
+                        <label key={op} className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
                           <input
                             type="checkbox"
                             checked={arr.includes(op)}

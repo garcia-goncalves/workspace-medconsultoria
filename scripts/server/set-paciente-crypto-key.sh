@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Gera a PACIENTE_CRYPTO_KEY no .env de PRODUÇÃO (ADR-125). Roda NO SERVIDOR.
+# Gera a PACIENTE_CRYPTO_KEY no .env de PRODUÇÃO (ADR-153). Roda NO SERVIDOR.
 #
 # É ela que cifra CPF, telefone e e-mail de PACIENTE no módulo de Conciliação (AES-256-GCM) e que
 # deriva o HMAC usado para casar o mesmo paciente entre relatórios. Sem ela o módulo fica

@@ -1,10 +1,15 @@
 import { FileUp, Trash2, User, Users } from "lucide-react";
 import { LADO_ARQUIVO_LABEL, type LadoArquivo } from "@app/shared";
 import { trpc } from "../../lib/trpc";
+import { useAuth } from "../../lib/auth-context";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
+import { Badge } from "../../components/ui/badge";
 import { data } from "../../lib/format-date";
+import { QueryError } from "../../components/ui/query-error";
+import { recarregarAposEnvio } from "../../lib/recarregar-apos-envio";
+import { Skeleton } from "../../components/ui/skeleton";
 
 /**
  * "Seus documentos" no Portal: os arquivos que o CLIENTE envia (RG, CPF, CRM, comprovantes…)
@@ -15,9 +20,13 @@ import { data } from "../../lib/format-date";
 export function PortalMeusDocumentos() {
   const utils = trpc.useUtils();
   const confirm = useConfirm();
+  const { user } = useAuth();
   const q = trpc.portal.arquivos.useQuery();
   const invalidate = () => {
-    utils.portal.arquivos.invalidate();
+    // `q` é a lista que ESTA tela desenha: ela precisa do recarregamento duplo, não de um
+    // `invalidate` (ver `recarregarAposEnvio`). As outras consultas são de telas vizinhas e
+    // não estão no ar agora, então marcar como velha basta.
+    recarregarAposEnvio(q);
     utils.portal.meusServicos.invalidate();
   };
   const remover = trpc.portal.removerArquivo.useMutation({ onSuccess: invalidate });
@@ -44,9 +53,27 @@ export function PortalMeusDocumentos() {
         <span className="text-xs text-muted-foreground">Os documentos que você envia para nós — RG, CPF, CRM, comprovantes…</span>
       </CardHeader>
       <CardContent className="space-y-3">
-        <UploadArquivo label="Enviar um documento" campos={{}} onDone={invalidate} />
+        <div className="[&_button]:min-h-11">
+          <UploadArquivo label="Enviar um documento" campos={{}} onDone={invalidate} />
+        </div>
 
-        {arquivos.length === 0 ? (
+        {/* ⚠️ Erro ANTES de vazio: em falha, a lista dizia "você ainda não enviou nenhum
+            documento" e o cliente reenviava tudo o que já tinha mandado. */}
+        {/* ⚠️ CARREGANDO vem antes de VAZIO pelo mesmo motivo do erro: enquanto a lista não
+            chega, `arquivos` é `[]` — e a tela afirmava "você ainda não enviou nenhum
+            documento" a quem tinha enviado. É uma fração de segundo, mas é a frase que faz o
+            cliente reenviar tudo. */}
+        {q.isLoading ? (
+          <div className="space-y-1.5">
+            <Skeleton className="h-11 w-full" />
+            <Skeleton className="h-11 w-full" />
+          </div>
+        ) : q.isError ? (
+          <QueryError
+            onRetry={() => void q.refetch()}
+            message="Não conseguimos carregar os seus documentos. Tente de novo — nada do que você enviou se perdeu."
+          />
+        ) : arquivos.length === 0 ? (
           <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
             Você ainda não enviou nenhum documento. Envie aqui os arquivos que precisamos de você.
           </p>
@@ -65,32 +92,40 @@ export function PortalMeusDocumentos() {
                 .filter(Boolean)
                 .join(" · ");
               const doCliente = a.enviadoPorTipo === "CLIENTE";
+              // ⚠️ "Enviado por você" é sobre a PESSOA, não sobre o LADO (ADR-131: vários
+              // usuários por clínica). `doCliente` só diz que foi alguém do lado do cliente —
+              // comparar com `enviadoPorTipo` sozinho atribuía a um colega o envio de outro.
+              // A trava certa é o `enviadoPorId` (userId de quem de fato enviou) contra a sessão
+              // atual.
+              const porVoce = !!user && a.enviadoPorId === user.id;
+              const rotulo = porVoce ? "Você" : doCliente ? (a.enviadoPorNome ?? "Colega da clínica") : "MedConsultoria";
+              const tituloBadge = porVoce
+                ? "Enviado por você"
+                : doCliente
+                  ? `Enviado por ${a.enviadoPorNome ?? "outra pessoa da clínica"}`
+                  : "Anexado pela equipe MedConsultoria";
               return (
                 <div key={a.id} className="flex items-center gap-2.5 rounded-lg border px-3 py-2 text-sm">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/5 text-primary ring-1 ring-inset ring-primary/10">
                     <FileUp className="h-4 w-4" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <ArquivoLink id={a.id} nome={a.nome} className="block max-w-full font-medium" />
+                    {/* `min-h-11`: no Portal o nome do arquivo é um LINK de download, e um link de 20px de
+                        altura não se acerta com o dedo — a régua de toque de 44px reprovava aqui. */}
+                    <ArquivoLink id={a.id} nome={a.nome} className="flex min-h-11 max-w-full items-center font-medium" />
                     <div className="truncate text-xs text-muted-foreground">
                       {contexto} · {data(a.createdAt)}
                     </div>
                   </div>
-                  <span
-                    className={
-                      "inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold " +
-                      (doCliente ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")
-                    }
-                    title={doCliente ? "Enviado por você" : "Anexado pela equipe MedConsultoria"}
-                  >
+                  <Badge variant={doCliente ? "primary" : "default"} className="shrink-0" title={tituloBadge}>
                     {doCliente ? <User className="h-3 w-3" /> : <Users className="h-3 w-3" />}
-                    {doCliente ? "Você" : "MedConsultoria"}
-                  </span>
+                    {rotulo}
+                  </Badge>
                   {doCliente && (
                     <button
                       onClick={() => onRemover(a.id, a.nome)}
-                      title="Remover"
-                      className="shrink-0 rounded p-1 text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      aria-label={`Remover ${a.nome}`}
+                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded p-1 text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>

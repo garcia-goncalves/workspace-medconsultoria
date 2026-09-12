@@ -248,7 +248,7 @@ export function ProjetosListPage() {
           })}
         </div>
 
-        <Select aria-label="Filtrar por responsável" value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} className="w-auto min-w-[160px]">
+        <Select aria-label="Filtrar por responsável" value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} className="min-w-[160px]">
           <option value="">Todos os responsáveis</option>
           {(equipe.data ?? []).map((u) => (
             <option key={u.id} value={u.id}>
@@ -271,15 +271,17 @@ export function ProjetosListPage() {
         <div className="ml-auto flex items-center gap-0.5 rounded-lg border p-0.5">
           <button
             onClick={() => setVisao("cards")}
-            className={cn("rounded-md p-1.5 transition-colors", visao === "cards" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}
-            title="Cartões"
+            aria-label="Ver em cartões"
+            aria-pressed={visao === "cards"}
+            className={cn("flex h-11 w-11 items-center justify-center rounded-md transition-colors md:h-8 md:w-8", visao === "cards" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}
           >
             <LayoutGrid className="h-4 w-4" />
           </button>
           <button
             onClick={() => setVisao("lista")}
-            className={cn("rounded-md p-1.5 transition-colors", visao === "lista" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}
-            title="Lista"
+            aria-label="Ver em lista"
+            aria-pressed={visao === "lista"}
+            className={cn("flex h-11 w-11 items-center justify-center rounded-md transition-colors md:h-8 md:w-8", visao === "lista" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}
           >
             <List className="h-4 w-4" />
           </button>
@@ -311,13 +313,17 @@ export function ProjetosListPage() {
           </Button>
         </div>
       ) : visao === "cards" ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        // ⚠️ `grid-cols-[minmax(0,1fr)]` no CELULAR não é enfeite (ADR-143). Sem coluna declarada,
+        // a trilha implícita é `auto` — e esse `auto` é o MIN-CONTENT do cartão mais largo, que aqui
+        // media 370px dentro de um recipiente de 324px: os oito cartões vazavam 26px da tela a 360px.
+        // As trilhas do `md:`/`xl:` já vêm do Tailwind como `minmax(0,1fr)`; a que faltava era esta.
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filtrados.map((p) => {
             const r = resumo(p);
             return (
               <div
                 key={p.id}
-                className="group relative flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md focus-within:ring-2 focus-within:ring-primary/40"
+                className="group relative flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md focus-within:ring-2 focus-within:ring-primary/40"
               >
                 <div className="flex items-start gap-2">
                   {/* Botão-título com área clicável esticada (padrão de card acessível: um único
@@ -373,14 +379,14 @@ export function ProjetosListPage() {
                         {iniciais(p.responsavel.nome)}
                       </span>
                     )}
-                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-md:opacity-100">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           abrirEditar(p);
                         }}
-                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                        title="Editar"
+                        aria-label={`Editar "${p.nome}"`}
+                        className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:h-7 md:w-7"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
@@ -389,8 +395,8 @@ export function ProjetosListPage() {
                           e.stopPropagation();
                           remover(p);
                         }}
-                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                        title="Remover"
+                        aria-label={`Remover "${p.nome}"`}
+                        className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive md:h-7 md:w-7"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -448,15 +454,15 @@ export function ProjetosListPage() {
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => abrirEditar(p)}
-                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                        title="Editar"
+                        aria-label={`Editar "${p.nome}"`}
+                        className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:h-7 md:w-7"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={() => remover(p)}
-                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                        title="Remover"
+                        aria-label={`Remover "${p.nome}"`}
+                        className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive md:h-7 md:w-7"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

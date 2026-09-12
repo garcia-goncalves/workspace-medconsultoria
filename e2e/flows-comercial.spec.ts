@@ -10,7 +10,7 @@ const EMPRESA = `Empresa ${RUN}`;
 async function abrirPainel(page) {
   await page.goto("/leads");
   await page.getByPlaceholder(/Buscar por nome/i).fill(RUN);
-  const card = page.getByRole("button", { name: new RegExp(LEAD) });
+  const card = page.getByRole("button", { name: LEAD, exact: true });
   await expect(card).toBeVisible();
   await card.click();
   return page.getByRole("complementary"); // painel lateral do lead
@@ -27,7 +27,9 @@ test.describe.serial("Cenário 1 — comercial", () => {
     await dialog.getByRole("button", { name: "Gestão Operacional" }).click();
     await dialog.getByRole("button", { name: "Criar lead" }).click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole("button", { name: new RegExp(LEAD) })).toBeVisible();
+    // `exact`: os botoes de acao do card ganharam nome acessivel com o nome do lead dentro
+    // ("Editar \"Lead X\""), entao a busca por trecho casa tres botoes.
+    await expect(page.getByRole("button", { name: LEAD, exact: true })).toBeVisible();
   });
 
   test("2. abre o painel, edita e persiste após refresh", async ({ page }) => {

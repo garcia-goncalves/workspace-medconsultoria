@@ -695,7 +695,7 @@ const GUIA_SISTEMA: Passo[] = [
 // menu lateral — divergências ("Comunicações"/"Usuários") confundiam. O teste em GuiaTour.test
 // garante que toda rota de página tenha um guia próprio e que a ordem de prefixos esteja correta.
 const OUTRAS: { prefixo: string; guia: Guia }[] = [
-  { prefixo: "/leads", guia: { titulo: "Vendas", passos: GUIA_FUNIL } },
+  { prefixo: "/funil-de-vendas", guia: { titulo: "Funil de Vendas", passos: GUIA_FUNIL } },
   { prefixo: "/clientes", guia: { titulo: "Clientes", passos: GUIA_CLIENTES } },
   { prefixo: "/credenciamentos", guia: { titulo: "Credenciamentos", passos: GUIA_CREDENCIAMENTOS } },
   { prefixo: "/conciliacao", guia: { titulo: "Conciliação", passos: GUIA_CONCILIACAO } },

@@ -55,6 +55,22 @@ const ESVAZIAR = [
   "Token", "Incidente", "ErrorLog", "ClienteServico", "Projeto", "Contato", "SuporteMensagem",
   "ProjetoParticipante", "EventoParticipante", "Assinatura", "FormularioResposta",
   "PreferenciaEmail",
+  // Acrescentados em 29/08/2026. Estes NOVE ficavam para trás, e o efeito só aparecia ao
+  // repovoar: cada semeadura empilhava mais um lote de médicos e credenciamentos (26
+  // profissionais e 59 credenciamentos onde o desenho pede 5 e 10), e o painel de
+  // Credenciamentos mostrava gente que não existe mais em clínica nenhuma.
+  //
+  // ⚠️ `Credenciamento` e `Profissional` NÃO caíam em cascata: `Profissional` pende de
+  // `Cliente`, mas com as chaves estrangeiras DESLIGADAS durante a limpeza (é o que este
+  // script faz para não depender da ordem entre 40 tabelas) a cascata do banco não roda.
+  // Tabela ausente desta lista é tabela que sobrevive.
+  //
+  // ⚠️ `CaixaEmail` guarda a senha IMAP cifrada de cada pessoa — é dado pessoal e não pode
+  // sobreviver a uma limpeza. Deixá-la também era a origem do erro `412 Precondition
+  // Failed` que a tela `/email` disparava em toda carga: a caixa semeada pedindo reconexão.
+  "Credenciamento", "Profissional",
+  "Tarefa", "TarefaResponsavel",
+  "EmailAnexo", "EmailEndereco", "EmailMensagem", "CaixaPasta", "CaixaEmail",
 ];
 
 /** Limpezas seletivas: preservam o que é catálogo real. */

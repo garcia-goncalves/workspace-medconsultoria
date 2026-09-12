@@ -56,7 +56,7 @@ export async function contarTarefas(ctx: Ctx) {
 }
 
 /** Normaliza a lista de responsáveis: sem vazios/duplicados; vazio = só eu. */
-function normalizarResponsaveis(ids: string[] | undefined, ctx: Ctx): string[] {
+export function normalizarResponsaveis(ids: string[] | undefined, ctx: Ctx): string[] {
   const limpos = [...new Set((ids ?? []).map((x) => x.trim()).filter(Boolean))];
   return limpos.length > 0 ? limpos : [ctx.userId];
 }
@@ -76,7 +76,7 @@ async function tarefaComAcesso(id: string, ctx: Ctx, opts: { donoApenas?: boolea
 }
 
 /** Avisa cada responsável recém-atribuído (menos quem criou/você mesmo). */
-async function avisarDelegacao(tarefa: { id: string; titulo: string; criadoPorId: string }, paraIds: string[]) {
+export async function avisarDelegacao(tarefa: { id: string; titulo: string; criadoPorId: string }, paraIds: string[]) {
   const destinatarios = [...new Set(paraIds)].filter((uid) => uid !== tarefa.criadoPorId);
   if (destinatarios.length === 0) return;
   const dePor = await prisma.user.findUnique({ where: { id: tarefa.criadoPorId }, select: { nome: true } });
@@ -88,6 +88,18 @@ async function avisarDelegacao(tarefa: { id: string; titulo: string; criadoPorId
         { tarefa: tarefa.titulo, dePor: dePor?.nome ?? "Alguém da equipe" },
         { entidadeTipo: "tarefa", entidadeId: tarefa.id },
       ),
+    ),
+  );
+}
+
+/** Avisa cada responsável de que o prazo da tarefa mudou (nunca avisa quem fez a própria mudança). */
+async function avisarMudancaDePrazo(tarefa: { id: string; titulo: string; prazo: Date | null }, responsavelIds: string[], porUserId: string) {
+  const destinatarios = [...new Set(responsavelIds)].filter((uid) => uid !== porUserId);
+  if (destinatarios.length === 0) return;
+  const prazo = tarefa.prazo ? tarefa.prazo.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "sem prazo";
+  await Promise.all(
+    destinatarios.map((uid) =>
+      notificar(uid, "tarefa_prazo_alterado", { tarefa: tarefa.titulo, prazo }, { entidadeTipo: "tarefa", entidadeId: tarefa.id }),
     ),
   );
 }
@@ -104,20 +116,56 @@ async function avisarConclusao(tarefa: { id: string; titulo: string; criadoPorId
   );
 }
 
-export async function createTarefa(input: CreateTarefaInput, ctx: Ctx) {
-  const responsaveis = normalizarResponsaveis(input.responsavelIds, ctx);
-  const tarefa = await prisma.tarefa.create({
+/**
+ * O `create` do Prisma, isolado — a ÚNICA montagem de uma tarefa nova nesta casa.
+ *
+ * ⚠️ **Existe porque há duas portas para criar tarefa, e a regra não pode morar nas duas.** A
+ * humana é o `createTarefa` logo abaixo; a outra é a API do agente (CORA-003), que precisa
+ * gravar **dentro da própria transação** para a reserva da chave de idempotência e a tarefa
+ * entrarem ou não entrarem juntas. Duplicar a montagem seria o modo de falha da ADR-133: dois
+ * lugares divergindo, e o segundo ficando para trás sem ninguém notar.
+ *
+ * Recebe o cliente do Prisma (`prisma` ou o cliente de uma transação) de propósito.
+ */
+export async function montarTarefa(
+  db: Pick<typeof prisma, "tarefa">,
+  dados: {
+    titulo: string;
+    descricao?: string | null;
+    criadoPorId: string;
+    prazo: Date | null;
+    prioridade: CreateTarefaInput["prioridade"];
+    clienteId?: string | null;
+    projetoId?: string | null;
+    responsavelIds: string[];
+  },
+) {
+  return db.tarefa.create({
     data: {
-      titulo: input.titulo.trim(),
-      descricao: clean(input.descricao),
-      criadoPorId: ctx.userId,
-      prazo: input.prazo ?? null,
-      prioridade: input.prioridade,
-      clienteId: clean(input.clienteId),
-      projetoId: clean(input.projetoId),
-      responsaveis: { create: responsaveis.map((userId) => ({ userId })) },
+      titulo: dados.titulo.trim(),
+      descricao: clean(dados.descricao),
+      criadoPorId: dados.criadoPorId,
+      prazo: dados.prazo,
+      prioridade: dados.prioridade,
+      clienteId: clean(dados.clienteId),
+      projetoId: clean(dados.projetoId),
+      responsaveis: { create: dados.responsavelIds.map((userId) => ({ userId })) },
     },
     include,
+  });
+}
+
+export async function createTarefa(input: CreateTarefaInput, ctx: Ctx) {
+  const responsaveis = normalizarResponsaveis(input.responsavelIds, ctx);
+  const tarefa = await montarTarefa(prisma, {
+    titulo: input.titulo,
+    descricao: input.descricao,
+    criadoPorId: ctx.userId,
+    prazo: input.prazo ?? null,
+    prioridade: input.prioridade,
+    clienteId: input.clienteId,
+    projetoId: input.projetoId,
+    responsavelIds: responsaveis,
   });
   await avisarDelegacao(tarefa, responsaveis);
   return tarefa;
@@ -128,6 +176,11 @@ export async function updateTarefa(input: UpdateTarefaInput, ctx: Ctx) {
   const idsAntes = atual.responsaveis.map((r) => r.userId);
   const trocaResponsaveis = input.responsavelIds !== undefined;
   const novosIds = trocaResponsaveis ? normalizarResponsaveis(input.responsavelIds, ctx) : idsAntes;
+
+  // Prazo mudou? Compara ANTES × DEPOIS (null-safe) — só dispara aviso quando o valor de fato muda.
+  const prazoAntes = atual.prazo ? atual.prazo.getTime() : null;
+  const prazoDepois = input.prazo !== undefined ? (input.prazo ? input.prazo.getTime() : null) : prazoAntes;
+  const prazoMudou = input.prazo !== undefined && prazoAntes !== prazoDepois;
 
   // Concluir grava a data; reabrir limpa.
   let concluidaEm = atual.concluidaEm;
@@ -157,6 +210,7 @@ export async function updateTarefa(input: UpdateTarefaInput, ctx: Ctx) {
     await avisarDelegacao(tarefa, adicionados);
   }
   if (input.status === "CONCLUIDA" && atual.status !== "CONCLUIDA") await avisarConclusao(tarefa, ctx.userId);
+  if (prazoMudou) await avisarMudancaDePrazo(tarefa, novosIds, ctx.userId);
   return tarefa;
 }
 

@@ -1,6 +1,7 @@
 import { ImapFlow } from "imapflow";
 import { prisma } from "@app/db";
 import { decifrar } from "../../lib/cripto-caixa.js";
+import { erroPrecisaReconectar } from "./erros-de-caixa.js";
 
 export type DadosConexao = { imapHost: string; imapPorta: number; usuario: string; senha: string };
 
@@ -89,7 +90,9 @@ export async function comCaixa<T>(
   });
   if (!caixa) throw new Error("Caixa não encontrada.");
   if (caixa.estado === "AUTENTICACAO_FALHOU") {
-    throw new Error("Esta caixa precisa ser reconectada: a senha guardada foi recusada pelo servidor.");
+    throw erroPrecisaReconectar(
+      "Esta caixa precisa ser reconectada: a senha guardada foi recusada pelo servidor.",
+    );
   }
 
   // Se o segredo não abre (EMAIL_CRYPTO_KEY rotacionada, por exemplo), o remédio é o mesmo da
@@ -104,7 +107,7 @@ export async function comCaixa<T>(
       where: { id: caixa.id },
       data: { estado: "AUTENTICACAO_FALHOU", ultimoErro: (e as Error).message.slice(0, 500) },
     });
-    throw e;
+    throw erroPrecisaReconectar((e as Error).message);
   }
 
   const c = novoCliente({
@@ -130,6 +133,10 @@ export async function comCaixa<T>(
         where: { id: caixa.id },
         data: { estado: "AUTENTICACAO_FALHOU", ultimoErro: "Senha recusada pelo servidor de e-mail." },
       });
+      // Senha recusada é o mesmo estado esperado do início da função — só descoberto uma conexão
+      // depois. Sem esta linha, a PRIMEIRA vez que a senha é recusada ainda entraria no painel de
+      // Sistema como bug (as seguintes já caem na guarda do topo, que agora não entra).
+      throw erroPrecisaReconectar("Esta caixa precisa ser reconectada: a senha foi recusada pelo servidor.");
     } else if (opcoes?.marcarErro !== false) {
       await prisma.caixaEmail.update({
         where: { id: caixa.id },

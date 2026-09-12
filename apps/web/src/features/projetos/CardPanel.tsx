@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X, Play, Square, Trash2, Pencil, Plus, Loader2, Clock } from "lucide-react";
+import { Play, Square, Trash2, Pencil, Plus, Loader2, Clock } from "lucide-react";
 import { PRIORIDADE_LABEL, CARD_STATUS_LABEL, hasRoleLevel, type Prioridade } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { useAuth } from "../../lib/auth-context";
@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import { Badge, type BadgeProps } from "../../components/ui/badge";
+import { Modal } from "../../components/ui/modal";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { toast } from "../../components/ui/toast";
 import type { CardEditavel } from "./CardFormDialog";
@@ -48,13 +49,6 @@ export function CardPanel({
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [editTexto, setEditTexto] = useState("");
   const [agora, setAgora] = useState(0);
-
-  // Fecha no Esc (padrão do Modal do kit).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const refresh = () => {
     utils.cards.get.invalidate({ id: cardId });
@@ -120,79 +114,69 @@ export function CardPanel({
   const feitos = c ? c.checklist.filter((i) => i.concluido).length : 0;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      {/* Quadro de altura fixa: cabeçalho fixo + duas colunas; só as LISTAS rolam por dentro (o card nunca rola). */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="cardpanel-titulo"
-        className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border bg-card shadow-xl"
-      >
-        {card.isLoading || !c ? (
-          <div className="flex h-48 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+    <Modal
+      open
+      onClose={onClose}
+      title={c?.titulo ?? "Cartão"}
+      size="xl"
+      bodyClassName="p-0"
+      titleExtra={
+        c && (
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant={prioridadeVariant[c.prioridade]}>{PRIORIDADE_LABEL[c.prioridade]}</Badge>
+            {c.prazo && <span>Prazo: {dataUTC(c.prazo)}</span>}
+            {c.responsavel && <span>Resp.: {c.responsavel.nome}</span>}
           </div>
-        ) : (
+        )
+      }
+      headerActions={
+        c && (
           <>
-            {/* ── Cabeçalho (fixo) ── */}
-            <div className="flex shrink-0 items-start justify-between gap-4 border-b p-5">
-              <div className="min-w-0">
-                <h2 id="cardpanel-titulo" className="truncate text-lg font-semibold text-primary">{c.titulo}</h2>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <Badge variant={prioridadeVariant[c.prioridade]}>{PRIORIDADE_LABEL[c.prioridade]}</Badge>
-                  {c.prazo && <span>Prazo: {dataUTC(c.prazo)}</span>}
-                  {c.responsavel && <span>Resp.: {c.responsavel.nome}</span>}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <button
-                  onClick={() =>
-                    onEdit({
-                      id: c.id,
-                      titulo: c.titulo,
-                      descricao: c.descricao,
-                      prioridade: c.prioridade,
-                      prazo: c.prazo,
-                      responsavelId: c.responsavelId,
-                    })
-                  }
-                  className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  title="Editar"
-                >
-                  <Pencil className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={async () => {
-                    if (
-                      await confirm({
-                        title: "Remover cartão",
-                        description: "Este cartão e seu checklist serão removidos. Esta ação não pode ser desfeita.",
-                        confirmText: "Remover",
-                        variant: "destructive",
-                      })
-                    )
-                      removeCard.mutate({ id: c.id });
-                  }}
-                  className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  title="Remover"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={onClose}
-                  className="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  title="Fechar"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* ── Corpo: 2 colunas no desktop (empilha e rola no mobile) ── */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:grid lg:grid-cols-[1.55fr_1fr] lg:grid-rows-1 lg:overflow-hidden">
+            <button
+              onClick={() =>
+                onEdit({
+                  id: c.id,
+                  titulo: c.titulo,
+                  descricao: c.descricao,
+                  prioridade: c.prioridade,
+                  prazo: c.prazo,
+                  responsavelId: c.responsavelId,
+                })
+              }
+              className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground md:h-8 md:w-8"
+              aria-label="Editar cartão"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: "Remover cartão",
+                    description: "Este cartão e seu checklist serão removidos. Esta ação não pode ser desfeita.",
+                    confirmText: "Remover",
+                    variant: "destructive",
+                  })
+                )
+                  removeCard.mutate({ id: c.id });
+              }}
+              className="flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive md:h-8 md:w-8"
+              aria-label="Remover cartão"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </>
+        )
+      }
+    >
+      {card.isLoading || !c ? (
+        <div className="flex h-48 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      ) : (
+        <>
+          {/* ── Corpo: 2 colunas no desktop (empilha e rola no mobile) ── */}
+          <div className="flex min-h-0 flex-col lg:h-full lg:grid lg:grid-cols-[1.55fr_1fr] lg:grid-rows-1 lg:overflow-hidden">
               {/* Coluna ESQUERDA: Descrição + Checklist */}
               <div className="flex min-w-0 flex-col gap-4 p-5 lg:min-h-0 lg:border-r">
                 {c.descricao && (
@@ -249,7 +233,7 @@ export function CardPanel({
                                 )
                                   removeChecklist.mutate({ id: item.id });
                               }}
-                              className="shrink-0 text-muted-foreground hover:text-destructive"
+                              className="flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground hover:text-destructive md:h-6 md:w-6"
                               aria-label="Remover item"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -398,7 +382,6 @@ export function CardPanel({
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

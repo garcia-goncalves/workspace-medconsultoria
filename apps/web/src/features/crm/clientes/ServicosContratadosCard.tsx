@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Check, Circle, Loader2, Package, Pencil, PenLine, Plus, Trash2, X } from "lucide-react";
-import { hasRoleLevel } from "@app/shared";
+import { hasRoleLevel, ehServicoSomentePercentual, ehServicoDeFaturamento } from "@app/shared";
 import { useAuth } from "../../../lib/auth-context";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -12,19 +12,60 @@ import { Button } from "../../../components/ui/button";
 import { Label } from "../../../components/ui/label";
 import { Select } from "../../../components/ui/select";
 import { MoneyInput } from "../../../components/ui/money-input";
-import { formatPreco } from "../../../lib/masks";
+import { formatPreco, formatBRL, formatPct } from "../../../lib/masks";
+import { ConveniosPicker } from "../../documentos/ConveniosPicker";
 import { RespostaBriefingDialog } from "./RespostaBriefingDialog";
+import { recarregarAposEnvio } from "../../../lib/recarregar-apos-envio";
 
 type ServicoContratado = RouterOutputs["clientes"]["servicos"][number];
 
-/** Edita o que o cliente paga por um serviço contratado: valor + cobrança (+ % no Faturamento). */
+/** Edita o que o cliente paga por um serviço contratado: valor fixo OU percentual do faturamento. */
 function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; item: ServicoContratado; onClose: () => void }) {
   const utils = trpc.useUtils();
   const c = item.contratacao;
-  const ehFaturamento = item.servico.categoria === "Faturamento";
+  // ⚠️ **QUEM DECIDE É O PREÇO, NUNCA A CATEGORIA (ADR-125/137).** A comparação com
+  // "Faturamento" sobrevivia aqui como um dos três ramos do OU — e bastava ela para o editor
+  // oferecer Valor e Avulso/Mensal a um serviço que só cobra percentual. Gravar um valor fixo
+  // ali faz `ehServicoSomentePercentual` virar false e reconfigura a cobrança em cadeia, em
+  // silêncio. Agora as duas formas são EXCLUDENTES, como o servidor exige.
   const [valor, setValor] = useState<number | undefined>(c?.valor ?? undefined);
   const [valorRecorrencia, setValorRecorrencia] = useState<"AVULSO" | "MENSAL">(c?.valorRecorrencia ?? "AVULSO");
   const [percentual, setPercentual] = useState<number | undefined>(c?.percentual ?? undefined);
+  // O que vale HOJE decide como o modal abre; o botão decide daí em diante.
+  // ⚠️ **QUEM PODE SER PERCENTUAL É A MARCA `Servico.ehFaturamento`** (ordem do dono, 31/08/2026):
+  // só o faturamento médico. Sem a marca não há escolha a oferecer — e oferecê-la aqui seria a
+  // SEGUNDA PORTA para o mesmo estado que a tela de Serviços passou a recusar (ADR-140): a ficha
+  // faria, cliente por cliente, o que o catálogo já não deixa fazer.
+  const podeSerPercentual = ehServicoDeFaturamento(item.servico);
+  /**
+   * ⚠️ O CLIENTE QUE PAGA PERCENTUAL NUM SERVIÇO QUE DEIXOU DE SER PERCENTUAL.
+   *
+   * A migração marca o CATÁLOGO; ela nunca olha o que cada cliente já contratou. Então pode
+   * existir `ClienteServico.percentual > 0` num serviço sem a marca — foi gravado quando a tela
+   * oferecia os dois botões a todo mundo.
+   *
+   * Sem este tratamento, abrir este modal só para CONFERIR o preço e clicar em Salvar mandava
+   * `percentual: null` e apagava a cobrança daquele cliente: sem erro, sem aviso, e o servidor
+   * aceita, porque REMOVER percentual não viola trava nenhuma. Um cliente que rendia todo mês
+   * simplesmente ficaria sem preço.
+   */
+  const percentualOrfao = !podeSerPercentual && (c?.percentual ?? 0) > 0;
+  // Só dá para sair do órfão informando o valor fixo que o substitui — e aí a troca é uma
+  // decisão explícita de quem clicou, dita na faixa amarela, não um efeito de salvar.
+  const bloqueadoPeloOrfao = percentualOrfao && !(valor && valor > 0);
+  const [porPercentual, setPorPercentual] = useState(
+    podeSerPercentual &&
+      ehServicoSomentePercentual({ valor: c?.valor, percentual: c?.percentual ?? item.servico.percentual }),
+  );
+  const trocarPara = (pct: boolean) => {
+    setPorPercentual(pct);
+    // Limpa a outra forma: deixar as duas gravadas é exatamente o que o servidor recusa.
+    if (pct) setValor(undefined);
+    else setPercentual(undefined);
+  };
+  // Os convênios que o cliente atende NESTE serviço (ADR-126). Chegam pela proposta aceita e
+  // continuam editáveis aqui — a lista muda com o tempo e é dado do cliente, não do documento.
+  const [conveniosIds, setConveniosIds] = useState<string[]>((c?.convenios ?? []).map((o) => o.id));
   const salvar = trpc.clientes.atualizarContratacao.useMutation({
     onSuccess: () => (utils.clientes.servicos.invalidate({ id: clienteId }), onClose()),
   });
@@ -32,21 +73,27 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
     <Modal
       open
       onClose={onClose}
-      title={`Preço · ${item.servico.nome}`}
+      title={`${porPercentual ? "Preço e convênios" : "Preço"} · ${item.servico.nome}`}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
           <Button
-            disabled={salvar.isPending}
+            disabled={salvar.isPending || bloqueadoPeloOrfao}
             onClick={() =>
               salvar.mutate({
                 clienteId,
                 servicoId: item.servico.id,
-                valor: valor ?? null,
+                valor: porPercentual ? null : valor ?? null,
                 valorRecorrencia,
-                percentual: ehFaturamento ? percentual ?? null : null,
+                // `percentual: null` só sai quando ELE é o que está sendo trocado. No caso órfão,
+                // sair daqui é o que apagava a cobrança em silêncio — e agora o botão só libera
+                // depois de a pessoa informar o valor que entra no lugar.
+                percentual: porPercentual ? percentual ?? null : null,
+                // Só manda a lista quando o campo aparece — proposta/serviço sem convênio não
+                // pode zerar de passagem o que já estava gravado.
+                ...(porPercentual ? { conveniosIds } : {}),
               })
             }
           >
@@ -57,6 +104,39 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
     >
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">O que este cliente paga por este serviço. Começa com o valor de referência; ajuste como quiser.</p>
+        {podeSerPercentual ? (
+          <div className="space-y-1.5">
+            <Label hint="Valor fixo: um preço em reais, avulso ou mensal. Percentual: uma fatia do que o cliente fatura, cobrada todo mês. Um serviço é de um jeito ou do outro, nunca dos dois.">
+              Como este cliente paga
+            </Label>
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant={porPercentual ? "outline" : "default"} onClick={() => trocarPara(false)}>
+                Valor fixo
+              </Button>
+              <Button type="button" size="sm" variant={porPercentual ? "default" : "outline"} onClick={() => trocarPara(true)}>
+                % do faturamento
+              </Button>
+            </div>
+          </div>
+        ) : percentualOrfao ? (
+          <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+            <p className="font-medium">
+              Este cliente paga {formatPct(c?.percentual ?? 0)} do faturamento neste serviço.
+            </p>
+            <p>
+              Mas <strong>{item.servico.nome}</strong> não é o serviço de faturamento médico, e só ele é cobrado por
+              percentual. Informe abaixo o <strong>valor fixo</strong> que passa a valer: ao salvar, ele substitui o
+              percentual atual. Enquanto o valor estiver em branco, não dá para salvar — para o percentual não ser
+              apagado sem alguém decidir isso.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Cobrado por <strong className="text-foreground">valor fixo</strong> — avulso (1x) ou mensal. Só o serviço
+            de faturamento médico é cobrado por percentual.
+          </p>
+        )}
+        {!porPercentual && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label hint="O que este cliente paga por este serviço.">Valor</Label>
@@ -70,9 +150,10 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
             </Select>
           </div>
         </div>
-        {ehFaturamento && (
+        )}
+        {porPercentual && (
           <div className="space-y-1.5">
-            <Label hint="Cobrado como % sobre o valor faturado do cliente todo mês — sozinho ou somado ao valor.">
+            <Label hint="A fatia que a Med recebe sobre o que este cliente faturar no mês. É o preço inteiro deste serviço — não existe valor fixo junto.">
               % do faturamento do cliente (mensal)
             </Label>
             <div className="relative">
@@ -90,6 +171,7 @@ function EditarPrecoDialog({ clienteId, item, onClose }: { clienteId: string; it
             </div>
           </div>
         )}
+        {porPercentual && <ConveniosPicker selecionados={conveniosIds} setSelecionados={setConveniosIds} />}
       </div>
     </Modal>
   );
@@ -106,6 +188,13 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
   const confirmar = useConfirmar();
   const q = trpc.clientes.servicos.useQuery({ id: clienteId });
   const invalidate = () => utils.clientes.servicos.invalidate({ id: clienteId });
+  // ⚠️ UPLOAD é outro caso, e a diferença é o arquivo aparecer ou não. A ficha carrega tudo
+  // num lote só e o upload termina ~120 ms depois de esse lote começar; `invalidate` sobre uma
+  // consulta EM ANDAMENTO é deduplicado e aceita a resposta anterior ao envio. A correção
+  // existia só no card de documentos ao lado e não tinha chegado aqui: anexar um documento de
+  // exigência logo depois de abrir a ficha sumia da lista até recarregar. Ver
+  // `recarregarAposEnvio`.
+  const aposUpload = () => recarregarAposEnvio(q);
   // Contratar/cancelar serviço muda o nº de serviços do cliente → atualiza também a listagem
   // (contador "servicosContratados" e o selo "sem serviço" na ClientesListPage).
   const invalidateComLista = () => {
@@ -136,9 +225,29 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
     if (confirmado) ativar.mutate({ clienteId, servicoId, avisarCliente: marcado });
   };
   const onCancelar = async (servicoId: string, nome: string) => {
+    // ⚠️ CONFIRMAÇÃO QUE ESCONDE CONSEQUÊNCIA DE DINHEIRO INSTALA DESCONFIANÇA NO SISTEMA.
+    // Cancelar encerra a mensalidade (decisão do dono, 28/08/2026), e quem clica precisa ver
+    // quantas parcelas param e que as vencidas continuam — antes, não depois. O número vem do
+    // servidor, da MESMA função que o cancelamento executa.
+    const previa = await utils.clientes.previaCancelamento
+      .fetch({ clienteId, servicoId })
+      .catch(() => null);
+    const sobreODinheiro = !previa
+      ? ""
+      : previa.parcelasFuturas > 0
+        ? ` As cobranças futuras são encerradas: ${previa.parcelasFuturas} ${
+            previa.parcelasFuturas === 1 ? "parcela" : "parcelas"
+          } de ${formatBRL(previa.valorFuturo)} no total.${
+            previa.parcelasVencidas > 0
+              ? ` O que já venceu continua a receber (${previa.parcelasVencidas} ${
+                  previa.parcelasVencidas === 1 ? "cobrança" : "cobranças"
+                }) — o serviço foi prestado.`
+              : ""
+          }`
+        : " Não há cobrança futura a encerrar.";
     const ok = await confirm({
       title: `Cancelar "${nome}"?`,
-      description: "O serviço deixa de constar como contratado para este cliente.",
+      description: `O serviço deixa de constar como contratado para este cliente e o trabalho é pausado.${sobreODinheiro}`,
       confirmText: "Cancelar serviço",
       variant: "destructive",
     });
@@ -234,6 +343,15 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                 )}
               </div>
 
+              {/* Os convênios atendidos neste serviço (ADR-126) — à vista na ficha, não só
+                  dentro do editor: é a lista sobre a qual o faturamento é apurado. */}
+              {item.contratado && (item.contratacao?.convenios?.length ?? 0) > 0 && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Convênios atendidos:</span>{" "}
+                  {(item.contratacao?.convenios ?? []).map((o) => o.nome).join(", ")}
+                </p>
+              )}
+
               {item.contratado && (
                 <div className="mt-3 space-y-2 border-t pt-3">
                   {item.requisitos.length === 0 ? (
@@ -299,7 +417,7 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                                   size="xs"
                                   label={r.atendido ? "Enviar outro" : "Anexar"}
                                   campos={{ clienteId, servicoId: item.servico.id, requisitoId: r.id }}
-                                  onDone={invalidate}
+                                  onDone={aposUpload}
                                 />
                               </div>
                             ) : r.respostaId ? (
@@ -345,7 +463,7 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                     size="xs"
                     label="Anexar outro documento"
                     campos={{ clienteId, servicoId: item.servico.id }}
-                    onDone={invalidate}
+                    onDone={aposUpload}
                   />
                 </div>
               )}

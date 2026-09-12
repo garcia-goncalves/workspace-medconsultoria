@@ -65,7 +65,7 @@ export function LoginPage() {
       <div className="mb-8">
         <h2 className="text-2xl font-semibold tracking-tight text-foreground">Acesse sua conta</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          Informe seu e-mail e senha para entrar no workspace.
+          Informe seu e-mail e senha para entrar.
         </p>
       </div>
 
@@ -116,7 +116,7 @@ export function LoginPage() {
             <button
               type="button"
               onClick={() => setShowPass((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="absolute right-1 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               title={showPass ? "Ocultar senha" : "Mostrar senha"}
               aria-label={showPass ? "Ocultar senha" : "Mostrar senha"}
             >
@@ -124,8 +124,11 @@ export function LoginPage() {
             </button>
           </div>
           {errors.password && <p id="password-erro" role="alert" className="text-xs text-destructive">{errors.password.message}</p>}
-          <div className="flex justify-end pt-0.5">
-            <a href="/esqueci-senha" className="text-xs font-medium text-primary hover:underline">
+          <div className="flex justify-end">
+            <a
+              href="/esqueci-senha"
+              className="flex min-h-11 items-center text-xs font-medium text-primary hover:underline"
+            >
               Esqueci minha senha
             </a>
           </div>
@@ -163,7 +166,7 @@ export function LoginPage() {
       </form>
 
       <p className="mt-8 text-center text-xs text-muted-foreground">
-        Problemas para acessar? Fale com o administrador do workspace.
+        Problemas para acessar? Fale com a MedConsultoria.
       </p>
     </AuthShell>
   );

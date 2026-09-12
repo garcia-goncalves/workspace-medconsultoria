@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { cnpjOpcional } from "./cliente.js";
+import {
+  temValorEPercentual,
+  PRECO_VALOR_E_PERCENTUAL,
+  percentualForaDoFaturamento,
+  PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
+} from "../estimativa.js";
 
 const emailOpcional = z.union([z.string().trim().toLowerCase().email("E-mail inválido"), z.literal("")]);
 const textoOpcional = z.string().trim().max(2000).optional().or(z.literal(""));
@@ -23,6 +29,10 @@ export const createLeadSchema = z.object({
   telefone: textoOpcional,
   origem: textoOpcional,
   valorEstimado: valorOpcional,
+  // Faturamento mensal da clínica. Só é perguntado quando TODOS os serviços do lead são
+  // percentuais (hoje: só o Faturamento de contas médicas) — ali não há valor fixo a estimar,
+  // e é desta base que o `valorEstimado` acima é calculado. Ver ADR-125.
+  faturamentoMensalEstimado: valorOpcional,
   observacoes: textoOpcional,
   pipelineStageId: z.string().optional(),
   responsavelId: z.string().optional().or(z.literal("")),
@@ -66,8 +76,10 @@ export const capturaLeadSchema = z.object({
   telefone: z.string().trim().max(40).optional().or(z.literal("")),
   empresa: z.string().trim().max(120).optional().or(z.literal("")),
   mensagem: z.string().trim().max(2000).optional().or(z.literal("")),
-  // Serviços marcados no formulário público.
-  servicoIds: z.array(z.string()).optional(),
+  // Serviços marcados no formulário público. O `.max` é o teto: a lista vira `connect` no
+  // `prisma.lead.create`, e sem limite um anônimo mandava um array arbitrário por requisição.
+  // O catálogo real tem uma dezena de itens; 50 é folga larga e ainda assim um teto.
+  servicoIds: z.array(z.string()).max(50).optional(),
   // Rastreamento de atribuição (preenchido automaticamente pelo formulário).
   utmSource: z.string().max(200).optional(),
   utmMedium: z.string().max(200).optional(),
@@ -104,6 +116,33 @@ export const createServicoSchema = z.object({
   percentual: z.number().min(0).max(100).nullable().optional(),
   percentualRecorrencia: precoRecorrenciaEnum.default("MENSAL"),
   clausulasContrato: z.string().trim().max(20000).optional().or(z.literal("")),
+  // Frase de condição de pagamento que a PROPOSTA pré-preenche (ADR-125). Curta de propósito:
+  // é uma linha do documento, não um bloco de cláusulas.
+  condicaoPagamento: z.string().trim().max(500).optional().or(z.literal("")),
+  /**
+   * Este serviço é O credenciamento? Decide três regras de dinheiro (ADR-104/108): ficar fora da
+   * estimativa do funil, ficar fora do provisionamento da conversão do lead, e ter o honorário
+   * nascendo só quando a operadora aprova. Só UM serviço pode estar marcado — o servidor recusa
+   * o segundo. Editável para que uma marca errada tenha conserto pela tela, e não por SQL no
+   * banco de produção.
+   */
+  ehCredenciamento: z.boolean().optional(),
+  /**
+   * Este serviço é O faturamento médico? É a marca que decide QUEM PODE ser cobrado por
+   * percentual do que a clínica fatura — ordem do dono (31/08/2026): só ele; todo o resto do
+   * catálogo é valor fixo, avulso ou mensal. Só UM serviço pode estar marcado, e nenhum pode ser
+   * faturamento E credenciamento ao mesmo tempo — o servidor recusa as duas coisas.
+   */
+  ehFaturamento: z.boolean().optional(),
+}).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
+  message: PRECO_VALOR_E_PERCENTUAL,
+  path: ["percentual"],
+}).refine((v) => !percentualForaDoFaturamento({ valor: v.valor, percentual: v.percentual }, v.ehFaturamento), {
+  // Na CRIAÇÃO o pedido traz tudo, então o Zod já basta. Na edição, não: ela é parcial, e um
+  // pedido com só `percentual` não diz se o serviço é o faturamento — lá quem confere é o
+  // servidor, sobre o ANTES + o DEPOIS. Mesma dupla de camadas de `temValorEPercentual`.
+  message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO,
+  path: ["percentual"],
 });
 export type CreateServicoInput = z.infer<typeof createServicoSchema>;
 
@@ -117,7 +156,28 @@ export const updateServicoSchema = z.object({
   percentual: z.number().min(0).max(100).nullable().optional(),
   percentualRecorrencia: precoRecorrenciaEnum.optional(),
   clausulasContrato: z.string().trim().max(20000).optional().or(z.literal("")),
+  // Frase de condição de pagamento que a PROPOSTA pré-preenche (ADR-125). Curta de propósito:
+  // é uma linha do documento, não um bloco de cláusulas.
+  condicaoPagamento: z.string().trim().max(500).optional().or(z.literal("")),
   ativo: z.boolean().optional(),
+  /**
+   * Este serviço é O credenciamento? Decide três regras de dinheiro (ADR-104/108): ficar fora da
+   * estimativa do funil, ficar fora do provisionamento da conversão do lead, e ter o honorário
+   * nascendo só quando a operadora aprova. Só UM serviço pode estar marcado — o servidor recusa
+   * o segundo. Editável para que uma marca errada tenha conserto pela tela, e não por SQL no
+   * banco de produção.
+   */
+  ehCredenciamento: z.boolean().optional(),
+  /**
+   * Este serviço é O faturamento médico? É a marca que decide QUEM PODE ser cobrado por
+   * percentual do que a clínica fatura — ordem do dono (31/08/2026): só ele; todo o resto do
+   * catálogo é valor fixo, avulso ou mensal. Só UM serviço pode estar marcado, e nenhum pode ser
+   * faturamento E credenciamento ao mesmo tempo — o servidor recusa as duas coisas.
+   */
+  ehFaturamento: z.boolean().optional(),
+}).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
+  message: PRECO_VALOR_E_PERCENTUAL,
+  path: ["percentual"],
 });
 export type UpdateServicoInput = z.infer<typeof updateServicoSchema>;
 
@@ -226,5 +286,14 @@ export const atualizarContratacaoClienteSchema = z.object({
   percentual: z.number().min(0).max(100).nullable().optional(),
   percentualRecorrencia: precoRecorrenciaEnum.optional(),
   observacao: z.string().trim().max(1000).optional().or(z.literal("")),
+  /**
+   * Convênios que o cliente atende NESTE serviço (ADR-126), por id do catálogo de operadoras.
+   * Lista completa: substitui a anterior. Ausente = não mexe; vazia = o cliente deixou de
+   * atender convênio algum, que é um estado legítimo.
+   */
+  conveniosIds: z.array(z.string().min(1)).max(80).optional(),
+}).refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
+  message: PRECO_VALOR_E_PERCENTUAL,
+  path: ["percentual"],
 });
 export type AtualizarContratacaoClienteInput = z.infer<typeof atualizarContratacaoClienteSchema>;

@@ -2,27 +2,54 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Sparkles, Loader2, FileSignature, CalendarClock, ClipboardList, Eye, FileSignature as FileSign, HeartHandshake, FileText, Receipt } from "lucide-react";
 import { cn } from "@app/ui";
-import { extrairVariaveis, DOC_INTERACAO, TIPO_MODELO_LABEL, type CelulaGrade, type TipoModelo } from "@app/shared";
+import {
+  extrairVariaveis,
+  DOC_INTERACAO,
+  TIPO_MODELO_LABEL,
+  ehServicoSomentePercentual,
+  fraseDoRepasse,
+  montarDadosPagamento,
+  modeloAceitaLead,
+  type CelulaGrade,
+  type TipoModelo,
+} from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { HintIcon } from "../../components/ui/tooltip";
 import { Textarea } from "../../components/ui/textarea";
 import { Select } from "../../components/ui/select";
 import { Combobox } from "../../components/ui/combobox";
 import { MoneyInput } from "../../components/ui/money-input";
 import { PropostaServicosPicker, type PropostaSel } from "./PropostaServicosPicker";
-import { CredenciamentoPicker } from "./CredenciamentoPicker";
+import { CredenciamentoPicker, type OperadoraEscolhida } from "./CredenciamentoPicker";
+import { ConveniosPicker } from "./ConveniosPicker";
 import { PlanoAcaoFields, type AcaoLinha } from "./PlanoAcaoFields";
 import { PautaPostagemFields, type PostLinha, REDES as POST_REDES, FORMATOS as POST_FORMATOS } from "./PautaPostagemFields";
 import { SmartCampos } from "./SmartCampos";
 import { AudioTranscricao } from "./AudioTranscricao";
 import { DocumentoBranded, previewModelo } from "./DocumentoBranded";
 import { formatBRL, valorPorExtenso } from "../../lib/masks";
+import { data as fmtData } from "../../lib/format-date";
 import { useAuth } from "../../lib/auth-context";
 
-const FORMAS_PAGAMENTO = ["PIX", "Dinheiro", "Cartão de crédito", "Cartão de débito", "Transferência", "Boleto"] as const;
+/**
+ * A FORMA DE PAGAMENTO DO RECIBO É FIXA — a MedConsultoria recebe **somente por PIX**.
+ *
+ * Aqui havia uma lista de seis opções (Dinheiro, Cartão de crédito, Cartão de débito,
+ * Transferência, Boleto), e quem gerasse o recibo podia escolher qualquer uma delas: o texto
+ * escolhido saía impresso no papel timbrado entregue ao cliente, dizendo que a Med aceita uma
+ * forma de pagamento que ela não aceita. O resto da aplicação já assumia PIX-só desde a ADR-127
+ * ("Condições de pagamento" saiu das propostas justamente porque não há o que negociar); a tela
+ * do recibo era a última que contradizia isso.
+ *
+ * É constante, e não um `<Select>` de um item só, porque escolha que não existe não é campo de
+ * formulário — é informação. Voltar a ter opções significa a empresa passar a aceitar outra
+ * forma, e aí a decisão é do dono, não de quem preenche o recibo.
+ */
+const FORMA_PAGAMENTO_RECIBO = "PIX";
 
 /** O que o documento faz na prática (matriz de interação) — chip na prévia. */
 function papelModelo(tipo: TipoModelo): { texto: string; Icon: typeof FileText } {
@@ -75,12 +102,20 @@ export function NovoDocumentoDialog({
   // Quem está emitindo assina a proposta de credenciamento como consultora responsável.
   const { user: usuario } = useAuth();
   const modelos = trpc.documentos.modelos.list.useQuery(undefined, { enabled: open });
-  const clientes = trpc.clientes.list.useQuery(undefined, { enabled: open && !clienteFixo });
+  // Destinatários: clientes E leads em negociação (27/08/2026). Ver `destinatariosDeDocumento`.
+  const destinatarios = trpc.documentos.destinatarios.useQuery(undefined, { enabled: open && !clienteFixo });
   const ia = trpc.ia.disponivel.useQuery(undefined, { enabled: open });
   const servicosAtivos = trpc.servicos.ativos.useQuery(undefined, { enabled: open });
 
   const [modeloId, setModeloId] = useState("");
-  const [clienteId, setClienteId] = useState("");
+  /**
+   * Destino do documento, com prefixo: `c:<id>` cliente · `l:<id>` lead.
+   * O prefixo existe porque uma clínica pode estar nas DUAS listas com o mesmo nome, e
+   * porque o lead só vira `clienteId` na hora de gerar (`documentos.clienteDoLead`).
+   */
+  const [destino, setDestino] = useState("");
+  const clienteId = destino.startsWith("c:") ? destino.slice(2) : "";
+  const leadId = destino.startsWith("l:") ? destino.slice(2) : "";
   const [titulo, setTitulo] = useState("");
   // Genérico (preencher campos × IA)
   const [modoGen, setModoGen] = useState<"MANUAL" | "IA">("MANUAL");
@@ -90,22 +125,27 @@ export function NovoDocumentoDialog({
   const [sel, setSel] = useState<Record<string, PropostaSel>>({});
   const [vigenciaMeses, setVigenciaMeses] = useState(12);
   const [prazo, setPrazo] = useState("");
-  const [condicoes, setCondicoes] = useState("");
   const [observacoes, setObservacoes] = useState("");
   const [usarIA, setUsarIA] = useState(false);
   // Proposta de credenciamento: a grade médico × operadora (ADR-104) e, para o cliente sem
   // médico cadastrado, o formato antigo por operadora.
   const [celulasGrade, setCelulasGrade] = useState<CelulaGrade[]>([]);
   const [modoGrade, setModoGrade] = useState(false);
-  const [operadorasSel, setOperadorasSel] = useState<string[]>([]);
+  // UMA operadora por proposta de credenciamento (ADR-126).
+  const [operadoraProposta, setOperadoraProposta] = useState<OperadoraEscolhida>(null);
   const [valorOperadora, setValorOperadora] = useState(0);
+  // Proposta de FATURAMENTO (ADR-126): os convênios atendidos e o faturamento médio mensal.
+  // O faturamento é a MESMA base que a Qualificação do funil pergunta — corrigi-lo aqui
+  // corrige o lead, um número só andando para frente.
+  const [conveniosSel, setConveniosSel] = useState<string[]>([]);
+  const [faturamentoMensal, setFaturamentoMensal] = useState(0);
+  const faturamentoTocado = useRef(false);
   // Ata / Pauta
   const [anotacoes, setAnotacoes] = useState("");
   const [topicos, setTopicos] = useState("");
   // Recibo
   const [reciboValor, setReciboValor] = useState(0);
   const [reciboReferente, setReciboReferente] = useState("");
-  const [reciboForma, setReciboForma] = useState<string>(FORMAS_PAGAMENTO[0]);
   // Plano de ação
   const [planoObjetivo, setPlanoObjetivo] = useState("");
   const [planoAcoes, setPlanoAcoes] = useState<AcaoLinha[]>([{ acao: "", resp: "", prazo: "" }]);
@@ -119,7 +159,7 @@ export function NovoDocumentoDialog({
   useEffect(() => {
     if (!open) return;
     setModeloId("");
-    setClienteId(clienteFixo ?? "");
+    setDestino(clienteFixo ? `c:${clienteFixo}` : "");
     setTitulo("");
     setModoGen("MANUAL");
     setVars({});
@@ -128,18 +168,19 @@ export function NovoDocumentoDialog({
     setVigenciaMeses(12);
     appliedKey.current = "";
     setPrazo("");
-    setCondicoes("");
     setObservacoes("");
     setUsarIA(false);
-    setOperadorasSel([]);
+    setOperadoraProposta(null);
     setValorOperadora(0);
+    setConveniosSel([]);
+    setFaturamentoMensal(0);
+    faturamentoTocado.current = false;
     setCelulasGrade([]);
     setModoGrade(false);
     setAnotacoes("");
     setTopicos("");
     setReciboValor(0);
     setReciboReferente("");
-    setReciboForma(FORMAS_PAGAMENTO[0]);
     setPlanoObjetivo("");
     setPlanoAcoes([{ acao: "", resp: "", prazo: "" }]);
     setPlanoIndicadores("");
@@ -153,6 +194,7 @@ export function NovoDocumentoDialog({
   // até o envio).
   useEffect(() => {
     setCelulasGrade([]);
+    setOperadoraProposta(null);
   }, [clienteId]);
 
   const modelo = modelos.data?.find((m) => m.id === modeloId);
@@ -179,6 +221,64 @@ export function NovoDocumentoDialog({
     [modelo],
   );
 
+  /**
+   * A FRASE DO REPASSE — quando o cliente paga o percentual do faturamento (ADR-125/127).
+   *
+   * Deixou de ser um campo editável ("Condições de pagamento") e passou a ser DERIVADA dos
+   * serviços escolhidos: não há condição a negociar, é sempre PIX, e o PIX sai no bloco de dados
+   * para pagamento. O que sobra a dizer é QUANDO o repasse cai — e esse texto mora no cadastro
+   * do serviço, editável pela Thaís, nunca na memória de quem digita.
+   *
+   * Quem entra na conta é o serviço cobrado SÓ por percentual, decidido pelo preço do item desta
+   * proposta e nunca pela categoria do catálogo.
+   */
+  const fraseRepasse = useMemo(() => {
+    const percentuais = Object.entries(sel).filter(([, i]) =>
+      ehServicoSomentePercentual({ valor: i.valor, percentual: i.percentual ?? null }),
+    );
+    if (!percentuais.length) return "";
+    return fraseDoRepasse(
+      percentuais.map(([id]) => (servicosAtivos.data ?? []).find((sv) => sv.id === id)?.condicaoPagamento),
+    );
+  }, [sel, servicosAtivos.data]);
+
+  // Dados bancários de Ajustes -> Dados da empresa, para a prévia mostrar o mesmo bloco que o
+  // servidor vai gravar. Vazio em Ajustes = bloco ausente nos dois lados.
+  const identidade = trpc.identidade.get.useQuery(undefined, { enabled: open && modo === "PROPOSTA" });
+  const tabelaPagamento = identidade.data ? montarDadosPagamento(identidade.data) : "";
+  const blocoPagamento = tabelaPagamento ? "## Dados para pagamento" + "\n\n" + tabelaPagamento : "";
+
+  // Só os documentos de PRÉ-venda oferecem lead (`MODELO_ACEITA_LEAD`, em @app/shared —
+  // servidor e tela leem a MESMA lista, para não divergirem).
+  const aceitaLead = modeloAceitaLead(modelo?.tipo);
+
+  /** Opções do seletor: clientes primeiro; leads depois, marcados com a etapa do funil. */
+  const opcoesDestino = useMemo(() => {
+    const d = destinatarios.data;
+    if (!d) return [];
+    const clientes = d.clientes.map((c) => ({
+      value: `c:${c.id}`, label: c.nome, hint: "Cliente", noDocumento: c.nome,
+    }));
+    if (!aceitaLead) return clientes;
+    const leads = d.leads.map((l) => ({
+      value: `l:${l.id}`,
+      label: l.rotulo,
+      // A etapa é o que diz à Thaís se cabe propor agora — "Lead" sozinho não informa nada.
+      hint: l.etapa ? `Lead · ${l.etapa}` : "Lead",
+      noDocumento: l.nomeNoDocumento,
+    }));
+    return [...clientes, ...leads];
+  }, [destinatarios.data, aceitaLead]);
+
+  // O que vai IMPRESSO — nunca o rótulo da lista (que traz a pessoa entre parênteses).
+  const nomeDoDestino = opcoesDestino.find((o) => o.value === destino)?.noDocumento ?? null;
+
+  // Trocar para um tipo que NÃO aceita lead (ex.: Contrato) com um lead escolhido deixaria
+  // o campo mostrando alguém que aquele documento não pode ter. Limpa em vez de gerar errado.
+  useEffect(() => {
+    if (leadId && !aceitaLead) setDestino("");
+  }, [leadId, aceitaLead]);
+
   // Contexto do cliente (serviços contratados, investimento, proposta aceita) → auto-preenchimento.
   const contexto = trpc.documentos.contextoCliente.useQuery(
     { clienteId, tipo: modelo?.tipo ?? "CONTRATO" },
@@ -204,6 +304,13 @@ export function NovoDocumentoDialog({
         };
       }
       setSel(next);
+    } else if (modo === "PROPOSTA") {
+      // A proposta de faturamento NASCE com o que o funil já sabe (ADR-126): o faturamento
+      // mensal informado na Qualificação e os convênios já registrados. Quem já respondeu não
+      // responde de novo — e corrigir aqui devolve o número corrigido ao lead.
+      const doFunil = ctx.faturamentoMensal ?? 0;
+      if (!faturamentoTocado.current && doFunil > 0) setFaturamentoMensal(doFunil);
+      if (ctx.conveniosAtuais.length) setConveniosSel((v) => (v.length ? v : ctx.conveniosAtuais));
     } else if (modo === "RECIBO") {
       // Recibo: sugere o valor (mensal/à vista) e o "referente a" (serviços) — sem sobrescrever.
       if (ctx.sugestoes.valor > 0) setReciboValor((v) => (v > 0 ? v : ctx.sugestoes.valor));
@@ -240,14 +347,36 @@ export function NovoDocumentoDialog({
 
   // Proposta de credenciamento = modelo cujo corpo declara {{operadoras}} → usa o formulário
   // de OPERADORAS (não o catálogo de serviços da proposta comercial).
-  const ehCredenciamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{operadoras}}");
+  // ⚠️ NOME DELIBERADAMENTE DIFERENTE de `Servico.ehCredenciamento`: aqui é "este DOCUMENTO é
+  // uma proposta de credenciamento" (detectado pelo MODELO), lá é "este SERVIÇO do catálogo é a
+  // marca única de credenciamento" (gravado no banco). Same-name local var já colidiu com o
+  // campo do banco e confundia a leitura — achado da auditoria de 04/09.
+  const ePropostaDeCredenciamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{operadoras}}");
+
+  // Proposta de FATURAMENTO = modelo cujo corpo declara {{convenios}} (ADR-126). Mesma lógica
+  // de detecção do credenciamento: quem manda é o MODELO, não o nome do serviço nem a categoria.
+  // ⚠️ Mesma ressalva acima: não é `Servico.ehFaturamento` (marca do banco), é "este DOCUMENTO é
+  // uma proposta de faturamento".
+  const ePropostaDeFaturamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{convenios}}");
+  // O percentual somado dos serviços escolhidos — é o que a proposta cobra por mês.
+  const percentualDaProposta = Object.values(sel).reduce((t, i) => t + (i.percentual ?? 0), 0);
+  const valorEstimadoDoFaturamento =
+    faturamentoMensal > 0 && percentualDaProposta > 0
+      ? Math.round(((faturamentoMensal * percentualDaProposta) / 100 + Number.EPSILON) * 100) / 100
+      : 0;
 
   // Os médicos e as operadoras do cliente — a mesma consulta que o CredenciamentoPicker faz
   // (o cache do TanStack Query resolve uma vez só). A prévia precisa dos NOMES para desenhar
   // a grade igual ao que o servidor vai gerar.
   const gradeCtx = trpc.credenciamento.grade.useQuery(
     { clienteId },
-    { enabled: open && ehCredenciamento && !!clienteId },
+    { enabled: open && ePropostaDeCredenciamento && !!clienteId },
+  );
+
+  // Os NOMES dos convênios para a prévia (o mesmo cache que o ConveniosPicker usa).
+  const catalogoConvenios = trpc.documentos.operadoras.list.useQuery(
+    { uso: "FATURAMENTO" },
+    { enabled: open && ePropostaDeFaturamento },
   );
 
   // Preview ao vivo: injeta os valores já preenchidos no corpo antes de exibir.
@@ -256,11 +385,8 @@ export function NovoDocumentoDialog({
     let corpo = modelo.corpo;
     // PROPOSTA DE CREDENCIAMENTO: preenche {{operadoras}}, {{profissionais}} e {{servicos}},
     // espelhando o servidor — a prévia tem de mostrar a proposta que vai sair, não um esboço.
-    if (ehCredenciamento) {
-      const extras = [
-        prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : "",
-        condicoes.trim() ? `**Condições de pagamento:** ${condicoes.trim()}` : "",
-      ].filter(Boolean);
+    if (ePropostaDeCredenciamento) {
+      const extras = [prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : ""].filter(Boolean);
 
       let nomesOperadoras: string[];
       let profissionaisTxt = "";
@@ -296,17 +422,17 @@ export function NovoDocumentoDialog({
         profissionaisTxt = juntar(usados.map((p) => (p.especialidade ? `${p.nome}, ${p.especialidade}` : p.nome)));
         nomesTxt = juntar(usados.map((p) => p.nome));
       } else {
-        const ops = operadorasSel;
+        // Uma proposta, uma operadora (ADR-126).
         const fee = valorOperadora || 0;
-        total = fee * ops.length;
+        total = fee;
         bloco.push(
           `## Investimento\n\n${
             fee > 0
-              ? `**${formatBRL(total)}** para o credenciamento em **${ops.length} operadora(s)** — ${formatBRL(fee)} por operadora.`
-              : "Investimento a combinar conforme as operadoras selecionadas."
+              ? `**${formatBRL(fee)}** para o credenciamento junto à operadora **${operadoraProposta?.nome ?? ""}**.`
+              : "Investimento a combinar."
           }`,
         );
-        nomesOperadoras = ops;
+        nomesOperadoras = operadoraProposta ? [operadoraProposta.nome] : [];
       }
 
       if (extras.length) bloco.push(extras.join("  \n"));
@@ -329,7 +455,7 @@ export function NovoDocumentoDialog({
     }
     // PROPOSTA COMERCIAL: espelha o servidor (montarServicos) — tabela de serviços + investimento +
     // prazo/condições/observações + apresentação. Assim a prévia mostra a proposta COMPLETA em tempo real.
-    if (modo === "PROPOSTA" && !ehCredenciamento) {
+    if (modo === "PROPOSTA" && !ePropostaDeCredenciamento) {
       const servDe = (id: string) => servicosAtivos.data?.find((s) => s.id === id);
       const ids = Object.keys(sel);
       let av = 0;
@@ -347,10 +473,11 @@ export function NovoDocumentoDialog({
         }
         if (i.percentual != null && i.percentual > 0) {
           partes.push(`${i.percentual}% do faturamento/mês`);
-          pcts.push(`${i.percentual}% do faturamento (${servDe(id)?.nome ?? "serviço"})`);
+          pcts.push(`**${servDe(id)?.nome ?? "Serviço"}:** ${i.percentual}% do faturamento mensal`);
         }
         const preco = partes.length ? partes.join(" + ") : "a combinar";
-        const desc = servDe(id)?.descricao ? ` — ${servDe(id)?.descricao}` : "";
+        // Descrição em LINHA PRÓPRIA na célula — espelha `montarServicos` no servidor.
+        const desc = servDe(id)?.descricao ? `<br>${servDe(id)?.descricao}` : "";
         return `| **${servDe(id)?.nome ?? "Serviço"}**${desc} | ${preco} |`;
       });
       const tabela = ids.length
@@ -359,13 +486,14 @@ export function NovoDocumentoDialog({
       const inv: string[] = [];
       if (av > 0) inv.push(`- **À vista (1x):** ${formatBRL(av)}`);
       if (me > 0) inv.push(`- **Mensal:** ${formatBRL(me)}/mês`);
-      for (const p of pcts) inv.push(`- **${p}** — por mês`);
+      for (const p of pcts) inv.push(`- ${p}`);
       if (!inv.length) inv.push("- A combinar");
-      const extras = [
-        prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : "",
-        condicoes.trim() ? `**Condições de pagamento:** ${condicoes.trim()}` : "",
-      ].filter(Boolean);
+      const extras = [prazo.trim() ? `**Prazo estimado:** ${prazo.trim()}` : ""].filter(Boolean);
       const bloco = [`## Serviços propostos\n\n${tabela}`, `## Investimento\n\n${inv.join("\n")}`];
+      // Espelha o servidor (ADR-127): o papel NÃO imprime mais a conta "R$ X/mês (Y% de R$ Z)"
+      // — o faturamento da clínica muda todo mês e o documento assinado não acompanha. O que
+      // entra é a frase de QUANDO o repasse é pago.
+      if (fraseRepasse) bloco.push(fraseRepasse);
       if (extras.length) bloco.push(extras.join("  \n"));
       if (observacoes.trim()) bloco.push(observacoes.trim());
       const apresentacao =
@@ -374,6 +502,20 @@ export function NovoDocumentoDialog({
         "para fazer o que mais importa: cuidar de vidas. Apresentamos a seguir a proposta pensada para as suas necessidades.";
       corpo = corpo
         .replace(/\{\{\s*servicos\s*\}\}/g, bloco.join("\n\n"))
+        .replace(
+          /\{\{\s*convenios\s*\}\}/g,
+          conveniosSel.length
+            ? conveniosSel
+                .map((id) => catalogoConvenios.data?.find((o) => o.id === id)?.nome)
+                .filter(Boolean)
+                .map((n) => `- **${n}**`)
+                .join("\n")
+            : "_(selecione os convênios ao lado)_",
+        )
+        .replace(/\{\{\s*percentual\s*\}\}/g, percentualDaProposta > 0 ? `${percentualDaProposta}%` : "_(a combinar)_")
+        .replace(/\{\{\s*numero\s*\}\}/g, "_(gerado ao criar)_")
+        .replace(/\{\{\s*consultora\s*\}\}/g, usuario.nome || "MedConsultoria")
+        .replace(/\{\{\s*dadosPagamento\s*\}\}/g, blocoPagamento)
         .replace(/\{\{\s*apresentacao\s*\}\}/g, apresentacao);
     }
     if (modo === "CONTRATO") {
@@ -401,14 +543,15 @@ export function NovoDocumentoDialog({
         .replace(/\{\{\s*clausulas_servicos\s*\}\}/g, clausulas)
         .replace(/\{\{\s*valor\s*\}\}/g, inv.length ? inv.join("\n") : "_______")
         .replace(/\{\{\s*prazo\s*\}\}/g, textoVigencia(vigenciaMeses))
-        .replace(/\{\{\s*foro\s*\}\}/g, "da comarca do domicílio da CONTRATANTE");
+        // Sem "da" no início — o modelo já traz "...o foro de {{foro}}" (achado da auditoria de 04/09/2026).
+        .replace(/\{\{\s*foro\s*\}\}/g, "comarca do domicílio da CONTRATANTE");
     }
     if (modo === "RECIBO") {
       corpo = corpo
         .replace(/\{\{\s*valor\s*\}\}/g, reciboValor > 0 ? formatBRL(reciboValor) : "_______")
         .replace(/\{\{\s*valor_extenso\s*\}\}/g, valorPorExtenso(reciboValor) || "_______")
         .replace(/\{\{\s*referente\s*\}\}/g, reciboReferente.trim() || "_______")
-        .replace(/\{\{\s*forma_pagamento\s*\}\}/g, reciboForma);
+        .replace(/\{\{\s*forma_pagamento\s*\}\}/g, FORMA_PAGAMENTO_RECIBO);
     }
     if (modo === "PLANO") {
       corpo = corpo
@@ -430,7 +573,19 @@ export function NovoDocumentoDialog({
         }
       }
     }
-    return previewModelo(corpo);
+    // A prévia mostra o DADO REAL do cliente já escolhido — nome, CNPJ, e-mail, telefone, a
+    // data de hoje e quem assina. Rótulo entre colchetes fica só para o que ainda não existe.
+    // Ver a proposta com "[nome do cliente]" no lugar de "Clínica Vida Plena" escondia
+    // justamente o que se confere antes de gerar: como o documento fica com o nome dentro.
+    const c = contexto.data?.cliente ?? null;
+    return previewModelo(corpo, {
+      clienteNome: c?.nome ?? nomeDoDestino,
+      clienteEmail: c?.email ?? null,
+      clienteCnpj: c?.cnpj ?? null,
+      clienteTelefone: c?.telefone ?? null,
+      data: fmtData(new Date()),
+      consultora: usuario?.nome ?? null,
+    });
   };
 
   const onSuccess = (doc: { id: string }) => {
@@ -446,22 +601,42 @@ export function NovoDocumentoDialog({
   const gerarIA = trpc.documentos.gerarComIA.useMutation({ onSuccess });
   const criarProposta = trpc.documentos.criarProposta.useMutation({ onSuccess });
   const criarContrato = trpc.documentos.criarContrato.useMutation({ onSuccess });
+  // Traduz o lead escolhido no cliente PROSPECT por trás dele (idempotente).
+  const clienteDoLead = trpc.documentos.clienteDoLead.useMutation();
   const resumir = trpc.documentos.resumirReuniao.useMutation({ onSuccess });
   const gerarPauta = trpc.documentos.gerarPauta.useMutation({ onSuccess });
   const pending =
-    create.isPending || gerarIA.isPending || criarProposta.isPending || criarContrato.isPending || resumir.isPending || gerarPauta.isPending;
+    create.isPending || gerarIA.isPending || criarProposta.isPending || criarContrato.isPending || resumir.isPending || gerarPauta.isPending ||
+    clienteDoLead.isPending;
   const erro =
     create.error?.message ??
     gerarIA.error?.message ??
     criarProposta.error?.message ??
     criarContrato.error?.message ??
     resumir.error?.message ??
-    gerarPauta.error?.message;
+    gerarPauta.error?.message ??
+    clienteDoLead.error?.message;
 
-  const clienteArg = clienteId || undefined;
   const tituloArg = titulo.trim() || undefined;
 
-  const executar = () => {
+  /**
+   * Gera o documento. Quando o destino é um LEAD, primeiro traduz o lead no `Cliente`
+   * PROSPECT que o representa — daí para baixo o fluxo é exatamente o de sempre, e nenhuma
+   * das seis formas de gerar precisou saber que leads existem.
+   */
+  const executar = async () => {
+    let clienteArg = clienteId || undefined;
+    if (leadId) {
+      try {
+        clienteArg = (await clienteDoLead.mutateAsync({ leadId })).clienteId;
+      } catch {
+        return; // a mensagem do erro já aparece por `clienteDoLead.error`
+      }
+    }
+    executarCom(clienteArg);
+  };
+
+  const executarCom = (clienteArg: string | undefined) => {
     if (modo === "PROPOSTA") {
       criarProposta.mutate({
         clienteId: clienteArg,
@@ -469,10 +644,13 @@ export function NovoDocumentoDialog({
         titulo: tituloArg,
         // Credenciamento envia a GRADE (médico × operadora) ou, sem médico cadastrado, as
         // operadoras soltas; a proposta comercial envia os serviços do catálogo.
-        ...(ehCredenciamento
+        ...(ePropostaDeCredenciamento
           ? modoGrade
             ? { grade: celulasGrade }
-            : { operadoras: operadorasSel, valorPorOperadora: valorOperadora || undefined }
+            : {
+                operadoras: operadoraProposta ? [operadoraProposta.nome] : [],
+                valorPorOperadora: valorOperadora || undefined,
+              }
           : {
               itens: Object.entries(sel).map(([servicoId, i]) => ({
                 servicoId,
@@ -481,9 +659,14 @@ export function NovoDocumentoDialog({
                 recorrencia: i.recorrencia,
                 percentual: i.percentual,
               })),
+              // Faturamento (ADR-126): os convênios e a base do cálculo. O servidor grava os
+              // convênios dentro do item para eles atravessarem o aceite, e devolve o
+              // faturamento ao lead.
+              ...(ePropostaDeFaturamento
+                ? { conveniosIds: conveniosSel, faturamentoMensal: faturamentoMensal || 0 }
+                : {}),
             }),
         prazo: prazo || undefined,
-        condicoes: condicoes || undefined,
         observacoes: observacoes || undefined,
         usarIA,
       });
@@ -515,7 +698,7 @@ export function NovoDocumentoDialog({
           valor: formatBRL(reciboValor),
           valor_extenso: valorPorExtenso(reciboValor),
           referente: reciboReferente.trim(),
-          forma_pagamento: reciboForma,
+          forma_pagamento: FORMA_PAGAMENTO_RECIBO,
         },
       });
     } else if (modo === "PLANO") {
@@ -569,10 +752,8 @@ export function NovoDocumentoDialog({
     !modelo ||
     pending ||
     (modo === "PROPOSTA"
-      ? ehCredenciamento
-        ? modoGrade
-          ? celulasGrade.length === 0
-          : operadorasSel.length === 0
+      ? ePropostaDeCredenciamento
+        ? !operadoraProposta || (modoGrade && celulasGrade.length === 0)
         : Object.keys(sel).length === 0
       : modo === "CONTRATO"
       ? !clienteId || Object.keys(sel).length === 0
@@ -627,15 +808,20 @@ export function NovoDocumentoDialog({
           </div>
           {!clienteFixo && (
             <div className="space-y-1.5">
-              <Label htmlFor="cliente">Cliente</Label>
+              <Label htmlFor="cliente">{aceitaLead ? "Cliente ou lead" : "Cliente"}</Label>
               <Combobox
                 id="cliente"
-                value={clienteId}
-                onChange={setClienteId}
-                options={(clientes.data ?? []).map((c) => ({ value: c.id, label: c.nome }))}
-                placeholder="Buscar cliente…"
-                emptyText="Nenhum cliente encontrado."
+                value={destino}
+                onChange={setDestino}
+                options={opcoesDestino}
+                placeholder={aceitaLead ? "Buscar cliente ou lead…" : "Buscar cliente…"}
+                emptyText={aceitaLead ? "Nenhum cliente ou lead encontrado." : "Nenhum cliente encontrado."}
               />
+              {aceitaLead && (
+                <p className="text-[11px] text-muted-foreground">
+                  Leads em negociação também aparecem aqui — dá para propor antes de o cliente existir.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -649,30 +835,75 @@ export function NovoDocumentoDialog({
             <div className="space-y-4">
               {modo === "PROPOSTA" ? (
           <>
-            {ehCredenciamento ? (
+            {ePropostaDeCredenciamento ? (
               <CredenciamentoPicker
                 clienteId={clienteId}
                 celulas={celulasGrade}
                 setCelulas={setCelulasGrade}
-                operadoras={operadorasSel}
-                setOperadoras={setOperadorasSel}
+                operadora={operadoraProposta}
+                setOperadora={setOperadoraProposta}
                 valorOperadora={valorOperadora}
                 setValorOperadora={setValorOperadora}
                 onModoGrade={setModoGrade}
               />
             ) : (
-              <PropostaServicosPicker sel={sel} setSel={setSel} />
+              <>
+                <PropostaServicosPicker
+                  sel={sel}
+                  setSel={setSel}
+                  escopo={ePropostaDeFaturamento ? "FATURAMENTO" : "COMERCIAL"}
+                  titulo={ePropostaDeFaturamento ? "Serviço e percentual" : "Serviços da proposta"}
+                />
+                {ePropostaDeFaturamento && (
+                  <>
+                    <ConveniosPicker selecionados={conveniosSel} setSelecionados={setConveniosSel} />
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor="prop-faturamento"
+                        hint="Quanto a clínica fatura por mês, em média. NÃO sai no documento: serve para calcular o valor do negócio no funil. É a mesma informação da Qualificação — corrigir aqui corrige lá."
+                      >
+                        Faturamento mensal médio da clínica
+                      </Label>
+                      <MoneyInput
+                        id="prop-faturamento"
+                        value={faturamentoMensal}
+                        onChange={(v) => {
+                          faturamentoTocado.current = true;
+                          setFaturamentoMensal(v ?? 0);
+                        }}
+                        className="h-9"
+                      />
+                      {valorEstimadoDoFaturamento > 0 ? (
+                        <p className="rounded-md bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                          Valor do negócio:{" "}
+                          <strong className="text-foreground">{formatBRL(valorEstimadoDoFaturamento)}/mês</strong> (
+                          {percentualDaProposta}% de {formatBRL(faturamentoMensal)}). Atualiza o card do lead no funil
+                          e <strong className="text-foreground">não aparece no documento</strong> — o faturamento da
+                          clínica muda todo mês, a proposta assinada não.
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Sem valor fixo: a cobrança é o percentual sobre o que a clínica fatura, todo mês.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </>
             )}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="prop-prazo">Prazo estimado</Label>
-                <Input id="prop-prazo" value={prazo} onChange={(e) => setPrazo(e.target.value)} placeholder="Ex.: 60 dias" />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="prop-cond">Condições de pagamento</Label>
-                <Input id="prop-cond" value={condicoes} onChange={(e) => setCondicoes(e.target.value)} placeholder="Ex.: 30% + 2x" />
-              </div>
+            {/* "Condições de pagamento" saiu daqui (ADR-127): não há condição a negociar — é
+                sempre PIX, e o PIX sai no bloco de dados para pagamento, vindo de Ajustes.
+                Quando o repasse do faturamento é pago vira frase automática na proposta. */}
+            <div className="space-y-1">
+              <Label htmlFor="prop-prazo">Prazo estimado</Label>
+              <Input id="prop-prazo" value={prazo} onChange={(e) => setPrazo(e.target.value)} placeholder="Ex.: 60 dias" />
             </div>
+            {fraseRepasse && (
+              <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                A proposta vai dizer, sozinha: <span className="text-foreground">{fraseRepasse}</span> Para mudar esse
+                texto, edite o serviço em Ajustes → Serviços.
+              </p>
+            )}
             <div className="space-y-1">
               <Label htmlFor="prop-obs">Observações</Label>
               <Textarea id="prop-obs" rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} />
@@ -768,14 +999,24 @@ export function NovoDocumentoDialog({
                 <MoneyInput id="rec-valor" value={reciboValor} onChange={(v) => setReciboValor(v ?? 0)} className="h-9" />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="rec-forma">Forma de pagamento</Label>
-                <Select id="rec-forma" value={reciboForma} onChange={(e) => setReciboForma(e.target.value)}>
-                  {FORMAS_PAGAMENTO.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </Select>
+                {/*
+                  ⚠️ `<Label>` aqui viraria um rótulo ÓRFÃO: não há campo para ele apontar, e o
+                  leitor de tela não associaria nem o texto nem a ajuda a coisa nenhuma. Como o
+                  valor é fixo, isto é um par rótulo/valor — e a ligação é feita à mão, por
+                  `aria-labelledby`.
+                */}
+                <div className="flex items-center gap-1.5">
+                  <span id="rec-forma-rotulo" className="text-sm font-medium">
+                    Forma de pagamento
+                  </span>
+                  <HintIcon text="A MedConsultoria recebe somente por PIX. O recibo sai sempre com esta forma de pagamento — não há o que escolher." />
+                </div>
+                <p
+                  aria-labelledby="rec-forma-rotulo"
+                  className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm"
+                >
+                  {FORMA_PAGAMENTO_RECIBO}
+                </p>
               </div>
             </div>
             {reciboValor > 0 && (
@@ -884,7 +1125,7 @@ export function NovoDocumentoDialog({
                 <DocumentoBranded
                   tipo={TIPO_MODELO_LABEL[modelo.tipo]}
                   titulo={titulo.trim() || modelo.nome}
-                  clienteNome={clientes.data?.find((c) => c.id === clienteId)?.nome ?? null}
+                  clienteNome={nomeDoDestino}
                   conteudoMarkdown={conteudoPreview()}
                 />
               </div>

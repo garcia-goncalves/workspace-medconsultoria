@@ -53,7 +53,7 @@ test.describe("credenciamento no Portal", () => {
     try {
       const ctx = await browser.newContext({ storageState: "e2e/.auth/cliente.json" });
       const page = await ctx.newPage();
-      await page.goto("/");
+      await page.goto("/portal/credenciamento"); // a papelada do credenciamento tem seção própria
 
       const secao = page.getByRole("heading", { name: /Documentos do credenciamento/i });
       await expect(secao).toBeVisible();
@@ -88,7 +88,7 @@ test.describe("credenciamento no Portal", () => {
     try {
       const ctx = await browser.newContext({ storageState: "e2e/.auth/cliente.json" });
       const page = await ctx.newPage();
-      await page.goto("/");
+      await page.goto("/portal/credenciamento"); // a papelada do credenciamento tem seção própria
 
       const contador = page.getByText(/Faltam \d+ de \d+/);
       await expect(contador).toBeVisible();

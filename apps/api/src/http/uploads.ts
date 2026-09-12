@@ -5,6 +5,7 @@ import { extname } from "node:path";
 import { prisma } from "@app/db";
 import type { SessionUser } from "@app/shared";
 import { getUserFromSession, SESSION_COOKIE } from "../lib/session.js";
+import { SUPORTE_SO_LEITURA } from "../modules/auth/painel-cliente.service.js";
 import {
   salvarArquivo,
   salvarAvatar,
@@ -44,6 +45,12 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
     const user = await usuarioDaRequest(req);
     if (!user) return reply.code(401).send({ error: "Não autenticado." });
     const isCliente = user.role === "CLIENTE";
+    // SESSÃO DE SUPORTE (ADR-128): a equipe vendo o Portal como o cliente é SÓ LEITURA. Este
+    // endpoint não passa pelo `portalProcedure`, onde a trava mora — então a repete aqui, senão
+    // sobraria justamente a porta por onde um arquivo entraria no nome do cliente.
+    if (isCliente && user.operador) {
+      return reply.code(403).send({ error: SUPORTE_SO_LEITURA });
+    }
 
     const campos: Record<string, string> = {};
     let salvo:
@@ -99,10 +106,14 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
   app.post("/transcrever", async (req, reply) => {
     const user = await usuarioDaRequest(req);
     if (!user || user.role === "CLIENTE") return reply.code(401).send({ error: "Não autenticado." });
-    if (!isAiEnabled) return reply.code(412).send({ error: "IA não configurada (OPENAI_API_KEY)." });
+    if (!isAiEnabled) return reply.code(412).send({ error: "IA não configurada (GEMINI_API_KEY)." });
 
     let buffer: Buffer | null = null;
-    let filename = "audio.webm";
+    // ⚠️ O mimetype REAL do arquivo (achado do revisor de TS): a gravação pelo microfone do
+    // navegador manda WebM/Opus, não MP3 — mandar "audio/mpeg" fixo para o Gemini faria ele
+    // tentar decodificar bytes Opus como MP3. `mimetype` vai até `aiService.transcrever` para
+    // o Gemini receber o formato certo em `inlineData.mimeType`.
+    let mimetype = "audio/webm";
     for await (const part of req.parts()) {
       if (part.type === "field") continue;
       if (part.fieldname !== "audio") {
@@ -113,7 +124,7 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
         part.file.resume();
         return reply.code(415).send({ error: "Envie um arquivo de áudio." });
       }
-      filename = part.filename || "audio.webm";
+      mimetype = part.mimetype;
       const chunks: Buffer[] = [];
       for await (const c of part.file) chunks.push(c as Buffer);
       if (part.file.truncated) return reply.code(413).send({ error: "Áudio muito grande (máx. 20 MB)." });
@@ -122,7 +133,7 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
     if (!buffer || buffer.length === 0) return reply.code(400).send({ error: "Nenhum áudio enviado." });
 
     try {
-      const texto = await aiService.transcrever(buffer, filename);
+      const texto = await aiService.transcrever(buffer, mimetype);
       return reply.send({ texto });
     } catch {
       return reply.code(500).send({ error: "Não consegui transcrever o áudio. Tente de novo." });
@@ -160,10 +171,22 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
     return reply.send({ avatarUrl: salvo.caminho });
   });
 
-  // Serve a foto de perfil de qualquer usuário (aparece em toda a app). Requer login.
+  /**
+   * Serve a foto de perfil (ela aparece em toda a app interna). Requer login.
+   *
+   * ⚠️ **CLIENTE do Portal só enxerga a própria foto.** A app interna mostra avatar de colega
+   * em toda lista — para quem é da casa, isso é o funcionamento normal. Já o cliente de uma
+   * clínica não tem por que alcançar a foto de gente de OUTRA clínica, e a rota devolvia
+   * qualquer uma a qualquer sessão autenticada. É pouco (uma foto, e é preciso ter o id), mas é
+   * dado pessoal atravessando a fronteira que o resto do Portal fecha — e fechar aqui custa
+   * três linhas.
+   */
   app.get<{ Params: { userId: string } }>("/avatar/:userId", async (req, reply) => {
     const user = await usuarioDaRequest(req);
     if (!user) return reply.code(401).send({ error: "Não autenticado." });
+    if (user.role === "CLIENTE" && user.id !== req.params.userId) {
+      return reply.code(403).send({ error: "Sem acesso." });
+    }
     const alvo = await prisma.user.findUnique({ where: { id: req.params.userId }, select: { avatarUrl: true } });
     if (!alvo?.avatarUrl) return reply.code(404).send({ error: "Sem foto." });
     let stream;

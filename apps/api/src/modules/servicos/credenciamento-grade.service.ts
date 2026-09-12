@@ -2,6 +2,7 @@ import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { equipeDoCliente } from "../arquivos/arquivos.service.js";
+import { garantirCategoriaHonorarios } from "./credenciamento.service.js";
 import {
   motivoDaTransicaoRecusada,
   proximaTentativa,
@@ -92,7 +93,14 @@ export async function gradeDoCliente(clienteId: string) {
         ativo: true,
       },
     }),
-    prisma.operadora.findMany({ orderBy: [{ ordem: "asc" }, { nome: "asc" }], select: { id: true, nome: true } }),
+    // Só as operadoras marcadas para CREDENCIAMENTO (ADR-126) — mais as que já têm processo
+    // deste cliente, mesmo desmarcadas depois. É a mesma lição da ADR-105: filtrar por uma
+    // marcação atual apagaria da tela o que foi preservado de propósito.
+    prisma.operadora.findMany({
+      where: { OR: [{ usoCredenciamento: true }, { credenciamentos: { some: { clienteId } } }] },
+      orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+      select: { id: true, nome: true },
+    }),
     prisma.credenciamento.findMany({
       where: { clienteId },
       orderBy: [{ tentativa: "asc" }, { createdAt: "asc" }],
@@ -122,9 +130,25 @@ export async function gradeDoCliente(clienteId: string) {
  * no mundo, correndo na operadora, e sumir com ele por um clique de edição perderia o
  * histórico (e o vínculo com uma cobrança já emitida). O serviço devolve o que ignorou para
  * a tela poder avisar.
+ *
+ * ⚠️ `somenteOperadorasDaGrade` existe porque há DUAS portas para cá, com significados opostos:
+ *
+ * - A **grade da ficha** manda o cliente inteiro. Ali, par ausente = desmarcado de propósito,
+ *   e apagar é o comportamento certo.
+ * - O **construtor da proposta** manda uma operadora só (ADR-126: cada proposta de
+ *   credenciamento é de UMA operadora). Ali, par ausente quase sempre quer dizer "é de outra
+ *   proposta", não "foi desmarcado" — e apagar levava embora, em silêncio, todo cruzamento
+ *   `A_PROTOCOLAR` das operadoras anteriores no dia em que a Thaís emitisse a 2ª proposta.
+ *
+ * Com a marca ligada, a remoção fica confinada às operadoras que vieram na carga.
  */
 export async function salvarGrade(
-  input: { clienteId: string; celulas: CelulaGrade[]; documentoId?: string | null },
+  input: {
+    clienteId: string;
+    celulas: CelulaGrade[];
+    documentoId?: string | null;
+    somenteOperadorasDaGrade?: boolean;
+  },
   ator: { id: string },
 ) {
   const profissionaisDoCliente = new Set(
@@ -171,7 +195,25 @@ export async function salvarGrade(
       continue;
     }
     // Já saiu do papel: o valor combinado está congelado no que foi protocolado/cobrado.
+    //
+    // ⚠️ **UMA EXCEÇÃO, ESTREITA, E É ELA QUE FECHA O M15:** o cruzamento APROVADO cujo honorário
+    // ficou "a combinar" não cobrou nada — não há valor congelado, há valor faltando. Deixá-lo
+    // preservado seria manter para sempre o credenciamento aprovado que ninguém cobra. Acertado o
+    // valor aqui, a cobrança que a aprovação não pôde criar nasce agora. As condições são todas
+    // necessárias: APROVADO (o trabalho terminou em sucesso), sem `contaId` (não cobrou), valor
+    // atual zerado (era "a combinar", não um preço que alguém quer reescrever) e valor novo > 0.
     if (vigente.status !== "A_PROTOCOLAR") {
+      const honorarioPendente =
+        vigente.status === "APROVADO" && !vigente.contaId && Number(vigente.valor) <= 0 && c.valor > 0;
+      if (honorarioPendente) {
+        await prisma.credenciamento.update({
+          where: { id: vigente.id },
+          data: { valor: c.valor, observacoes: semAvisoDeHonorario(vigente.observacoes) },
+        });
+        await criarContaDoHonorario(vigente.id, input.clienteId, c.valor, ator);
+        atualizados++;
+        continue;
+      }
       preservados++;
       continue;
     }
@@ -182,9 +224,17 @@ export async function salvarGrade(
     atualizados++;
   }
 
+  // Fora do alcance desta carga: quando ela cobre uma operadora só, o que é de outra operadora
+  // não foi "desmarcado" — nem estava em jogo.
+  const operadorasEmJogo = new Set(input.celulas.map((c) => c.operadoraId));
+
   // Desmarcado na tela: só some quem nunca foi protocolado.
   for (const [par, vigente] of vigentePorPar) {
     if (marcados.has(par)) continue;
+    if (input.somenteOperadorasDaGrade && !operadorasEmJogo.has(vigente.operadoraId)) {
+      preservados++;
+      continue;
+    }
     if (vigente.status !== "A_PROTOCOLAR") {
       preservados++;
       continue;
@@ -205,6 +255,35 @@ export async function salvarGrade(
 
   /** `preservados` = cruzamentos que a edição NÃO tocou por já estarem em curso. */
   return { criados, atualizados, removidos, preservados };
+}
+
+/**
+ * O AVISO DE HONORÁRIO A DEFINIR — o sinal que substitui a conta de R$ 0,00 (M15).
+ *
+ * Mora nas observações do cruzamento porque é o único lugar que a página Credenciamentos já
+ * desenha embaixo de cada linha: sem tela nova, a Thaís vê a pendência exatamente onde ela vê o
+ * caso. Uma conta a receber de R$ 0,00 no Financeiro seria o oposto — um número que se lê como
+ * "já resolvido".
+ */
+const AVISO_HONORARIO_A_COMBINAR =
+  "Honorário a combinar: defina o valor deste credenciamento na grade da ficha para gerar a cobrança.";
+
+/** Acrescenta o aviso, sem repeti-lo se já estiver lá. */
+function comAvisoDeHonorario(observacoes: string | null): string {
+  const texto = observacoes?.trim() ?? "";
+  if (texto.includes(AVISO_HONORARIO_A_COMBINAR)) return texto;
+  return texto ? `${texto}\n${AVISO_HONORARIO_A_COMBINAR}` : AVISO_HONORARIO_A_COMBINAR;
+}
+
+/** Tira o aviso quando o valor foi acertado — deixá-lo diria que a pendência continua. */
+function semAvisoDeHonorario(observacoes: string | null): string | null {
+  if (!observacoes) return observacoes;
+  const restante = observacoes
+    .split("\n")
+    .filter((linha) => linha.trim() !== AVISO_HONORARIO_A_COMBINAR)
+    .join("\n")
+    .trim();
+  return restante || null;
 }
 
 /**
@@ -252,8 +331,28 @@ export async function mudarStatusCredenciamento(
   // AQUI nasce a cobrança — e só aqui (§3.3, §6.3). O honorário do credenciamento é no
   // sucesso: nem o aceite da proposta, nem contratar o serviço na ficha, nem converter o lead
   // geram conta. A operadora aprovou; agora há o que cobrar.
+  //
+  // ⚠️ **A NÃO SER QUE O HONORÁRIO AINDA SEJA "A COMBINAR" (M15).** `Credenciamento.valor` tem
+  // padrão 0 — o cruzamento pode ser montado antes de o preço estar acertado. Aprovar isso criava
+  // uma conta a receber de **R$ 0,00** e prendia as duas por `contaId`; daí em diante a guarda
+  // `!atual.contaId` fechava a porta e ninguém mais cobrava aquele credenciamento. Recusar a
+  // aprovação também não serve: a operadora aprovou, e o fato tem de ser registrado. Então
+  // aprova-se sem inventar cobrança nenhuma, `contaId` fica nulo (a porta continua aberta) e a
+  // pendência fica escrita na linha, que é o que a página Credenciamentos desenha.
+  //
+  // ⚠️ `!atual.contaId` aqui é só o filtro BARATO: ele evita o trabalho inútil no caso comum
+  // (aprovar de novo algo que já cobrou). Ele NÃO é a trava — `atual` foi lido no começo desta
+  // função e pode estar velho. Quem garante uma conta só é a reserva atômica dentro de
+  // `criarContaDoHonorario`, que devolve `null` quando outra chamada ganhou a corrida.
   if (input.status === "APROVADO" && !atual.contaId) {
-    await criarContaDoHonorario(atualizado.id, atual.clienteId, Number(atual.valor), ator);
+    if (Number(atual.valor) > 0) {
+      await criarContaDoHonorario(atualizado.id, atual.clienteId, Number(atual.valor), ator);
+    } else {
+      await prisma.credenciamento.update({
+        where: { id: atualizado.id },
+        data: { observacoes: comAvisoDeHonorario(atualizado.observacoes) },
+      });
+    }
   }
 
   await prisma.activityLog.create({
@@ -331,12 +430,13 @@ async function avisarEquipeDoDesfecho(
  * silêncio.
  */
 async function criarContaDoHonorario(credenciamentoId: string, clienteId: string, valor: number, ator: { id: string }) {
-  const [cliente, celula] = await Promise.all([
+  const [cliente, celula, categoriaId] = await Promise.all([
     prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true } }),
     prisma.credenciamento.findUnique({
       where: { id: credenciamentoId },
       select: { profissional: { select: { nome: true } }, operadora: { select: { nome: true } }, tentativa: true },
     }),
+    garantirCategoriaHonorarios(),
   ]);
 
   const vencimento = new Date();
@@ -354,13 +454,35 @@ async function criarContaDoHonorario(credenciamentoId: string, clienteId: string
       valor,
       vencimento,
       clienteId,
+      categoriaId,
       observacoes: `Honorário no sucesso: a operadora ${onde} aprovou o credenciamento de ${quem}${
         (celula?.tentativa ?? 1) > 1 ? ` (${celula!.tentativa}ª tentativa)` : ""
       }. Cliente: ${cliente?.nome ?? "—"}. Revise o vencimento.`,
     },
   });
 
-  await prisma.credenciamento.update({ where: { id: credenciamentoId }, data: { contaId: conta.id } });
+  // ⚠️ A AMARRAÇÃO É A TRAVA, E ELA PRECISA SER ATÔMICA — não um `update` por id.
+  //
+  // Duas aprovações quase simultâneas do mesmo cruzamento (clique duplo, ou a página
+  // Credenciamentos e a grade da ficha abertas ao mesmo tempo) liam `contaId` nulo as duas,
+  // passavam as duas pela guarda de quem chamou e criavam DUAS contas do mesmo honorário — a
+  // segunda gravação sobrescrevia `contaId` e deixava a primeira conta órfã no Financeiro,
+  // sem nada na ficha que a explicasse. `Credenciamento.contaId` não é único; a linha de
+  // defesa é o próprio `WHERE`.
+  //
+  // `updateMany` com `contaId: null` no filtro vira UM `UPDATE ... WHERE contaId IS NULL`, que
+  // o MySQL resolve com a linha travada: das duas chamadas, exatamente uma vê `count === 1`.
+  // Quem perde apaga a conta que criou — ela nunca chegou a aparecer para ninguém, porque só
+  // passa a existir para a tela depois de amarrada.
+  const reserva = await prisma.credenciamento.updateMany({
+    where: { id: credenciamentoId, contaId: null },
+    data: { contaId: conta.id },
+  });
+  if (reserva.count === 0) {
+    await prisma.conta.delete({ where: { id: conta.id } });
+    return null;
+  }
+
   await prisma.activityLog.create({
     data: {
       userId: ator.id,
@@ -380,6 +502,14 @@ async function criarContaDoHonorario(credenciamentoId: string, clienteId: string
  *
  * A linha anterior fica intacta, com a negativa e a data. A nova nasce `A_PROTOCOLAR`, com o
  * valor da anterior como ponto de partida (editável na grade).
+ *
+ * ⚠️ A NOVA TENTATIVA NÃO HERDA `contaId`, E ISSO É DELIBERADO (ADR-141, decisão do dono).
+ * O honorário nasce na APROVAÇÃO (ADR-104), então o ciclo aprovado → encerrado → reaberto →
+ * aprovado gera uma SEGUNDA conta a receber pelo mesmo par médico × operadora. Está certo: a
+ * proposta real da Thaís cobra "somente no sucesso" e "após 1 (uma) tentativa", e tentativa
+ * nova é trabalho novo. O que faltava era AVISAR — a faixa âmbar de `CredenciamentoGradeCard`
+ * aparece antes do clique quando a anterior já cobrou. Quem for "consertar" isto herdando a
+ * conta estará dando de graça o segundo credenciamento.
  */
 export async function abrirNovaTentativa(input: { id: string; motivo: string }, ator: { id: string }) {
   const anterior = await prisma.credenciamento.findUnique({ where: { id: input.id } });

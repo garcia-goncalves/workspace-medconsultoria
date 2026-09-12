@@ -37,10 +37,11 @@ import { trpc } from "../../../lib/trpc";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { MaskedInput } from "../../../components/ui/masked-input";
-import { maskTelefone, formatBRL } from "../../../lib/masks";
+import { maskTelefone, formatBRL, formatPreco } from "../../../lib/masks";
 import { dataHora, dataUTC, data } from "../../../lib/format-date";
 import { Textarea } from "../../../components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent } from "../../../components/ui/card";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "../../../components/ui/accordion";
 import { Badge, type BadgeProps } from "../../../components/ui/badge";
 import { QueryError } from "../../../components/ui/query-error";
 import { useConfirm } from "../../../components/ui/confirm-dialog";
@@ -51,7 +52,6 @@ import { AssistenteIADialog } from "../../../components/ui/assistente-ia";
 import { ServicosContratadosCard } from "./ServicosContratadosCard";
 import { CredenciamentoCard } from "./CredenciamentoCard";
 import { CredenciamentoGradeCard } from "./CredenciamentoGradeCard";
-import { ProducaoCard } from "./ProducaoCard";
 import { DocumentosClienteCard } from "./DocumentosClienteCard";
 import { NovoDocumentoDialog } from "../../documentos/NovoDocumentoDialog";
 import { ConviteLinkDialog } from "../../configuracoes/ConviteLinkDialog";
@@ -60,6 +60,9 @@ import { situacaoVar } from "./ClientesListPage";
 import { ProjetoFormDialog } from "../../projetos/ProjetoFormDialog";
 import { TarefaFormDialog } from "../../tarefas/TarefaFormDialog";
 import { EmailsDoClienteCard } from "./EmailsDoClienteCard";
+import { PainelDoClienteBotao } from "../AcessoPortalBotao";
+import { PessoasDoPortalCard } from "./PessoasDoPortalCard";
+import { ProducaoCard } from "./ProducaoCard";
 import { useDynamicCrumb } from "../../../components/layout/Breadcrumbs";
 
 const route = getRouteApi("/clientes/$clienteId");
@@ -88,6 +91,8 @@ export function ClienteDetailPage() {
 
   const cliente = trpc.clientes.get.useQuery({ id: clienteId });
   const rel = trpc.clientes.relacionados.useQuery({ id: clienteId });
+  // Mesma chave do ServicosContratadosCard: o cache é reaproveitado, sem requisição a mais.
+  const contratados = trpc.clientes.servicos.useQuery({ id: clienteId });
   const chamados = trpc.clientes.chamados.useQuery({ clienteId }, { refetchInterval: POLL.chamadosCliente });
 
   useEventoRealtime("mensagem", () => utils.clientes.chamados.invalidate({ clienteId }));
@@ -200,7 +205,7 @@ export function ClienteDetailPage() {
               </Badge>
               {!podeAtivar ? (
                 <Link
-                  to="/leads"
+                  to="/funil-de-vendas"
                   className="text-xs text-primary hover:underline"
                   title="É um lead no Funil — a situação acompanha o funil"
                 >
@@ -251,13 +256,10 @@ export function ClienteDetailPage() {
             <ListTodo className="h-4 w-4" />
             Delegar tarefa
           </Button>
+          {/* Cliente que já entrou: em vez do selo "Portal ativo", que só informava, o botão
+              que ABRE o painel dele em modo de suporte (ADR-128). */}
           {c.portalAtivo ? (
-            <span
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1.5 text-sm font-medium text-primary"
-              title="O cliente já tem acesso ativo ao Portal"
-            >
-              <KeyRound className="h-4 w-4" /> Portal ativo
-            </span>
+            <PainelDoClienteBotao clienteId={c.id} portal={c.portal} />
           ) : (
             <Button
               variant="outline"
@@ -320,6 +322,10 @@ export function ClienteDetailPage() {
 
           {/* O andamento de cada médico × operadora, depois que a proposta saiu (ADR-104). */}
           <CredenciamentoGradeCard clienteId={c.id} />
+
+          {/* Quem desta clínica entra no Portal (ADR-131) — médicos e secretárias com acesso
+              próprio, em vez de uma senha compartilhada. */}
+          <PessoasDoPortalCard clienteId={c.id} />
 
           {/* A produção do último mês importado. Some quando o cliente nunca teve importação. */}
           <ProducaoCard clienteId={c.id} />
@@ -556,6 +562,19 @@ export function ClienteDetailPage() {
               const abertos = origem.filter((o) => o.status === "em_andamento");
               const perdidos = origem.filter((o) => o.status === "perdido");
               const valorContratado = ganhos.reduce((sum, g) => sum + (g.valorEstimado ?? 0), 0);
+              // A soma acima é de VALOR ESTIMADO dos negócios ganhos, e dá zero para quem só
+              // paga percentual (o Faturamento de contas médicas). A linha então sumia da tela
+              // e a ficha ficava muda sobre o que o cliente paga — o número não está errado,
+              // está ausente. Quando não há valor fixo, mostramos o preço real do que está
+              // contratado ("5% do faturamento/mês"), que a ficha já sabe. Ver ADR-125.
+              const precosContratados = [
+                ...new Set(
+                  (contratados.data ?? [])
+                    .filter((i) => i.contratado)
+                    .map((i) => formatPreco(i.contratacao ?? {}))
+                    .filter(Boolean),
+                ),
+              ];
               const datas = ganhos.map((g) => new Date(g.convertidoEm ?? g.createdAt).getTime());
               const clienteDesde = datas.length ? new Date(Math.min(...datas)) : null;
               const origens = [...new Set(origem.map((o) => o.origem).filter(Boolean))];
@@ -574,11 +593,18 @@ export function ClienteDetailPage() {
                           <strong className="text-foreground">{data(clienteDesde)}</strong>
                         </div>
                       )}
-                      {valorContratado > 0 && (
+                      {valorContratado > 0 ? (
                         <div className="flex items-center justify-between gap-2">
                           <span>Valor contratado</span>
                           <strong className="text-success">{formatBRL(valorContratado)}</strong>
                         </div>
+                      ) : (
+                        precosContratados.length > 0 && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Valor contratado</span>
+                            <strong className="text-success">{precosContratados.join(" + ")}</strong>
+                          </div>
+                        )
                       )}
                       {origens.length > 0 && (
                         <div className="flex items-center justify-between gap-2">
@@ -608,7 +634,7 @@ export function ClienteDetailPage() {
                             ))}
                           </div>
                         )}
-                        <Link to="/leads" className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
+                        <Link to="/funil-de-vendas" className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
                           Ver no funil →
                         </Link>
                       </div>
@@ -656,7 +682,7 @@ export function ClienteDetailPage() {
                       </div>
                     </div>
                     <button
-                      className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      className="-m-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                       onClick={async () => {
                         if (
                           await confirm({
@@ -714,81 +740,93 @@ export function ClienteDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Próximos compromissos */}
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" /> Próximos compromissos
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {rel.data && rel.data.eventos.length > 0 ? (
-                rel.data.eventos.map((e) => (
-                  <div key={e.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                    <span className="w-24 shrink-0 text-xs font-medium tabular-nums text-primary">{data(e.inicio)}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{e.titulo}</div>
-                      <div className="truncate text-xs text-muted-foreground">{EVENTO_TIPO_LABEL[e.tipo]}</div>
-                    </div>
-                    {e.linkReuniao && (
-                      <a
-                        href={e.linkReuniao}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md bg-success/10 px-2 py-1 text-xs font-medium text-success transition-colors hover:bg-success/20"
-                      >
-                        <Video className="h-3.5 w-3.5" /> Entrar
-                      </a>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">Nenhum compromisso futuro.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Financeiro (só admin recebe as contas) */}
-          {rel.data?.contas && (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <Wallet className="h-4 w-4 text-muted-foreground" /> Financeiro
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {rel.data.contas.length > 0 ? (
-                  rel.data.contas.map((ct) => (
-                    <div key={ct.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate font-medium">{ct.descricao}</span>
-                          {ct.recorrencia === "MENSAL" && (
-                            <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                              Mensal
-                            </span>
+          {/* Próximos compromissos — recolhível (bloco de referência, não de ação) */}
+          <Card className="p-0">
+            <Accordion modo="multipla" defaultValue={["eventos"]} className="px-4">
+              <AccordionItem value="eventos">
+                <AccordionTrigger>
+                  <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Calendar className="h-4 w-4 text-muted-foreground" /> Próximos compromissos
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-2">
+                    {rel.data && rel.data.eventos.length > 0 ? (
+                      rel.data.eventos.map((e) => (
+                        <div key={e.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                          <span className="w-24 shrink-0 text-xs font-medium tabular-nums text-primary">{data(e.inicio)}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium">{e.titulo}</div>
+                            <div className="truncate text-xs text-muted-foreground">{EVENTO_TIPO_LABEL[e.tipo]}</div>
+                          </div>
+                          {e.linkReuniao && (
+                            <a
+                              href={e.linkReuniao}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex shrink-0 items-center gap-1 rounded-md bg-success/10 px-2 py-1 text-xs font-medium text-success transition-colors hover:bg-success/20"
+                            >
+                              <Video className="h-3.5 w-3.5" /> Entrar
+                            </a>
                           )}
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          vence {dataUTC(ct.vencimento)}
-                          {ct.pago ? " · paga" : ""}
-                        </div>
-                      </div>
-                      <span
-                        className={
-                          ct.tipo === "RECEBER"
-                            ? "shrink-0 font-medium tabular-nums text-success"
-                            : "shrink-0 font-medium tabular-nums text-destructive"
-                        }
-                      >
-                        {ct.tipo === "RECEBER" ? "+" : "−"} {formatBRL(ct.valor)}
-                      </span>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Nenhum compromisso futuro.</p>
+                    )}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </Card>
+
+          {/* Financeiro (só admin recebe as contas) — recolhível, mesmo motivo */}
+          {rel.data?.contas && (
+            <Card className="p-0">
+              <Accordion modo="multipla" defaultValue={["financeiro"]} className="px-4">
+                <AccordionItem value="financeiro">
+                  <AccordionTrigger>
+                    <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Wallet className="h-4 w-4 text-muted-foreground" /> Financeiro
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-2">
+                      {rel.data.contas.length > 0 ? (
+                        rel.data.contas.map((ct) => (
+                          <div key={ct.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate font-medium">{ct.descricao}</span>
+                                {ct.recorrencia === "MENSAL" && (
+                                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                    Mensal
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                vence {dataUTC(ct.vencimento)}
+                                {ct.pago ? " · paga" : ""}
+                              </div>
+                            </div>
+                            <span
+                              className={
+                                ct.tipo === "RECEBER"
+                                  ? "shrink-0 font-medium tabular-nums text-success"
+                                  : "shrink-0 font-medium tabular-nums text-destructive"
+                              }
+                            >
+                              {ct.tipo === "RECEBER" ? "+" : "−"} {formatBRL(ct.valor)}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Nenhuma conta vinculada.</p>
+                      )}
                     </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-muted-foreground">Nenhuma conta vinculada.</p>
-                )}
-              </CardContent>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </Card>
           )}
 
@@ -822,7 +860,7 @@ export function ClienteDetailPage() {
         onClose={() => setNovaOport(false)}
         clienteId={c.id}
         clienteNome={c.nome}
-        onCriada={() => navigate({ to: "/leads" })}
+        onCriada={() => navigate({ to: "/funil-de-vendas" })}
       />
 
       {resumoIA && (

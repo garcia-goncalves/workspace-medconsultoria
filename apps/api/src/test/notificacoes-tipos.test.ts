@@ -26,3 +26,33 @@ describe("tipos de notificação × templates de e-mail", () => {
     expect(Object.keys(EMAIL_TEMPLATES).length).toBeGreaterThan(30);
   });
 });
+
+/**
+ * O CAMINHO DE VOLTA — e é ele que estava aberto (M6).
+ *
+ * O teste acima cobre "categoria sem template". O buraco era o contrário: template de
+ * NOTIFICAÇÃO que ninguém pôs em `EMAIL_CATEGORIAS`. Como `decidirEmailOperacional` começa
+ * por `if (!EMAIL_TIPOS.includes(p.tipo)) return false`, esse aviso nasce com assunto, corpo
+ * e botão prontos — e o e-mail NUNCA SAI. Não há erro, não há log, não há nada na tela: o
+ * aviso simplesmente não acontece, e quem depende dele nunca soube que existia.
+ *
+ * Eram SEIS: conflito de agenda, projeto parado, projeto sem responsável, upsell, documento
+ * parado e lead parado — todos os alertas proativos da varredura, justamente os que ninguém
+ * vai buscar sozinho.
+ *
+ * `default` fica de fora porque não é um tipo de aviso: é a moldura de fallback do render.
+ */
+describe("todo template de notificação é ENVIÁVEL", () => {
+  const NAO_E_AVISO = new Set(["default"]);
+
+  it("nenhum template de notificação ficou fora de EMAIL_CATEGORIAS", () => {
+    const tipos = new Set(EMAIL_CATEGORIAS.map((c) => c.tipo));
+    const mudos = Object.entries(EMAIL_TEMPLATES)
+      .filter(([chave, meta]) => meta.notificacao && !NAO_E_AVISO.has(chave) && !tipos.has(chave))
+      .map(([chave]) => chave);
+    expect(
+      mudos,
+      `templates de notificação sem categoria (o e-mail nunca sai): ${mudos.join(", ")}`,
+    ).toEqual([]);
+  });
+});

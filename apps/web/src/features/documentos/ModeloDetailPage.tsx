@@ -113,7 +113,8 @@ export function ModeloDetailPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="hover:bg-destructive/10 hover:text-destructive"
+                className="min-h-11 min-w-11 hover:bg-destructive/10 hover:text-destructive"
+                aria-label="Remover modelo"
                 title="Remover"
                 onClick={async () => {
                   if (
@@ -187,7 +188,7 @@ export function ModeloDetailPage() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-          <div className="flex items-center justify-between border-b bg-muted/30 px-5 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-1 border-b bg-muted/30 px-5 py-3">
             <span className="text-sm font-medium">Como este modelo fica</span>
             <span className="text-xs text-muted-foreground">
               Os <code>{"{{campos}}"}</code> são preenchidos ao gerar o documento

@@ -4,6 +4,7 @@ import { Clock, CheckSquare } from "lucide-react";
 import { cn } from "@app/ui";
 import { PRIORIDADE_LABEL, type CardStatus, type Prioridade } from "@app/shared";
 import { Badge, type BadgeProps } from "../../components/ui/badge";
+import { Avatar } from "../../components/ui/avatar";
 
 export interface CardItem {
   id: string;
@@ -41,36 +42,60 @@ export function KanbanCard({
   card,
   onOpen,
   overlay = false,
+  draggable = true,
+  className,
 }: {
   card: CardItem;
   onOpen?: () => void;
   overlay?: boolean;
+  /** `false` no celular: sem arraste (5 colunas lado a lado não cabem a 360px) — o card só abre ao toque. */
+  draggable?: boolean;
+  className?: string;
 }) {
+  // useSortable precisa ficar dentro do DndContext do quadro mesmo quando `draggable` é falso
+  // (regra dos hooks) — só não aplicamos ref/listeners/estilo de arraste nesse caso.
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
+    disabled: !draggable || overlay,
   });
+  const ativo = draggable && !overlay;
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.4 : 1,
+    opacity: ativo && isDragging ? 0.4 : 1,
   };
   const feitos = card.checklist.filter((c) => c.concluido).length;
+  const aguardandoCliente = card.status === "AGUARDANDO_CLIENTE";
 
   // O card INTEIRO é a alça de arrastar E o clique para abrir: o sensor de ponteiro
   // usa distância mínima (6px), então um clique curto abre e um movimento arrasta.
   return (
-    <div
-      ref={overlay ? undefined : setNodeRef}
-      style={overlay ? undefined : style}
-      onClick={overlay ? undefined : onOpen}
-      {...(overlay ? {} : attributes)}
-      {...(overlay ? {} : listeners)}
+    <button
+      type="button"
+      ref={ativo ? setNodeRef : undefined}
+      style={ativo ? style : undefined}
+      onClick={onOpen}
+      {...(ativo ? attributes : {})}
+      {...(ativo ? listeners : {})}
       className={cn(
-        "rounded-lg border bg-card p-2.5 shadow-sm transition-shadow hover:border-primary/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-        !overlay && "cursor-grab active:cursor-grabbing",
+        "w-full rounded-lg border bg-card p-2.5 text-left shadow-sm transition-shadow hover:border-primary/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+        aguardandoCliente && "border-l-[3px] border-l-warning",
+        ativo && "cursor-grab active:cursor-grabbing",
+        className,
       )}
     >
-      <div className="text-sm font-medium">{card.titulo}</div>
+      <div className="flex items-start justify-between gap-1.5">
+        <div className="min-w-0 flex-1 truncate text-sm font-medium">{card.titulo}</div>
+        {card.responsavel && (
+          <span
+            title={`Responsável: ${card.responsavel.nome}`}
+            aria-label={`Responsável: ${card.responsavel.nome}`}
+            className="shrink-0"
+          >
+            <Avatar nome={card.responsavel.nome} className="h-5 w-5" text="text-[10px]" />
+          </span>
+        )}
+      </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
         <Badge variant={prioridadeVariant[card.prioridade]}>{PRIORIDADE_LABEL[card.prioridade]}</Badge>
         {card.checklist.length > 0 && (
@@ -92,6 +117,6 @@ export function KanbanCard({
           </span>
         )}
       </div>
-    </div>
+    </button>
   );
 }

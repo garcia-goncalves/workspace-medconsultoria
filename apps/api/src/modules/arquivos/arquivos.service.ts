@@ -43,6 +43,25 @@ export async function registrarUpload(input: RegistrarUploadInput) {
   const profissionalId = input.profissionalId
     ? ((await prisma.profissional.findFirst({ where: { id: input.profissionalId, clienteId: input.clienteId }, select: { id: true } }))?.id ?? null)
     : null;
+  // ⚠️ NÃO HÁ CONFERÊNCIA DE POSSE PARA `servicoId`/`requisitoId` AQUI, E ISSO É DELIBERADO.
+  //
+  // A revisão de segurança apontou a assimetria: o `profissionalId` acima é conferido e estes
+  // dois não são. Tentei fechar exigindo que o cliente tivesse o serviço contratado — e a
+  // suíte de ponta a ponta reprovou, mostrando que a premissa estava errada: a papelada do
+  // credenciamento aparece legitimamente para quem tem **médico cadastrado**, ainda que a
+  // contratação não esteja registrada (`credenciamentoDoCliente`: `emCurso = contratado ||
+  // profissionais.length > 0`). Com a regra estrita, o cliente enviava o documento e a barra
+  // de progresso não andava.
+  //
+  // Repetir aquela condição aqui seria escrever a MESMA regra em dois lugares, que é o modo de
+  // falha da ADR-133: no dia em que a visibilidade mudar, o upload continua com a régua velha e
+  // o cliente perde o documento em silêncio. E o que se ganharia é pouco — o estrago possível
+  // fica todo dentro do próprio `clienteId` (arquivar um documento sob um serviço que ele não
+  // contratou), sem atravessar a fronteira entre clínicas.
+  //
+  // Se um dia isto for fechado, a régua tem de ser UMA função exportada por
+  // `credenciamento.service.ts`, chamada pelos dois lados — nunca uma cópia.
+
   const lado = input.lado === "FRENTE" || input.lado === "VERSO" ? input.lado : null;
 
   const arquivo = await prisma.arquivo.create({
@@ -104,13 +123,26 @@ export async function listarArquivos(clienteId: string, servicoId?: string) {
       requisitoId: true,
       lado: true,
       enviadoPorTipo: true,
+      enviadoPorId: true,
       createdAt: true,
       servico: { select: { nome: true } },
       requisito: { select: { titulo: true } },
       profissional: { select: { id: true, nome: true } },
     },
   });
-  return rows;
+
+  // `enviadoPorId` é a PESSOA que enviou (ADR-131: vários usuários por clínica); `enviadoPorTipo`
+  // só diz CLIENTE × EQUIPE, o que fazia a tela do Portal ler "Enviado por você" para qualquer
+  // arquivo do lado do cliente, mesmo quando quem enviou foi um colega da mesma clínica. Sem
+  // relação de Prisma para `enviadoPorId` (o campo não tem `@relation` — criá-la pediria FK
+  // nova, migração), o nome de quem enviou é buscado à parte.
+  const idsUnicos = [...new Set(rows.map((r) => r.enviadoPorId).filter((id): id is string => Boolean(id)))];
+  const pessoas = idsUnicos.length
+    ? await prisma.user.findMany({ where: { id: { in: idsUnicos } }, select: { id: true, nome: true } })
+    : [];
+  const nomePorId = new Map(pessoas.map((p) => [p.id, p.nome]));
+
+  return rows.map((r) => ({ ...r, enviadoPorNome: r.enviadoPorId ? (nomePorId.get(r.enviadoPorId) ?? null) : null }));
 }
 
 /** Busca um arquivo para download (metadados + caminho). Lança se não existe/removido. */

@@ -46,3 +46,28 @@ export const deleteUsuarioSchema = z.object({
   transferirParaId: z.string().optional().or(z.literal("")),
 });
 export type DeleteUsuarioInput = z.infer<typeof deleteUsuarioSchema>;
+
+/**
+ * CONVIDAR UMA PESSOA DA CLÍNICA PARA O PORTAL (ADR-131).
+ *
+ * Sem `clienteId` aqui de propósito: quem convida pela ficha manda o id do cliente na rota
+ * interna, e quem convida de dentro do Portal tem o dele na SESSÃO. Deixar o cliente entrar
+ * pelo formulário seria dar ao dono da Clínica A um campo para digitar o id da Clínica B.
+ */
+export const convidarPessoaPortalSchema = z.object({
+  nome: z.string().trim().min(2, "Informe o nome da pessoa"),
+  email: z.string().trim().toLowerCase().email("E-mail inválido"),
+  papel: z.enum(["RESPONSAVEL", "EQUIPE"]),
+});
+export type ConvidarPessoaPortalInput = z.infer<typeof convidarPessoaPortalSchema>;
+
+/** Promover ou rebaixar alguém dentro da clínica. */
+export const papelDaPessoaPortalSchema = z.object({
+  pessoaId: z.string().min(1),
+  papel: z.enum(["RESPONSAVEL", "EQUIPE"]),
+});
+export type PapelDaPessoaPortalInput = z.infer<typeof papelDaPessoaPortalSchema>;
+
+/** Revogar, devolver acesso ou reenviar convite — todas identificam só a pessoa. */
+export const pessoaPortalSchema = z.object({ pessoaId: z.string().min(1) });
+export type PessoaPortalInput = z.infer<typeof pessoaPortalSchema>;

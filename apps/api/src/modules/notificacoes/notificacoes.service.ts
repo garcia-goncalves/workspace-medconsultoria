@@ -1,5 +1,5 @@
 import { prisma } from "@app/db";
-import { EMAIL_TIPOS, EMAIL_CATEGORIAS, hasRoleLevel, type Role } from "@app/shared";
+import { EMAIL_CATEGORIAS, decidirEmailOperacional, hasRoleLevel, type Role } from "@app/shared";
 import { enviarEmail } from "../../lib/email.js";
 import { renderTemplate } from "../emails/emails.service.js";
 import type { EmailTemplateChave } from "../emails/emails.registry.js";
@@ -87,7 +87,7 @@ export async function notificar(
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { nome: true, email: true, ativo: true, deletedAt: true },
+    select: { nome: true, email: true, ativo: true, deletedAt: true, role: true },
   });
   if (!user) return;
 
@@ -106,36 +106,53 @@ export async function notificar(
   });
   notificationService.emitToUser(userId, "notificacao", notif);
 
-  // E-mail (respeitando categoria emailável + preferência + conta válida).
-  const podeEmail =
-    EMAIL_TIPOS.includes(tipo) &&
-    user.ativo &&
-    !user.deletedAt &&
-    !!user.email &&
-    !user.email.startsWith("deleted+");
+  // E-mail: a decisão inteira mora em `decidirEmailOperacional` (@app/shared), a MESMA
+  // régua que a tela de preferências usa para mostrar o estado. Duas cópias divergiriam
+  // e a tela passaria a mentir sobre o que está sendo enviado.
+  const pref = await prisma.preferenciaEmail.findUnique({
+    where: { userId_tipo: { userId, tipo } },
+    select: { ativo: true },
+  });
+  const podeEmail = decidirEmailOperacional({
+    tipo,
+    role: user.role,
+    email: user.email,
+    ativo: user.ativo,
+    excluido: !!user.deletedAt,
+    preferencia: pref ? pref.ativo : null,
+    emailDoSistema: config.ROOT_PROTEGIDO_EMAIL,
+  });
   if (podeEmail) {
-    const pref = await prisma.preferenciaEmail.findUnique({
-      where: { userId_tipo: { userId, tipo } },
-      select: { ativo: true },
-    });
-    if (!pref || pref.ativo) {
-      const para = user.email!;
-      void enviarEmail({ para, assunto: render.assunto, html: render.html, texto: render.texto })
-        .then(({ enviado, erro }) => registrarEmailEnviado(para, render.assunto, render.texto ?? "", tipo, enviado, erro))
-        .catch(() => {});
-    }
+    const para = user.email!;
+    void enviarEmail({ para, assunto: render.assunto, html: render.html, texto: render.texto })
+      .then(({ enviado, erro }) => registrarEmailEnviado(para, render.assunto, render.texto ?? "", tipo, enviado, erro))
+      .catch(() => {});
   }
 }
 
 /** Lista as categorias de e-mail com o estado (ativo) para o usuário. */
 export async function listarPreferenciasEmail(userId: string, role: Role) {
-  const rows = await prisma.preferenciaEmail.findMany({ where: { userId }, select: { tipo: true, ativo: true } });
+  const [rows, user] = await Promise.all([
+    prisma.preferenciaEmail.findMany({ where: { userId }, select: { tipo: true, ativo: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { email: true, ativo: true, deletedAt: true } }),
+  ]);
   const map = new Map(rows.map((r) => [r.tipo, r.ativo]));
   return EMAIL_CATEGORIAS.filter((c) => !c.minRole || hasRoleLevel(role, c.minRole)).map((c) => ({
     tipo: c.tipo,
     label: c.label,
     descricao: c.descricao,
-    ativo: map.get(c.tipo) ?? true,
+    grupo: c.grupo,
+    // Mesma régua do envio: a tela mostra o que REALMENTE vai acontecer, inclusive quando
+    // o padrão da categoria nasce desligado para este papel.
+    ativo: decidirEmailOperacional({
+      tipo: c.tipo,
+      role,
+      email: user?.email ?? null,
+      ativo: user?.ativo ?? false,
+      excluido: !!user?.deletedAt,
+      preferencia: map.has(c.tipo) ? map.get(c.tipo)! : null,
+      emailDoSistema: config.ROOT_PROTEGIDO_EMAIL,
+    }),
   }));
 }
 

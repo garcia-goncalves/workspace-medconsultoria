@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import { prisma } from "@app/db";
 import { decifrar } from "../../lib/cripto-caixa.js";
+import { erroPrecisaReconectar } from "./erros-de-caixa.js";
 
 /**
  * Abre uma conexão SMTP para a caixa, roda `fn` e fecha SEMPRE. Conexão curta pela mesma razão
@@ -18,7 +19,9 @@ export async function comSmtp<T>(caixaId: string, fn: (t: Transporter) => Promis
   });
   if (!caixa) throw new Error("Caixa não encontrada.");
   if (caixa.estado === "AUTENTICACAO_FALHOU") {
-    throw new Error("Esta caixa precisa ser reconectada: a senha guardada foi recusada pelo servidor.");
+    throw erroPrecisaReconectar(
+      "Esta caixa precisa ser reconectada: a senha guardada foi recusada pelo servidor.",
+    );
   }
 
   // Mesmo tratamento do `comCaixa`: segredo que não abre é problema de chave, e o remédio é
@@ -31,7 +34,7 @@ export async function comSmtp<T>(caixaId: string, fn: (t: Transporter) => Promis
       where: { id: caixa.id },
       data: { estado: "AUTENTICACAO_FALHOU", ultimoErro: (e as Error).message.slice(0, 500) },
     });
-    throw e;
+    throw erroPrecisaReconectar((e as Error).message);
   }
 
   const transporte = nodemailer.createTransport({

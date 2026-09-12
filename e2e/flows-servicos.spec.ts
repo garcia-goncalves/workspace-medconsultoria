@@ -16,7 +16,8 @@ test.describe("Bloco 7 — Serviços (ADMIN autoria)", () => {
 
     // 1. Novo serviço
     await page.goto("/servicos");
-    await page.getByRole("button", { name: "Novo serviço" }).click();
+    // Ha dois: o do cabecalho e o do estado vazio. O do cabecalho vem primeiro.
+    await page.getByRole("button", { name: "Novo serviço" }).first().click();
     const nc = page.getByRole("dialog", { name: "Novo serviço" });
     await nc.locator("#s-nome").fill(NOME);
     await nc.getByRole("button", { name: "Criar serviço" }).click();
@@ -29,7 +30,8 @@ test.describe("Bloco 7 — Serviços (ADMIN autoria)", () => {
     await expect(cfg).toBeVisible();
 
     // 3. Aba "O cliente envia" → adicionar uma exigência
-    await cfg.getByRole("button", { name: "O cliente envia" }).click();
+    // As secoes do "Configurar" viraram ABAS (`role="tab"`).
+    await cfg.getByRole("tab", { name: "O cliente envia" }).click();
     await cfg.getByPlaceholder(/Documento pedido/i).fill(EXIGENCIA);
     await cfg.getByRole("button", { name: "Adicionar" }).click();
     await expect(cfg.getByText(EXIGENCIA)).toBeVisible();
@@ -44,7 +46,7 @@ test.describe("Bloco 7 — Serviços (ADMIN autoria)", () => {
     const card2 = page.locator("div").filter({ hasText: NOME }).filter({ has: page.getByRole("button", { name: "Configurar" }) }).last();
     await card2.getByRole("button", { name: "Configurar" }).click();
     const cfg2 = page.getByRole("dialog", { name: new RegExp(`Configurar.*${RUN}`) });
-    await cfg2.getByRole("button", { name: "O cliente envia" }).click();
+    await cfg2.getByRole("tab", { name: "O cliente envia" }).click();
     await expect(cfg2.getByText(EXIGENCIA)).toBeVisible();
   });
 
@@ -55,7 +57,7 @@ test.describe("Bloco 7 — Serviços (ADMIN autoria)", () => {
 
     // Cria o serviço e abre "Configurar" (abre na aba Detalhes)
     await page.goto("/servicos");
-    await page.getByRole("button", { name: "Novo serviço" }).click();
+    await page.getByRole("button", { name: "Novo serviço" }).first().click();
     const nc = page.getByRole("dialog", { name: "Novo serviço" });
     await nc.locator("#s-nome").fill(NOME);
     await nc.getByRole("button", { name: "Criar serviço" }).click();
@@ -75,7 +77,7 @@ test.describe("Bloco 7 — Serviços (ADMIN autoria)", () => {
     await expect(salvar).toBeEnabled();
 
     // Trocar de aba com edição pendente → PEDE confirmação; "Continuar editando" mantém tudo
-    await cfg.getByRole("button", { name: "Para vender" }).click();
+    await cfg.getByRole("tab", { name: "Para vender" }).click();
     const aviso = page.getByRole("dialog", { name: "Descartar alterações?" });
     await expect(aviso).toBeVisible();
     await aviso.getByRole("button", { name: "Continuar editando" }).click();
@@ -88,7 +90,7 @@ test.describe("Bloco 7 — Serviços (ADMIN autoria)", () => {
     await expect(salvar).toBeDisabled();
 
     // Agora sem pendência: trocar de aba NÃO pede confirmação
-    await cfg.getByRole("button", { name: "Para vender" }).click();
+    await cfg.getByRole("tab", { name: "Para vender" }).click();
     await expect(page.getByRole("dialog", { name: "Descartar alterações?" })).toHaveCount(0);
   });
 });

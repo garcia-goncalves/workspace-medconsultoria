@@ -235,14 +235,14 @@ Além do polimento acima, o produto ganhou blocos inteiros depois do MVP. Todos 
 
 ## Conciliação — Fase 1 ✅ (2026-09)
 
-Spec: `docs/superpowers/specs/2026-09-11-conciliacao-producao-design.md` (ADR-125). Nasce da
+Spec: `docs/superpowers/specs/2026-09-11-conciliacao-producao-design.md` (ADR-153). Nasce da
 reunião de 11/09/2026: hoje o faturamento do cliente é manual, e ninguém responde _"deveria ter
 recebido 18 mil, recebeu 800"_.
 
 **Entregue e verificado na tela:**
 
 - [x] Leitor de planilha próprio — **CSV, XLSX e tabela HTML disfarçada de `.xls`**, detectados
-      pelo conteúdo. Zero dependência nova (o `exceljs` não pôde ser publicado — ADR-125).
+      pelo conteúdo. Zero dependência nova (o `exceljs` não pôde ser publicado — ADR-153).
 - [x] Cifra do dado do paciente (`PACIENTE_CRYPTO_KEY`) + HMAC para casar CPF entre relatórios.
 - [x] `ProducaoLote`, `ProducaoConsulta`, `MapeamentoConvenio`, `MapeamentoProfissional`
       (migração `20260911182904_conciliacao_producao`).

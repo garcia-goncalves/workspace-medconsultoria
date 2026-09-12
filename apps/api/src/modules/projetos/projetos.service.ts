@@ -48,9 +48,11 @@ export async function getProjeto(id: string) {
 export async function setParticipantes(projetoId: string, userIds: string[], atorId: string) {
   const projeto = await prisma.projeto.findFirst({
     where: { id: projetoId, deletedAt: null },
-    select: { id: true, nome: true },
+    select: { id: true, nome: true, cliente: { select: { nome: true } } },
   });
   if (!projeto) throw new TRPCError({ code: "NOT_FOUND", message: "Projeto não encontrado" });
+  // O nome do projeto é só o do serviço; sem o cliente junto, o aviso não diz de quem é.
+  const projetoNoAviso = projeto.cliente?.nome ? `${projeto.nome} (${projeto.cliente.nome})` : projeto.nome;
 
   const atuais = await prisma.projetoParticipante.findMany({
     where: { projetoId },
@@ -74,7 +76,7 @@ export async function setParticipantes(projetoId: string, userIds: string[], ato
     await notificar(
       userId,
       "projeto_participante",
-      { projeto: projeto.nome },
+      { projeto: projetoNoAviso },
       { entidadeTipo: "projeto", entidadeId: projetoId },
     );
   }
@@ -269,14 +271,16 @@ async function criarCardsDoServico(projetoId: string, servicoId: string, servico
  * cartões no projeto). Cria o projeto se não houver; reabre se estava concluído. Best-effort.
  */
 export async function garantirCardDoServicoContratado(clienteId: string, servicoId: string, servicoNome: string, atorId?: string | null): Promise<string> {
-  // Um projeto POR SERVIÇO (ADR-38): "<Serviço> — <Cliente>". Se já existe, não recria.
+  // Um projeto POR SERVIÇO (ADR-38). O nome é SÓ o do serviço: toda tela que lista projeto
+  // já mostra o cliente ao lado (lista, tabela e cabeçalho da ficha), e colar o nome aqui
+  // fazia ele aparecer até 3x na mesma linha — ilegível com nome real, comprido.
   const existente = await prisma.projeto.findFirst({ where: { clienteId, servicoId, deletedAt: null }, select: { id: true } });
   if (existente) return existente.id;
 
   const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { nome: true, responsavelId: true } });
   const responsavelId = cliente?.responsavelId ?? atorId ?? null;
   const projeto = await prisma.projeto.create({
-    data: { clienteId, servicoId, nome: `${servicoNome} — ${cliente?.nome ?? "Cliente"}`, responsavelId },
+    data: { clienteId, servicoId, nome: servicoNome, responsavelId },
     select: { id: true },
   });
   await prisma.activityLog.create({ data: { userId: atorId ?? null, acao: "projeto.criado", entidadeTipo: "projeto", entidadeId: projeto.id } });

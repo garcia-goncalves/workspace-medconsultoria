@@ -4,6 +4,8 @@ import { trpc } from "../../lib/trpc";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { UploadArquivo, ArquivoLink } from "../../components/ui/upload-arquivo";
+import { recarregarAposEnvio } from "../../lib/recarregar-apos-envio";
+import { usePodeNoPortal } from "./permissoes";
 
 type Vaga = {
   lado: "FRENTE" | "VERSO" | null;
@@ -33,9 +35,17 @@ type Requisito = {
 export function PortalCredenciamento() {
   const utils = trpc.useUtils();
   const confirm = useConfirm();
+  // Achado da auditoria de 04/09/2026: os botões de Enviar/Remover eram os únicos do Portal que
+  // nunca consultavam a trava de papel — em sessão de suporte (ADR-128), o servidor recusa (403,
+  // já provado antes desta correção), mas a pessoa só descobria DEPOIS de escolher o arquivo e
+  // esperar o upload. Reaproveita "removerArquivo" (já liberada para EQUIPE) para as duas ações:
+  // enviar e remover documento do credenciamento são a mesma capacidade de gestão de arquivo.
+  const podeAgir = usePodeNoPortal()("removerArquivo");
   const q = trpc.portal.credenciamento.useQuery();
   const invalidate = () => {
-    utils.portal.credenciamento.invalidate();
+    // `q` é a papelada do credenciamento que ESTA tela desenha: recarregamento duplo, não
+    // `invalidate`. Ver `recarregarAposEnvio`.
+    recarregarAposEnvio(q);
     utils.portal.meusServicos.invalidate();
     utils.portal.arquivos.invalidate();
   };
@@ -57,39 +67,52 @@ export function PortalCredenciamento() {
   };
 
   const linhaDaVaga = (r: Requisito, v: Vaga, i: number) => (
-    <div key={`${r.id}-${v.profissionalId ?? ""}-${v.lado ?? i}`} className="flex items-center gap-2 py-0.5">
+    // `flex-wrap` a 360px: sem ele, a etiqueta do lado mais o nome do arquivo mais o botão
+    // estouram a largura e a linha rola para fora da tela.
+    <div key={`${r.id}-${v.profissionalId ?? ""}-${v.lado ?? i}`} className="flex flex-wrap items-center gap-2 py-1">
       {v.arquivo ? (
         <Check className="h-3.5 w-3.5 shrink-0 text-success" />
       ) : (
         <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
       )}
+      {/* Frente e verso são DUAS vagas separadas, cada uma com o próprio botão — a etiqueta
+          precisa ficar colada na vaga a que pertence, senão o cliente manda o mesmo lado duas
+          vezes e a barra de progresso não anda. */}
       {v.lado && (
-        <span className="w-12 shrink-0 text-[11px] font-semibold uppercase text-muted-foreground">
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {LADO_ARQUIVO_LABEL[v.lado]}
         </span>
       )}
       {v.arquivo ? (
         <>
-          <ArquivoLink id={v.arquivo.id} nome={v.arquivo.nome} className="max-w-[200px]" />
-          <button
-            onClick={() => v.arquivo && onRemover(v.arquivo.id, v.arquivo.nome)}
-            title="Remover"
-            className="text-muted-foreground/60 hover:text-destructive"
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
+          <ArquivoLink id={v.arquivo.id} nome={v.arquivo.nome} className="flex min-h-11 max-w-[200px] items-center" />
+          {podeAgir.pode ? (
+            <button
+              onClick={() => v.arquivo && onRemover(v.arquivo.id, v.arquivo.nome)}
+              aria-label={`Remover ${v.arquivo.nome}`}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground/60 hover:text-destructive"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <span className="text-xs text-muted-foreground">{podeAgir.frase}</span>
+          )}
         </>
+      ) : podeAgir.pode ? (
+        <div className="[&_button]:min-h-11">
+          <UploadArquivo
+            size="xs"
+            label="Enviar"
+            campos={{
+              requisitoId: r.id,
+              ...(v.profissionalId ? { profissionalId: v.profissionalId } : {}),
+              ...(v.lado ? { lado: v.lado } : {}),
+            }}
+            onDone={invalidate}
+          />
+        </div>
       ) : (
-        <UploadArquivo
-          size="xs"
-          label="Enviar"
-          campos={{
-            requisitoId: r.id,
-            ...(v.profissionalId ? { profissionalId: v.profissionalId } : {}),
-            ...(v.lado ? { lado: v.lado } : {}),
-          }}
-          onDone={invalidate}
-        />
+        <span className="text-xs text-muted-foreground">{podeAgir.frase}</span>
       )}
     </div>
   );
@@ -99,7 +122,7 @@ export function PortalCredenciamento() {
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-sm font-medium text-foreground">{r.titulo}</span>
         {!r.obrigatorio && (
-          <span className="rounded bg-muted px-1 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+          <span className="rounded bg-muted px-1 py-0.5 text-xs font-semibold uppercase text-muted-foreground">
             Se houver
           </span>
         )}

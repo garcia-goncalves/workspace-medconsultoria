@@ -2,8 +2,10 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Pencil, Trash2, UserCheck, KeyRound } from "lucide-react";
 import { cn } from "@app/ui";
-import { formatBRL } from "../../../lib/masks";
+import type { AcessoAoPortal } from "@app/shared";
+import { formatEstimativaDoFunil } from "../../../lib/masks";
 import { Badge } from "../../../components/ui/badge";
+import { AcessoPortalBotao } from "../AcessoPortalBotao";
 
 export interface LeadItem {
   id: string;
@@ -14,6 +16,14 @@ export interface LeadItem {
   telefone: string | null;
   origem: string | null;
   valorEstimado: number | null;
+  /**
+   * O mesmo valor, separado pelo que ele significa: o que se repete todo mês e o que se cobra
+   * uma vez só (F8). Somar os dois dá um número que não responde nem "por mês" nem "no total";
+   * quem os separa é o servidor, com a régua de `dividirEstimativaDoLead` (`@app/shared`).
+   */
+  estimativa: { mensal: number; avulso: number };
+  /** Base do cálculo quando o negócio é 100% percentual (ADR-125). */
+  faturamentoMensalEstimado: number | null;
   observacoes: string | null;
   pipelineStageId: string;
   ordem: number;
@@ -21,6 +31,8 @@ export interface LeadItem {
   responsavel: { nome: string } | null;
   clienteId: string | null;
   portalAtivo: boolean;
+  /** Os três estados do acesso ao Portal — ver `AcessoPortalBotao` (ADR-128). */
+  portal: AcessoAoPortal;
   servicos: { id: string; nome: string }[];
   updatedAt: Date;
 }
@@ -33,8 +45,9 @@ export function LeadCard({
   onConvert,
   onConvidarPortal,
   converting,
-  convidandoPortal,
   overlay = false,
+  draggable = true,
+  className,
 }: {
   lead: LeadItem;
   onOpen?: () => void;
@@ -45,18 +58,25 @@ export function LeadCard({
   converting?: boolean;
   convidandoPortal?: boolean;
   overlay?: boolean;
+  /** `false` no celular: sem arraste (as colunas lado a lado não cabem a 360px) — o card só abre ao toque, e "Mover para…" substitui o gesto. */
+  draggable?: boolean;
+  className?: string;
 }) {
   // Sem `attributes` do dnd-kit no card: elas adicionam role="button", o que, com botões de ação
   // dentro, viola `nested-interactive` (axe). O arraste continua pelo `listeners` (ponteiro) e o
   // clique do mouse abre; o teclado abre pelo BOTÃO do nome (abaixo).
+  // `useSortable` continua sendo chamado mesmo com `draggable=false` (regra dos hooks) — só não
+  // aplicamos ref/listeners/estilo de arraste nesse caso, mesmo padrão do `KanbanCard` de Projetos.
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: lead.id,
+    disabled: !draggable || overlay,
   });
 
+  const ativo = draggable && !overlay;
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.4 : 1,
+    opacity: ativo && isDragging ? 0.4 : 1,
   };
 
   const dias = Math.max(0, Math.floor((Date.now() - new Date(lead.updatedAt).getTime()) / 86400000));
@@ -65,21 +85,22 @@ export function LeadCard({
 
   // O card inteiro é a "alça" de arrastar (exceto os botões de ação, que param a
   // propagação do pointerdown). A restrição de distância (6px) evita disparar no clique.
-  const dragProps = overlay ? {} : { ...listeners };
+  const dragProps = ativo ? { ...listeners } : {};
 
   return (
     <div
-      ref={overlay ? undefined : setNodeRef}
-      style={overlay ? undefined : style}
+      ref={ativo ? setNodeRef : undefined}
+      style={ativo ? style : undefined}
       {...dragProps}
       onClick={overlay ? undefined : onOpen}
       className={cn(
-        "touch-none rounded-md border bg-card p-3 shadow-sm transition-shadow hover:shadow-md",
-        !overlay && "cursor-grab active:cursor-grabbing hover:border-primary/40",
+        "overflow-hidden rounded-md border bg-card p-3 shadow-sm transition-shadow hover:shadow-md",
+        ativo && "touch-none cursor-grab active:cursor-grabbing hover:border-primary/40",
+        className,
       )}
     >
       <div className="flex items-start gap-2">
-        {!overlay && <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40" aria-hidden />}
+        {ativo && <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40" aria-hidden />}
         <div className="min-w-0 flex-1">
           <button
             type="button"
@@ -107,8 +128,13 @@ export function LeadCard({
             </div>
           )}
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {lead.valorEstimado != null && (
-              <Badge variant="success">{formatBRL(lead.valorEstimado)}</Badge>
+            {/* Achado da auditoria de 04/09/2026: este badge usava lead.valorEstimado (só
+                preenchido a mão na Qualificação), enquanto o TOTAL da coluna (LeadsPipelinePage)
+                soma lead.estimativa (preço real do catálogo dos serviços vinculados) — o total
+                mostrava dinheiro que nenhum card individual explicava. Agora os dois usam a
+                MESMA fonte e a MESMA formatação (formatEstimativaDoFunil). */}
+            {(lead.estimativa.mensal > 0 || lead.estimativa.avulso > 0) && (
+              <Badge variant="success">{formatEstimativaDoFunil(lead.estimativa)}</Badge>
             )}
             {lead.origem && <Badge>{lead.origem}</Badge>}
             {lead.portalAtivo && (
@@ -143,7 +169,11 @@ export function LeadCard({
 
       {!overlay && (
         <div
-          className="mt-2 flex items-center gap-1 border-t pt-2"
+          // Achado da auditoria: sem `flex-wrap` este conjunto (Converter + AcessoPortalBotao +
+          // Editar/Remover) não cabe em coluna estreita de Kanban nem no card mobile — mesma
+          // composição de botões que `LeadDetailPanel.tsx` já resolve com `flex-wrap` (ali com
+          // mais espaço, aqui com `gap` menor pelo card ser mais apertado).
+          className="mt-2 flex flex-wrap items-center gap-1 border-t pt-2"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
@@ -156,26 +186,28 @@ export function LeadCard({
             <UserCheck className="h-3.5 w-3.5" />
             Converter
           </button>
-          <button
-            onClick={onConvidarPortal}
-            disabled={convidandoPortal}
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
-            title={lead.portalAtivo ? "Reenviar acesso ao Portal do Cliente" : "Enviar acesso ao Portal do Cliente"}
-          >
-            <KeyRound className="h-3.5 w-3.5" />
-            {lead.portalAtivo ? "Reenviar acesso" : "Enviar acesso"}
-          </button>
+          {/* Três estados do acesso ao Portal (ADR-128): enviar · reenviar (dizendo há quantos
+              dias o convite está parado) · Painel, quando o cliente já entrou. */}
+          <AcessoPortalBotao
+            portal={lead.portal}
+            clienteId={lead.clienteId ?? null}
+            temEmail={!!lead.email}
+            onEnviarAcesso={() => onConvidarPortal?.()}
+            className="px-2 py-1"
+          />
           <div className="ml-auto flex items-center gap-1">
             <button
               onClick={onEdit}
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label={`Editar "${lead.nome}"`}
+              className="flex min-h-11 min-w-11 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               title="Editar"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={onRemove}
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              aria-label={`Remover "${lead.nome}"`}
+              className="flex min-h-11 min-w-11 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
               title="Remover"
             >
               <Trash2 className="h-3.5 w-3.5" />

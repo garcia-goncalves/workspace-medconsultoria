@@ -69,6 +69,27 @@ export const EMAIL_TEMPLATES = {
       ctaTexto: "Acessar o workspace",
     },
   },
+  /**
+   * A mesma ativação de acesso, escrita para quem é CLIENTE. Nasceu porque `aceitarConvite`
+   * mandava o texto acima para todo mundo — e o médico do Portal lia "Bem-vindo ao Workspace",
+   * com a promessa de gerenciar clientes e finanças e um botão para o sistema interno da Med.
+   * Quem escolhe entre os dois é `templateDeBoasVindas`, e o padrão dela é ESTE.
+   */
+  boas_vindas_portal: {
+    label: "Boas-vindas ao Portal (cliente)",
+    descricao: "Enviado ao cliente logo após ele ativar o acesso ao Portal do Cliente.",
+    grupo: "Transacionais",
+    notificacao: false,
+    variaveis: [{ chave: "nome", rotulo: "Nome da pessoa", descricao: "Nome de quem recebe", exemplo: "Maria Silva" }],
+    temCta: true,
+    default: {
+      assunto: "Bem-vindo ao Portal do Cliente — MedConsultoria",
+      titulo: "Acesso ativado — boas-vindas! 🎉",
+      corpo:
+        "Seu acesso ao Portal do Cliente da MedConsultoria foi ativado com sucesso.\n\nNo Portal você acompanha o andamento dos seus serviços, envia os documentos que pedimos, vê propostas e contratos e fala direto com a nossa equipe.",
+      ctaTexto: "Entrar no Portal",
+    },
+  },
   reset_senha: {
     label: "Redefinição de senha",
     descricao: "Enviado quando alguém pede para redefinir a senha (Esqueci minha senha).",
@@ -80,10 +101,14 @@ export const EMAIL_TEMPLATES = {
     ],
     temCta: true,
     default: {
-      assunto: "Redefinição de senha — Workspace MedConsultoria",
+      // Texto NEUTRO de propósito: `solicitarReset` procura o e-mail sem filtrar papel, e o
+      // cliente do Portal também é `User`. Dizer "Workspace" aqui é dar a um médico o nome de um
+      // sistema que ele nunca viu, num e-mail de segurança — o jeito mais rápido de a mensagem
+      // ser lida como golpe e ignorada.
+      assunto: "Redefinição de senha — MedConsultoria",
       titulo: "Redefinição de senha",
       corpo:
-        "Recebemos um pedido para redefinir a senha da sua conta no Workspace MedConsultoria.\n\nPara criar uma nova senha, clique no botão abaixo:",
+        "Recebemos um pedido para redefinir a senha da sua conta na MedConsultoria.\n\nPara criar uma nova senha, clique no botão abaixo:",
       ctaTexto: "Redefinir minha senha",
       nota: "Este link expira em 1 hora e só pode ser usado uma vez. Se não foi você quem pediu, ignore este e-mail — sua senha atual continua válida.",
     },
@@ -314,6 +339,23 @@ export const EMAIL_TEMPLATES = {
       ctaTexto: "Ver tarefa",
     },
   },
+  tarefa_prazo_alterado: {
+    label: "Prazo de tarefa alterado",
+    descricao: "Quando o prazo de uma tarefa delegada a você muda.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "tarefa", rotulo: "Tarefa", descricao: "O que precisa ser feito", exemplo: "Ligar para o contador da clínica" },
+      { chave: "prazo", rotulo: "Novo prazo", descricao: "A nova data combinada", exemplo: "30/09/2026" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "O prazo de uma tarefa sua mudou",
+      titulo: "Prazo alterado: {{tarefa}}",
+      corpo: "O prazo da tarefa \"{{tarefa}}\" foi alterado. Novo prazo: {{prazo}}.",
+      ctaTexto: "Ver tarefa",
+    },
+  },
   tarefa_concluida: {
     label: "Tarefa que você pediu foi concluída",
     descricao: "Quando o responsável conclui uma tarefa que você havia delegado.",
@@ -450,6 +492,26 @@ export const EMAIL_TEMPLATES = {
       assunto: "Documento aguardando revisão",
       titulo: "Documento aguardando revisão",
       corpo: "O documento \"{{documento}}\" está aguardando sua revisão.",
+      ctaTexto: "Ver documento",
+    },
+  },
+  /**
+   * M18: nasceu porque `assinar()` reaproveitava `documento_revisao` quando a ÚLTIMA
+   * assinatura entrava — e o corpo dele diz "está aguardando sua revisão", que é o oposto do
+   * que aconteceu. Vai para quem criou o documento (o mesmo destinatário de `documento_revisao`),
+   * sempre gente da equipe — não há vocabulário de "Workspace" a evitar aqui, é aviso interno.
+   */
+  documento_assinado: {
+    label: "Documento assinado por todos",
+    descricao: "Quando a última assinatura de um documento entra e ele fica totalmente assinado. Vai para quem criou o documento.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [{ chave: "documento", rotulo: "Nome do documento", descricao: "Título do documento", exemplo: "Contrato de prestação de serviços" }],
+    temCta: true,
+    default: {
+      assunto: "Documento assinado por todos",
+      titulo: "Documento assinado por todos",
+      corpo: "O documento \"{{documento}}\" foi assinado por todos os signatários e está concluído.",
       ctaTexto: "Ver documento",
     },
   },
@@ -627,6 +689,28 @@ export const EMAIL_TEMPLATES = {
       corpo:
         "Ativamos o serviço \"{{servico}}\" para você! Para darmos andamento, acesse o Portal do Cliente e veja se há documentos ou informações que precisamos de você.",
       ctaTexto: "Acessar o Portal",
+    },
+  },
+
+  suporte_resposta: {
+    label: "Resposta da equipe no seu chamado (aviso ao cliente)",
+    descricao:
+      "Enviado ao cliente quando alguém da MedConsultoria responde um chamado do Portal. É a volta do canal de suporte — sem ele o cliente só descobre a resposta se voltar ao Portal por conta própria.",
+    grupo: "Transacionais",
+    notificacao: false,
+    variaveis: [
+      { chave: "nome", rotulo: "Nome de quem recebe", descricao: "Pessoa da clínica", exemplo: "Dra. Helena" },
+      { chave: "assunto", rotulo: "Assunto do chamado", descricao: "Assunto do chamado respondido", exemplo: "Envio dos documentos" },
+      { chave: "mensagem", rotulo: "Trecho da resposta", descricao: "Início da resposta da equipe", exemplo: "Já separamos a lista para você." },
+      { chave: "link", rotulo: "Link do Portal", descricao: "Portal do Cliente", exemplo: "(link do Portal)" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "Respondemos o seu chamado: {{assunto}}",
+      titulo: "Temos uma resposta para você",
+      corpo:
+        'Respondemos o seu chamado "{{assunto}}" no Portal do Cliente:\n\n"{{mensagem}}"\n\nAbra o Portal para ler tudo e continuar a conversa por lá.',
+      ctaTexto: "Abrir o Portal",
     },
   },
 

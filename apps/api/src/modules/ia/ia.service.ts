@@ -23,7 +23,7 @@ export function perguntar(pergunta: string): Promise<string> {
 // ── Sugestões de IA (a IA propõe; o usuário aprova) ──────────────
 
 function exigirIA() {
-  if (!isAiEnabled) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "IA não configurada (OPENAI_API_KEY)." });
+  if (!isAiEnabled) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "IA não configurada (GEMINI_API_KEY)." });
 }
 
 const SYSTEM_SUGESTAO =
@@ -31,13 +31,39 @@ const SYSTEM_SUGESTAO =
 
 const dataBR = () => new Date().toLocaleDateString("pt-BR");
 
-/** Extrai o primeiro array/objeto JSON de um texto (tolerante a cercas/markdown). */
+/**
+ * Extrai o primeiro array/objeto JSON de um texto (tolerante a cercas/markdown).
+ *
+ * ⚠️ **LANÇA quando o texto não é JSON** — e quem chama tem de decidir o que fazer com isso.
+ * A resposta vem de um modelo de linguagem: nada garante o formato, e uma frase de explicação
+ * antes do array já basta para o recorte por `indexOf`/`lastIndexOf` sair torto. Deixar o
+ * `SyntaxError` subir cru pelo tRPC é o defeito da ADR-135 de novo: vira
+ * `INTERNAL_SERVER_ERROR`, entope `SISTEMA → Erros` com um estado ESPERADO e ainda entrega a
+ * mensagem técnica do parser para quem está na tela.
+ *
+ * Use `extrairJsonOu`, abaixo, sempre que houver um resultado neutro possível.
+ */
 function extrairJson<T>(texto: string): T {
   const limpo = texto.replace(/```json/gi, "").replace(/```/g, "").trim();
   const ini = Math.min(...["[", "{"].map((c) => (limpo.indexOf(c) < 0 ? Infinity : limpo.indexOf(c))));
   const fim = Math.max(limpo.lastIndexOf("]"), limpo.lastIndexOf("}"));
   const slice = ini !== Infinity && fim >= 0 ? limpo.slice(ini, fim + 1) : limpo;
   return JSON.parse(slice) as T;
+}
+
+/**
+ * O mesmo, com rede: devolve `alternativa` quando a IA não respondeu JSON.
+ *
+ * Sugestão é ajuda, não contrato — a tela pede "sugira as exigências deste serviço" e a pessoa
+ * aceita ou digita as dela. Uma lista vazia é um resultado ruim; um erro vermelho por causa de
+ * uma vírgula do modelo é pior, e mente sobre a saúde do sistema.
+ */
+function extrairJsonOu<T>(texto: string, alternativa: T): T {
+  try {
+    return extrairJson<T>(texto);
+  } catch {
+    return alternativa;
+  }
 }
 
 /** "Plano do dia": o que a pessoa deve fazer hoje, a partir das suas pendências reais. */
@@ -170,7 +196,7 @@ export async function sugerirRequisitos(servicoId: string): Promise<{ titulo: st
 Liste de 3 a 6 DOCUMENTOS ou INFORMAÇÕES que o cliente precisa enviar para executarmos esse serviço.
 Responda APENAS um array JSON: [{"titulo":"...","descricao":"breve explicação para o cliente","obrigatorio":true}].`;
   const txt = await aiService.gerarRascunho(SYSTEM_SUGESTAO, user);
-  const arr = extrairJson<{ titulo: string; descricao?: string; obrigatorio?: boolean }[]>(txt);
+  const arr = extrairJsonOu<{ titulo: string; descricao?: string; obrigatorio?: boolean }[]>(txt, []);
   return Array.isArray(arr) ? arr.filter((x) => x?.titulo).slice(0, 8) : [];
 }
 
@@ -182,7 +208,7 @@ De 4 a 8 perguntas. Cada item: "rotulo" (a pergunta), "tipo" (um de: TEXTO_CURTO
 Responda APENAS o array JSON.`;
   const txt = await aiService.gerarRascunho(SYSTEM_SUGESTAO, user);
   const tipos = ["TEXTO_CURTO", "TEXTO_LONGO", "ESCOLHA", "MULTIPLA", "NUMERO", "SIM_NAO", "DATA"];
-  const arr = extrairJson<{ rotulo: string; tipo: string; obrigatorio?: boolean; opcoes?: string[] }[]>(txt);
+  const arr = extrairJsonOu<{ rotulo: string; tipo: string; obrigatorio?: boolean; opcoes?: string[] }[]>(txt, []);
   return (Array.isArray(arr) ? arr : [])
     .filter((c) => c?.rotulo)
     .map((c) => ({
@@ -199,7 +225,7 @@ export async function resumirCliente(clienteId: string): Promise<string> {
   exigirIA();
   const cliente = await prisma.cliente.findUnique({
     where: { id: clienteId },
-    select: { nome: true, situacaoComercial: true, observacoes: true, createdAt: true },
+    select: { nome: true, situacaoComercial: true, createdAt: true },
   });
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
   const [servicos, projetos, proxReuniao, oportunidades] = await Promise.all([
@@ -217,7 +243,8 @@ export async function resumirCliente(clienteId: string): Promise<string> {
     oportunidades.length
       ? `Oportunidades abertas no funil (quer mais): ${oportunidades.flatMap((o) => o.servicos.map((s) => s.nome)).join(", ") || "sem serviços definidos"}.`
       : "Sem oportunidade aberta no funil.",
-    cliente.observacoes ? `Observações: ${cliente.observacoes}` : "",
+    // `observacoes` NÃO vai para a IA (ADR-141): é texto livre onde a migração de 19/08
+    // guardou o CPF de quem era pessoa física, e onde cai o que o público digita no site.
   ].filter(Boolean).join("\n");
 
   const user = `Data de hoje: ${dataBR()}.
@@ -244,7 +271,6 @@ export async function sugerirProximoPassoLead(leadId: string): Promise<string> {
     `Serviços de interesse: ${lead.servicos.map((s) => s.nome).join(", ") || "não definidos"}.`,
     lead.valorEstimado ? `Valor estimado: R$ ${emReaisOu(lead.valorEstimado).toLocaleString("pt-BR")}.` : "Sem valor estimado.",
     lead.passos.length ? `Passos pendentes: ${lead.passos.map((p) => p.titulo).join("; ")}.` : "Sem passos pendentes registrados.",
-    lead.observacoes ? `Observações: ${lead.observacoes}` : "",
   ].filter(Boolean).join("\n");
   const user = `Data de hoje: ${dataBR()}.
 Sugira o PRÓXIMO PASSO mais eficaz para avançar este lead no funil (1-3 ações concretas e objetivas, em tópicos). Não invente dados.

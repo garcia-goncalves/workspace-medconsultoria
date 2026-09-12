@@ -38,7 +38,7 @@ for (const vp of VIEWPORTS) {
     await expect(d).toHaveCount(0);
     // aparece na lista
     await page.getByPlaceholder(/Buscar por nome/i).fill(RUN);
-    await expect(page.getByRole("button", { name: new RegExp(`Lead ${RUN}`) })).toBeVisible();
+    await expect(page.getByRole("button", { name: `Lead ${RUN}`, exact: true })).toBeVisible();
 
     // 3. Ação financeira CONCLUÍDA: criar conta → marcar paga → excluir
     await page.goto("/financeiro");
@@ -53,18 +53,21 @@ for (const vp of VIEWPORTS) {
     await expect(c).toHaveCount(0);
     await page.getByRole("button", { name: "Tudo" }).click();
     await page.getByRole("button", { name: "A pagar", exact: true }).first().click();
-    const linha = page.getByRole("row").filter({ hasText: `Conta ${RUN}` });
+    // `[data-linha]:visible` em vez de `role="row"`: abaixo de `md` a lista vira CARTÃO (sem
+    // tabela), e as DUAS formas ficam no DOM — quem escolhe é o CSS, então o teste precisa
+    // olhar só a que está na tela.
+    const linha = page.locator("[data-linha]:visible").filter({ hasText: `Conta ${RUN}` });
     await expect(linha).toBeVisible();
-    await linha.getByTitle("Marcar como paga").click();
+    await linha.getByRole("button", { name: "Marcar como paga" }).click();
     // excluir (limpeza)
     await page.getByRole("button", { name: "Todas", exact: true }).click();
-    await page.getByRole("row").filter({ hasText: `Conta ${RUN}` }).getByTitle("Remover").click();
+    await page.locator("[data-linha]:visible").filter({ hasText: `Conta ${RUN}` }).getByRole("button", { name: `Remover conta "Conta ${RUN}"` }).click();
     await page.getByRole("dialog").filter({ hasText: "Remover conta" }).getByRole("button", { name: "Remover" }).click();
 
     // 4. Limpeza do lead criado
     await page.goto("/leads");
     await page.getByPlaceholder(/Buscar por nome/i).fill(RUN);
-    await page.getByRole("button", { name: new RegExp(`Lead ${RUN}`) }).click();
+    await page.getByRole("button", { name: `Lead ${RUN}`, exact: true }).click();
     const painel = page.getByRole("complementary");
     await painel.getByRole("button", { name: "Remover", exact: true }).click();
     await page.getByRole("dialog").filter({ hasText: /Remover|Excluir/ }).getByRole("button", { name: /Remover|Excluir/ }).click();
@@ -91,7 +94,8 @@ for (const vp of VIEWPORTS) {
     await expect(nc).toHaveCount(0);
 
     // Abre o painel do cartão (modal cabe) e conclui checklist + comentário
-    await page.getByRole("button", { name: new RegExp(CARD) }).click();
+    // `^`: o botao "Mover \"Cartao X\" para outra coluna" tambem casa o nome do cartao.
+    await page.getByRole("button", { name: new RegExp(`^${CARD}`) }).click();
     const panel = page.getByRole("dialog");
     await expect(panel.getByRole("heading", { name: CARD })).toBeVisible();
     await semOverflow(page);
@@ -105,8 +109,8 @@ for (const vp of VIEWPORTS) {
     await expect(panel.getByText(`Coment ${RUN}`)).toBeVisible();
 
     // Limpeza: remove o cartão
-    await panel.locator('button[title="Remover"]').first().click();
+    await panel.getByRole("button", { name: "Remover cartão" }).click();
     await page.getByRole("dialog").filter({ hasText: "Remover cartão" }).getByRole("button", { name: "Remover" }).click();
-    await expect(page.getByRole("button", { name: new RegExp(CARD) })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: new RegExp(`^${CARD}`) })).toHaveCount(0);
   });
 }
