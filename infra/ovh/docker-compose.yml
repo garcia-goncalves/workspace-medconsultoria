@@ -1,0 +1,72 @@
+# Produção no VPS (ADR-154). Mora em /srv/medconsultoria/docker-compose.yml.
+#
+# O servidor NÃO constrói nada: a imagem vem pronta do GHCR, montada pela CI. Se você se pegar
+# rodando `docker compose build` aqui, parou de valer o motivo da migração.
+#
+# Os três comandos do deploy, nesta ordem e cada um com seu código de saída:
+#   docker compose pull
+#   docker compose run --rm app npm run prisma:deploy
+#   docker compose up -d
+#
+# Encadear com `&&` foi o que, na esteira antiga, fazia o deploy dizer "concluído" com a migration
+# falhada e o app servindo o código anterior. A lição não era da hospedagem — é desta ordem.
+
+services:
+  app:
+    image: ${APP_IMAGE:?defina APP_IMAGE no .env (ghcr.io/owner/repo:tag)}
+    restart: unless-stopped
+    # Tudo vem do .env do servidor, inclusive a DATABASE_URL — ela NÃO é montada aqui de
+    # propósito: string de conexão com senha não entra em arquivo versionado.
+    # ⚠️ Dentro da rede do compose o host do banco é `mysql`, nunca `localhost`.
+    env_file: .env
+    volumes:
+      # Os uploads NÃO podem morar dentro do container: sumiriam na primeira troca de imagem.
+      # O caminho é ABSOLUTO porque o app recusa UPLOADS_DIR relativo em produção.
+      - ./uploads:/dados/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    expose:
+      - "4319"
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    # Mesma collation do docker-compose.yml de desenvolvimento. Divergir aqui é acentuação
+    # quebrada em nome de paciente e ordenação diferente da que os testes provaram.
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?}
+      MYSQL_USER: ${MYSQL_USER:?}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
+    volumes:
+      - mysql_dados:/var/lib/mysql
+      # Os dumps saem daqui e sobem para FORA da máquina. Backup no mesmo VPS não é backup.
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    # O banco não fica exposto na internet: quem fala com ele é a rede interna do compose.
+    expose:
+      - "3306"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_dados:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  mysql_dados:
+  caddy_dados:
+  caddy_config:
