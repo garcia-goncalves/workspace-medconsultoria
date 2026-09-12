@@ -410,8 +410,8 @@ Reaproveita o motor existente (serviços → checklist por etapa → tarefas →
 
 **Decisão:** precificação em dois componentes independentes no `Servico`:
 
-- **Valor fixo** — `valor Float?` + `valorRecorrencia PrecoRecorrencia @default(AVULSO)` (para TODOS os serviços). *(O tipo virou `Decimal(12,2)` na ADR-118.)*
-- **% do faturamento** — `percentual Float?` (ex.: 5 = 5%) *(hoje `Decimal(12,2)` — ADR-118)* + `percentualRecorrencia PrecoRecorrencia @default(MENSAL)`. No **schema** o campo existe para qualquer serviço, mas na **UI a seção de % só aparece quando a categoria é "Faturamento"** (reativo, via `useWatch` da categoria).
+- **Valor fixo** — `valor Float?` + `valorRecorrencia PrecoRecorrencia @default(AVULSO)` (para TODOS os serviços). _(O tipo virou `Decimal(12,2)` na ADR-118.)_
+- **% do faturamento** — `percentual Float?` (ex.: 5 = 5%) _(hoje `Decimal(12,2)` — ADR-118)_ + `percentualRecorrencia PrecoRecorrencia @default(MENSAL)`. No **schema** o campo existe para qualquer serviço, mas na **UI a seção de % só aparece quando a categoria é "Faturamento"** (reativo, via `useWatch` da categoria).
 - Novo enum `PrecoRecorrencia { AVULSO, MENSAL }` (distinto do `Recorrencia` da Agenda). Migração `servico_precificacao`.
 - **Rótulo único** `formatPreco` (em `lib/masks`): monta "R$ 1.800,00/mês", "5% do faturamento/mês" ou "R$ 500,00 + 5% do faturamento/mês" — mostrado no card. Config: componente reutilizável `PrecoFields` (valor fixo com `MoneyInput` + seletor Avulso/Mensal; e, só p/ Faturamento, o % com seletor). Corrigido: limpar o valor grava `null` (permite alternar entre "% puro" e "fixo + %").
 - **Recorrências semeadas** por realidade: Gestão Operacional e os de Marketing recorrentes (redes/conteúdo/tráfego) = **mensal**; projetos (site, identidade, manual, credenciamento, negociação) = **avulso**; **Faturamento = 5% mensal** (sem valor fixo por padrão).
@@ -1466,16 +1466,16 @@ Verificado empiricamente: revertendo a correção, o teste de integração acusa
 Levantados na varredura que gerou as ADR‑100/101/102. Ficaram de fora por serem decisão de produto
 ou obra de escopo médio — nenhum é desconhecido, e nenhum deve ser redescoberto do zero.
 
-| Achado                                                                                                                                                                                                                                                                                                         | Por que não foi feito agora                                                                                                                                                                                                                            |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Achado                                                                                                                                                                                                                                                                                                                                                                                                   | Por que não foi feito agora                                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | ~~**Dinheiro em `Float`**~~ — **RESOLVIDO na ADR-118 (19/08/2026):** os cinco campos viraram `Decimal(12,2)`. Era: `Servico.valor`/`percentual`, `ClienteServico.valor`/`percentual` e `Lead.valorEstimado` em `Float` (só `Conta.valor` era `Decimal`). Eles são somados em JS e o resultado vai para o **texto do contrato** e para a conta a receber: três serviços podem somar `1621.0000000000002`. | Migration de tipo + trocar as somas em `leads.service.ts` e `documentos.service.ts`. Escopo médio, mexe em dinheiro e em documento assinado — merece branch e revisão própria, não pegar carona.                                                       |
-| **Trecho do e-mail na ficha** — qualquer FUNCIONARIO pode pôr um endereço externo no cadastro de um cliente e ler, pela ficha, os 200 caracteres iniciais das mensagens que a equipe trocou com aquele endereço.                                                                                               | O ADR‑97 **escolheu** mostrar o trecho à equipe. Estreitar (ex.: trecho só ADMIN+) é mudança de produto, do dono. Vale junto registrar em `ActivityLog` a troca de `Cliente.email`/`Contato.email` — hoje trocar a chave da consulta não deixa rastro. |
-| **Token de assinatura do cliente visível ao funcionário** (`assinaturas.doDocumento`) — permite assinar em nome do cliente, e a trilha grava o IP de quem assinou como se fosse o dele.                                                                                                                        | É o mesmo token do botão "Abrir link", funcionalidade documentada ("você escolhe se envia por e‑mail ou copia o link daqui"). Restringir muda o fluxo de trabalho e o valor probatório é assunto jurídico — decisão do dono.                           |
-| **Índice de `Notificacao`** — a consulta do sino filtra por `userId` e ordena por `createdAt`, e o índice é `(userId, lida)`: sobra filesort. Roda em polling, para toda sessão aberta.                                                                                                                        | Volume atual é baixo e não há expurgo de notificação antiga. Vale entrar junto da próxima migration, não sozinha.                                                                                                                                      |
-| **`CaixaEmail.assinatura`** — lido no envio, escrito por ninguém: a assinatura por caixa está pela metade desde o ADR‑96.                                                                                                                                                                                      | Precisa de campo na tela de plugar/editar caixa; é funcionalidade nova, não conserto.                                                                                                                                                                  |
-| **`clientes.excluirDefinitivo` e `clientes.arquivarNota`** — existem no back, sem botão.                                                                                                                                                                                                                       | Decidir se viram tela ou saem do código.                                                                                                                                                                                                               |
-| **Suíte `@app/web` intermitente** — uma execução a partir da raiz deu 8/12 arquivos e 4 erros; não reproduziu nas tentativas seguintes (rodando dentro de `apps/web` sempre passou).                                                                                                                           | Precisa de repetição para pegar o padrão. Fica registrado para não ser tratado como novidade quando reaparecer na CI.                                                                                                                                  |
-| **`/avatar/:userId`** serve a foto de qualquer usuário para qualquer sessão, inclusive cliente do Portal.                                                                                                                                                                                                      | Enumeração de fotos da equipe. Risco baixo, mas é fronteira do Portal — vale fechar quando alguém tocar o módulo.                                                                                                                                      |
+| **Trecho do e-mail na ficha** — qualquer FUNCIONARIO pode pôr um endereço externo no cadastro de um cliente e ler, pela ficha, os 200 caracteres iniciais das mensagens que a equipe trocou com aquele endereço.                                                                                                                                                                                         | O ADR‑97 **escolheu** mostrar o trecho à equipe. Estreitar (ex.: trecho só ADMIN+) é mudança de produto, do dono. Vale junto registrar em `ActivityLog` a troca de `Cliente.email`/`Contato.email` — hoje trocar a chave da consulta não deixa rastro. |
+| **Token de assinatura do cliente visível ao funcionário** (`assinaturas.doDocumento`) — permite assinar em nome do cliente, e a trilha grava o IP de quem assinou como se fosse o dele.                                                                                                                                                                                                                  | É o mesmo token do botão "Abrir link", funcionalidade documentada ("você escolhe se envia por e‑mail ou copia o link daqui"). Restringir muda o fluxo de trabalho e o valor probatório é assunto jurídico — decisão do dono.                           |
+| **Índice de `Notificacao`** — a consulta do sino filtra por `userId` e ordena por `createdAt`, e o índice é `(userId, lida)`: sobra filesort. Roda em polling, para toda sessão aberta.                                                                                                                                                                                                                  | Volume atual é baixo e não há expurgo de notificação antiga. Vale entrar junto da próxima migration, não sozinha.                                                                                                                                      |
+| **`CaixaEmail.assinatura`** — lido no envio, escrito por ninguém: a assinatura por caixa está pela metade desde o ADR‑96.                                                                                                                                                                                                                                                                                | Precisa de campo na tela de plugar/editar caixa; é funcionalidade nova, não conserto.                                                                                                                                                                  |
+| **`clientes.excluirDefinitivo` e `clientes.arquivarNota`** — existem no back, sem botão.                                                                                                                                                                                                                                                                                                                 | Decidir se viram tela ou saem do código.                                                                                                                                                                                                               |
+| **Suíte `@app/web` intermitente** — uma execução a partir da raiz deu 8/12 arquivos e 4 erros; não reproduziu nas tentativas seguintes (rodando dentro de `apps/web` sempre passou).                                                                                                                                                                                                                     | Precisa de repetição para pegar o padrão. Fica registrado para não ser tratado como novidade quando reaparecer na CI.                                                                                                                                  |
+| **`/avatar/:userId`** serve a foto de qualquer usuário para qualquer sessão, inclusive cliente do Portal.                                                                                                                                                                                                                                                                                                | Enumeração de fotos da equipe. Risco baixo, mas é fronteira do Portal — vale fechar quando alguém tocar o módulo.                                                                                                                                      |
 
 ---
 
@@ -1973,13 +1973,13 @@ No npm, `nome@faixa` é **seletor de pai** ("dentro de `deepmerge-ts@7`, troque 
 
 ### A correção
 
-**1. A chave é traduzida, não copiada.** `scripts/lib/pacote-de-producao.mjs` converte `nome@faixa` → `nome` ao montar o artefato. Medido: com a chave traduzida o `npm ci` aceita (**260 pacotes**) e a árvore resolvida é **idêntica — 0 diferenças em 260 pacotes**. A tradução muda o que o lock *declara*, não o que é *instalado*. A tradução perde o escopo por major, então **duas faixas do mesmo pacote com valores diferentes passam a falhar o build** em vez de virar uma escolha silenciosa.
+**1. A chave é traduzida, não copiada.** `scripts/lib/pacote-de-producao.mjs` converte `nome@faixa` → `nome` ao montar o artefato. Medido: com a chave traduzida o `npm ci` aceita (**260 pacotes**) e a árvore resolvida é **idêntica — 0 diferenças em 260 pacotes**. A tradução muda o que o lock _declara_, não o que é _instalado_. A tradução perde o escopo por major, então **duas faixas do mesmo pacote com valores diferentes passam a falhar o build** em vez de virar uma escolha silenciosa.
 
 **2. O conferidor passou a ensaiar o `npm ci` a seco.** Ele provava três coisas verdadeiras — lock com árvore, overrides presentes, audit em 0 — e nenhuma tocava o comando do servidor. Agora roda `npm ci --omit=dev --dry-run` dentro de `apps/api/dist`: não escreve nada, custa ~1s, e é a asserção que faltava.
 
 ### O defeito que transformou uma falha limpa em incidente
 
-O passo 5/7 preservava o `node_modules` por hardlink **em `/tmp`** — que na TineHost é **outro dispositivo**. O `cp -al` respondeu `Invalid cross-device link` e o deploy imprimiu *"sem node_modules previo - nada a preservar"*, **que era falso**: a pasta existia. Em seguida, o socorro do `npm ci` fazia `rm -rf node_modules` **antes** de conferir se havia cópia, e o `|| true` engolia a restauração que não aconteceu.
+O passo 5/7 preservava o `node_modules` por hardlink **em `/tmp`** — que na TineHost é **outro dispositivo**. O `cp -al` respondeu `Invalid cross-device link` e o deploy imprimiu _"sem node_modules previo - nada a preservar"_, **que era falso**: a pasta existia. Em seguida, o socorro do `npm ci` fazia `rm -rf node_modules` **antes** de conferir se havia cópia, e o `|| true` engolia a restauração que não aconteceu.
 
 Resultado: a produção ficou **sem `node_modules`**. O site continuou respondendo porque o processo Node já estava carregado em memória — teria morrido no primeiro restart. Duas correções, no `deploy.yml` **e** no `deploy.sh`:
 
@@ -1988,7 +1988,7 @@ Resultado: a produção ficou **sem `node_modules`**. O site continuou responden
 
 ### O padrão que se repete nesta série
 
-ADR-114: verde que não provava nada. ADR-116: audit numa árvore que não era a de produção. ADR-117: portão que checava tudo, menos o comando que roda lá. **Toda vez, a ferramenta media algo verdadeiro e adjacente.** A pergunta que fecha o buraco é sempre a mesma: *o que exatamente o servidor executa, e eu executei isso?*
+ADR-114: verde que não provava nada. ADR-116: audit numa árvore que não era a de produção. ADR-117: portão que checava tudo, menos o comando que roda lá. **Toda vez, a ferramenta media algo verdadeiro e adjacente.** A pergunta que fecha o buraco é sempre a mesma: _o que exatamente o servidor executa, e eu executei isso?_
 
 ### Desfecho
 
@@ -2015,7 +2015,7 @@ O `tsc` pegou **10** desses caminhos. Não pegou outros dois, porque o valor sa�
 - `ativarServicoCliente` — o `return cs` cru do `upsert`, exposto como mutation `clientes.ativarServico`. Contratar um serviço com preço devolveria o `Decimal` para a tela.
 - `cancelarServicoCliente` — mesmo `return` cru, e este tem **dois** consumidores: a equipe e o **Portal do cliente**.
 
-Os dois foram achados por uma varredura de revisor **depois** do typecheck verde. A lição é a mesma da série ADR-114/116/117: *o portão verde mediu algo verdadeiro e adjacente*. Typecheck verde prova que os tipos casam, não que o `Decimal` ficou no servidor.
+Os dois foram achados por uma varredura de revisor **depois** do typecheck verde. A lição é a mesma da série ADR-114/116/117: _o portão verde mediu algo verdadeiro e adjacente_. Typecheck verde prova que os tipos casam, não que o `Decimal` ficou no servidor.
 
 ### A regra que fica
 
@@ -2033,7 +2033,7 @@ Não pela tipagem, que já foi enganada uma vez. `dinheiro-decimal.integration.t
 
 ## ADR-119 — Todo cliente é pessoa jurídica: o cadastro perde a escolha PF/PJ e ganha CNPJ validado
 
-**Data:** 19/08/2026 · **Status:** aceito, em `main` · **Decisão do dono**, dita com todas as letras: *"todos os clientes da MedConsultoria são PJ (CNPJ)… os clientes são MÉDICOS e CLÍNICAS, e todos são PJ"*.
+**Data:** 19/08/2026 · **Status:** aceito, em `main` · **Decisão do dono**, dita com todas as letras: _"todos os clientes da MedConsultoria são PJ (CNPJ)… os clientes são MÉDICOS e CLÍNICAS, e todos são PJ"_.
 
 ### O problema
 
@@ -2056,14 +2056,14 @@ Lead sem o campo "Empresa" preenchido — o caso comum de quem anota o nome do m
 
 ### O que mudou no banco (migração `20260819161500_cliente_sempre_pj`)
 
-1. `Cliente.documento` → **`Cliente.cnpj`**, por `RENAME COLUMN`. O Prisma queria gerar `DROP` + `ADD` e avisou: *"about to drop the column `documento`, which still contains 2 non-null values"*. A migração foi escrita à mão por isso.
+1. `Cliente.documento` → **`Cliente.cnpj`**, por `RENAME COLUMN`. O Prisma queria gerar `DROP` + `ADD` e avisou: _"about to drop the column `documento`, which still contains 2 non-null values"_. A migração foi escrita à mão por isso.
 2. `Cliente.tipo` e o enum `ClienteTipo` **deixam de existir**. Depois disto **o banco recusa gravar PF** — a regra parou de depender de alguém lembrar dela na tela. Há um teste que prova a recusa (`UPDATE ... SET tipo='PF'` → `Unknown column 'tipo'`).
 3. `Lead.cnpj` **novo**, opcional: o CNPJ entra no primeiro contato e viaja para a ficha na conversão, sem ninguém redigitar.
 4. Cliente que era PF e guardava **CPF** no campo `documento` tem esse número movido para as **observações da ficha** (`[ADR-119] CPF do cadastro antigo…`) e o campo zerado. Nada é apagado; o que não pode é um CPF seguir num campo agora chamado CNPJ — sairia impresso em contrato como "inscrita sob o CNPJ 529.982.247-25".
 
 ⚠️ **Irreversível pelo dado:** a marcação de quem era pessoa física some.
 
-**Cada passo é condicional, e isso não é preciosismo.** O MySQL faz *commit* implícito a cada DDL — não existe transação cobrindo o arquivo inteiro. Se o `DROP COLUMN` falhasse (lock, conexão caída) depois de o `RENAME` já ter commitado, o Prisma marcaria a migração como falha, e **rodá-la de novo quebraria no passo 1**, que procura a coluna `documento` que o passo 2 acabou de renomear — restaria cirurgia manual no banco de produção. Com guardas de `information_schema`, cada passo já aplicado vira `SELECT 1` e **o arquivo inteiro é repetível**: retomar de uma falha é reexecutar. Provado rodando a migração num banco **já migrado**, sem erro e sem alterar dado.
+**Cada passo é condicional, e isso não é preciosismo.** O MySQL faz _commit_ implícito a cada DDL — não existe transação cobrindo o arquivo inteiro. Se o `DROP COLUMN` falhasse (lock, conexão caída) depois de o `RENAME` já ter commitado, o Prisma marcaria a migração como falha, e **rodá-la de novo quebraria no passo 1**, que procura a coluna `documento` que o passo 2 acabou de renomear — restaria cirurgia manual no banco de produção. Com guardas de `information_schema`, cada passo já aplicado vira `SELECT 1` e **o arquivo inteiro é repetível**: retomar de uma falha é reexecutar. Provado rodando a migração num banco **já migrado**, sem erro e sem alterar dado.
 
 O passo 1 também não olha o tamanho do documento: documento de cadastro pessoa física não é o CNPJ da clínica, tenha 11 ou 14 caracteres.
 
@@ -2091,9 +2091,10 @@ O campo inteligente `{{cliente.documento}}` **continua funcionando** como apelid
 - `cnpj-validacao.test.ts` (9 casos), incluindo o exemplo alfanumérico oficial `12.ABC.345/01DE-35`.
 - **Na tela, com o app local:** o formulário do cliente sem seletor de tipo; `11.111.111/1111-11` recusado com "CNPJ inválido — confira os números"; `12ABC34501DE35` aceito, mascarado como `12.ABC.345/01DE-35` e gravado; a ficha mostrando "CNPJ" sem selo de tipo de pessoa; e o percurso completo lead **sem empresa** → converter → cliente PJ com o CNPJ na ficha e a pessoa como contato principal. Zero erro de console.
 - Suítes: 444 testes do servidor e 129 da tela, verdes. Build de produção verde.
+
 ## ADR-120 — A CI foi cancelada por baixar o navegador de teste duas vezes do zero ✅
 
-**Data:** 19/08/2026 · **Corrige:** `.github/workflows/ci.yml` · *(nasceu numerada como ADR-118 numa sessão anterior; renumerada ao entrar na `main`, onde 118 e 119 já existiam)* · **Custo:** uma execução de CI cancelada, sem impacto em produção
+**Data:** 19/08/2026 · **Corrige:** `.github/workflows/ci.yml` · _(nasceu numerada como ADR-118 numa sessão anterior; renumerada ao entrar na `main`, onde 118 e 119 já existiam)_ · **Custo:** uma execução de CI cancelada, sem impacto em produção
 
 ### O que aconteceu
 
@@ -2125,11 +2126,11 @@ em 30 dias — **só neste repositório: 2.313 minutos cobrados**, contra uma co
 plano gratuito e passar a pagar.
 
 | Tarefa (`job`) | Vezes | Minutos cobrados |
-|---|---:|---:|
-| `e2e` | 176 | **1.160** |
-| `integration` | 176 | 590 |
-| `build-test` | 176 | 500 |
-| `deploy` | 8 | 62 |
+| -------------- | ----: | ---------------: |
+| `e2e`          |   176 |        **1.160** |
+| `integration`  |   176 |              590 |
+| `build-test`   |   176 |              500 |
+| `deploy`       |     8 |               62 |
 
 `e2e` + `integration` sozinhos = **58% de tudo o que a conta gastou no mês**, somando
 todos os repositórios.
@@ -2155,11 +2156,11 @@ O erro nunca foi o teste caro existir. Foi ele rodar cedo demais: houve **90 env
 à `main`** no mês, e cada um arrastou `e2e` + `integration` junto, num momento em que não há
 decisão nenhuma a tomar. O modelo passa a ser **escalonado**:
 
-| Momento | O que roda |
-|---|---|
-| `push` na `main` | só `build-test` (~3 min): lint, typecheck, Vitest, auditoria, artefato |
-| `pull_request` | tudo — é onde se decide mesclar |
-| antes de publicar | tudo, no commit **exato** que vai ao ar (o `deploy.yml` chama a CI) |
+| Momento           | O que roda                                                             |
+| ----------------- | ---------------------------------------------------------------------- |
+| `push` na `main`  | só `build-test` (~3 min): lint, typecheck, Vitest, auditoria, artefato |
+| `pull_request`    | tudo — é onde se decide mesclar                                        |
+| antes de publicar | tudo, no commit **exato** que vai ao ar (o `deploy.yml` chama a CI)    |
 
 Quatro mudanças no `ci.yml`:
 
@@ -2168,7 +2169,7 @@ Quatro mudanças no `ci.yml`:
    paga o minuto inteiro mesmo quando o `typecheck` já reprovou no primeiro minuto.
 3. **`concurrency` com `cancel-in-progress: true`.** 18 execuções do mês foram substituídas
    por um commit seguinte antes de terminar, e a conta veio inteira. Vale ~340 min/mês.
-4. **`paths-ignore: ['**.md', 'docs/**']` só no `push`.** Em `pull_request` é armadilha: com
+4. **`paths-ignore: ['**.md', 'docs/**']`só no`push`.** Em `pull_request` é armadilha: com
    check obrigatório, um PR só de documentação trava esperando um check que nunca roda.
 
 Entrou também `permissions: contents: read` no topo — ler o código basta, e sem a declaração
@@ -2284,7 +2285,7 @@ O monitor `/emails-enviados` (ADR-21) existe exatamente para isto — ele guarda
 cada falha em `EmailEnviado.erro`. Em produção, em 21/08/2026:
 
 - **Falhas nos últimos 7 dias: 25. Taxa de entrega: 0%.**
-- Filtrando **"Enviados" + "Todo o período"**: *"Nenhum e-mail encontrado com esses filtros."*
+- Filtrando **"Enviados" + "Todo o período"**: _"Nenhum e-mail encontrado com esses filtros."_
   **Nunca, nem uma única vez, um e-mail transacional foi entregue por este servidor.**
 - As 25 falhas traziam todas a mesma mensagem, literal:
 
@@ -2424,11 +2425,11 @@ primeira vez que o elo da ADR-121 foi exercido de verdade. Depois, 7/7 no deploy
 
 A prova do e-mail não é o deploy verde — é a tela:
 
-| | Antes (21/08) | Depois (22/08) |
-|---|---|---|
-| Enviados em 7 dias | **0** | **5** |
-| Taxa de entrega | **0%** | **17%** e subindo |
-| "Seu acesso ao Portal" → `tibamooca@gmail.com` | **falhou** (erro de certificado) | **enviado** |
+|                                                | Antes (21/08)                    | Depois (22/08)    |
+| ---------------------------------------------- | -------------------------------- | ----------------- |
+| Enviados em 7 dias                             | **0**                            | **5**             |
+| Taxa de entrega                                | **0%**                           | **17%** e subindo |
+| "Seu acesso ao Portal" → `tibamooca@gmail.com` | **falhou** (erro de certificado) | **enviado**       |
 
 O último item é o que fecha o caso: **o mesmo e-mail, para o mesmo destinatário externo, que
 ontem morria no certificado, hoje sai.** A taxa ainda não é 100% porque as 25 falhas antigas
@@ -2473,19 +2474,19 @@ Entra uma regra nova no motor de alertas (`observability/alertas.ts`), chave `en
 
 ### Por que NÃO é "taxa de entrega"
 
-Taxa exige volume. Esta app manda poucos e-mails por dia; uma regra do tipo *"menos de X%
-entregue na última hora"* jamais teria disparado — **foi exatamente por falta de volume que o
+Taxa exige volume. Esta app manda poucos e-mails por dia; uma regra do tipo _"menos de X%
+entregue na última hora"_ jamais teria disparado — **foi exatamente por falta de volume que o
 defeito durou semanas**. A regra das outras métricas confirma o padrão: `taxa_erro` só avalia
 com `reqUltimoMin >= 5`, porque sem tráfego mínimo a porcentagem mente.
 
 Falha seguida não depende de volume: na **terceira** tentativa morta o alerta sobe, mande a app
-3 e-mails por dia ou 300. E o contador ser *"desde o último sucesso"* dá a recuperação de graça —
+3 e-mails por dia ou 300. E o contador ser _"desde o último sucesso"_ dá a recuperação de graça —
 **um único e-mail que sai zera a conta e resolve o incidente**, sem regra de recuperação separada.
 
 ### As duas armadilhas, e como cada uma foi fechada
 
 **1) Em desenvolvimento, 100% dos e-mails falham por projeto.** Sem SMTP configurado,
-`enviarEmail` devolve `enviado: false` com o motivo *"modo dev"* — e isso é gravado como
+`enviarEmail` devolve `enviado: false` com o motivo _"modo dev"_ — e isso é gravado como
 `FALHOU` na mesma tabela. Uma regra ingênua gritaria em toda máquina de desenvolvedor e em toda
 rodada de e2e. Por isso a primeira linha do `ler()` é `if (!isEmailReal) return null`. Alarme
 falso ensina a ignorar alarme, e este é o alarme que não pode ser ignorado.
@@ -2516,8 +2517,8 @@ O vigia externo continua sendo pendência do dono (item do plano da auditoria), 
 
 ### Como apareceu
 
-Item do plano da própria auditoria de 22/08: *"cobrir de unidade os módulos que mexem em
-dinheiro"*, com `servicos` a 7,0% e `leads` a 2,5%. Antes de escrever teste, medi o que estava
+Item do plano da própria auditoria de 22/08: _"cobrir de unidade os módulos que mexem em
+dinheiro"_, com `servicos` a 7,0% e `leads` a 2,5%. Antes de escrever teste, medi o que estava
 descoberto — e o número não fechava com a quantidade de teste de integração que existe para
 essas exatas funções (`conversao-lead-pj`, `credenciamento-cobranca`, `dinheiro-decimal`).
 
@@ -2529,13 +2530,13 @@ sobre o que media; estava sendo lido como se medisse tudo.
 
 ### Os dois retratos, lado a lado
 
-| | Régua velha (só unidade) | Régua corrigida (com integração) |
-|---|---|---|
-| API, total | 19,3% | **45,3%** |
-| Módulos a 0,0% | 15 | **nenhum** |
-| `servicos` | 7,0% | **58,8%** |
-| `financeiro` | 4,2% | **59,1%** |
-| `leads` | 2,5% | **20,3%** |
+|                | Régua velha (só unidade) | Régua corrigida (com integração) |
+| -------------- | ------------------------ | -------------------------------- |
+| API, total     | 19,3%                    | **45,3%**                        |
+| Módulos a 0,0% | 15                       | **nenhum**                       |
+| `servicos`     | 7,0%                     | **58,8%**                        |
+| `financeiro`   | 4,2%                     | **59,1%**                        |
+| `leads`        | 2,5%                     | **20,3%**                        |
 
 Ou seja: os dois módulos que o plano mandava salvar primeiro **já estavam perto de 60%**, e o
 esforço iria para onde não era mais necessário. O ponto cego real é `leads.service.ts`, a 16,8%
@@ -2560,14 +2561,14 @@ cd packages/db && DATABASE_URL="mysql://medconsultoria:medconsultoria@127.0.0.1:
 ### O que isso corrige na auditoria
 
 A aba **Sistema → Auditoria** foi publicada de manhã com os números da régua velha e corrigida
-no mesmo dia: cobertura da API 19,3% → **45,3%**, a lacuna *"15 módulos sem um único teste"*
-substituída por *"o funil é o ponto cego real"*, e o plano repontado para `leads.service.ts`.
+no mesmo dia: cobertura da API 19,3% → **45,3%**, a lacuna _"15 módulos sem um único teste"_
+substituída por _"o funil é o ponto cego real"_, e o plano repontado para `leads.service.ts`.
 A nota de Testes subiu de 86 para 89 — não porque algo foi feito, mas porque **passou a ser
 medido direito**. A nota geral segue 89.
 
 ### A lição
 
-Número de cobertura sem a definição do que ele mede é pior que não ter número: ele *parece*
+Número de cobertura sem a definição do que ele mede é pior que não ter número: ele _parece_
 evidência. Foi por isso que o plano de testes apontava para o lugar errado — e teria custado
 dias de trabalho no módulo que menos precisava.
 
@@ -2576,3 +2577,123 @@ dias de trabalho no módulo que menos precisava.
 Segue **sem piso de cobertura na CI**, pela mesma razão da ADR original: piso vira refém, e não
 há o que defender enquanto o número não estabilizar. E ambas as réguas continuam cegas ao que
 só o e2e exercita.
+
+---
+
+## ADR-125 — Conciliação, Fase 1: a produção entra no sistema (e o dado do paciente entra cifrado)
+
+**Data:** 11/09/2026 · **Situação:** aceita · **Spec:** `docs/superpowers/specs/2026-09-11-conciliacao-producao-design.md`
+
+### Como apareceu
+
+Reunião de 11/09/2026 com o Dr. Sérgio Almeida. O faturamento do cliente é feito na mão — a Lúcia
+processa, e quando ela sai de férias o processo para. A pergunta que originou o módulo foi dita
+com todas as letras: _"deveria ter recebido 18 mil, recebeu 800"_, e depois _"em média o senhor
+vai receber X daqui a dois meses"_.
+
+Responder isso exige três coisas, nesta ordem: saber **o que foi produzido**, **quanto vale** e
+**o que entrou**. Esta ADR entrega só a primeira — as outras duas dependem de terceiros (tabela
+de valores incompleta; para consulta, a BP **não tem** modelo de relatório de pagamento).
+
+### As decisões
+
+**1. O dado pessoal do paciente é cifrado em repouso e não existe no retorno do tRPC.**
+O Sérgio não queria CPF, telefone e e-mail no sistema; o acordo foi importar o arquivo como vem e
+exibir só o necessário. Isso resolve o que exibir, não o que fica no banco — e a decisão do dono
+foi **cifrar** (AES-256-GCM, chave `PACIENTE_CRYPTO_KEY`, separada da `EMAIL_CRYPTO_KEY`). Sem a
+chave, o módulo **fica desligado**: importar sem cifra não é opção.
+
+O CPF precisa casar entre relatórios, e GCM não casa (IV aleatório). Vai junto um **HMAC-SHA256**
+com subchave derivada por HKDF. Não é `sha256(cpf)`: o espaço de CPF é pequeno o bastante para
+tabelar inteiro em minutos, e o hash puro devolveria o número.
+
+O **nome** fica em claro — é o que identifica o atendimento na tela, e nome cifrado não se ordena
+nem se busca.
+
+**2. O `exceljs` não pôde ser publicado, então o leitor de planilha é próprio.**
+O caminho óbvio para `.xlsx` era o `exceljs`. Ele é biblioteca de ler **e escrever**, e a metade
+que escreve (`archiver`) arrasta um `minimatch` com falha ALTA. Fechar isso exigiria override
+escopado por major (`brace-expansion@1` + `@2`), e o tradutor do artefato **recusa** — o npm não
+sabe escopar override por major do próprio pacote (ADR-116/117). Com override, `build:deploy`
+quebra; sem override, o portão de auditoria reprova. Não havia saída.
+
+Como só **lemos**, virou leitor próprio: `zip.ts` (diretório central + `inflateRaw`, que já vem no
+Node) e `xlsx.ts` (OOXML). Saldo: **zero dependência nova**. Antes de desinstalar o `exceljs`,
+gerei com ele uma fixture `.xlsx` **real**, versionada — é contra arquivo escrito por outro
+programa que o leitor é testado.
+
+O formato é detectado pelo **conteúdo**, nunca pela extensão: o "exportar para Excel" de sistema
+legado costuma cuspir tabela **HTML** com nome `.xls`. O `.xls` binário (BIFF/OLE2) é reconhecido
+e **recusado com a saída pronta** — lê-lo exigiria a SheetJS, cuja versão no npm está parada em
+duas falhas conhecidas.
+
+**3. Um lote vigente por mês, garantido pelo BANCO.**
+`@@unique([clienteId, origem, competenciaVigente])`, onde `competenciaVigente` vira nulo quando o
+lote é substituído. No MySQL nulos não colidem em índice único, então isso significa exatamente
+"um vigente por mês" e ainda deixa os substituídos conviverem no histórico. Mesma escolha da
+ADR-93. Conferir só na aplicação deixaria duas importações simultâneas duplicarem o mês.
+
+**Substituir apaga as linhas do lote antigo.** Marcar o lote como `SUBSTITUIDO` não apaga nada
+sozinho — e sem o `deleteMany` o mês passava a mostrar a produção velha **somada** à nova. O teste
+de integração pegou (`esperava 1, veio 3`).
+
+**4. Não há deduplicação linha a linha.** Não é precaução: no arquivo real, `LILIAN FERRAZ
+FORNAZARI` tem **duas linhas em 28/08** — uma "Sem vínculo com a agenda" e outra "Consulta". Uma
+chave `(cpf, data, profissional)` apagaria atendimento de verdade.
+
+**5. Só entram as linhas do mês escolhido; as de outros meses são REPORTADAS.** Importá-las junto
+as duplicaria quando o mês delas chegasse; descartá-las em silêncio esconderia dado. O resultado
+diz quantas ficaram de fora e de qual mês — o que dá a resposta empírica para a pergunta ainda
+aberta com o Sérgio (competência = mês do atendimento ou da extração?).
+
+**6. O de-para casa por texto NORMALIZADO.** O relatório escreve `PORTO SEGURO - BÁSICO` e
+`porto seguro - básico` na mesma coluna; `Cassi` e `CASSI` convivem. Casar pelo texto cru faria a
+mesma operadora virar duas. E `PARTICULAR DR. LÉO - MAESTRO CARDIM` **não é operadora**: é par
+médico × local, marcado com `particular` e mantido fora do catálogo de `Operadora`, que é
+compartilhado com o credenciamento. Ligar **retroage** no que já foi importado.
+
+### Datas: UTC do começo ao fim
+
+Três camadas, uma disciplina só. O Excel guarda `31/08/2026` como o número `46265`; convertido em
+horário de Brasília sairia **30/08**, sem erro nenhum na tela, e a competência inteira andaria um
+dia. Por isso: `getUTC*` no leitor, `Date.UTC` no interpretador, e `@db.Date` no banco (dia puro,
+sem hora e sem fuso). `31/02/2026` é **recusado** — no JavaScript viraria 03/03 em silêncio.
+
+### Como foi provado
+
+- **Leitor de arquivo:** 51 testes, incluindo a fixture `.xlsx` real e XML montado à mão para os
+  casos que biblioteca nenhuma produz (célula omitida, `inlineStr`, linha pulada).
+- **Cifra:** 12 testes — ida e volta, apelido estável, e que a senha da caixa de e-mail **não**
+  abre com a chave do paciente.
+- **Banco:** 10 testes de integração contra MySQL real (trava do mês, `DATE` sem escorregar,
+  Cascade, unicidade do de-para).
+- **Importação:** 14 testes de integração.
+- **Privacidade:** 10 testes varrendo o JSON de **toda** rota de leitura, chamada pelo router com
+  sessão, atrás dos valores gravados **e** das chaves proibidas. Começa provando que o dado está
+  no banco cifrado — senão a trava passaria por não haver dado nenhum.
+
+### ⚠️ O que NÃO foi provado
+
+**A tela não foi aberta.** A app local ficou fora do ar por falta de memória durante todo o
+trabalho. Pela lição das ADR-118 e ADR-119, typecheck verde não prova tela — então a interface
+está **não verificada**, e o `e2e/menu-sem-scroll.spec.ts` **não rodou**. "Negócio" foi de 5 para
+6 itens (o ADR-94 pede no máximo 4; a lei testada é o menu não rolar). Se reprovar, o item sai do
+menu e fica no Ctrl+K e na ficha do cliente.
+
+### Junto: a auditoria de produção voltou a zero
+
+Estava em 11 achados (5 ALTOS) **antes** deste trabalho — o portão da CI reprovava qualquer PR.
+Nenhum salto de major foi preciso: as faixas do `package.json` já cobriam as versões corrigidas e
+faltava atualizar o lockfile. Duas mudanças reais: override do `fast-uri` de `^3.1.5` para
+`^3.1.6` (estava desatualizado) e `nodemailer` `^9.1.1` (o `mailparser` segurava a 9.0.3).
+`text/csv` entrou na allowlist de upload — seguro porque `GET /arquivos/:id` serve tudo como
+`attachment` + `nosniff`.
+
+### O que fica em aberto
+
+Quatro perguntas para o Sérgio, na §11 da spec — a que muda código é a definição de competência.
+E o recorte da **Fase 2 mudou**: as amostras mostraram que o relatório de repasse de **cirurgia**
+existe (§4b da spec), com a defasagem medida em ~3,5 meses entre atendimento e pagamento. Ou
+seja, a Fase 2 mais valiosa deixou de ser "importar cirurgia" e passou a ser **conciliar
+cirurgia** — onde está a frase dos 18 mil × 800. A chave de casamento é o número do
+**atendimento**, não o CPF, e os códigos são de tabelas diferentes (TUSS × SIGTAP).

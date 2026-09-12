@@ -19,6 +19,11 @@ export const MIMETYPES_ACEITOS = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  // CSV entrou com a Conciliação: o relatório de produção pode vir assim, e sem isto o upload
+  // recusaria o arquivo antes de o leitor sequer olhá-lo. Seguro nesta lista porque `GET
+  // /arquivos/:id` serve TUDO como `attachment` + `nosniff` (nada é renderizado no navegador) —
+  // é exatamente a dependência que o comentário daquela rota manda não esquecer.
+  "text/csv",
 ]);
 
 /** Tamanho máximo por arquivo (20 MB). */

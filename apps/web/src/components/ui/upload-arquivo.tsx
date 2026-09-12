@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { Upload, Loader2 } from "lucide-react";
 import { cn } from "@app/ui";
 
-const ACEITOS = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx";
+/** O `.csv` entrou com a Conciliação — o relatório de produção pode vir assim. */
+const ACEITOS = ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.csv";
 const TAMANHO_MAX = 20 * 1024 * 1024;
 
 /**
@@ -10,16 +11,26 @@ const TAMANHO_MAX = 20 * 1024 * 1024;
  * de progresso. Os `campos` extras (clienteId/servicoId/requisitoId) vão ANTES do
  * arquivo no FormData — o servidor lê os campos e então grava o arquivo.
  */
+export interface ArquivoEnviado {
+  id: string;
+  nome: string;
+  tamanho: number;
+}
+
 export function UploadArquivo({
   campos,
   onDone,
   label = "Enviar documento",
   size = "sm",
+  aceitos = ACEITOS,
 }: {
   campos: Record<string, string | undefined>;
-  onDone?: () => void;
+  /** Recebe o arquivo criado — quem só precisa recarregar a lista pode ignorar o argumento. */
+  onDone?: (arquivo: ArquivoEnviado) => void;
   label?: string;
   size?: "sm" | "xs";
+  /** Restringe os tipos nesta tela. A Conciliação só aceita planilha, não PDF nem imagem. */
+  aceitos?: string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const [progresso, setProgresso] = useState<number | null>(null);
@@ -44,7 +55,11 @@ export function UploadArquivo({
     xhr.onload = () => {
       setProgresso(null);
       if (xhr.status >= 200 && xhr.status < 300) {
-        onDone?.();
+        try {
+          onDone?.(JSON.parse(xhr.responseText) as ArquivoEnviado);
+        } catch {
+          setErro("O envio funcionou, mas a resposta do servidor veio ilegível. Recarregue a página.");
+        }
       } else {
         try {
           setErro(JSON.parse(xhr.responseText).error ?? "Falha no envio.");
@@ -68,7 +83,7 @@ export function UploadArquivo({
       <input
         ref={ref}
         type="file"
-        accept={ACEITOS}
+        accept={aceitos}
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -96,11 +111,7 @@ export function UploadArquivo({
 /** Link de download de um arquivo (baixa via /arquivos/:id, com o cookie de sessão). */
 export function ArquivoLink({ id, nome, className }: { id: string; nome: string; className?: string }) {
   return (
-    <a
-      href={`/arquivos/${id}`}
-      className={cn("truncate text-primary hover:underline", className)}
-      title={`Baixar ${nome}`}
-    >
+    <a href={`/arquivos/${id}`} className={cn("truncate text-primary hover:underline", className)} title={`Baixar ${nome}`}>
       {nome}
     </a>
   );

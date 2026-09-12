@@ -19,6 +19,7 @@ import {
   ServerCog,
   FileSignature,
   Stethoscope,
+  FileSpreadsheet,
 } from "lucide-react";
 import type { Role } from "@app/shared";
 
@@ -53,13 +54,7 @@ export type GrupoMenu = "Meu trabalho" | "Negócio" | "Comunicação" | "Configu
  * cumprir a regra e falhar no motivo dela. O limite que continua sendo LEI (e testado, em
  * `e2e/menu-sem-scroll.spec.ts`) é o menu não rolar: é ele que protege a varredura rápida.
  */
-export const GRUPOS_MENU: readonly (GrupoMenu | null)[] = [
-  null,
-  "Meu trabalho",
-  "Negócio",
-  "Comunicação",
-  "Configuração",
-];
+export const GRUPOS_MENU: readonly (GrupoMenu | null)[] = [null, "Meu trabalho", "Negócio", "Comunicação", "Configuração"];
 
 export interface Pagina {
   label: string;
@@ -72,29 +67,168 @@ export interface Pagina {
 }
 
 export const PAGINAS: Pagina[] = [
-  { label: "Início", icon: LayoutDashboard, to: "/", minRole: "FUNCIONARIO", grupo: null, keywords: ["dashboard", "home", "painel", "resumo"] },
+  {
+    label: "Início",
+    icon: LayoutDashboard,
+    to: "/",
+    minRole: "FUNCIONARIO",
+    grupo: null,
+    keywords: ["dashboard", "home", "painel", "resumo"],
+  },
   // ── Meu trabalho: o que fazer, quando fazer, onde isso vive ──
-  { label: "Tarefas", icon: ListTodo, to: "/tarefas", minRole: "FUNCIONARIO", grupo: "Meu trabalho", keywords: ["delegar", "pedidos", "comigo", "deleguei", "afazeres", "to-do", "solicitacoes"] },
-  { label: "Agenda", icon: Calendar, to: "/agenda", minRole: "FUNCIONARIO", grupo: "Meu trabalho", keywords: ["calendario", "eventos", "compromissos", "reunioes"] },
+  {
+    label: "Tarefas",
+    icon: ListTodo,
+    to: "/tarefas",
+    minRole: "FUNCIONARIO",
+    grupo: "Meu trabalho",
+    keywords: ["delegar", "pedidos", "comigo", "deleguei", "afazeres", "to-do", "solicitacoes"],
+  },
+  {
+    label: "Agenda",
+    icon: Calendar,
+    to: "/agenda",
+    minRole: "FUNCIONARIO",
+    grupo: "Meu trabalho",
+    keywords: ["calendario", "eventos", "compromissos", "reunioes"],
+  },
   { label: "Projetos", icon: FolderKanban, to: "/projetos", minRole: "FUNCIONARIO", grupo: "Meu trabalho", keywords: ["kanban", "quadro"] },
   // ── Negócio: quem pode virar cliente, quem já é, o papel que formaliza, o que entra ──
-  { label: "Vendas", icon: Filter, to: "/leads", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["funil", "leads", "oportunidades", "pipeline", "negocios"] },
+  {
+    label: "Vendas",
+    icon: Filter,
+    to: "/leads",
+    minRole: "FUNCIONARIO",
+    grupo: "Negócio",
+    keywords: ["funil", "leads", "oportunidades", "pipeline", "negocios"],
+  },
   { label: "Clientes", icon: Users, to: "/clientes", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["contatos", "empresas"] },
-  { label: "Credenciamentos", icon: Stethoscope, to: "/credenciamentos", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["credenciamento", "operadoras", "medicos", "protocolado", "em analise", "aprovado", "negado", "parado", "atrasado", "convenios", "planos"] },
-  { label: "Documentos", icon: FileText, to: "/documentos", minRole: "FUNCIONARIO", grupo: "Negócio", keywords: ["propostas", "contratos", "atas", "recibos"] },
-  { label: "Financeiro", icon: Wallet, to: "/financeiro", minRole: "ADMIN", grupo: "Negócio", keywords: ["contas", "pagar", "receber", "carteira", "dinheiro"] },
+  {
+    label: "Credenciamentos",
+    icon: Stethoscope,
+    to: "/credenciamentos",
+    minRole: "FUNCIONARIO",
+    grupo: "Negócio",
+    keywords: [
+      "credenciamento",
+      "operadoras",
+      "medicos",
+      "protocolado",
+      "em analise",
+      "aprovado",
+      "negado",
+      "parado",
+      "atrasado",
+      "convenios",
+      "planos",
+    ],
+  },
+  {
+    label: "Conciliação",
+    icon: FileSpreadsheet,
+    to: "/conciliacao",
+    minRole: "FUNCIONARIO",
+    grupo: "Negócio",
+    keywords: [
+      "producao",
+      "produção",
+      "consultas",
+      "faturamento",
+      "competencia",
+      "competência",
+      "repasse",
+      "convenios",
+      "convênios",
+      "importar planilha",
+      "atendimentos",
+    ],
+  },
+  {
+    label: "Documentos",
+    icon: FileText,
+    to: "/documentos",
+    minRole: "FUNCIONARIO",
+    grupo: "Negócio",
+    keywords: ["propostas", "contratos", "atas", "recibos"],
+  },
+  {
+    label: "Financeiro",
+    icon: Wallet,
+    to: "/financeiro",
+    minRole: "ADMIN",
+    grupo: "Negócio",
+    keywords: ["contas", "pagar", "receber", "carteira", "dinheiro"],
+  },
   // ── Comunicação: o que chega de fora (o e-mail é o canal do cliente; Mensagens é interno) ──
-  { label: "E-mail", icon: Inbox, to: "/email", minRole: "FUNCIONARIO", grupo: "Comunicação", keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"] },
-  { label: "Mensagens", icon: MessageSquare, to: "/mensagens", minRole: "FUNCIONARIO", grupo: "Comunicação", keywords: ["chat", "conversas", "suporte", "chamados"] },
+  {
+    label: "E-mail",
+    icon: Inbox,
+    to: "/email",
+    minRole: "FUNCIONARIO",
+    grupo: "Comunicação",
+    keywords: ["email", "e-mail", "caixa de entrada", "webmail", "inbox", "mensagem"],
+  },
+  {
+    label: "Mensagens",
+    icon: MessageSquare,
+    to: "/mensagens",
+    minRole: "FUNCIONARIO",
+    grupo: "Comunicação",
+    keywords: ["chat", "conversas", "suporte", "chamados"],
+  },
   // ── Configuração ──
-  { label: "Ajustes", icon: SlidersHorizontal, to: "/ajustes", minRole: "ADMIN", grupo: "Configuração", keywords: ["configuracao", "catalogos"] },
+  {
+    label: "Ajustes",
+    icon: SlidersHorizontal,
+    to: "/ajustes",
+    minRole: "ADMIN",
+    grupo: "Configuração",
+    keywords: ["configuracao", "catalogos"],
+  },
   { label: "Serviços", icon: Briefcase, to: "/servicos", minRole: "ADMIN", keywords: ["catalogo", "exigencias", "passos"] },
-  { label: "Modelos de documento", icon: FileSignature, to: "/modelos", minRole: "ADMIN", keywords: ["modelos", "templates", "briefings", "moldes"] },
-  { label: "Mensagens automáticas", icon: Mail, to: "/emails", minRole: "ADMIN", keywords: ["e-mails", "templates de email", "comunicacoes", "notificacoes"] },
-  { label: "Equipe e acessos", icon: UserCog, to: "/usuarios", minRole: "ADMIN", keywords: ["usuarios", "permissoes", "papeis", "convites"] },
-  { label: "E-mails enviados", icon: SendHorizontal, to: "/emails-enviados", minRole: "ADMIN", keywords: ["monitor", "entregas", "falhas de email"] },
-  { label: "Configurações", icon: Settings, to: "/configuracoes", minRole: "FUNCIONARIO", keywords: ["perfil", "senha", "foto", "preferencias"] },
-  { label: "Sistema", icon: ServerCog, to: "/sistema", minRole: "ROOT", grupo: "Configuração", keywords: ["saude", "erros", "incidentes", "sessoes", "desempenho", "banco", "manutencao", "diagnostico"] },
+  {
+    label: "Modelos de documento",
+    icon: FileSignature,
+    to: "/modelos",
+    minRole: "ADMIN",
+    keywords: ["modelos", "templates", "briefings", "moldes"],
+  },
+  {
+    label: "Mensagens automáticas",
+    icon: Mail,
+    to: "/emails",
+    minRole: "ADMIN",
+    keywords: ["e-mails", "templates de email", "comunicacoes", "notificacoes"],
+  },
+  {
+    label: "Equipe e acessos",
+    icon: UserCog,
+    to: "/usuarios",
+    minRole: "ADMIN",
+    keywords: ["usuarios", "permissoes", "papeis", "convites"],
+  },
+  {
+    label: "E-mails enviados",
+    icon: SendHorizontal,
+    to: "/emails-enviados",
+    minRole: "ADMIN",
+    keywords: ["monitor", "entregas", "falhas de email"],
+  },
+  {
+    label: "Configurações",
+    icon: Settings,
+    to: "/configuracoes",
+    minRole: "FUNCIONARIO",
+    keywords: ["perfil", "senha", "foto", "preferencias"],
+  },
+  {
+    label: "Sistema",
+    icon: ServerCog,
+    to: "/sistema",
+    minRole: "ROOT",
+    grupo: "Configuração",
+    keywords: ["saude", "erros", "incidentes", "sessoes", "desempenho", "banco", "manutencao", "diagnostico"],
+  },
 ];
 
 /**
