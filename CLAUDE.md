@@ -30,11 +30,13 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   arrasta um `minimatch` com falha ALTA, e fechar isso exigiria override escopado por major, que o
   tradutor do artefato recusa (ADR-116/117) — ou a auditoria reprova, ou o `build:deploy` quebra.
   `.xls` binário (BIFF) é reconhecido e **recusado com a saída pronta**.
-- **📌 A Conciliação NÃO está no menu, e é de propósito.** Com ela, "Negócio" ia a 6 itens e o menu
-  passava a **rolar** a 1280x580 — o e2e mediu 480px necessários contra 453px, faltando 27px para
-  um item de 28px. Menu que rola esconde navegação: o limite de 4 itens do ADR-94 é diretriz, **o
-  menu não rolar é lei**. Abre pelo **Ctrl+K** e pelo card **"Produção de consultas"** da ficha do
-  cliente.
+- **📌 A Conciliação ESTÁ no menu, e o menu encolhe a fonte para caber.** Ela ia deixar "Negócio"
+  com 6 itens e fazer a barra **rolar** a 1280x580 — o e2e mediu 480px necessários contra 453px.
+  Em vez de esconder um destino de navegação, o **último degrau de altura (`alt-2xs`, ≤660px)
+  passou a encolher o item**: fonte de 14px para 13px, entrelinha 16px, ícone 16px, `py-0.5`. O
+  item cai de 28px para **20px** e sobram **89px** a 580 (cabem mais 4 itens). Nas alturas comuns
+  (720 para cima) **nada muda** — a fonte segue 14px. O limite de 4 itens por grupo do ADR-94 é
+  diretriz; **o menu não rolar é lei**, e continua valendo, medida em seis alturas.
 - **✅ `pnpm audit --prod` voltou a ZERO.** Estava em 11 achados (5 ALTOS) e o portão da CI
   reprovava **qualquer** PR. Nenhum salto de major foi preciso — as faixas já cobriam o conserto e
   faltava atualizar o lockfile; só o override do `fast-uri` estava velho (`^3.1.5` → `^3.1.6`) e o

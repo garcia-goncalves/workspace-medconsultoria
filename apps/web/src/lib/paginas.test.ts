@@ -75,7 +75,6 @@ const FORA_DO_MENU: Record<string, string> = {
   "/emails-enviados": "abre por Ajustes (monitor de envios)",
   "/usuarios": "abre por Ajustes (equipe e acessos)",
   "/configuracoes": "abre pelo menu do usuário, no rodapé da barra",
-  "/conciliacao": "abre pelo Ctrl+K e pelo card da ficha do cliente (não cabe no menu a 1280x580 — ADR-153)",
 };
 
 describe("menu lateral (barra da esquerda)", () => {

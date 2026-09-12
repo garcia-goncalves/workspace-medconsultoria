@@ -255,9 +255,9 @@ recebido 18 mil, recebeu 800"_.
 - [x] `e2e/flows-conciliacao.spec.ts` — o fluxo inteiro pela interface (escolher cliente,
       enviar planilha, conferir a prévia, importar, ligar o convênio, ver o resumo fechar):
       **8/8 verdes**, incluindo a conferência de que o dado do paciente não está no HTML.
-- [x] `menu-sem-scroll` verde — mas a página **saiu do menu**: com ela, "Negócio" ia a 6 itens
-      e o menu rolava a 1280x580 (480px necessários contra 453px). Abre pelo Ctrl+K e pelo card
-      "Produção de consultas" da ficha do cliente.
+- [x] `menu-sem-scroll` verde **com a Conciliação DENTRO do menu**: o último degrau de altura
+      passou a encolher a fonte (14px → 13px, item de 28px → 20px) em vez de esconder um destino.
+      Sobram 89px a 1280x580. Nas alturas comuns nada muda.
 
 **Falta publicar:** (1) merge na `main` via PR; (2) rodar
 `scripts/server/set-paciente-crypto-key.sh` no servidor — sem a chave o módulo sobe DESLIGADO;

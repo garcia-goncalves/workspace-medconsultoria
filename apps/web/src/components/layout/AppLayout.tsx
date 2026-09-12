@@ -1,18 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import {
-  Search,
-  Sparkles,
-  HelpCircle,
-  LogOut,
-  Menu,
-  X,
-  ChevronsUpDown,
-  Settings,
-  PanelLeftClose,
-  PanelLeftOpen,
-} from "lucide-react";
+import { Search, Sparkles, HelpCircle, LogOut, Menu, X, ChevronsUpDown, Settings, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@app/ui";
 import { ROLE_LABEL, hasRoleLevel } from "@app/shared";
 import { MENU_GRUPOS, type Pagina } from "../../lib/paginas";
@@ -61,8 +50,7 @@ function itemAtivo(pathname: string, to: string): boolean {
 }
 
 /** Atalho do teclado exibido conforme o sistema (⌘K no Mac, Ctrl K no resto). */
-const ATALHO_BUSCA =
-  typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "⌘K" : "Ctrl K";
+const ATALHO_BUSCA = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "⌘K" : "Ctrl K";
 
 /**
  * Deriva o título da página atual a partir da rota, para o cabeçalho.
@@ -182,8 +170,15 @@ function UserMenu({ colapsada, onNavigate }: { colapsada: boolean; onNavigate?: 
  * corpo, e cada item custava 2px a mais do que precisava — 26px jogados fora nos 13. Fixar a
  * entrelinha pagou o aumento da fonte (14,4px → 15px): o texto ficou MAIOR e o menu, mais curto.
  * Mexer aqui sem medir é o jeito de fazer o menu voltar a rolar.
+ *
+ * NO ÚLTIMO DEGRAU (`alt-2xs`, ≤660px) a fonte também encolhe — 13px com entrelinha de 16px, e o
+ * ícone cai de 19px para 16px. Foi o que abriu espaço para a **Conciliação** entrar no menu
+ * (setembro/2026): sem isso "Negócio" ia a 6 itens e o menu voltava a rolar a 1280x580, faltando
+ * 27px para um item de 28px. Encolher a fonte só na janela mais baixa custa legibilidade
+ * exatamente onde não há alternativa — a outra opção era esconder um destino de navegação, que é
+ * pior. Nas alturas comuns (720 para cima) nada muda: a fonte segue 14px.
  */
-const ALTURA_ITEM = "py-2.5 alt:py-2 alt-sm:py-1.5 alt-xs:py-1";
+const ALTURA_ITEM = "py-2.5 alt:py-2 alt-sm:py-1.5 alt-xs:py-1 alt-2xs:py-0.5";
 const ESPACO_GRUPOS = "space-y-4 alt:space-y-3 alt-sm:space-y-2 alt-xs:space-y-1.5";
 
 /** Conteúdo da barra lateral — reutilizado no desktop (recolhível) e no drawer mobile. */
@@ -212,12 +207,7 @@ function SidebarConteudo({
 
   return (
     <>
-      <div
-        className={cn(
-          "flex h-16 shrink-0 items-center gap-3 alt-sm:h-14",
-          colapsada ? "justify-center px-2" : "px-5",
-        )}
-      >
+      <div className={cn("flex h-16 shrink-0 items-center gap-3 alt-sm:h-14", colapsada ? "justify-center px-2" : "px-5")}>
         {colapsada ? (
           <button
             onClick={onToggle}
@@ -231,9 +221,7 @@ function SidebarConteudo({
           <>
             <img src="/simbolo.png" alt="" className="h-9 w-9 shrink-0" />
             <div className="min-w-0 flex-1 leading-tight">
-              <div className="truncate text-[15px] font-semibold tracking-tight text-white">
-                MedConsultoria
-              </div>
+              <div className="truncate text-[15px] font-semibold tracking-tight text-white">MedConsultoria</div>
               <div className="truncate text-[11px] font-medium text-white/70">Workspace</div>
             </div>
             {onToggle && (
@@ -249,13 +237,7 @@ function SidebarConteudo({
         )}
       </div>
 
-      <nav
-        className={cn(
-          "flex-1 overflow-y-auto py-4 alt-sm:py-2 alt-xs:py-1",
-          ESPACO_GRUPOS,
-          colapsada ? "px-2" : "px-3",
-        )}
-      >
+      <nav className={cn("flex-1 overflow-y-auto py-4 alt-sm:py-2 alt-xs:py-1", ESPACO_GRUPOS, colapsada ? "px-2" : "px-3")}>
         {grupos.map((grupo, iGrupo) => (
           <div key={grupo.titulo ?? "topo"} className="space-y-1">
             {/* Grupo sem título (o Início) não ganha cabeçalho nem divisor — é o topo da lista.
@@ -270,9 +252,7 @@ function SidebarConteudo({
                       recolhido). Custa 4 rótulos de texto e devolve ~50px — o suficiente para
                       os 13 itens caberem sem rolagem. Alternar por CSS, não por JS, para não
                       depender de hook de media query no primeiro render. */}
-                  {iGrupo > 0 && (
-                    <div className="mx-3 mb-1 hidden border-t border-white/10 alt-2xs:block" />
-                  )}
+                  {iGrupo > 0 && <div className="mx-3 mb-1 hidden border-t border-white/10 alt-2xs:block" />}
                   <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.09em] text-white/55 alt-sm:pb-0 alt-sm:leading-none alt-2xs:hidden">
                     {grupo.titulo}
                   </p>
@@ -293,7 +273,7 @@ function SidebarConteudo({
                   aria-label={colapsada ? item.label : undefined}
                   aria-current={ativo ? "page" : undefined}
                   className={cn(
-                    "group relative flex items-center rounded-lg text-sm font-medium leading-5 text-white/85 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand-blueLight",
+                    "group relative flex items-center rounded-lg text-sm font-medium leading-5 text-white/85 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand-blueLight alt-2xs:text-[13px] alt-2xs:leading-4",
                     ALTURA_ITEM,
                     // Item DENTRO de grupo é submenu: recua para ficar sob o rótulo do grupo, em
                     // vez de alinhado com ele. O "Início" não tem grupo e fica na margem — é isso
@@ -303,7 +283,7 @@ function SidebarConteudo({
                       "bg-white/10 font-semibold !text-white before:absolute before:left-0 before:top-1/2 before:h-6 before:w-1 before:-translate-y-1/2 before:rounded-r-full before:bg-brand-blueLight",
                   )}
                 >
-                  <item.icon className="h-[19px] w-[19px] shrink-0" />
+                  <item.icon className="h-[19px] w-[19px] shrink-0 alt-2xs:h-4 alt-2xs:w-4" />
                   {!colapsada && item.label}
                 </Link>
               );
@@ -312,12 +292,7 @@ function SidebarConteudo({
         ))}
       </nav>
 
-      <div
-        className={cn(
-          "shrink-0 border-t border-white/10 alt-sm:p-2",
-          colapsada ? "p-2" : "p-3",
-        )}
-      >
+      <div className={cn("shrink-0 border-t border-white/10 alt-sm:p-2", colapsada ? "p-2" : "p-3")}>
         <UserMenu colapsada={colapsada} onNavigate={onNavigate} />
       </div>
 
@@ -357,9 +332,7 @@ export function AppLayout() {
     document.title = semTituloProprio ? "MedConsultoria" : `${pageTitle} · MedConsultoria`;
   }, [pageTitle]);
   const ia = trpc.ia.disponivel.useQuery(undefined, { staleTime: 60_000 });
-  const buscaPlaceholder = ia.data?.disponivel
-    ? "Buscar ou perguntar à IA…"
-    : "Buscar clientes, projetos, documentos…";
+  const buscaPlaceholder = ia.data?.disponivel ? "Buscar ou perguntar à IA…" : "Buscar clientes, projetos, documentos…";
 
   const toggleColapsada = () =>
     setColapsada((v) => {
@@ -393,135 +366,129 @@ export function AppLayout() {
   // `/email` exato (e filhas): `startsWith("/email")` pegaria junto `/emails` e
   // `/emails-enviados`, que são páginas normais e não podem virar tela cheia.
   const telaCheia =
-    pathname.startsWith("/mensagens") ||
-    pathname.startsWith("/agenda") ||
-    pathname === "/email" ||
-    pathname.startsWith("/email/");
+    pathname.startsWith("/mensagens") || pathname.startsWith("/agenda") || pathname === "/email" || pathname.startsWith("/email/");
 
   return (
     <BreadcrumbProvider>
-    <div className="flex min-h-screen bg-background">
-      {/* Sidebar fixa (desktop) — sticky em tela cheia: acompanha a rolagem normal da janela. */}
-      <aside
-        className={cn(
-          "sticky top-0 hidden h-screen shrink-0 flex-col self-start border-r border-white/5 bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out md:flex",
-          colapsada ? "w-[76px]" : "w-[264px]",
+      <div className="flex min-h-screen bg-background">
+        {/* Sidebar fixa (desktop) — sticky em tela cheia: acompanha a rolagem normal da janela. */}
+        <aside
+          className={cn(
+            "sticky top-0 hidden h-screen shrink-0 flex-col self-start border-r border-white/5 bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out md:flex",
+            colapsada ? "w-[76px]" : "w-[264px]",
+          )}
+        >
+          <SidebarConteudo colapsada={colapsada} grupos={grupos} pathname={pathname} onToggle={toggleColapsada} />
+        </aside>
+
+        {/* Sidebar drawer (mobile) — sempre expandida */}
+        {mobileNav && (
+          <div className="fixed inset-0 z-50 md:hidden">
+            <div className="absolute inset-0 animate-fade-in bg-foreground/40 backdrop-blur-sm" onClick={() => setMobileNav(false)} />
+            <aside className="relative flex h-full w-[280px] animate-slide-in-right flex-col bg-sidebar text-sidebar-foreground shadow-lg">
+              <button
+                onClick={() => setMobileNav(false)}
+                className="absolute right-3 top-5 z-10 rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label="Fechar menu"
+              >
+                <X className="h-5 w-5" />
+              </button>
+              <SidebarConteudo colapsada={false} grupos={grupos} pathname={pathname} onNavigate={() => setMobileNav(false)} />
+            </aside>
+          </div>
         )}
-      >
-        <SidebarConteudo colapsada={colapsada} grupos={grupos} pathname={pathname} onToggle={toggleColapsada} />
-      </aside>
 
-      {/* Sidebar drawer (mobile) — sempre expandida */}
-      {mobileNav && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div
-            className="absolute inset-0 animate-fade-in bg-foreground/40 backdrop-blur-sm"
-            onClick={() => setMobileNav(false)}
-          />
-          <aside className="relative flex h-full w-[280px] animate-slide-in-right flex-col bg-sidebar text-sidebar-foreground shadow-lg">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b bg-card/80 px-4 backdrop-blur-md md:px-6">
             <button
-              onClick={() => setMobileNav(false)}
-              className="absolute right-3 top-5 z-10 rounded-md p-1.5 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-              aria-label="Fechar menu"
+              onClick={() => setMobileNav(true)}
+              className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
+              aria-label="Abrir menu"
             >
-              <X className="h-5 w-5" />
+              <Menu className="h-5 w-5" />
             </button>
-            <SidebarConteudo colapsada={false} grupos={grupos} pathname={pathname} onNavigate={() => setMobileNav(false)} />
-          </aside>
-        </div>
-      )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b bg-card/80 px-4 backdrop-blur-md md:px-6">
-          <button
-            onClick={() => setMobileNav(true)}
-            className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
-            aria-label="Abrir menu"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-
-          {/* Zona ESQUERDA (desktop): contexto/breadcrumb. `flex-1` para equilibrar a direita e
+            {/* Zona ESQUERDA (desktop): contexto/breadcrumb. `flex-1` para equilibrar a direita e
               manter a busca no CENTRO EXATO — antes a busca deslizava conforme o tamanho do
               breadcrumb (curto no Início, longo nas fichas), parecendo desalinhada. */}
-          <div className="hidden min-w-0 flex-1 md:flex">
-            <Breadcrumbs />
-          </div>
+            <div className="hidden min-w-0 flex-1 md:flex">
+              <Breadcrumbs />
+            </div>
 
-          {/* Mobile: título da página (referência de onde o usuário está — breadcrumb some no celular). */}
-          <span className="min-w-0 flex-1 truncate text-base font-semibold text-foreground md:hidden">{pageTitle}</span>
+            {/* Mobile: título da página (referência de onde o usuário está — breadcrumb some no celular). */}
+            <span className="min-w-0 flex-1 truncate text-base font-semibold text-foreground md:hidden">{pageTitle}</span>
 
-          {/* Zona CENTRAL (desktop): as três zonas são `flex-1`, então a busca fica no centro
+            {/* Zona CENTRAL (desktop): as três zonas são `flex-1`, então a busca fica no centro
               exato. O botão é capado em `max-w-md` mas ENCOLHE quando o espaço aperta (tablet),
               evitando overflow — todas as zonas têm `min-w-0`. */}
-          <div className="hidden min-w-0 flex-1 justify-center md:flex">
-            <button
-              onClick={() => setCmdkOpen(true)}
-              aria-label="Buscar"
-              aria-keyshortcuts="Control+K Meta+K"
-              className="group flex w-full max-w-md items-center gap-2.5 rounded-lg border bg-background px-3.5 py-2 text-sm text-muted-foreground shadow-sm outline-none transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              {ia.data?.disponivel ? (
-                <Sparkles className="h-4 w-4 shrink-0 text-primary" />
-              ) : (
-                <Search className="h-4 w-4 shrink-0 transition-colors group-hover:text-foreground" />
-              )}
-              <span className="truncate">{buscaPlaceholder}</span>
-              <kbd className="ml-auto hidden shrink-0 rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium sm:inline-block">
-                {ATALHO_BUSCA}
-              </kbd>
-            </button>
-          </div>
+            <div className="hidden min-w-0 flex-1 justify-center md:flex">
+              <button
+                onClick={() => setCmdkOpen(true)}
+                aria-label="Buscar"
+                aria-keyshortcuts="Control+K Meta+K"
+                className="group flex w-full max-w-md items-center gap-2.5 rounded-lg border bg-background px-3.5 py-2 text-sm text-muted-foreground shadow-sm outline-none transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                {ia.data?.disponivel ? (
+                  <Sparkles className="h-4 w-4 shrink-0 text-primary" />
+                ) : (
+                  <Search className="h-4 w-4 shrink-0 transition-colors group-hover:text-foreground" />
+                )}
+                <span className="truncate">{buscaPlaceholder}</span>
+                <kbd className="ml-auto hidden shrink-0 rounded border bg-muted px-1.5 py-0.5 text-[10px] font-medium sm:inline-block">
+                  {ATALHO_BUSCA}
+                </kbd>
+              </button>
+            </div>
 
-          {/* Zona DIREITA: ações. `md:flex-1 md:justify-end` fecha o equilíbrio com a esquerda. */}
-          <div className="flex shrink-0 items-center gap-1 md:flex-1 md:justify-end">
-            {/* Mobile: busca vira ícone (o título ocupa o espaço). */}
-            <button
-              onClick={() => setCmdkOpen(true)}
-              className="rounded-md p-2 text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40 md:hidden"
-              aria-label="Buscar"
-            >
-              {ia.data?.disponivel ? <Sparkles className="h-5 w-5 text-primary" /> : <Search className="h-5 w-5" />}
-            </button>
-            <button
-              onClick={() => setGuiaAberto(true)}
-              className="rounded-md p-2 text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
-              title="Guia de instruções"
-              aria-label="Guia de instruções"
-            >
-              <HelpCircle className="h-5 w-5" />
-            </button>
-            <NotificationBell />
-          </div>
-        </header>
+            {/* Zona DIREITA: ações. `md:flex-1 md:justify-end` fecha o equilíbrio com a esquerda. */}
+            <div className="flex shrink-0 items-center gap-1 md:flex-1 md:justify-end">
+              {/* Mobile: busca vira ícone (o título ocupa o espaço). */}
+              <button
+                onClick={() => setCmdkOpen(true)}
+                className="rounded-md p-2 text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40 md:hidden"
+                aria-label="Buscar"
+              >
+                {ia.data?.disponivel ? <Sparkles className="h-5 w-5 text-primary" /> : <Search className="h-5 w-5" />}
+              </button>
+              <button
+                onClick={() => setGuiaAberto(true)}
+                className="rounded-md p-2 text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+                title="Guia de instruções"
+                aria-label="Guia de instruções"
+              >
+                <HelpCircle className="h-5 w-5" />
+              </button>
+              <NotificationBell />
+            </div>
+          </header>
 
-        {/* Padrão: scroll NORMAL da janela (conteúdo flui, o navegador rola; sidebar/cabeçalho
+          {/* Padrão: scroll NORMAL da janela (conteúdo flui, o navegador rola; sidebar/cabeçalho
             fixos via sticky). EXCEÇÃO — telas "app" (Mensagens/Agenda) que precisam de painéis de
             altura fixa com scroll INTERNO (chat que rola, grade da agenda): o <main> vira o viewport
             e o container preenche a tela; a própria página (h-full) gerencia o scroll por dentro. */}
-        {telaCheia ? (
-          // Altura FIXA = viewport − cabeçalho (h-16=4rem): como a raiz é min-h-screen, sem isto a
-          // coluna cresceria com o conteúdo e a janela rolaria. Assim o main capa e a página rola por dentro.
-          <main className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden">
-            <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden p-4 md:p-6 lg:px-10 lg:py-8">
-              <Outlet />
-            </div>
-          </main>
-        ) : (
-          // min-w-0: sem isto, um flex item sem overflow próprio (este <main>) cresce para caber o
-          // min-content dos descendentes — é o que fazia o quadro do Kanban (`/projetos/$id`)
-          // vazar a largura da JANELA em vez de rolar por dentro do próprio `overflow-x-auto`.
-          <main className="min-w-0 flex-1">
-            <div className="mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:px-10 lg:py-8">
-              <Outlet />
-            </div>
-          </main>
-        )}
-      </div>
+          {telaCheia ? (
+            // Altura FIXA = viewport − cabeçalho (h-16=4rem): como a raiz é min-h-screen, sem isto a
+            // coluna cresceria com o conteúdo e a janela rolaria. Assim o main capa e a página rola por dentro.
+            <main className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden">
+              <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden p-4 md:p-6 lg:px-10 lg:py-8">
+                <Outlet />
+              </div>
+            </main>
+          ) : (
+            // min-w-0: sem isto, um flex item sem overflow próprio (este <main>) cresce para caber o
+            // min-content dos descendentes — é o que fazia o quadro do Kanban (`/projetos/$id`)
+            // vazar a largura da JANELA em vez de rolar por dentro do próprio `overflow-x-auto`.
+            <main className="min-w-0 flex-1">
+              <div className="mx-auto w-full max-w-[1600px] p-4 md:p-6 lg:px-10 lg:py-8">
+                <Outlet />
+              </div>
+            </main>
+          )}
+        </div>
 
-      <CommandPalette open={cmdkOpen} onOpenChange={setCmdkOpen} />
-      <GuiaTour open={guiaAberto} onClose={() => setGuiaAberto(false)} />
-    </div>
+        <CommandPalette open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <GuiaTour open={guiaAberto} onClose={() => setGuiaAberto(false)} />
+      </div>
     </BreadcrumbProvider>
   );
 }

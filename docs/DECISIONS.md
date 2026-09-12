@@ -5823,12 +5823,15 @@ Três defeitos vieram dessa rodada, e nenhum apareceria sem abrir o navegador:
    passava a apontar para o elemento errado quando o modal abria.
 2. O módulo estava **desligado em desenvolvimento** — faltava a `PACIENTE_CRYPTO_KEY` no `.env`
    local. A trava funcionou como projetada; o que faltava era a chave de dev.
-3. **A Conciliação NÃO cabe no menu.** Com ela, "Negócio" ia a 6 itens e o menu passava a rolar
-   a 1280x580: o e2e mediu **480px necessários contra 453px disponíveis** — 27px, com item de
-   28px. Sobrava exatamente um item. Encolher a barra ainda mais pioraria para todo mundo por
-   causa de um; então a página saiu do menu (declarada em `FORA_DO_MENU`) e abre pelo Ctrl+K e
-   pelo card **"Produção de consultas"** da ficha do cliente — que é de onde o trabalho começa.
-   O ADR-94 já previa esse desfecho: o limite de 4 itens é diretriz, **o menu não rolar é lei**.
+3. **A Conciliação não cabia no menu — e a saída foi encolher a fonte, não esconder a página.**
+   Com ela, "Negócio" ia a 6 itens e o menu rolava a 1280x580: o e2e mediu **480px necessários
+   contra 453px** — 27px, com item de 28px. A primeira decisão foi tirá-la do menu; o dono pediu
+   o contrário, e ele está certo: esconder um destino de navegação é pior que reduzir a fonte na
+   janela mais apertada. O **último degrau (`alt-2xs`, ≤660px)**, que já trocava os cabeçalhos de
+   grupo por um traço, passou a encolher também o item: 13px de fonte, entrelinha 16px, ícone
+   16px, `py-0.5`. O item cai para **20px** e sobram **89px** a 580 — espaço para mais 4 itens.
+   **Acima de 720px nada muda.** O ADR-94 segue intacto no que importa: 4 itens é diretriz, o
+   menu não rolar é lei — provada em seis alturas.
 
 ### Junto: a auditoria de produção voltou a zero
 
