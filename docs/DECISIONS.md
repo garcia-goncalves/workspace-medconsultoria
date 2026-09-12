@@ -2672,13 +2672,24 @@ sem hora e sem fuso). `31/02/2026` é **recusado** — no JavaScript viraria 03/
   sessão, atrás dos valores gravados **e** das chaves proibidas. Começa provando que o dado está
   no banco cifrado — senão a trava passaria por não haver dado nenhum.
 
-### ⚠️ O que NÃO foi provado
+### A tela foi percorrida (e o menu reprovou)
 
-**A tela não foi aberta.** A app local ficou fora do ar por falta de memória durante todo o
-trabalho. Pela lição das ADR-118 e ADR-119, typecheck verde não prova tela — então a interface
-está **não verificada**, e o `e2e/menu-sem-scroll.spec.ts` **não rodou**. "Negócio" foi de 5 para
-6 itens (o ADR-94 pede no máximo 4; a lei testada é o menu não rolar). Se reprovar, o item sai do
-menu e fica no Ctrl+K e na ficha do cliente.
+`e2e/flows-conciliacao.spec.ts`: escolher o cliente, enviar a planilha, conferir a prévia,
+importar, ligar o convênio e ver o resumo fechar. **8/8 verdes.** Ele também confere que
+CPF/telefone/e-mail **não estão no HTML da página** — a última rede depois do teste de router.
+
+Três defeitos vieram dessa rodada, e nenhum apareceria sem abrir o navegador:
+
+1. **`id="competencia"` duplicado** entre a página e o diálogo. HTML inválido, e o `<label>`
+   passava a apontar para o elemento errado quando o modal abria.
+2. O módulo estava **desligado em desenvolvimento** — faltava a `PACIENTE_CRYPTO_KEY` no `.env`
+   local. A trava funcionou como projetada; o que faltava era a chave de dev.
+3. **A Conciliação NÃO cabe no menu.** Com ela, "Negócio" ia a 6 itens e o menu passava a rolar
+   a 1280x580: o e2e mediu **480px necessários contra 453px disponíveis** — 27px, com item de
+   28px. Sobrava exatamente um item. Encolher a barra ainda mais pioraria para todo mundo por
+   causa de um; então a página saiu do menu (declarada em `FORA_DO_MENU`) e abre pelo Ctrl+K e
+   pelo card **"Produção de consultas"** da ficha do cliente — que é de onde o trabalho começa.
+   O ADR-94 já previa esse desfecho: o limite de 4 itens é diretriz, **o menu não rolar é lei**.
 
 ### Junto: a auditoria de produção voltou a zero
 

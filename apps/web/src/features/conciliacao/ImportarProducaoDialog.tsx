@@ -150,8 +150,8 @@ export function ImportarProducaoDialog({
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label htmlFor="competencia">Competência *</Label>
-                <Select id="competencia" value={competencia} onChange={(e) => setCompetencia(e.target.value)}>
+                <Label htmlFor="competencia-importacao">Competência *</Label>
+                <Select id="competencia-importacao" value={competencia} onChange={(e) => setCompetencia(e.target.value)}>
                   <option value="">Selecione…</option>
                   {p.porCompetencia.map((c) => (
                     <option key={c.competencia} value={c.competencia}>

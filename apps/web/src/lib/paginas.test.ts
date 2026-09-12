@@ -75,6 +75,7 @@ const FORA_DO_MENU: Record<string, string> = {
   "/emails-enviados": "abre por Ajustes (monitor de envios)",
   "/usuarios": "abre por Ajustes (equipe e acessos)",
   "/configuracoes": "abre pelo menu do usuário, no rodapé da barra",
+  "/conciliacao": "abre pelo Ctrl+K e pelo card da ficha do cliente (não cabe no menu a 1280x580 — ADR-125)",
 };
 
 describe("menu lateral (barra da esquerda)", () => {
@@ -83,10 +84,7 @@ describe("menu lateral (barra da esquerda)", () => {
   it("toda rota de página ou está no menu ou está declarada como exceção", () => {
     const cobertas = new Set([...noMenu.map((i) => i.to), ...Object.keys(FORA_DO_MENU)]);
     const orfas = [...rotasDoRouter()].filter((r) => !cobertas.has(r));
-    expect(
-      orfas,
-      `rotas sem lugar no menu: ${orfas.join(", ")} — dê um \`grupo\` em paginas.ts ou declare em FORA_DO_MENU`,
-    ).toEqual([]);
+    expect(orfas, `rotas sem lugar no menu: ${orfas.join(", ")} — dê um \`grupo\` em paginas.ts ou declare em FORA_DO_MENU`).toEqual([]);
   });
 
   it("E-mail está no menu (o item que sumiu por causa da lista paralela)", () => {

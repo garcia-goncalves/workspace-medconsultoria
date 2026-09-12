@@ -233,13 +233,13 @@ Além do polimento acima, o produto ganhou blocos inteiros depois do MVP. Todos 
 
 ---
 
-## Conciliação — Fase 1 🟨 (2026-09)
+## Conciliação — Fase 1 ✅ (2026-09)
 
 Spec: `docs/superpowers/specs/2026-09-11-conciliacao-producao-design.md` (ADR-125). Nasce da
 reunião de 11/09/2026: hoje o faturamento do cliente é manual, e ninguém responde _"deveria ter
 recebido 18 mil, recebeu 800"_.
 
-**Entregue (backend completo, tela NÃO verificada):**
+**Entregue e verificado na tela:**
 
 - [x] Leitor de planilha próprio — **CSV, XLSX e tabela HTML disfarçada de `.xls`**, detectados
       pelo conteúdo. Zero dependência nova (o `exceljs` não pôde ser publicado — ADR-125).
@@ -252,12 +252,17 @@ recebido 18 mil, recebeu 800"_.
 - [x] Tela `/conciliacao` + card na ficha do cliente + guia do botão "?".
 - [x] **Auditoria de produção de 11 achados para 0** (dívida anterior que travava a CI).
 
-**Falta:**
+- [x] `e2e/flows-conciliacao.spec.ts` — o fluxo inteiro pela interface (escolher cliente,
+      enviar planilha, conferir a prévia, importar, ligar o convênio, ver o resumo fechar):
+      **8/8 verdes**, incluindo a conferência de que o dado do paciente não está no HTML.
+- [x] `menu-sem-scroll` verde — mas a página **saiu do menu**: com ela, "Negócio" ia a 6 itens
+      e o menu rolava a 1280x580 (480px necessários contra 453px). Abre pelo Ctrl+K e pelo card
+      "Produção de consultas" da ficha do cliente.
 
-- [ ] **Percorrer a tela** — não foi aberta (app local fora do ar por memória). Pela lição das
-      ADR-118/119, isto NÃO está provado.
-- [ ] `e2e/menu-sem-scroll.spec.ts` — "Negócio" foi para 6 itens e o teste não rodou.
-- [ ] As 4 perguntas do Sérgio (§11 da spec) — a definição de competência muda código.
+**Falta publicar:** (1) merge na `main` via PR; (2) rodar
+`scripts/server/set-paciente-crypto-key.sh` no servidor — sem a chave o módulo sobe DESLIGADO;
+(3) o disparo do deploy pelo dono. As 4 perguntas do Sérgio (§11 da spec) seguem abertas — a
+definição de competência muda código.
 
 **Fase 2 (recorte revisto pelas amostras):** o relatório de repasse de **cirurgia** existe, e a
 defasagem atendimento → pagamento é de ~3,5 meses. A Fase 2 é **conciliar cirurgia**, não

@@ -123,12 +123,16 @@ export const PAGINAS: Pagina[] = [
       "planos",
     ],
   },
+  // FORA do menu de propósito: com ela, "Negócio" ia a 6 itens e o menu passava a ROLAR a
+  // 1280x580 — faltavam 27px para um item de 28px, medido pelo e2e. Menu que rola esconde
+  // navegação, e isso é lei testada (ADR-94); encolher a barra ainda mais pioraria para todo
+  // mundo por causa de um item. Abre pelo Ctrl+K e pelo card "Produção de consultas" da ficha
+  // do cliente, que é de onde o trabalho de fato começa.
   {
     label: "Conciliação",
     icon: FileSpreadsheet,
     to: "/conciliacao",
     minRole: "FUNCIONARIO",
-    grupo: "Negócio",
     keywords: [
       "producao",
       "produção",
