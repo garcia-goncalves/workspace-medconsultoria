@@ -13,7 +13,39 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-08-22)
+## Estado atual (2026-09-11)
+
+- **🧾 CONCILIAÇÃO — Fase 1 pronta e verificada na tela, NÃO publicada (ADR-125).** A produção de
+  consultas do cliente entra pelo sistema: `/conciliacao` (fora do menu — ver abaixo), importação
+  em três passos (enviar → **conferir** → gravar), de-para de convênio/profissional que **retroage**,
+  e resumo por operadora separando o que não gera recebimento. **CPF, telefone e e-mail do paciente
+  ficam CIFRADOS** (`PACIENTE_CRYPTO_KEY`, separada da do e-mail) e **não existem no retorno do
+  tRPC** — há teste varrendo o JSON do router e o HTML da tela. ⚠️ **Sem a chave no `.env` o módulo
+  sobe DESLIGADO** (é assim de propósito): no servidor, rode
+  `scripts/server/set-paciente-crypto-key.sh` + `touch tmp/restart.txt`. Foi exatamente o que
+  aconteceu em desenvolvimento — o botão de importar sumiu até a chave existir.
+- **📄 O leitor de planilha é PRÓPRIO, com zero dependência nova.** Aceita **CSV, XLSX e a tabela
+  HTML que sistemas legados exportam com nome `.xls`**, detectado pelo **conteúdo**, nunca pela
+  extensão. O `exceljs` **não pode ser publicado aqui**: a metade dele que escreve (`archiver`)
+  arrasta um `minimatch` com falha ALTA, e fechar isso exigiria override escopado por major, que o
+  tradutor do artefato recusa (ADR-116/117) — ou a auditoria reprova, ou o `build:deploy` quebra.
+  `.xls` binário (BIFF) é reconhecido e **recusado com a saída pronta**.
+- **📌 A Conciliação NÃO está no menu, e é de propósito.** Com ela, "Negócio" ia a 6 itens e o menu
+  passava a **rolar** a 1280x580 — o e2e mediu 480px necessários contra 453px, faltando 27px para
+  um item de 28px. Menu que rola esconde navegação: o limite de 4 itens do ADR-94 é diretriz, **o
+  menu não rolar é lei**. Abre pelo **Ctrl+K** e pelo card **"Produção de consultas"** da ficha do
+  cliente.
+- **✅ `pnpm audit --prod` voltou a ZERO.** Estava em 11 achados (5 ALTOS) e o portão da CI
+  reprovava **qualquer** PR. Nenhum salto de major foi preciso — as faixas já cobriam o conserto e
+  faltava atualizar o lockfile; só o override do `fast-uri` estava velho (`^3.1.5` → `^3.1.6`) e o
+  `nodemailer` precisou de override porque o `mailparser` o prende na 9.0.3.
+- ⚠️ **A Fase 2 mudou de recorte.** As amostras mostraram que o relatório de repasse de **cirurgia**
+  existe (spec §4b) e que a defasagem atendimento → pagamento é de **~3,5 meses**. Então a Fase 2 é
+  **conciliar cirurgia**, não importá-la. Casa pelo **número do atendimento** (não pelo CPF), os
+  códigos são de tabelas diferentes (TUSS × SIGTAP) e os documentos são **PDF** — o projeto não tem
+  leitor de PDF, e a primeira jogada é perguntar ao TASY se exporta em planilha.
+
+## Estado anterior (2026-08-22)
 
 - **✅ NO AR DESDE 22/08/2026 às 19:03 — e o E-MAIL FINALMENTE FUNCIONA, provado na tela.** Publicação `32591319305` no commit `f23a1f2`: a **suíte completa rodou antes de tocar no servidor** (`build-test` + `e2e` + `integration`, os três verdes — primeira vez que o elo da ADR-121 foi exercido de verdade), depois 7/7 no deploy com `found 0 vulnerabilities`, `No pending migrations to apply`, `/health` = `{"status":"ok"}`, `/` e `/credenciamentos` = 200. **A prova do e-mail não é o deploy verde, é o monitor:** enviados em 7 dias saiu de **0 → 5**, taxa de entrega de **0% → 17%**, e o e-mail *"Seu acesso ao Portal do Cliente"* para **`tibamooca@gmail.com`** — o mesmo que em 21/08 falhou no certificado — aparece **`enviado`**. **A senha SMTP estava certa**: a ressalva de que a autenticação seria a próxima barreira **não se concretizou**. ⚠️ **Para testar e-mail de novo, NÃO reenvie o formulário com um endereço já no funil:** o `capturarLead` deduplica por e-mail, atualiza o lead existente e não manda convite novo (só as 4 notificações internas). Use o botão **"Enviar acesso"** no card do lead — foi assim que a prova foi feita — ou um endereço inédito; "Enviar acesso" **move o lead para "Qualificação"**, reversível arrastando.
 - **🔍 AUDITORIA REFEITA EM 22/08 — 87% → 89%, e o que mudou não foi código.** Aba **Sistema → Auditoria** (documento carimbado, não painel ao vivo), medida no commit `f23a1f2`, que é exatamente o que está no ar. Duas travas bloqueantes caíram: a `main` ganhou regra de repositório e o e-mail passou a sair. Sobrou **uma** bloqueante e ela **não foi reconferida**: os dados jurídicos (`identidade.get` exige sessão de funcionário, e a auditoria roda sem credencial de produção) — enquanto estiverem nulos o contrato imprime `[A PREENCHER: CNPJ]`. **Dois achados novos, os dois de conferência no que JÁ está no ar:** (1) ninguém é avisado quando o e-mail para de sair → virou a ADR-123; (2) a **migração irreversível da ADR-119 rodou em 21/08 às 02:22** (commit `8159670`), **não** no lote de 22/08, e a tela de clientes **nunca foi aberta em produção depois disso** — é a lição da ADR-118 de novo: typecheck verde não prova tela. Medido nesta rodada: typecheck 0 nos 5 pacotes · lint 0 · `pnpm audit --prod` sem corte = 0 · 305 endpoints em 28 routers, 290 atrás de guarda · 54.440 linhas · produção 200 em `/health`, `/`, `/credenciamentos` e `/comecar`.
