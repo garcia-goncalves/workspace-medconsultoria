@@ -1,11 +1,4 @@
-import {
-  createRouter,
-  createRootRoute,
-  createRoute,
-  lazyRouteComponent,
-  Link,
-  redirect,
-} from "@tanstack/react-router";
+import { createRouter, createRootRoute, createRoute, lazyRouteComponent, Link, redirect } from "@tanstack/react-router";
 import { SearchX } from "lucide-react";
 import { AppLayout } from "../components/layout/AppLayout";
 import { EmptyState } from "../components/ui/empty-state";
@@ -17,6 +10,7 @@ import { JaConectadoPage } from "../features/auth/JaConectadoPage";
 // Páginas carregadas sob demanda (um chunk por rota) — só o Dashboard (landing) é eager.
 const ClientesListPage = lazyRouteComponent(() => import("../features/crm/clientes/ClientesListPage"), "ClientesListPage");
 const CredenciamentosPage = lazyRouteComponent(() => import("../features/credenciamentos/CredenciamentosPage"), "CredenciamentosPage");
+const ConciliacaoPage = lazyRouteComponent(() => import("../features/conciliacao/ConciliacaoPage"), "ConciliacaoPage");
 const ClienteDetailPage = lazyRouteComponent(() => import("../features/crm/clientes/ClienteDetailPage"), "ClienteDetailPage");
 const LeadsPipelinePage = lazyRouteComponent(() => import("../features/crm/leads/LeadsPipelinePage"), "LeadsPipelinePage");
 const ProjetosListPage = lazyRouteComponent(() => import("../features/projetos/ProjetosListPage"), "ProjetosListPage");
@@ -33,7 +27,10 @@ const ModeloDetailPage = lazyRouteComponent(() => import("../features/documentos
 const ConfiguracoesPage = lazyRouteComponent(() => import("../features/configuracoes/ConfiguracoesPage"), "ConfiguracoesPage");
 const UsuariosPage = lazyRouteComponent(() => import("../features/configuracoes/UsuariosPage"), "UsuariosPage");
 const EmailsAdminPage = lazyRouteComponent(() => import("../features/emails/EmailsAdminPage"), "EmailsAdminPage");
-const EmailsEnviadosMonitorPage = lazyRouteComponent(() => import("../features/emails/EmailsEnviadosMonitorPage"), "EmailsEnviadosMonitorPage");
+const EmailsEnviadosMonitorPage = lazyRouteComponent(
+  () => import("../features/emails/EmailsEnviadosMonitorPage"),
+  "EmailsEnviadosMonitorPage",
+);
 const ServicosPage = lazyRouteComponent(() => import("../features/crm/servicos/ServicosPage"), "ServicosPage");
 const AjustesPage = lazyRouteComponent(() => import("../features/ajustes/AjustesPage"), "AjustesPage");
 const SistemaPage = lazyRouteComponent(() => import("../features/sistema/SistemaPage"), "SistemaPage");
@@ -41,11 +38,7 @@ const SistemaPage = lazyRouteComponent(() => import("../features/sistema/Sistema
 /** Rota inexistente — mostra um estado amigável dentro do shell. */
 function NotFound() {
   return (
-    <EmptyState
-      icon={SearchX}
-      title="Página não encontrada"
-      description="O endereço que você tentou abrir não existe ou foi movido."
-    >
+    <EmptyState icon={SearchX} title="Página não encontrada" description="O endereço que você tentou abrir não existe ou foi movido.">
       <Link to="/" className={buttonVariants({ variant: "outline" })}>
         Voltar ao início
       </Link>
@@ -71,6 +64,12 @@ const credenciamentosRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/credenciamentos",
   component: CredenciamentosPage,
+});
+
+const conciliacaoRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/conciliacao",
+  component: ConciliacaoPage,
 });
 
 const clienteDetailRoute = createRoute({
@@ -277,6 +276,7 @@ const routeTree = rootRoute.addChildren([
   clientesRoute,
   clienteDetailRoute,
   credenciamentosRoute,
+  conciliacaoRoute,
   configuracoesRoute,
   usuariosRoute,
   emailsRoute,

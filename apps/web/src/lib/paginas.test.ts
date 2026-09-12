@@ -83,10 +83,7 @@ describe("menu lateral (barra da esquerda)", () => {
   it("toda rota de página ou está no menu ou está declarada como exceção", () => {
     const cobertas = new Set([...noMenu.map((i) => i.to), ...Object.keys(FORA_DO_MENU)]);
     const orfas = [...rotasDoRouter()].filter((r) => !cobertas.has(r));
-    expect(
-      orfas,
-      `rotas sem lugar no menu: ${orfas.join(", ")} — dê um \`grupo\` em paginas.ts ou declare em FORA_DO_MENU`,
-    ).toEqual([]);
+    expect(orfas, `rotas sem lugar no menu: ${orfas.join(", ")} — dê um \`grupo\` em paginas.ts ou declare em FORA_DO_MENU`).toEqual([]);
   });
 
   it("E-mail está no menu (o item que sumiu por causa da lista paralela)", () => {

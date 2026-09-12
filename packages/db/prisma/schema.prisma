@@ -92,45 +92,46 @@ model User {
   updatedAt        DateTime     @updatedAt
   deletedAt        DateTime?
 
-  sessions             Session[]
-  sessoesDeSuporte     Session[]              @relation("SessaoDeSuporte")
-  activityLogs         ActivityLog[]
-  cliente              Cliente?               @relation("UserCliente", fields: [clienteId], references: [id], onDelete: SetNull)
-  clientesResponsavel  Cliente[]              @relation("ClienteResponsavel")
-  leadsResponsavel     Lead[]                 @relation("LeadResponsavel")
-  projetosResponsavel  Projeto[]              @relation("ProjetoResponsavel")
-  projetosParticipa    ProjetoParticipante[]
-  cardsResponsavel     Card[]                 @relation("CardResponsavel")
-  timeEntries          TimeEntry[]
-  notas                Nota[]
-  eventos              Evento[]               @relation("EventoDono")
-  eventoParticipacoes  EventoParticipante[]
-  notificacoes         Notificacao[]
-  mensagens            Mensagem[]
-  conversaParticipa    ConversaParticipante[]
-  conversasResponsavel Conversa[]             @relation("ConversaResponsavel")
-  conversasCriadas     Conversa[]             @relation("ConversaCriador")
-  documentosCriados    Documento[]            @relation("DocCriador")
-  documentosAprovados  Documento[]            @relation("DocAprovador")
+  sessions              Session[]
+  sessoesDeSuporte      Session[]              @relation("SessaoDeSuporte")
+  activityLogs          ActivityLog[]
+  cliente               Cliente?               @relation("UserCliente", fields: [clienteId], references: [id], onDelete: SetNull)
+  clientesResponsavel   Cliente[]              @relation("ClienteResponsavel")
+  leadsResponsavel      Lead[]                 @relation("LeadResponsavel")
+  projetosResponsavel   Projeto[]              @relation("ProjetoResponsavel")
+  projetosParticipa     ProjetoParticipante[]
+  cardsResponsavel      Card[]                 @relation("CardResponsavel")
+  timeEntries           TimeEntry[]
+  notas                 Nota[]
+  eventos               Evento[]               @relation("EventoDono")
+  eventoParticipacoes   EventoParticipante[]
+  notificacoes          Notificacao[]
+  mensagens             Mensagem[]
+  conversaParticipa     ConversaParticipante[]
+  conversasResponsavel  Conversa[]             @relation("ConversaResponsavel")
+  conversasCriadas      Conversa[]             @relation("ConversaCriador")
+  documentosCriados     Documento[]            @relation("DocCriador")
+  documentosAprovados   Documento[]            @relation("DocAprovador")
   // Trilha de quem aceitou/assinou estando logado (ADR-137).
-  propostasRespondidas Documento[]            @relation("PropostasRespondidas")
-  assinaturasFeitas    Assinatura[]           @relation("AssinaturasFeitas")
-  clientesAnonimizados Cliente[]              @relation("ClientesAnonimizados")
-  documentoVersoes     DocumentoVersao[]
-  suporteMensagens     SuporteMensagem[]
-  tokens               Token[]
-  preferenciasEmail    PreferenciaEmail[]
-  contas               Conta[]                @relation("ContaDono")
-  categorias           Categoria[]            @relation("CategoriaDono")
-  tarefasCriadas       Tarefa[]               @relation("TarefaCriador")
-  tarefasResponsavel   TarefaResponsavel[]
-  caixasEmail          CaixaEmail[]
-  convidadoPor         User?                  @relation("ConvitePortal", fields: [convidadoPorId], references: [id], onDelete: SetNull)
-  convidou             User[]                 @relation("ConvitePortal")
+  propostasRespondidas  Documento[]            @relation("PropostasRespondidas")
+  assinaturasFeitas     Assinatura[]           @relation("AssinaturasFeitas")
+  clientesAnonimizados  Cliente[]              @relation("ClientesAnonimizados")
+  documentoVersoes      DocumentoVersao[]
+  suporteMensagens      SuporteMensagem[]
+  tokens                Token[]
+  preferenciasEmail     PreferenciaEmail[]
+  contas                Conta[]                @relation("ContaDono")
+  categorias            Categoria[]            @relation("CategoriaDono")
+  tarefasCriadas        Tarefa[]               @relation("TarefaCriador")
+  tarefasResponsavel    TarefaResponsavel[]
+  caixasEmail           CaixaEmail[]
+  convidadoPor          User?                  @relation("ConvitePortal", fields: [convidadoPorId], references: [id], onDelete: SetNull)
+  convidou              User[]                 @relation("ConvitePortal")
   // API DO AGENTE (ADR-149): delegações emitidas EM NOME desta pessoa, e as que ela emitiu.
-  delegacoesDeAgente   AgentDelegation[]      @relation("DelegacaoDoUsuario")
-  delegacoesEmitidas   AgentDelegation[]      @relation("DelegacaoEmitidaPor")
-  idempotenciasDeAgente AgentIdempotency[]   @relation("IdempotenciaDoAgente")
+  delegacoesDeAgente    AgentDelegation[]      @relation("DelegacaoDoUsuario")
+  delegacoesEmitidas    AgentDelegation[]      @relation("DelegacaoEmitidaPor")
+  idempotenciasDeAgente AgentIdempotency[]     @relation("IdempotenciaDoAgente")
+  producaoLotes         ProducaoLote[]         @relation("LoteImportadoPor")
 
   @@index([role])
   @@index([clienteId])
@@ -290,24 +291,28 @@ model Cliente {
   updatedAt         DateTime          @updatedAt
   deletedAt         DateTime?
 
-  responsavel         User?                @relation("ClienteResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
-  anonimizadoPor      User?                @relation("ClientesAnonimizados", fields: [anonimizadoPorId], references: [id], onDelete: SetNull)
-  contatos            Contato[]
-  usuariosPortal      User[]               @relation("UserCliente")
-  leadsConvertidos    Lead[]               @relation("LeadConvertido")
-  leadsPortal         Lead[]               @relation("LeadClientePortal")
-  projetos            Projeto[]
-  eventos             Evento[]
-  contas              Conta[]
-  documentos          Documento[]
-  suporteMensagens    SuporteMensagem[]
-  conversas           Conversa[]
-  servicosContratados ClienteServico[]
-  arquivos            Arquivo[]
-  respostasFormulario FormularioResposta[]
-  tarefas             Tarefa[]
-  profissionais       Profissional[]
-  credenciamentos     Credenciamento[]
+  responsavel             User?                    @relation("ClienteResponsavel", fields: [responsavelId], references: [id], onDelete: SetNull)
+  anonimizadoPor          User?                    @relation("ClientesAnonimizados", fields: [anonimizadoPorId], references: [id], onDelete: SetNull)
+  contatos                Contato[]
+  usuariosPortal          User[]                   @relation("UserCliente")
+  leadsConvertidos        Lead[]                   @relation("LeadConvertido")
+  leadsPortal             Lead[]                   @relation("LeadClientePortal")
+  projetos                Projeto[]
+  eventos                 Evento[]
+  contas                  Conta[]
+  documentos              Documento[]
+  suporteMensagens        SuporteMensagem[]
+  conversas               Conversa[]
+  servicosContratados     ClienteServico[]
+  arquivos                Arquivo[]
+  respostasFormulario     FormularioResposta[]
+  tarefas                 Tarefa[]
+  profissionais           Profissional[]
+  credenciamentos         Credenciamento[]
+  producaoLotes           ProducaoLote[]
+  producaoConsultas       ProducaoConsulta[]
+  mapeamentosConvenio     MapeamentoConvenio[]
+  mapeamentosProfissional MapeamentoProfissional[]
 
   @@index([responsavelId])
   @@index([deletedAt])
@@ -416,9 +421,11 @@ model Operadora {
   usoFaturamento    Boolean  @default(true)
   createdAt         DateTime @default(now())
 
-  credenciamentos Credenciamento[]
+  credenciamentos     Credenciamento[]
   /// Convênios que o cliente atende, por serviço contratado (ADR-126).
-  clienteServicos ClienteServico[] @relation("ClienteServicoOperadoras")
+  clienteServicos     ClienteServico[]     @relation("ClienteServicoOperadoras")
+  producaoConsultas   ProducaoConsulta[]
+  mapeamentosConvenio MapeamentoConvenio[]
 
   @@index([ordem])
 }
@@ -505,7 +512,7 @@ model Servico {
   /// conta da clínica") e dependia de alguém lembrar de digitá-la em toda proposta — proposta
   /// muda sobre quando se paga é discussão garantida depois. Mora aqui, e não no código, pelo
   /// mesmo motivo de `clausulasContrato`: quem escreve o texto comercial é a Thaís, na tela de
-  /// Serviços, sem precisar de uma publicação para mudar uma vírgula. Ver ADR-125.
+  /// Serviços, sem precisar de uma publicação para mudar uma vírgula. Ver ADR-153.
   condicaoPagamento     String?          @db.Text
   /// ESTE SERVIÇO É O CREDENCIAMENTO? É a marca que decide TRÊS regras de dinheiro: ficar fora
   /// da estimativa do funil, ficar fora do provisionamento da conversão do lead, e ter o
@@ -528,7 +535,7 @@ model Servico {
   /// cobrança de um serviço por engano não dá erro nenhum: muda o preço no papel do cliente, na
   /// conta a receber e na estimativa do funil, todos em silêncio.
   /// ⚠️ É uma MARCA, e não `categoria === "Faturamento"`: essa comparação já foi escrita e
-  /// removida CINCO vezes (ADR-125/126/127/137/138) porque bastava renomear a categoria em
+  /// removida CINCO vezes (ADR-153/126/127/137/138) porque bastava renomear a categoria em
   /// Ajustes para o dinheiro mudar de regra. Mesmo molde de `ehCredenciamento` (ADR-144).
   /// ⚠️ Só UM serviço pode estar marcado, e nenhum serviço pode ser as DUAS marcas ao mesmo
   /// tempo — o servidor recusa, dizendo qual já está marcado.
@@ -698,10 +705,11 @@ model Arquivo {
   createdAt      DateTime  @default(now())
   deletedAt      DateTime?
 
-  cliente      Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  servico      Servico?          @relation(fields: [servicoId], references: [id], onDelete: SetNull)
-  requisito    ServicoRequisito? @relation(fields: [requisitoId], references: [id], onDelete: SetNull)
-  profissional Profissional?     @relation(fields: [profissionalId], references: [id], onDelete: SetNull)
+  cliente       Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  servico       Servico?          @relation(fields: [servicoId], references: [id], onDelete: SetNull)
+  requisito     ServicoRequisito? @relation(fields: [requisitoId], references: [id], onDelete: SetNull)
+  profissional  Profissional?     @relation(fields: [profissionalId], references: [id], onDelete: SetNull)
+  producaoLotes ProducaoLote[]
 
   @@index([clienteId])
   @@index([servicoId])
@@ -730,9 +738,11 @@ model Profissional {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  cliente         Cliente          @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  arquivos        Arquivo[]
-  credenciamentos Credenciamento[]
+  cliente                 Cliente                  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  arquivos                Arquivo[]
+  credenciamentos         Credenciamento[]
+  producaoConsultas       ProducaoConsulta[]
+  mapeamentosProfissional MapeamentoProfissional[]
 
   @@index([clienteId])
 }
@@ -839,7 +849,7 @@ model Lead {
   // Faturamento mensal da clínica, estimado na Qualificação. Só é perguntado quando TODOS os
   // serviços do lead são percentuais (hoje: só o Faturamento de contas médicas) — ali não existe
   // valor fixo a estimar, e é DESTE número que sai o `valorEstimado` acima, pela conta
-  // faturamento × percentual. Ver ADR-125 e `planejarEstimativaDoLead` em @app/shared.
+  // faturamento × percentual. Ver ADR-153 e `planejarEstimativaDoLead` em @app/shared.
   faturamentoMensalEstimado Decimal?  @db.Decimal(12, 2)
   observacoes               String?   @db.Text
   ordem                     Int       @default(0) // posição dentro da coluna
@@ -1211,18 +1221,18 @@ model Categoria {
 
 /// Conta a pagar ou a receber.
 model Conta {
-  id             String      @id @default(cuid())
-  tipo           ContaTipo
-  escopo         Escopo      @default(EMPRESA)
-  donoId         String? // dono da carteira PESSOAL (null = EMPRESA, compartilhada)
-  descricao      String
-  valor          Decimal     @db.Decimal(12, 2)
-  vencimento     DateTime
-  pago           Boolean     @default(false)
-  pagoEm         DateTime?
-  categoriaId    String?
-  clienteId      String?
-  recorrencia    Recorrencia @default(NENHUMA)
+  id              String      @id @default(cuid())
+  tipo            ContaTipo
+  escopo          Escopo      @default(EMPRESA)
+  donoId          String? // dono da carteira PESSOAL (null = EMPRESA, compartilhada)
+  descricao       String
+  valor           Decimal     @db.Decimal(12, 2)
+  vencimento      DateTime
+  pago            Boolean     @default(false)
+  pagoEm          DateTime?
+  categoriaId     String?
+  clienteId       String?
+  recorrencia     Recorrencia @default(NENHUMA)
   // QUE SERVIÇO ORIGINOU ESTA COBRANÇA. Existe porque a conferência que impede cobrar duas
   // vezes o mesmo serviço casava por TEXTO da descrição ("<Serviço> — <Cliente>"): renomear o
   // cliente na ficha mudava a descrição das cobranças futuras, a conferência deixava de casar
@@ -1231,12 +1241,12 @@ model Conta {
   // duplicata para ninguém. Nulo nas contas anteriores a esta coluna e nas que não vêm de um
   // serviço (aluguel, imposto): por isso a conferência olha as DUAS coisas.
   origemServicoId String?
-  recorrenciaAte DateTime? // limite opcional da série recorrente
-  recorrenteId   String? // id da 1ª conta da série (herdado pelas geradas); agrupa a série
-  observacoes    String?     @db.Text
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  deletedAt      DateTime?
+  recorrenciaAte  DateTime? // limite opcional da série recorrente
+  recorrenteId    String? // id da 1ª conta da série (herdado pelas geradas); agrupa a série
+  observacoes     String?     @db.Text
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
 
   categoria       Categoria?       @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
   cliente         Cliente?         @relation(fields: [clienteId], references: [id], onDelete: SetNull)
@@ -1386,11 +1396,11 @@ model Tarefa {
   updatedAt   DateTime         @updatedAt
   deletedAt   DateTime?
 
-  criadoPor    User                @relation("TarefaCriador", fields: [criadoPorId], references: [id], onDelete: Cascade)
-  cliente      Cliente?            @relation(fields: [clienteId], references: [id], onDelete: SetNull)
-  projeto      Projeto?            @relation(fields: [projetoId], references: [id], onDelete: SetNull)
+  criadoPor     User                @relation("TarefaCriador", fields: [criadoPorId], references: [id], onDelete: Cascade)
+  cliente       Cliente?            @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  projeto       Projeto?            @relation(fields: [projetoId], references: [id], onDelete: SetNull)
   // Uma tarefa pode ser de VÁRIOS responsáveis (tarefa "da equipe").
-  responsaveis TarefaResponsavel[]
+  responsaveis  TarefaResponsavel[]
   // Reserva de idempotência da API do agente (CORA-003). Some junto se a tarefa for apagada.
   idempotencias AgentIdempotency[]
 
@@ -1521,35 +1531,35 @@ model Documento {
 /// signatário. Guarda a trilha de auditoria (IP, user-agent, data/hora) e o HASH
 /// do conteúdo no momento do envio — prova de integridade (documento não alterado).
 model Assinatura {
-  id            String    @id @default(cuid())
-  documentoId   String
-  papel         String // "CLIENTE" | "MEDCONSULTORIA"
-  nome          String
-  email         String?
-  ordem         Int       @default(0)
+  id                  String    @id @default(cuid())
+  documentoId         String
+  papel               String // "CLIENTE" | "MEDCONSULTORIA"
+  nome                String
+  email               String?
+  ordem               Int       @default(0)
   // Token público do link de assinatura. Gerado na aplicação por `gerarTokenPublico()`
   // (randomBytes 256-bit, criptográfico) — ver decisão #2. Sem @default(cuid()) de propósito.
-  token         String    @unique
-  status        String    @default("PENDENTE") // PENDENTE | ASSINADO
-  metodo        String? // "DESENHO" | "DIGITADO"
-  imagem        String?   @db.Text // data-URI PNG do traço (quando DESENHO)
-  nomeDigitado  String?
-  hashDocumento String? // sha256 do conteúdo no envio
-  ip            String?
-  userAgent     String?   @db.Text
+  token               String    @unique
+  status              String    @default("PENDENTE") // PENDENTE | ASSINADO
+  metodo              String? // "DESENHO" | "DIGITADO"
+  imagem              String?   @db.Text // data-URI PNG do traço (quando DESENHO)
+  nomeDigitado        String?
+  hashDocumento       String? // sha256 do conteúdo no envio
+  ip                  String?
+  userAgent           String?   @db.Text
   // QUEM clicou, quando a pessoa estava logada (ADR-137). Nulo no caminho normal (link de
   // e-mail, sem login). IP e user-agent dizem de onde veio, nunca quem foi.
-  assinadoPorId String?
-  assinadoEm    DateTime?
+  assinadoPorId       String?
+  assinadoEm          DateTime?
   // A PROVA DO CONSENTIMENTO. A caixa "li e concordo" sempre foi exigida pela tela e pelo
   // servidor, e nada disso ficava gravado: depois do clique não sobrava no sistema nenhum
   // registro de que a pessoa consentiu, nem com que texto. Guarda a data E a versão do texto
   // (`VERSAO_CONSENTIMENTO_ASSINATURA`, em `@app/shared`) — só a data não diria com o quê.
   // Nulo nas assinaturas anteriores a esta coluna: elas foram dadas, o consentimento foi
   // exigido na tela, mas a prova não existe e inventá-la seria pior que a ausência.
-  consentimentoEm      DateTime?
-  consentimentoVersao  String?
-  criadoEm      DateTime  @default(now())
+  consentimentoEm     DateTime?
+  consentimentoVersao String?
+  criadoEm            DateTime  @default(now())
 
   documento   Documento @relation(fields: [documentoId], references: [id], onDelete: Cascade)
   assinadoPor User?     @relation("AssinaturasFeitas", fields: [assinadoPorId], references: [id], onDelete: SetNull)
@@ -1746,8 +1756,8 @@ model EmailAnexo {
 /// **NUNCA rode `prisma migrate diff` contra este schema para "consertar" isso.** A CI roda só
 /// `migrate deploy`, que aplica o SQL escrito à mão e preserva a colação.
 model AgentClient {
-  id         String    @id @default(cuid())
-  nome       String    @unique
+  id          String    @id @default(cuid())
+  nome        String    @unique
   /// SHA-256 do segredo, em hex. NUNCA o segredo. Ver o comentário sobre argon2 no serviço.
   ///
   /// ⚠️ **`utf8mb4_bin` de propósito.** A colação da casa é `utf8mb4_unicode_ci`, que **ignora
@@ -1756,13 +1766,13 @@ model AgentClient {
   /// a âncora de autenticação: se um dia o formato virar base64 (onde caixa É significativa) ou
   /// alguém gravar por outro caminho, a comparação passaria a casar valores diferentes **sem
   /// erro nenhum**. Colação binária fecha isso na estrutura, não na disciplina.
-  segredoHash String   @unique @db.VarChar(191)
-  ativo      Boolean   @default(true)
-  revogadoEm DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  segredoHash String    @unique @db.VarChar(191)
+  ativo       Boolean   @default(true)
+  revogadoEm  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  delegacoes AgentDelegation[]
+  delegacoes    AgentDelegation[]
   idempotencias AgentIdempotency[]
 }
 
@@ -1793,25 +1803,25 @@ model AgentClient {
 /// ⚠️ `ON DELETE CASCADE` no `tarefaId`: se a tarefa deixar de existir de verdade, a reserva
 /// vai junto e a chave volta a valer. Coerente — a tarefa aprovada não existe mais.
 model AgentIdempotency {
-  id       String @id @default(cuid())
-  clientId String
-  userId   String
+  id         String   @id @default(cuid())
+  clientId   String
+  userId     String
   /// Qual capacidade. Hoje só `tasks.create`. Faz parte do escopo da chave para a mesma chave
   /// não significar duas operações diferentes.
-  ferramenta String @db.VarChar(64)
+  ferramenta String   @db.VarChar(64)
   /// A chave escolhida por quem chama (`Idempotency-Key`, UUID v4).
   /// ⚠️ `utf8mb4_bin`: é por ela que o servidor decide "já fiz isto?" (a lição da ADR-147).
-  chave    String @db.VarChar(191)
+  chave      String   @db.VarChar(191)
   /// SHA-256 da forma canônica dos argumentos gravados. Mesma chave + argumentos diferentes
   /// é conflito, e é esta coluna que prova a diferença.
-  argsHash String @db.VarChar(64)
+  argsHash   String   @db.VarChar(64)
   /// Identificador do `approvalToken` consumido. `utf8mb4_bin` pelo mesmo motivo.
-  jti      String @db.VarChar(64)
-  tarefaId String?
-  criadaEm DateTime @default(now())
+  jti        String   @db.VarChar(64)
+  tarefaId   String?
+  criadaEm   DateTime @default(now())
   /// Validade declarada no contrato: 24 h. Passado o prazo a chave é esquecida pelo expurgo e
   /// repetir cria tarefa nova.
-  expiraEm DateTime
+  expiraEm   DateTime
 
   client AgentClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
   user   User        @relation("IdempotenciaDoAgente", fields: [userId], references: [id], onDelete: Cascade)
@@ -1842,16 +1852,217 @@ model AgentDelegation {
   ultimoUsoEm DateTime?
   createdAt   DateTime  @default(now())
 
-  client      AgentClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  user        User        @relation("DelegacaoDoUsuario", fields: [userId], references: [id], onDelete: Cascade)
-  criadaPor   User?       @relation("DelegacaoEmitidaPor", fields: [criadaPorId], references: [id], onDelete: SetNull)
-
-  @@index([userId])
-  @@index([clientId])
+  client    AgentClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user      User        @relation("DelegacaoDoUsuario", fields: [userId], references: [id], onDelete: Cascade)
+  criadaPor User?       @relation("DelegacaoEmitidaPor", fields: [criadaPorId], references: [id], onDelete: SetNull)
   // ⚠️ NÃO existe índice em `expiraEm`, e a ausência é deliberada. Ninguém consulta por esse
   // campo: a autenticação acha a linha pelo `tokenHash` e compara a data já com a linha em mãos.
   // Índice que ninguém usa é custo de escrita e mentira sobre a intenção do código. Ele volta
   // junto com o expurgo de delegações vencidas — que, por sua vez, entra quando houver volume
   // (hoje cada delegação é emitida à mão, uma por pessoa). É o mesmo raciocínio da ADR-141:
   // retenção sem rotina não é política de retenção, e rotina sem volume é cerimônia.
+
+  @@index([userId])
+  @@index([clientId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// CONCILIAÇÃO — Fase 1: a produção entra no sistema
+// Spec: docs/superpowers/specs/2026-09-11-conciliacao-producao-design.md
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/// De qual relatório veio o lote. Só há um valor na Fase 1; `CIRURGIAS_TASY` e o repasse entram
+/// na Fase 2 (a spec §4b já registra o formato do repasse).
+enum OrigemProducao {
+  CONSULTAS_NUVENS
+}
+
+enum StatusLote {
+  PROCESSANDO
+  IMPORTADO
+  FALHOU
+  /// Veio outro arquivo para a mesma competência e este saiu de cena — mas fica, como histórico.
+  SUBSTITUIDO
+}
+
+/// Os três valores que aparecem no relatório real, mais a saída para o que ainda não vimos.
+/// `OUTRO` nunca anda sozinho: `tipoAtendimentoBruto` guarda o texto original.
+enum TipoAtendimento {
+  CONSULTA
+  CORTESIA
+  SEM_VINCULO_AGENDA
+  OUTRO
+}
+
+/// UMA importação de relatório: o arquivo que entrou, quem mandou e o que saiu dele.
+model ProducaoLote {
+  id String @id @default(cuid())
+
+  clienteId   String
+  /// `AAAA-MM`. É String, não DateTime, de propósito: competência é um MÊS, não um instante, e
+  /// guardar como data convida o erro de fuso que desloca o mês inteiro.
+  competencia String         @db.Char(7)
+  origem      OrigemProducao @default(CONSULTAS_NUVENS)
+
+  /// O original, guardado no acervo do cliente. SetNull: apagar o arquivo não apaga o histórico
+  /// da importação nem as linhas já conferidas.
+  arquivoId   String?
+  nomeArquivo String
+  /// Como o arquivo foi lido DE VERDADE (csv | xlsx | html) — detectado pelo conteúdo, não pela
+  /// extensão. Vale para o suporte: "o .xls que você mandou era, na verdade, uma tabela HTML".
+  formato     String
+  /// SHA-256 do conteúdo: reimportar o mesmo arquivo é reconhecido em vez de duplicar.
+  hashArquivo String  @db.Char(64)
+
+  status           StatusLote @default(PROCESSANDO)
+  erro             String?    @db.Text
+  linhasLidas      Int        @default(0)
+  linhasImportadas Int        @default(0)
+  linhasIgnoradas  Int        @default(0)
+
+  /// A competência, repetida — mas SÓ enquanto este lote for o vigente; vira nulo quando ele é
+  /// substituído ou falha. É o que faz o índice único abaixo significar "um lote válido por mês"
+  /// sem impedir que os substituídos convivam (no MySQL, nulos não colidem em índice único).
+  /// Mesma ideia da trava de recorrência do Financeiro (ADR-93): a regra mora no banco.
+  competenciaVigente String? @db.Char(7)
+
+  importadoPorId   String?
+  substituidoPorId String?
+  substituidoEm    DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  cliente        Cliente            @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  arquivo        Arquivo?           @relation(fields: [arquivoId], references: [id], onDelete: SetNull)
+  importadoPor   User?              @relation("LoteImportadoPor", fields: [importadoPorId], references: [id], onDelete: SetNull)
+  substituidoPor ProducaoLote?      @relation("LoteSubstituicao", fields: [substituidoPorId], references: [id], onDelete: SetNull)
+  substituiu     ProducaoLote[]     @relation("LoteSubstituicao")
+  consultas      ProducaoConsulta[]
+
+  /// Um lote VIGENTE por cliente/origem/competência. Os substituídos têm `competenciaVigente`
+  /// nulo e ficam fora da trava.
+  @@unique([clienteId, origem, competenciaVigente])
+  @@index([clienteId, competencia])
+  @@index([clienteId, origem, hashArquivo])
+  @@index([arquivoId])
+  @@index([importadoPorId])
+  @@index([substituidoPorId])
+  @@index([status])
+}
+
+/// Uma linha do relatório de produção de consultas.
+///
+/// ⚠️ CPF, telefone e e-mail do paciente ficam CIFRADOS e **não existem no retorno do tRPC** —
+/// decisão do dono em 11/09/2026 (spec §5). O arquivo entra como veio; o dado pessoal não circula.
+/// O NOME fica em claro porque é o que identifica o atendimento na tela, e nome cifrado não se
+/// ordena nem se busca.
+model ProducaoConsulta {
+  id String @id @default(cuid())
+
+  loteId      String
+  /// Desnormalizados de propósito: toda consulta desta tela filtra por cliente e por mês, e sem
+  /// isto cada filtro viraria um join no lote.
+  clienteId   String
+  competencia String @db.Char(7)
+  /// Número da linha no arquivo — é por ele que a tela diz ONDE está o problema.
+  linha       Int
+
+  /// `@db.Date` (não DateTime): é dia, sem hora e sem fuso. Guardar com hora faria a virada do
+  /// mês depender do fuso de quem lê.
+  /// Nulo é estado VÁLIDO e frequente: vem vazio justamente quando o tipo é "Sem vínculo com a
+  /// agenda" — não houve agendamento.
+  dataAgenda      DateTime? @db.Date
+  dataAtendimento DateTime  @db.Date
+
+  pacienteNome            String
+  /// AES-256-GCM (`lib/cripto-paciente.ts`), chave `PACIENTE_CRYPTO_KEY`.
+  pacienteCpfCifrado      String? @db.Text
+  /// HMAC-SHA256 do CPF só com os dígitos: determinístico (casa o mesmo paciente entre a produção
+  /// e o repasse) e não reversível. Hash puro de CPF se quebraria por força bruta em minutos.
+  pacienteCpfApelido      String? @db.Char(64)
+  /// O arquivo real traz VÁRIOS números na mesma célula, separados por vírgula. Guardado como veio.
+  pacienteTelefoneCifrado String? @db.Text
+  pacienteEmailCifrado    String? @db.Text
+
+  tipoAtendimento      TipoAtendimento
+  /// O texto original. Sem ele, um `OUTRO` é dado perdido.
+  tipoAtendimentoBruto String
+
+  /// `"PORTO SEGURO - BÁSICO"`, exatamente como veio.
+  convenioBruto String
+  /// Resolvido pelo de-para. **Nulo é estado válido**: convênio novo importa mesmo assim e a tela
+  /// pede para ligá-lo. Bloquear a importação por causa disso pararia o mês inteiro.
+  operadoraId   String?
+  plano         String?
+
+  profissionalBruto String
+  profissionalId    String?
+
+  createdAt DateTime @default(now())
+
+  lote         ProducaoLote  @relation(fields: [loteId], references: [id], onDelete: Cascade)
+  cliente      Cliente       @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  operadora    Operadora?    @relation(fields: [operadoraId], references: [id], onDelete: SetNull)
+  profissional Profissional? @relation(fields: [profissionalId], references: [id], onDelete: SetNull)
+
+  @@index([clienteId, competencia])
+  @@index([loteId])
+  @@index([operadoraId])
+  @@index([profissionalId])
+  @@index([pacienteCpfApelido])
+  @@index([dataAtendimento])
+}
+
+/// De-para do texto do convênio para a operadora do catálogo.
+///
+/// Existe porque o relatório escreve `PORTO SEGURO - BÁSICO` e `PORTO SEGURO - ESPECIAL I` para a
+/// MESMA operadora, mistura caixa alta com capitalizada na mesma coluna, e o relatório de repasse
+/// chama a mesma operadora por outro nome ainda (`Unimed Seguros Saúde` contra `CENTRAL NACIONAL
+/// UNIMED - INTERCÂMBIO`). Sem este de-para, "quanto de Porto Seguro" não existe — e essa leitura
+/// é o objetivo declarado do módulo.
+model MapeamentoConvenio {
+  id        String @id @default(cuid())
+  clienteId String
+
+  /// Como aparece no arquivo, para a tela mostrar o que foi lido.
+  textoBruto       String
+  /// Minúsculas, sem acento, espaços colapsados. É por ESTE campo que se casa — casar pelo texto
+  /// cru faria `Cassi` e `CASSI` virarem duas operadoras.
+  textoNormalizado String
+
+  /// Nulo quando `particular` — ver abaixo. Restrict: operadora com produção ligada não sai do
+  /// catálogo levando o vínculo junto (mesma regra do credenciamento).
+  operadoraId String?
+  plano       String?
+  /// `PARTICULAR DR. LÉO - MAESTRO CARDIM` é par médico × local, não uma operadora. Marcado aqui,
+  /// sai dos totais de convênio sem sumir da produção — e sem sujar o catálogo de `Operadora`,
+  /// que é compartilhado com o credenciamento.
+  particular  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cliente   Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  operadora Operadora? @relation(fields: [operadoraId], references: [id], onDelete: Restrict)
+
+  @@unique([clienteId, textoNormalizado])
+  @@index([operadoraId])
+}
+
+/// De-para do nome do profissional no relatório (`DR. LEONARDO GIGLIO DRAGONE`) para `Profissional`.
+model MapeamentoProfissional {
+  id               String @id @default(cuid())
+  clienteId        String
+  textoBruto       String
+  textoNormalizado String
+  profissionalId   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cliente      Cliente      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  profissional Profissional @relation(fields: [profissionalId], references: [id], onDelete: Cascade)
+
+  @@unique([clienteId, textoNormalizado])
+  @@index([profissionalId])
 }

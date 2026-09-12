@@ -74,3 +74,10 @@ tsup.config.bundled_*.mjs
 # Relatórios de cobertura (gerados sob demanda por `pnpm cobertura`)
 coverage/
 cov-unit/
+
+# Amostras REAIS de relatórios do cliente (produção de consultas, descrição cirúrgica).
+# Contêm nome, CPF, telefone e e-mail de PACIENTE. Uma vez commitado, fica no histórico do
+# git para sempre. Ficam só no disco — o que entra no repositório é a fixture SINTÉTICA em
+# apps/api/src/test/fixtures/. Mesma regra de brand/identidade/ (11/08/2026).
+docs/amostras/*
+!docs/amostras/README.md

@@ -28,6 +28,7 @@ Legenda de status: ⬜ pendente · 🟨 em andamento · ✅ concluída.
 **Objetivo:** organizar clientes e o funil — tudo depende disso.
 
 Entregue e verificado (Clientes):
+
 - [x] Entidades `Cliente`, `Contato`, `Nota` + relações no `User`; migration aplicada.
 - [x] `clientesRouter` (list/get/create/update/remove + contatos + notas), acesso FUNCIONARIO+.
 - [x] TanStack Router + telas: lista de clientes (busca), ficha do cliente (contatos, anotações, editar, remover).
@@ -35,6 +36,7 @@ Entregue e verificado (Clientes):
 - [x] Verificado: typecheck verde, build OK, CRUD/nota/contato testados end-to-end + 401 sem login.
 
 Entregue e verificado (Leads/funil):
+
 - [x] Entidades `Lead`, `PipelineStage` (colunas auto-semeadas) + migration.
 - [x] `pipelineRouter` + `leadsRouter` (list/create/update/move/convert/remove).
 - [x] **Funil kanban** com drag-and-drop (dnd-kit) entre etapas + criar/editar/remover lead.
@@ -42,6 +44,7 @@ Entregue e verificado (Leads/funil):
 - [x] Verificado: typecheck verde, build OK, criar/mover/converter/duplo-convert testados end-to-end.
 
 Próximo incremento:
+
 - [ ] Anexos (`Attachment`) na ficha do cliente.
 - [ ] Timeline consolidada (Nota + ActivityLog) na UI.
 - [ ] Depois: Fase 2 (Projetos + Kanban + Timer).
@@ -227,6 +230,44 @@ Além do polimento acima, o produto ganhou blocos inteiros depois do MVP. Todos 
 - **Catálogo real + biblioteca de documentos (ADR-27):** `Servico` ganhou `categoria`/`valor`; o catálogo foi reorganizado nos 5 pilares da Med (Gestão/Faturamento/Networking/Desenvolvimento/Marketing), **granular** e com **Dev×Marketing separados** (reconciliação preserva ids/vínculos; página Serviços agrupa por categoria). **13 modelos de documento reais** (proposta, contrato, escopo, ata, onboarding, checklist de credenciamento, briefings de site/identidade/redes, relatórios de faturamento/gerencial) — seed por nome (vários por tipo). Base: `brand/` (Apresentação) + medconsultoria.com.br.
 - **Arraste-e-solte para ordenar (dnd-kit):** componente reutilizável `components/ui/sortable.tsx` (`SortableList`/`SortableItem`/`DragHandle`, otimista + persistência via `reordenar`). Aplicado onde há `ordem`: **catálogo de Serviços**, **Exigências** por serviço, **Passos** por etapa (reordena dentro do grupo) — além das **Origens** (que já tinham). Kanbans (Funil, Projetos) já moviam por arraste. Mutations novas: `servicos.reordenar/reordenarPassos/reordenarRequisitos`.
 - **Serviços contratados + exigências + upload de documentos — Fase 1A (ADR-26):** `ClienteServico` (novo) vira a fonte da verdade dos serviços contratados — a equipe liga/desliga na **ficha** (card "Serviços contratados", com opt-in de e-mail), a conversão do funil gera (origem FUNIL + backfill), o **cliente cancela pelo Portal**. Cada serviço tem **exigências** (`ServicoRequisito`, checklist de documentos, com exemplos-semente editáveis na página Serviços). **Upload de arquivos** (novo): `@fastify/multipart` + pasta (`UPLOADS_DIR`), endpoints `POST /upload` e `GET /arquivos/:id` autenticados com **checagem de posse** (cliente só o próprio), allowlist de tipos + 20 MB + nome em disco por UUID. Portal: card **"Seus serviços"** (o que falta enviar + upload + cancelar). Avisos: `documento_cliente_enviado`, `servico_cancelado` (à equipe) e `servico_ativado` (ao cliente, opt-in). O antigo "Negócios & serviços" virou "Resumo comercial". **Falta (Fase 1B/2):** construtor de **briefings online** (o cliente responde na tela) + redesign da página Serviços (categorias, valores, separar Desenvolvimento × Marketing).
+
+---
+
+## Conciliação — Fase 1 ✅ (2026-09)
+
+Spec: `docs/superpowers/specs/2026-09-11-conciliacao-producao-design.md` (ADR-153). Nasce da
+reunião de 11/09/2026: hoje o faturamento do cliente é manual, e ninguém responde _"deveria ter
+recebido 18 mil, recebeu 800"_.
+
+**Entregue e verificado na tela:**
+
+- [x] Leitor de planilha próprio — **CSV, XLSX e tabela HTML disfarçada de `.xls`**, detectados
+      pelo conteúdo. Zero dependência nova (o `exceljs` não pôde ser publicado — ADR-153).
+- [x] Cifra do dado do paciente (`PACIENTE_CRYPTO_KEY`) + HMAC para casar CPF entre relatórios.
+- [x] `ProducaoLote`, `ProducaoConsulta`, `MapeamentoConvenio`, `MapeamentoProfissional`
+      (migração `20260911182904_conciliacao_producao`).
+- [x] Serviço de importação: prévia sem gravar, hash que reconhece o arquivo repetido,
+      substituição transacional do mês, de-para com casamento automático de médico e retroação.
+- [x] Router tRPC (9 rotas, FUNCIONARIO+) + o teste que varre todo retorno atrás de dado pessoal.
+- [x] Tela `/conciliacao` + card na ficha do cliente + guia do botão "?".
+- [x] **Auditoria de produção de 11 achados para 0** (dívida anterior que travava a CI).
+
+- [x] `e2e/flows-conciliacao.spec.ts` — o fluxo inteiro pela interface (escolher cliente,
+      enviar planilha, conferir a prévia, importar, ligar o convênio, ver o resumo fechar):
+      **8/8 verdes**, incluindo a conferência de que o dado do paciente não está no HTML.
+- [x] `menu-sem-scroll` verde **com a Conciliação DENTRO do menu**: o último degrau de altura
+      passou a encolher a fonte (14px → 13px, item de 28px → 20px) em vez de esconder um destino.
+      Sobram 89px a 1280x580. Nas alturas comuns nada muda.
+
+**Falta publicar:** (1) merge na `main` via PR; (2) rodar
+`scripts/server/set-paciente-crypto-key.sh` no servidor — sem a chave o módulo sobe DESLIGADO;
+(3) o disparo do deploy pelo dono. As 4 perguntas do Sérgio (§11 da spec) seguem abertas — a
+definição de competência muda código.
+
+**Fase 2 (recorte revisto pelas amostras):** o relatório de repasse de **cirurgia** existe, e a
+defasagem atendimento → pagamento é de ~3,5 meses. A Fase 2 é **conciliar cirurgia**, não
+importá-la. Casa pelo número do atendimento; os códigos são de tabelas diferentes (TUSS × SIGTAP);
+os documentos são PDF. Para **consulta**, a BP ainda não tem modelo de relatório de pagamento.
 
 ---
 

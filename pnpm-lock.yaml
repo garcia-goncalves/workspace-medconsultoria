@@ -7,7 +7,7 @@ settings:
 overrides:
   brace-expansion@5: ^5.0.9
   deepmerge-ts@7: ^8.0.0
-  fast-uri: ^3.1.5
+  fast-uri: ^3.1.6
   find-my-way: ^9.7.0
   nanoid@3: ^3.3.17
   nodemailer: ^9.1.1
@@ -104,8 +104,8 @@ importers:
         specifier: ^16.4.7
         version: 16.6.1
       fastify:
-        specifier: ^5.12.1
-        version: 5.12.1
+        specifier: ^5.12.4
+        version: 5.12.4
       imapflow:
         specifier: ^1.6.5
         version: 1.6.5
@@ -116,7 +116,7 @@ importers:
         specifier: ^9.1.1
         version: 9.1.1
       sanitize-html:
-        specifier: ^2.17.6
+        specifier: ^2.17.7
         version: 2.17.7
       socket.io:
         specifier: ^4.8.1
@@ -2402,8 +2402,8 @@ packages:
   fastify-plugin@6.0.0:
     resolution: {integrity: sha512-fZOty7z3O7vOliF6d8bHE3wiEh1KcNnKEQensSgTk9C1DvN6nRLS++XVd86v33Hw/8u9Un8A1zDrQ8ujcQDHEg==}
 
-  fastify@5.12.1:
-    resolution: {integrity: sha512-FWi+tQvwxR/PeRX7Z2mhfEF5ozJ3jn9asiiclzKXNSzJRHAYcU924aIOKAdHFJ+YIKieh3cqr1IwCOvTr41B3Q==}
+  fastify@5.12.4:
+    resolution: {integrity: sha512-zATD676fP6tBMsn+jQ7Q5/cO/Qo+149TXH0dUqUKel+1/hcZxwIbnflqtPa9EjlrvpY8eCZcL3M1UYrMc31Y7g==}
 
   fastq@1.20.1:
     resolution: {integrity: sha512-GGToxJ/w1x32s/D2EKND7kTil4n8OVk/9mycTc4VDza13lOvpUZTGX3mFSCtV9ksdGBVzvsyAVLM6mHFThxXxw==}
@@ -4423,7 +4423,7 @@ snapshots:
   '@nodelib/fs.walk@1.2.8':
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
-      fastq: 1.20.1
+      fastq: 1.20.3
 
   '@pinojs/redact@0.4.0': {}
 
@@ -5690,7 +5690,7 @@ snapshots:
 
   fastify-plugin@6.0.0: {}
 
-  fastify@5.12.1:
+  fastify@5.12.4:
     dependencies:
       '@fastify/ajv-compiler': 4.0.6
       '@fastify/error': 4.2.0

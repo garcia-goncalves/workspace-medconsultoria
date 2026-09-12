@@ -62,6 +62,7 @@ import { TarefaFormDialog } from "../../tarefas/TarefaFormDialog";
 import { EmailsDoClienteCard } from "./EmailsDoClienteCard";
 import { PainelDoClienteBotao } from "../AcessoPortalBotao";
 import { PessoasDoPortalCard } from "./PessoasDoPortalCard";
+import { ProducaoCard } from "./ProducaoCard";
 import { useDynamicCrumb } from "../../../components/layout/Breadcrumbs";
 
 const route = getRouteApi("/clientes/$clienteId");
@@ -185,10 +186,7 @@ export function ClienteDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Link
-        to="/clientes"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
+      <Link to="/clientes" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" />
         Clientes
       </Link>
@@ -206,7 +204,11 @@ export function ClienteDetailPage() {
                 {SITUACAO_COMERCIAL_LABEL[c.situacaoComercial as SituacaoComercial]}
               </Badge>
               {!podeAtivar ? (
-                <Link to="/funil-de-vendas" className="text-xs text-primary hover:underline" title="É um lead no Funil — a situação acompanha o funil">
+                <Link
+                  to="/funil-de-vendas"
+                  className="text-xs text-primary hover:underline"
+                  title="É um lead no Funil — a situação acompanha o funil"
+                >
                   no funil · ver →
                 </Link>
               ) : podeGerirCliente ? (
@@ -245,7 +247,12 @@ export function ClienteDetailPage() {
             <Target className="h-4 w-4" />
             Nova oportunidade
           </Button>
-          <Button variant="outline" size="sm" title="Pedir para alguém da equipe cuidar de algo deste cliente" onClick={() => setDelegar(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            title="Pedir para alguém da equipe cuidar de algo deste cliente"
+            onClick={() => setDelegar(true)}
+          >
             <ListTodo className="h-4 w-4" />
             Delegar tarefa
           </Button>
@@ -320,6 +327,9 @@ export function ClienteDetailPage() {
               próprio, em vez de uma senha compartilhada. */}
           <PessoasDoPortalCard clienteId={c.id} />
 
+          {/* A produção do último mês importado. Some quando o cliente nunca teve importação. */}
+          <ProducaoCard clienteId={c.id} />
+
           {/* Suporte em destaque — o canal de conversa com o cliente, logo no topo */}
           <Card className="border-primary/30 ring-1 ring-primary/5">
             <CardHeader>
@@ -343,13 +353,26 @@ export function ClienteDetailPage() {
                       <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-medium">{t.assunto ?? "Chamado"}</span>
                         <span className="text-[10px] text-muted-foreground">#{t.numero}</span>
-                        <span className={"rounded-full px-2 py-0.5 text-[10px] font-semibold " + (t.status === "RESOLVIDO" ? "bg-success/15 text-success" : t.status === "EM_ANDAMENTO" ? "bg-brand-blueLight/15 text-brand-blueText" : "bg-warning/15 text-warning")}>
+                        <span
+                          className={
+                            "rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+                            (t.status === "RESOLVIDO"
+                              ? "bg-success/15 text-success"
+                              : t.status === "EM_ANDAMENTO"
+                                ? "bg-brand-blueLight/15 text-brand-blueText"
+                                : "bg-warning/15 text-warning")
+                          }
+                        >
                           {CHAMADO_STATUS_LABEL[t.status]}
                         </span>
                       </div>
                       <div className="truncate text-xs text-muted-foreground">{t.ultimaMensagem?.conteudo ?? "Sem mensagens"}</div>
                     </div>
-                    {t.naoLidas > 0 && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">{t.naoLidas}</span>}
+                    {t.naoLidas > 0 && (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold text-destructive-foreground">
+                        {t.naoLidas}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -459,20 +482,14 @@ export function ClienteDetailPage() {
                   addNota.mutate({ entidadeTipo: "cliente", entidadeId: c.id, conteudo: novaNota });
                 }}
               >
-                <Textarea
-                  placeholder="Escreva uma anotação…"
-                  value={novaNota}
-                  onChange={(e) => setNovaNota(e.target.value)}
-                />
+                <Textarea placeholder="Escreva uma anotação…" value={novaNota} onChange={(e) => setNovaNota(e.target.value)} />
                 <Button type="submit" size="sm" disabled={addNota.isPending || !novaNota.trim()}>
                   Adicionar
                 </Button>
               </form>
 
               <div className="space-y-3">
-                {c.notas.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Nenhuma anotação ainda.</p>
-                )}
+                {c.notas.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma anotação ainda.</p>}
                 {c.notas.map((n) => (
                   <div key={n.id} className="border-l-2 border-accent pl-3 text-sm">
                     <p className="whitespace-pre-wrap">{n.conteudo}</p>
@@ -505,7 +522,10 @@ export function ClienteDetailPage() {
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">E-mail</span>
                 {c.email ? (
-                  <a href={`mailto:${c.email}`} className="inline-flex items-center gap-1 truncate font-medium text-primary hover:underline">
+                  <a
+                    href={`mailto:${c.email}`}
+                    className="inline-flex items-center gap-1 truncate font-medium text-primary hover:underline"
+                  >
                     <Mail className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{c.email}</span>
                   </a>
                 ) : (
@@ -764,46 +784,48 @@ export function ClienteDetailPage() {
           {rel.data?.contas && (
             <Card className="p-0">
               <Accordion modo="multipla" defaultValue={["financeiro"]} className="px-4">
-              <AccordionItem value="financeiro">
-                <AccordionTrigger>
-                  <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    <Wallet className="h-4 w-4 text-muted-foreground" /> Financeiro
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="space-y-2">
-                    {rel.data.contas.length > 0 ? (
-                      rel.data.contas.map((ct) => (
-                        <div key={ct.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="truncate font-medium">{ct.descricao}</span>
-                              {ct.recorrencia === "MENSAL" && (
-                                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">Mensal</span>
-                              )}
+                <AccordionItem value="financeiro">
+                  <AccordionTrigger>
+                    <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Wallet className="h-4 w-4 text-muted-foreground" /> Financeiro
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-2">
+                      {rel.data.contas.length > 0 ? (
+                        rel.data.contas.map((ct) => (
+                          <div key={ct.id} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate font-medium">{ct.descricao}</span>
+                                {ct.recorrencia === "MENSAL" && (
+                                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                    Mensal
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                vence {dataUTC(ct.vencimento)}
+                                {ct.pago ? " · paga" : ""}
+                              </div>
                             </div>
-                            <div className="text-xs text-muted-foreground">
-                              vence {dataUTC(ct.vencimento)}
-                              {ct.pago ? " · paga" : ""}
-                            </div>
+                            <span
+                              className={
+                                ct.tipo === "RECEBER"
+                                  ? "shrink-0 font-medium tabular-nums text-success"
+                                  : "shrink-0 font-medium tabular-nums text-destructive"
+                              }
+                            >
+                              {ct.tipo === "RECEBER" ? "+" : "−"} {formatBRL(ct.valor)}
+                            </span>
                           </div>
-                          <span
-                            className={
-                              ct.tipo === "RECEBER"
-                                ? "shrink-0 font-medium tabular-nums text-success"
-                                : "shrink-0 font-medium tabular-nums text-destructive"
-                            }
-                          >
-                            {ct.tipo === "RECEBER" ? "+" : "−"} {formatBRL(ct.valor)}
-                          </span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Nenhuma conta vinculada.</p>
-                    )}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Nenhuma conta vinculada.</p>
+                      )}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
               </Accordion>
             </Card>
           )}

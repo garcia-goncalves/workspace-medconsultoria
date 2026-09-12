@@ -13,7 +13,41 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-11 · noite · Contrato do lead unificado + refino de responsividade em toda a interface — PR #195 e #196, os dois MESCLADOS)
+## Estado atual (2026-09-11 · Conciliação Fase 1 — pronta e verificada na tela, NÃO publicada)
+
+- **🧾 CONCILIAÇÃO — Fase 1 pronta e verificada na tela, NÃO publicada (ADR-153).** A produção de
+  consultas do cliente entra pelo sistema: `/conciliacao` (fora do menu — ver abaixo), importação
+  em três passos (enviar → **conferir** → gravar), de-para de convênio/profissional que **retroage**,
+  e resumo por operadora separando o que não gera recebimento. **CPF, telefone e e-mail do paciente
+  ficam CIFRADOS** (`PACIENTE_CRYPTO_KEY`, separada da do e-mail) e **não existem no retorno do
+  tRPC** — há teste varrendo o JSON do router e o HTML da tela. ⚠️ **Sem a chave no `.env` o módulo
+  sobe DESLIGADO** (é assim de propósito): no servidor, rode
+  `scripts/server/set-paciente-crypto-key.sh` + `touch tmp/restart.txt`. Foi exatamente o que
+  aconteceu em desenvolvimento — o botão de importar sumiu até a chave existir.
+- **📄 O leitor de planilha é PRÓPRIO, com zero dependência nova.** Aceita **CSV, XLSX e a tabela
+  HTML que sistemas legados exportam com nome `.xls`**, detectado pelo **conteúdo**, nunca pela
+  extensão. O `exceljs` **não pode ser publicado aqui**: a metade dele que escreve (`archiver`)
+  arrasta um `minimatch` com falha ALTA, e fechar isso exigiria override escopado por major, que o
+  tradutor do artefato recusa (ADR-116/117) — ou a auditoria reprova, ou o `build:deploy` quebra.
+  `.xls` binário (BIFF) é reconhecido e **recusado com a saída pronta**.
+- **📌 A Conciliação ESTÁ no menu, e o menu encolhe a fonte para caber.** Ela ia deixar "Negócio"
+  com 6 itens e fazer a barra **rolar** a 1280x580 — o e2e mediu 480px necessários contra 453px.
+  Em vez de esconder um destino de navegação, o **último degrau de altura (`alt-2xs`, ≤660px)
+  passou a encolher o item**: fonte de 14px para 13px, entrelinha 16px, ícone 16px, `py-0.5`. O
+  item cai de 28px para **20px** e sobram **89px** a 580 (cabem mais 4 itens). Nas alturas comuns
+  (720 para cima) **nada muda** — a fonte segue 14px. O limite de 4 itens por grupo do ADR-94 é
+  diretriz; **o menu não rolar é lei**, e continua valendo, medida em seis alturas.
+- **✅ `pnpm audit --prod` voltou a ZERO.** Estava em 11 achados (5 ALTOS) e o portão da CI
+  reprovava **qualquer** PR. Nenhum salto de major foi preciso — as faixas já cobriam o conserto e
+  faltava atualizar o lockfile; só o override do `fast-uri` estava velho (`^3.1.5` → `^3.1.6`) e o
+  `nodemailer` precisou de override porque o `mailparser` o prende na 9.0.3.
+- ⚠️ **A Fase 2 mudou de recorte.** As amostras mostraram que o relatório de repasse de **cirurgia**
+  existe (spec §4b) e que a defasagem atendimento → pagamento é de **~3,5 meses**. Então a Fase 2 é
+  **conciliar cirurgia**, não importá-la. Casa pelo **número do atendimento** (não pelo CPF), os
+  códigos são de tabelas diferentes (TUSS × SIGTAP) e os documentos são **PDF** — o projeto não tem
+  leitor de PDF, e a primeira jogada é perguntar ao TASY se exporta em planilha.
+
+## Estado anterior (2026-09-11 · noite · Contrato do lead unificado + refino de responsividade em toda a interface — PR #195 e #196, os dois MESCLADOS)
 
 ### 📄 O Contrato gerado pelo painel do lead deixou de usar um motor pobre (PR #195, `46683f3`)
 
@@ -26,7 +60,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ### 📱 Refino de responsividade e layout em toda a interface (PR #196, `1dbc261`)
 
-- **Origem:** pedido do dono — *"refine todas as páginas, com o melhor design, impecável"*. Virou
+- **Origem:** pedido do dono — _"refine todas as páginas, com o melhor design, impecável"_. Virou
   esteira própria (`docs/esteira/refino-completo-interface-2026-09-11/`), com **6 auditorias de
   código em paralelo** (uma por grupo do menu) achando ~20 defeitos reais de layout.
 - **O mais grave:** editar/apagar a **própria** mensagem (Mensagens) não funcionava no celular —
@@ -52,7 +86,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   fixture criando contrato/proposta reais via API) e as 11 abas de Sistema + 4 modais de Ajustes,
   nos 5 tamanhos de tela. **Rodando de verdade, achou 5 bugs REAIS e NOVOS de alvo de toque**
   (< 44px), fora do escopo original — corrigidos na mesma rodada, a pedido do dono
-  (*"faça tudo e deixe impecável"*):
+  (_"faça tudo e deixe impecável"_):
   - Login: "Mostrar senha" (28×28) e "Esqueci minha senha" (128×16) — ganharam 44px de toque.
   - `HintIcon` (o "?" de ajuda, **componente compartilhado usado na aplicação inteira**): 16×16 →
     44×44 de área de toque via padding + margem negativa (`-m-3.5`), **sem** aumentar o ícone
@@ -77,7 +111,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
     antes do teste, mesmo padrão já usado no teste seguinte do arquivo.
 - **⚠️ Armadilha do processo, registrada para não repetir:** despachar `Agent` em paralelo **sem**
   `isolation: "worktree"` corrompe a branch, mesmo com arquivos disjuntos por agente — `git
-  checkout`/`commit` de um agente troca a árvore inteira de quem divide a mesma pasta. Duas
+checkout`/`commit` de um agente troca a árvore inteira de quem divide a mesma pasta. Duas
   branches desta rodada ficaram apontando para o commit errado até serem refeitas isoladas.
 - **Provas:** typecheck do monorepo 0 erros · lint limpo · `@app/web` **226/226 testes verdes** ·
   revisão `react-reviewer` + `typescript-reviewer` no diff final, os dois "pode mergear" (notas
@@ -159,8 +193,8 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   corrida explora. Só afeta o caminho que a APLICAÇÃO usa (`atualizarServico`); fixtures de teste
   que escrevem direto no banco continuam livres, exatamente como antes.
 - **🕳️ DOIS DEFEITOS DE MYSQL QUE SÓ A EXECUÇÃO REAL MOSTROU:** (1) `UPDATE Servico ... WHERE NOT
-  EXISTS (SELECT ... FROM Servico)` é recusado pelo MySQL — erro 1093, *"can't specify target
-  table for update in FROM clause"* — porque a subconsulta reabre a MESMA tabela que está sendo
+EXISTS (SELECT ... FROM Servico)` é recusado pelo MySQL — erro 1093, _"can't specify target
+  table for update in FROM clause"_ — porque a subconsulta reabre a MESMA tabela que está sendo
   escrita. Cura: embrulhar numa TABELA DERIVADA (`SELECT ... FROM (SELECT ...) AS s2`), truque
   clássico que força o motor a materializar antes. (2) Mesmo com a instrução atômica, o InnoDB às
   vezes responde **deadlock** (erro 1213) em vez de simplesmente recusar, quando duas dessas
@@ -191,8 +225,8 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ### 🔎 A AUDITORIA COMPLETA DE 04/09 — 6 auditores em paralelo, 9 defeitos corrigidos, mais ficaram abertos
 
-- **Ordem do dono:** *"analise profundamente toda a aplicação... percorra tudo como se fosse um
-  usuário trabalhando no dia a dia... corrija o que estiver com erro/bug ou incongruente"*. Seis
+- **Ordem do dono:** _"analise profundamente toda a aplicação... percorra tudo como se fosse um
+  usuário trabalhando no dia a dia... corrija o que estiver com erro/bug ou incongruente"_. Seis
   agentes em paralelo (código + Playwright real, como ROOT/admin/funcionário/cliente do Portal)
   cobriram: Funil/Clientes/Financeiro · Serviços/Credenciamento/Documentos ·
   Projetos/Tarefas/Agenda/Início · Portal do cliente · E-mail/Mensagens · Ajustes/Sistema/Segurança.
@@ -301,7 +335,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 - **✅ NO AR DESDE 04/09/2026 às 14:03 (11:03 no servidor) — a v1.7.0.** Publicação
   `33878723364`, disparada por `workflow_dispatch` (`gh workflow run deploy.yml --ref main -f
-  confirmar=PUBLICAR`, e desta vez **não fui barrado**). Antes de tocar no servidor, a suíte
+confirmar=PUBLICAR`, e desta vez **não fui barrado**). Antes de tocar no servidor, a suíte
   completa rodou de novo e verde (`build-test` · `integration` · `e2e in 7m30s`); no servidor,
   os **7/7 passos** verdes: `1b/7` confirmou o artefato inteiro e limpo, `5/7` aplicou as
   **cinco migrações pendentes** (`20260902000000` nome único de serviço · `20260902120000`
@@ -334,7 +368,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   **compartilhada** de 3.000 min/mês entre os 15 repositórios da conta, a mesma que este projeto
   sozinho já estourou em 116% no passado (ADR-121). **Não torne este repositório privado** por
   causa do achado acima; se um dia for preciso emitir a credencial de verdade, a correção é mudar
-  *como* o segredo é entregue (nunca pelo log do Actions), não a visibilidade do repositório.
+  _como_ o segredo é entregue (nunca pelo log do Actions), não a visibilidade do repositório.
 - **📮 Aviso deixado em `med-coordination/status/workspace.md`** antes e depois da publicação,
   para a sessão da Cora não presumir que a API do agente segue restrita a esta máquina.
 
@@ -354,11 +388,11 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   a Thaís leu e o que foi gravado —, e entre um e outro cabe qualquer coisa.
 - **🔑 A ATOMICIDADE É DO ÍNDICE ÚNICO, NÃO DO NÍVEL DE ISOLAMENTO.** Foi a pergunta direta da
   Cora. Em `REPEATABLE READ` (o padrão do MySQL local **e do MariaDB 10.6 de produção**) duas
-  conexões que leem *"essa chave já existe?"* e depois inserem **passam as duas** — o "confere e
+  conexões que leem _"essa chave já existe?"_ e depois inserem **passam as duas** — o "confere e
   grava" perdido. `SERIALIZABLE` ou lock explícito custariam caro numa rota chamada **em laço por
   um programa**, com pool de 13 conexões que já esgotou em produção. Cura: **`INSERT` primeiro**
-  em `@@unique([clientId, userId, ferramenta, chave])`; a violação `P2002` é a resposta *"alguém
-  já tem"*. ⚠️ **Visto reprovando:** trocando **só** esse mecanismo por "confere-e-grava", o teste
+  em `@@unique([clientId, userId, ferramenta, chave])`; a violação `P2002` é a resposta _"alguém
+  já tem"_. ⚠️ **Visto reprovando:** trocando **só** esse mecanismo por "confere-e-grava", o teste
   de concorrência **fica vermelho**.
 - **🔗 RESERVA E TAREFA NA MESMA TRANSAÇÃO, chave primeiro.** Em dois passos, uma queda no meio
   deixa **chave sem tarefa** (repetir nunca mais cria) ou **tarefa sem chave** (repetir cria a
@@ -410,7 +444,7 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   resolvem para a MESMA pessoa passavam pela prévia, ganhavam token, e estouravam no
   `@@unique([tarefaId, userId])` **dentro da transação**. ⚠️ **O estrago era o DIAGNÓSTICO:**
   `ehViolacaoDeUnico` captura qualquer `P2002`, então virava "colisão de chave de idempotência",
-  `503` e *"reserva de idempotência sem tarefa"* no log — alarme de infraestrutura para entrada
+  `503` e _"reserva de idempotência sem tarefa"_ no log — alarme de infraestrutura para entrada
   redundante — e o `approvalToken` ficava **inutilizável para sempre**. Visto reprovando
   (`expected 503 to be 201`). Cura: normalizar na fronteira **e** relançar o `P2002` que não é
   nosso.
@@ -469,11 +503,11 @@ ação na lista das que **não expiram** (a régua da ADR-128).
   rodadas.** Registro dela em `med-coordination`: `tickets/CORA-003/acceptance.md` e
   `evidence/cora/2026-09-03-fase-02-escrita.md` (`e0ae08f`). **A prova que mais importava é a W15
   vista de fora:** duas criações **em paralelo** com a mesma `Idempotency-Key` deram **uma `201
-  created=true` e uma `200 created=false`, a mesma tarefa** — a atomicidade do índice único
+created=true` e uma `200 created=false`, a mesma tarefa** — a atomicidade do índice único
   funciona para quem chama, não só para o nosso teste. Também confirmados de fora:
   `APPROVAL_MISMATCH` recusando **sem executar o novo**, `APPROVAL_ALREADY_USED`,
   `IDEMPOTENCY_CONFLICT` **sem criar a segunda tarefa**, chave em caixa alta voltando `200
-  created=false` (a normalização para minúsculas trabalhando), `403` na prévia **e** na criação com
+created=false` (a normalização para minúsculas trabalhando), `403` na prévia **e** na criação com
   delegação só de leitura, e `previousResolutionHash` desconhecido dando `400` em vez de "sem
   comparação". ⚠️ **O bloqueante do `responsavelIds` duplicado está fechado visto de fora**: `201`,
   um vínculo, sem erro — era o que respondia `503` com alarme de infraestrutura.
@@ -520,7 +554,7 @@ ação na lista das que **não expiram** (a régua da ADR-128).
 - **🔐 SHA-256 e nao argon2 nos segredos — filho direto da ADR-148.** La, argon2 num caminho anonimo virou o
   jeito mais barato de derrubar o processo; aqui seria pior, porque a API e chamada **em laco por um programa**.
   E nao ha o que argon2 resolveria: sao 32 bytes sorteados por nos. Nenhum dos dois e guardado, so o hash.
-- **🚨 INDISPONIBILIDADE NUNCA VIRA LISTA VAZIA.** `{"items":[]}` se le como *"voce esta em dia"* — a frase
+- **🚨 INDISPONIBILIDADE NUNCA VIRA LISTA VAZIA.** `{"items":[]}` se le como _"voce esta em dia"_ — a frase
   mais perigosa que um assistente pode dizer errado. Banco fora do ar e `503`. Ha teste que derruba o banco de
   proposito; com a correcao desligada ele reprova.
 - **⚖️ Usuario desativado e `403`, nao `401`** — `401` faria a Cora pedir delegacao nova em laco, e delegacao
@@ -558,7 +592,7 @@ ação na lista das que **não expiram** (a régua da ADR-128).
 - **🐛 DOIS DEFEITOS QUE SO A EXECUCAO MOSTROU:** (1) **`isAllowed` do `@fastify/rate-limit` NAO significa
   "pode passar"** — so e `true` para lista de permissao; quem responde "estourou?" e `isExceeded`, e ler o
   nome pelo que ele parece dizer recusava TODA chamada legitima. (2) **`vi.spyOn(prisma.<model>, …)
-  .mockRestore()` NAO devolve o delegate do Prisma** — o teste que derruba o banco de proposito deixava o
+.mockRestore()` NAO devolve o delegate do Prisma** — o teste que derruba o banco de proposito deixava o
   `findMany` quebrado para os testes seguintes, com o sintoma longe da causa. Salvar e repor a mao.
 - **Provas:** typecheck **6/6** · lint limpo · **33 testes de integracao** exercendo o Fastify de verdade
   (`app.inject`) contra o MySQL `_test` — os doze casos do CORA-001 mais os cinco achados da revisao ·
@@ -579,14 +613,14 @@ ação na lista das que **não expiram** (a régua da ADR-128).
 
 ### 🔎 A VARREDURA COMPLETA DE 02/09 (ADR-148) — 18 correcoes, e a base comecou VERDE
 
-- **Ordem do dono:** *"faca todas as pendencias e deixe tudo 100%... analise tudo profundamente, procurando
-  erros/bugs/incongruencias... corrija tudo... abra o navegador e teste tudo"*. Cinco auditorias em paralelo
+- **Ordem do dono:** _"faca todas as pendencias e deixe tudo 100%... analise tudo profundamente, procurando
+  erros/bugs/incongruencias... corrija tudo... abra o navegador e teste tudo"_. Cinco auditorias em paralelo
   (seguranca, API, tela, banco, pendencias antigas) mais a aplicacao percorrida no navegador, pagina por pagina.
 - ⚠️ **A BASE COMECOU VERDE E TINHA UM DEFEITO QUE COBRA O CLIENTE EM DOBRO.** typecheck 6/6, lint limpo, 858
   testes de API, 220 de web, 109 de ponta a ponta — e **nenhum** dos 16 achados era pego por teste. Suite verde
   prova que o que alguem ja pensou em testar continua funcionando, nao que o sistema esteja certo (ADR-140).
-- 🔑 **O PADRAO DESTA RODADA, e ele e diferente do da ADR-140:** *"a correcao existe, mas so num dos lugares onde
-  o defeito mora"*. A regua do recarregamento duplo estava em UM card e faltava em QUATRO; a trava de papel do
+- 🔑 **O PADRAO DESTA RODADA, e ele e diferente do da ADR-140:** _"a correcao existe, mas so num dos lugares onde
+  o defeito mora"_. A regua do recarregamento duplo estava em UM card e faltava em QUATRO; a trava de papel do
   Portal cobria quatro botoes e nao cobria os cinco de dar-e-tirar acesso; a conferencia de posse do upload valia
   para o medico e nao para o servico nem para a exigencia. **Quem corrigiu nao errou — parou no primeiro caso.**
 
@@ -600,8 +634,8 @@ ação na lista das que **não expiram** (a régua da ADR-128).
   renomear a clinica fazia a conferencia deixar de casar com as cobrancas antigas, e a 2a proposta lancava tudo
   de novo **em silencio**. Nasceu `Conta.origemServicoId` (migracao `20260902130000`). ⚠️ **A conferencia olha as
   DUAS coisas** — o id cobre as contas novas, o texto cobre as que nasceram antes da coluna. **Sem backfill.**
-- **🧮 "EM CURSO" E "APROVADO" CONTAVAM O MESMO DINHEIRO DUAS VEZES.** O cartao dizia *"honorario ainda nao
-  aprovado"* e somava os aprovados: medido na tela, R$ 2.020 apareciam como **R$ 2.770** (= 2.020 + os R$ 750 do
+- **🧮 "EM CURSO" E "APROVADO" CONTAVAM O MESMO DINHEIRO DUAS VEZES.** O cartao dizia _"honorario ainda nao
+  aprovado"_ e somava os aprovados: medido na tela, R$ 2.020 apareciam como **R$ 2.770** (= 2.020 + os R$ 750 do
   cartao ao lado). Quem soma os dois erra para mais.
 - **🔐 UMA ROTA ANONIMA ESCREVIA NO RASTRO DE AUDITORIA SEM TETO.** `registrarBloqueioNoNavegador` grava no
   `ActivityLog` a cada chamada, e o cliente fala por **lote** — o teto global de 300 req/min nao segurava.
@@ -675,7 +709,7 @@ ação na lista das que **não expiram** (a régua da ADR-128).
   M6, M8, C7, C8, F20, `seedIfEmpty`, `login()` sequencial) foi conferido **no codigo de hoje** e ja estava
   fechado.
 - **Depende do dono (cadastro, nao codigo):** o **DPO** em branco em Ajustes -> Dados da empresa (benigno: a
-  pagina cai no e-mail institucional) e o **endereco incompleto** de producao (*"Alto da Mooca - SP"*, sem rua,
+  pagina cai no e-mail institucional) e o **endereco incompleto** de producao (_"Alto da Mooca - SP"_, sem rua,
   numero e CEP) — sai assim no contrato e na pagina publica.
 - **Depende do dono (decisao):** publicar. E, se ele quiser, revisar o **texto do consentimento** da assinatura,
   que hoje esta em `packages/shared/src/consentimento-assinatura.ts` (mudar a frase exige subir a versao no
@@ -689,14 +723,14 @@ ação na lista das que **não expiram** (a régua da ADR-128).
   commit `225197a`. ⚠️ **O `gh workflow run` PASSOU para mim desta vez** — o placar esta em 2 passagens
   (26/08, 01/09) contra 2 recusas (27/08, 31/08): **e sorteio, sempre tente**. Suite 3/3 verde **antes**
   de tocar no servidor, depois no deploy: **`found 0 vulnerabilities`** · **`No pending migrations to
-  apply.`** (correto — o lote **nao tem migracao**) · **`boot OK (16 portas ouvindo)`** ·
+apply.`** (correto — o lote **nao tem migracao**) · **`boot OK (16 portas ouvindo)`** ·
   `restart.txt marcado em 2026-09-01 18:47:40` · `/health` = `{"status":"ok"}` · `/` e
   `/credenciamentos` = **200**. Etiqueta **`v1.6.0`** criada e enviada a mao.
 - **🖥️ CONFERIDO NA TELA DE PRODUCAO como ROOT:** **uptime de 1m20s**, provando o reinicio; banco
   **Online, latencia 2ms**; `/projetos` desenhando; **zero erro de console**. Os **7 erros nao
   resolvidos** seguem sendo os de hospedagem, intocados por ordem do dono.
 
-- **Ordem do dono:** *"faca tudo o que for necessario pra deixar 100%"*. Os tres PRs do Renovate (#124
+- **Ordem do dono:** _"faca tudo o que for necessario pra deixar 100%"_. Os tres PRs do Renovate (#124
   vitest 3 por seguranca, #157 ferramentas, #158 atualizacoes menores) viraram **UM** PR. ⚠️ **Nao foi
   economia de digitacao: cada PR dispara a suite inteira**, e a cota de Actions ja estourou uma vez por
   causa deste repositorio sozinho (ADR-121).
@@ -817,7 +851,7 @@ reprova**. typecheck 6/6 · lint limpo · **616 testes de unidade** do `@app/api
   dois estao citados na migracao; procurar so o `3819` faz perder tempo no meio de uma publicacao.
 - **🕳️ O `catch` DO UPDATE ESCONDIA QUEDA DE BANCO.** O `antes` ja prova que o id existe, entao o
   que chegava de desconhecido era infraestrutura — e o mais provavel neste servidor e o `P1001`
-  (*"Can't reach database server"*), que a documentacao registra como recorrente. Virava
+  (_"Can't reach database server"_), que a documentacao registra como recorrente. Virava
   **"Servico nao encontrado."** na tela E um `NOT_FOUND` do tRPC, que **nao entra em SISTEMA →
   Erros** (o filtro e `INTERNAL_SERVER_ERROR`, ADR-135): a queda do banco ficava invisivel no
   caminho de escrita. Hoje so `P2025` vira "nao encontrado"; o resto e relancado.
@@ -834,6 +868,7 @@ loopback e o `X-Forwarded-For` dele e aceito. **Nao e regressao** — o `trustPr
 exposicao **e mais uma** (confiava tambem em peer publico, que a regua nova recusa). A cura nao e mexer
 no `trustProxy`: e o LiteSpeed **reescrever** o cabecalho em vez de anexar, ou um cabecalho secreto
 entre proxy e app.
+
 - ✅ **A PROVA DO IP SAIU, E A ADR-146 ESTA FECHADA (01/09, tela de producao).** O dono saiu e entrou
   de novo; a linha MAIS NOVA de `SISTEMA → Sessoes` ("Inicio: agora") mostra **`187.35.35.2` — publico**,
   o mesmo da linha de base. A regua `PROXY_CONFIAVEL = ["loopback","uniquelocal"]` enxerga o visitante
@@ -850,8 +885,8 @@ entre proxy e app.
 
 - ✅ **`@@unique(nome)` EM `Servico` ESTA FEITO** — ver a secao propria mais abaixo. ⚠️ **A ressalva
   antiga estava ERRADA e foi corrigida:** dizia que a tela poderia esconder servico arquivado. Nao
-  esconde — `listServicos` (`servicos.service.ts`) diz no proprio comentario *"Todos os servicos
-  (gestao) — inclui inativos"* e **nao filtra `ativo`**. Os 10 nomes de producao sao todos diferentes
+  esconde — `listServicos` (`servicos.service.ts`) diz no proprio comentario _"Todos os servicos
+  (gestao) — inclui inativos"_ e **nao filtra `ativo`**. Os 10 nomes de producao sao todos diferentes
   (Gestao Operacional · Faturamento · Credenciamento medico e odontologico · Negociacao com operadoras ·
   Identidade visual (Branding) · Manual da marca · Desenvolvimento de site · Gestao de redes sociais ·
   Conteudo & SEO · Trafego pago), e nao ha nada fora da lista.
@@ -875,29 +910,29 @@ entre proxy e app.
   commit `dc1c20a`, por `workflow_dispatch` (o `gh workflow run` **foi barrado para mim de novo**;
   quem colou o comando foi o dono). CI 3/3 verde **antes** de tocar no servidor, depois 7/7 no
   deploy: `node_modules preservado` · **`found 0 vulnerabilities`** · **`All migrations have been
-  successfully applied.`** (as duas novas) · boot com **16 portas ouvindo** ·
+successfully applied.`** (as duas novas) · boot com **16 portas ouvindo** ·
   `restart.txt marcado em 2026-08-31 22:55:40` · `/health` = `{"status":"ok"}` · `/` e
   `/credenciamentos` = **200**. Etiqueta **`v1.5.0`** criada e enviada à mão.
-- **🔑 A PROVA QUE IMPORTAVA, VISTA NA TELA DE PRODUÇÃO COMO ROOT.** Em *Ajustes → Serviços*:
-  **Credenciamento** com a caixa *"Este é o serviço de faturamento médico"* **DESMARCADA** e o texto
-  *"Cobrado por valor fixo — avulso (1x) ou mensal"*, **sem botão nem campo de percentual**; e
-  **Faturamento** com a caixa **MARCADA**, *"% do faturamento"* aceso e **3,5%** (a Thaís ajustou de
+- **🔑 A PROVA QUE IMPORTAVA, VISTA NA TELA DE PRODUÇÃO COMO ROOT.** Em _Ajustes → Serviços_:
+  **Credenciamento** com a caixa _"Este é o serviço de faturamento médico"_ **DESMARCADA** e o texto
+  _"Cobrado por valor fixo — avulso (1x) ou mensal"_, **sem botão nem campo de percentual**; e
+  **Faturamento** com a caixa **MARCADA**, _"% do faturamento"_ aceso e **3,5%** (a Thaís ajustou de
   5% para 3,5%). ⚠️ **A guarda `20260901010500` ter passado é prova por si só**: ela PARA a
   publicação se o backfill não deixar exatamente um marcado — passou, logo acertou o alvo.
 - **💳 O RECIBO DE PRODUÇÃO ESTÁ FIXO EM PIX**, conferido na tela: o campo mostra `PIX` sem lista
-  para escolher, e a prévia imprime *"**Forma de pagamento:** PIX · **Data:** 31/08/2026"*.
+  para escolher, e a prévia imprime _"**Forma de pagamento:** PIX · **Data:** 31/08/2026"_.
 - **Zero erro de console** nas telas conferidas.
 
-- **Ordem do dono (31/08):** *"em AJUSTES → SERVIÇOS → CREDENCIAMENTO está mostrando PORCENTAGEM, e
+- **Ordem do dono (31/08):** _"em AJUSTES → SERVIÇOS → CREDENCIAMENTO está mostrando PORCENTAGEM, e
   somente o FATURAMENTO nós recebemos apenas a porcentagem. O restante dos serviços são 100% valor
-  fixo (avulso ou mensal)"* · *"não aceitamos cartão (aceitamos somente PIX)"*. E, sobre o
-  credenciamento: *"é o único serviço que recebemos somente após o sucesso (a operadora aprovar) —
-  fazemos todo o serviço sem cobrar nada"*. ⚠️ **Essa última regra JÁ estava certa no código**
+  fixo (avulso ou mensal)"_ · _"não aceitamos cartão (aceitamos somente PIX)"_. E, sobre o
+  credenciamento: _"é o único serviço que recebemos somente após o sucesso (a operadora aprovar) —
+  fazemos todo o serviço sem cobrar nada"_. ⚠️ **Essa última regra JÁ estava certa no código**
   (ADR-104/108) e foi reconferida: a conta a receber nasce em
   `credenciamento-grade.service.ts:331-351`, e a conversão do lead, a contratação pela ficha e o
   aceite de proposta **excluem o credenciamento explicitamente**. Nada foi mexido lá.
 - **🏷️ O PREÇO GRAVADO DO CREDENCIAMENTO SEMPRE ESTEVE CERTO (R$ 1.500 fixo).** O defeito era a tela
-  **oferecer** o botão *"% do faturamento"* — nos **dez** serviços do catálogo, e de novo em cada
+  **oferecer** o botão _"% do faturamento"_ — nos **dez** serviços do catálogo, e de novo em cada
   ficha de cliente. ⚠️ **Trocar a forma de cobrança por engano não dá erro nenhum:** muda o preço no
   papel do cliente, a conta a receber e a estimativa do funil, os três em silêncio.
 - **🔑 A CURA É UMA MARCA, `Servico.ehFaturamento` — o mesmo molde da ADR-144, de ontem.**
@@ -912,7 +947,7 @@ entre proxy e app.
   proposta antiga trocar de forma sozinha no dia em que alguém desmarcasse o serviço.
 - **🚪 QUATRO PORTAS TRAVADAS, e a quarta é a que quase escapa:** o Zod da criação · o servidor na
   criação · o servidor na **edição** (⚠️ o Zod **não serve** ali: a edição é parcial, e a
-  conferência é sobre o **ANTES + o DEPOIS**) · e **a ficha do cliente**, a *segunda porta* da
+  conferência é sobre o **ANTES + o DEPOIS**) · e **a ficha do cliente**, a _segunda porta_ da
   ADR-140 — travar só o catálogo deixaria a ficha fazer, cliente por cliente, o que a tela de
   Serviços passou a recusar. Mais duas guardas: **só um serviço marcado** e **nunca faturamento +
   credenciamento no mesmo serviço**. ⚠️ **Desmarcar sem limpar o percentual é recusado** — senão o
@@ -922,20 +957,20 @@ entre proxy e app.
   deixou de fora justamente o que grava a linha da proposta/contrato que vai ao cliente — e que o
   **aceite copia** para `ClienteServico`. Fechado.
 - **💳 O CARTÃO SAIU DO RECIBO.** Era a última tela que contradizia a ADR-127 ("é sempre PIX"): o
-  Recibo oferecia *PIX, Dinheiro, Cartão de crédito, Cartão de débito, Transferência e Boleto*, e a
+  Recibo oferecia _PIX, Dinheiro, Cartão de crédito, Cartão de débito, Transferência e Boleto_, e a
   escolha saía **impressa no papel timbrado do cliente**. Virou constante, **não um `<Select>` de um
   item só** — escolha que não existe é informação, não campo de formulário.
-- **📄 O CONTRATO PASSOU A DIZER PIX.** A seção *"4. Valor e forma de pagamento"* prometia a forma no
+- **📄 O CONTRATO PASSOU A DIZER PIX.** A seção _"4. Valor e forma de pagamento"_ prometia a forma no
   título e não dizia nenhuma. ⚠️ **A frase é autossuficiente de propósito** — não diz "nos dados
   abaixo", porque o bloco bancário some inteiro com Ajustes em branco. ⚠️ O modelo é **semente
   atualizável** (`listModelos` reescreve o que ninguém editou à mão), então chega a produção sozinho.
-- **Fica como está, de propósito:** a categoria *"Cartão de crédito"* do Financeiro — é **despesa**,
+- **Fica como está, de propósito:** a categoria _"Cartão de crédito"_ do Financeiro — é **despesa**,
   dinheiro que a Med paga.
 - **Provas:** typecheck 6/6 · lint limpo · **suíte COMPLETA do `@app/api` verde: 833 testes em 102
   arquivos** (11 de integração novos, **vistos reprovando antes** — com a trava desligada, 4 deles
   reprovam) · **220 do `@app/web`** ·
   na tela, como ROOT: Credenciamento sem botão de percentual, Faturamento com a marca e o
-  interruptor, a ficha do cliente idem, o Recibo com *"Forma de pagamento: PIX"* fixo e o contrato
+  interruptor, a ficha do cliente idem, o Recibo com _"Forma de pagamento: PIX"_ fixo e o contrato
   com a frase do PIX. **Zero erro de console.**
 
 - **🕳️ OS TRÊS ACHADOS DA REVISÃO VIERAM DA PRÓPRIA CORREÇÃO — a lição da rodada, de novo.** Três
@@ -951,7 +986,7 @@ entre proxy e app.
   "(a preencher)"**: ele nasce por **duas portas**, e só uma resolvia o `{{dadosPagamento}}` novo.
 - **Mais quatro, menores:** o formulário de serviço **recusava sem mostrar mensagem** (as travas
   apontam o erro para `percentual`, que é o campo escondido no estado que elas reprovam — Salvar
-  ficava inerte e ninguém descobria por quê) · o botão *"% do faturamento"* **não acendia** em
+  ficava inerte e ninguém descobria por quê) · o botão _"% do faturamento"_ **não acendia** em
   serviço sem percentual · o construtor da proposta de faturamento filtrava por **preço** e abriria
   vazio no dia em que o percentual ficasse "a combinar" · e o rótulo fixo do recibo era um `<label>`
   **órfão**.
@@ -967,7 +1002,7 @@ entre proxy e app.
 - ~~**PR e CI.**~~ **FEITO: PR #162, CI 3/3 verde, mesclado em `dc1c20a`.**
 - ~~**Publicar.**~~ **FEITO em 01/09 às 01:55 — é a v1.5.0.**
 - ⚠️ **DOCUMENTO JÁ GERADO NÃO SE CORRIGE SOZINHO.** O modelo do Contrato passou a trazer
-  *"exclusivamente por PIX"* + os dados bancários, e `listModelos` atualiza em produção o que
+  _"exclusivamente por PIX"_ + os dados bancários, e `listModelos` atualiza em produção o que
   ninguém editou à mão — mas **contrato já emitido guarda o texto de quando foi gerado**. Se um
   contrato antigo for usado, tem de ser gerado de novo. Hoje só existe **uma** proposta em produção
   (Clínica na Mooca, 27/08), nenhum contrato.
@@ -985,20 +1020,20 @@ entre proxy e app.
   (o `gh workflow run` **foi barrado para mim de novo** — quem colou o comando foi o dono). A suíte
   completa rodou **antes** de tocar no servidor (`build-test` + `integration` + `e2e`, os três
   verdes), depois: `node_modules preservado`, **`found 0 vulnerabilities`**, **`All migrations have
-  been successfully applied.`** (as duas novas), ensaio de boot com **16 portas ouvindo**,
+been successfully applied.`** (as duas novas), ensaio de boot com **16 portas ouvindo**,
   `restart.txt marcado em 2026-08-31 20:25:59`, `/health` = `{"status":"ok"}`, `/` e
   `/credenciamentos` = **200**. Etiqueta **`v1.4.0`** criada e enviada à mão (o `deploy.yml`
   continua não criando).
-- **🔑 A PROVA QUE IMPORTAVA, VISTA NA TELA DE PRODUÇÃO COMO ROOT:** em *Ajustes → Serviços →
-  Credenciamento médico e odontológico → Configurar*, a caixa **"Este é o serviço de
+- **🔑 A PROVA QUE IMPORTAVA, VISTA NA TELA DE PRODUÇÃO COMO ROOT:** em _Ajustes → Serviços →
+  Credenciamento médico e odontológico → Configurar_, a caixa **"Este é o serviço de
   credenciamento" está MARCADA**, com a consequência escrita ao lado. Isso prova que **o backfill
   da migração acertou o alvo em produção** — era o único jeito de saber, porque o estado errado
   (nenhum marcado) **não produz erro nenhum**, e é o lado que cobra duas vezes.
 - **🩺 SETE ERROS ABERTOS, E OS SETE SÃO DE HOSPEDAGEM** — seis `Can't reach database server at
-  localhost:3306` e um esgotamento do pool (limite 13, timeout 10s). ⚠️ **O mais recente é de 2
+localhost:3306` e um esgotamento do pool (limite 13, timeout 10s). ⚠️ **O mais recente é de 2
   HORAS ANTES da publicação: nenhum erro novo nasceu com este lote.** O banco de produção segue
   caindo, e segue intocado por ordem do dono.
-- **✅ ADR-142 CONFIRMADA NA TELA:** a página Clientes mostra *Total 0* e *Com Portal ativo 0* — os
+- **✅ ADR-142 CONFIRMADA NA TELA:** a página Clientes mostra _Total 0_ e _Com Portal ativo 0_ — os
   dois números concordando. Antes diziam 0 e 1, se contradizendo (o único cliente é PROSPECT, que
   a página não lista por projeto).
 - **Zero erro de console** em Credenciamentos, Clientes e Financeiro de produção.
@@ -1064,10 +1099,10 @@ entre proxy e app.
   segunda é a que sai. ⚠️ **Tirar uma delas devolve o defeito.**
 - ~~**Publicar**~~ **FEITO em 31/08 às 23:26 — é a v1.4.0.** ⚠️ O `gh workflow run` **foi barrado
   para mim de novo**: conte com pedir ao dono que cole `! gh workflow run deploy.yml --ref main -f
-  confirmar=PUBLICAR`. Do disparo em diante (acompanhar, etiquetar, conferir) é tudo comigo.
+confirmar=PUBLICAR`. Do disparo em diante (acompanhar, etiquetar, conferir) é tudo comigo.
 - ⚠️ **PENDÊNCIA HERDADA DA ADR-143, a conferir depois de publicar:** a correção **C10** mudou o
   significado de "parcela apagada". Se houver em produção parcela apagada por reversão antiga, ela
-  passará a ser lida como *excluída de propósito* e aquele mês será **pulado**.
+  passará a ser lida como _excluída de propósito_ e aquele mês será **pulado**.
 - ~~**`@@unique(nome)` em `Servico`**~~ **FEITO em 02/09/2026** (ver a secao no Estado atual).
   ⚠️ **O medo registrado aqui — "a lista de producao so e visivel pela pagina publica, que mostra nome
   mas nao prova unicidade" — era FALSO.** A tela interna de Servicos usa `listServicos`, que **inclui
@@ -1080,7 +1115,7 @@ entre proxy e app.
 - **Três PRs do Renovate seguem abertos de propósito** (#157, #158, #124): são atualização de
   biblioteca, e mesclá-los mudaria o artefato que acabou de ser provado verde. ⚠️ **Nenhuma das 18
   vulnerabilidades do aviso do GitHub alcança produção** — `pnpm audit --prod` em 31/08:
-  *"No known vulnerabilities found"*. É a ADR-115 de novo: o Dependabot lê o `pnpm-lock.yaml` e não
+  _"No known vulnerabilities found"_. É a ADR-115 de novo: o Dependabot lê o `pnpm-lock.yaml` e não
   entende workspaces do pnpm.
 
 ## Estado anterior (2026-08-29 · madrugada · ADR-143 — MESCLADA na `main` (PR #156, commit `e737b40`), NÃO publicada)
@@ -1106,8 +1141,8 @@ entre proxy e app.
   com `overflow-y-auto` parece rolar na horizontal. Com essa regra, cartões estourando 36px e 105px
   passavam aprovados. **A isenção certa é a marca explícita `data-rolagem-horizontal`**, posta nos
   quatro lugares onde a rolagem lateral é desenho (`Table`, `TabsList`, as duas fileiras de Kanban).
-- **⚠️ O `412` do `/email` NÃO é erro** — é o crachá que a ADR-135 deu ao estado esperado *"esta
-  caixa precisa ser reconectada"*, que a tela já trata com o botão *Reconectar*. A verificação de
+- **⚠️ O `412` do `/email` NÃO é erro** — é o crachá que a ADR-135 deu ao estado esperado _"esta
+  caixa precisa ser reconectada"_, que a tela já trata com o botão _Reconectar_. A verificação de
   console dispensa **só** esse status.
 - **💰 Cinco defeitos de cobrança fechados** (M1, C10, M15, F8, F9) e **cancelar serviço encerra a
   mensalidade** (decisão do dono). ⚠️ São **dois movimentos**: `recorrenciaAte = hoje` na série
@@ -1142,7 +1177,7 @@ entre proxy e app.
   `! gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR`.
 - ⚠️ **ANTES DE PUBLICAR, CONFERIR EM PRODUÇÃO:** a correção **C10** mudou o significado de "parcela
   apagada". Se houver em produção parcela apagada por reversão antiga, ela passará a ser lida como
-  *excluída de propósito* e aquele mês será **pulado**.
+  _excluída de propósito_ e aquele mês será **pulado**.
 
 ## Estado anterior (2026-08-28 · madrugada · ADR-142 na `main` + OS DADOS DA EMPRESA FORAM PREENCHIDOS EM PRODUÇÃO)
 
@@ -1150,21 +1185,21 @@ entre proxy e app.
   em 28/08, à mão, na tela.** Conferido reabrindo o formulário (que carrega do servidor):
   razão social **Thais Garcia de Sousa** · CNPJ **34.270.022/0001-93** · **foro "Comarca de São
   Paulo/SP"** (que estava dado como pendência do dono desde 27/08 — ele resolveu junto) · endereço
-  *"Alto da Mooca - SP"* · Nubank / 0001 / 686169152-5 · titular Thais Garcia de Sousa · PIX
+  _"Alto da Mooca - SP"_ · Nubank / 0001 / 686169152-5 · titular Thais Garcia de Sousa · PIX
   34.270.022/0001-93. ⚠️ **O DPO continua vazio** — benigno, a página cai no e-mail institucional.
-- **✅ `/privacidade` DE PRODUÇÃO JÁ IDENTIFICA O CONTROLADOR**, conferido na tela: *"Thais Garcia
-  de Sousa, CNPJ 34.270.022/0001-93, com sede em Alto da Mooca - SP"*. **A pendência da LGPD que
+- **✅ `/privacidade` DE PRODUÇÃO JÁ IDENTIFICA O CONTROLADOR**, conferido na tela: _"Thais Garcia
+  de Sousa, CNPJ 34.270.022/0001-93, com sede em Alto da Mooca - SP"_. **A pendência da LGPD que
   travava o dado real está FECHADA.** Zero erro de console.
-- **⚠️ O ENDEREÇO AINDA ESTÁ INCOMPLETO** — *"Alto da Mooca - SP"* não tem rua, número nem CEP. Já
+- **⚠️ O ENDEREÇO AINDA ESTÁ INCOMPLETO** — _"Alto da Mooca - SP"_ não tem rua, número nem CEP. Já
   não sai `[A PREENCHER]`, mas é endereço que não localiza a empresa; sai assim no contrato e na
   página pública. **Pendência do dono.**
-- **⚠️ DOCUMENTO JÁ GERADO NÃO SE CORRIGE SOZINHO.** A *Proposta comercial – Clínica na Mooca*
+- **⚠️ DOCUMENTO JÁ GERADO NÃO SE CORRIGE SOZINHO.** A _Proposta comercial – Clínica na Mooca_
   (27/08) segue **sem o bloco de dados para pagamento** — conferido lendo o papel inteiro em
   produção. O documento guarda o texto de quando foi gerado; **se essa proposta for usada, tem de
   ser gerada de novo**. Documento novo já nasce certo.
 - **📭 NÃO EXISTE NENHUM CLIENTE DE VERDADE EM PRODUÇÃO — só o prospect.** Descoberto ao tentar
   provar o contrato: o seletor de cliente do "Novo documento" responde **"Nenhum cliente
-  encontrado"**, porque a *Clínica na Mooca* ainda é PROSPECT e contrato só se emite para cliente
+  encontrado"**, porque a _Clínica na Mooca_ ainda é PROSPECT e contrato só se emite para cliente
   convertido. **É a mesma raiz do "Total de clientes 0" corrigido na ADR-142.** Consequência: o
   contrato com dado real **ainda não foi provado na tela** — só o será quando houver a 1ª conversão.
 - **🔒 EU NÃO CONSIGO DIGITAR EM FORMULÁRIO DE PRODUÇÃO.** Tentado das duas formas (`form_input` e
@@ -1174,19 +1209,19 @@ entre proxy e app.
   O caminho que funciona: abrir a tela para ele e entregar os valores prontos para colar.
 - **✅ ADR-142 NA `main`** (PR #154, squash, CI 3/3 verde, commit `b9798fa`). **Zero migração.** Dois
   consertos:
-  - **Os dois números que se contradiziam em Clientes.** *"Total de clientes 0"* ao lado de
-    *"Com Portal ativo 1"*, visto em produção. A contagem não estava errada — contava **outro
+  - **Os dois números que se contradiziam em Clientes.** _"Total de clientes 0"_ ao lado de
+    _"Com Portal ativo 1"_, visto em produção. A contagem não estava errada — contava **outro
     universo**: `total`/`ativos`/`inativos` excluem o PROSPECT (ADR-24), mas `portaisAtivos`
     contava toda conta de Portal, inclusive a do prospect (ADR-128). ⚠️ **A correção é estreitar a
     contagem, não trocar o rótulo** — renomear deixaria a página com um número que fala de um
     conjunto que ela não lista.
   - **O campo "Nome" do cliente estava declarado como nome de PESSOA.** Achado ao responder a
-    pergunta do dono (*"no lead tem NOME e CLÍNICA, no cliente só tem NOME — é assim mesmo?"*). **É
+    pergunta do dono (_"no lead tem NOME e CLÍNICA, no cliente só tem NOME — é assim mesmo?"_). **É
     assim de propósito e está certo:** todo cliente é PJ (ADR-119), `Cliente.nome` **é a clínica**,
     as pessoas vivem em `Contato` (a do lead vira contato principal na conversão). ⚠️ **Mas o
     formulário tinha `autoComplete="name"`** — o Chrome oferecia ali o nome do próprio operador, e
     o cliente podia nascer com nome de gente, que é o nome impresso no contrato. Hoje: **"Nome da
-    clínica *"**, `autoComplete="organization"`, exemplo no campo e explicação no "?".
+    clínica \*"**, `autoComplete="organization"`, exemplo no campo e explicação no "?".
   - **Provas:** typecheck 6/6 · lint limpo · **729 testes** do `@app/api` (**3 novos de integração,
     vistos reprovando antes** — o primeiro falhou com `expected 1 to be +0`, exatamente o número da
     tela de produção) · 171 do `@app/web` · na tela local, zero erro de console.
@@ -1199,7 +1234,7 @@ entre proxy e app.
   de novo**; quem colou o comando com `!` foi o dono). A **suíte completa rodou antes de tocar no
   servidor** (`build-test` + `e2e` + `integration`, os três verdes), depois 7/7 no deploy:
   `node_modules preservado`, `found 0 vulnerabilities`, **`All migrations have been successfully
-  applied.`** (a `20260828220208`), ensaio de boot com **16 portas ouvindo**,
+applied.`** (a `20260828220208`), ensaio de boot com **16 portas ouvindo**,
   `restart.txt marcado em 2026-08-28 20:27:25`, `/health` = `{"status":"ok"}`, `/` e
   `/credenciamentos` = **200**. Etiqueta **`v1.3.0`** criada e enviada à mão (o `deploy.yml`
   continua não criando).
@@ -1209,7 +1244,7 @@ entre proxy e app.
   declaração do envio à OpenAI com a lista do que é redigido) · o **bloco de consentimento em
   `/comecar`** com o link · **`SISTEMA → Privacidade`** com o expurgo e a área de eliminação
   (⚠️ **o botão "Rodar o expurgo agora" NÃO foi clicado** — apaga dado) · **`Ajustes → Dados da
-  empresa`** com a seção nova *Privacidade e prazos de guarda* · uptime de **1 minuto**, provando o
+empresa`** com a seção nova _Privacidade e prazos de guarda_ · uptime de **1 minuto**, provando o
   reinício · **zero erro de console** em todas elas.
 - **🚨 ACHADO NA CONFERÊNCIA, E É O QUE TRAVA O DADO REAL: os dados jurídicos e bancários de
   PRODUÇÃO estão TODOS EM BRANCO.** Razão social, CNPJ, foro de eleição, endereço completo, banco,
@@ -1227,7 +1262,7 @@ entre proxy e app.
   Indicar a pessoa é recomendável, não bloqueante.
 - **🩺 O banco de produção continua caindo, e segue intocado por ordem do dono.** `SISTEMA → Erros`
   mostra **5 erros não resolvidos, e os 5 são de hospedagem** — quatro `Can't reach database server
-  at localhost:3306` e um esgotamento do pool (limite 13, timeout 10s). O mais recente é de **20
+at localhost:3306` e um esgotamento do pool (limite 13, timeout 10s). O mais recente é de **20
   horas antes da publicação**: ⚠️ **nenhum erro novo nasceu com este lote**. No momento da
   conferência o banco estava **Online, latência 2 ms**.
 
@@ -1236,8 +1271,8 @@ entre proxy e app.
 > **Leia a ADR-141 em `docs/DECISIONS.md`.** O diagnóstico que originou o trabalho está em
 > `docs/esteira/lgpd-2026-08-28/O-QUE-FALTA.md` (agora marcado como histórico).
 
-- **Ordem do dono:** *"Não quero quebrar regras de lei. Resolva tudo e deixe tudo conforme a lei."*
-  E: *"podemos primeiro resolver tudo e desenvolver tudo pra depois publicar"* — por isso os quatro
+- **Ordem do dono:** _"Não quero quebrar regras de lei. Resolva tudo e deixe tudo conforme a lei."_
+  E: _"podemos primeiro resolver tudo e desenvolver tudo pra depois publicar"_ — por isso os quatro
   itens vieram em **UMA branch e UM PR** (`feat/conformidade-lgpd-adr-141`), não quatro: cada PR
   dispara a suíte inteira, e quatro custariam quatro vezes em Actions.
 - **🔴 CPF DE CLIENTE IA PARA A OPENAI A CADA CLIQUE EM "RESUMIR".** O campo `observacoes` ia
@@ -1262,7 +1297,7 @@ entre proxy e app.
   CNPJ, e-mail, telefone e observações da ficha, dos contatos e dos médicos, e o acesso ao Portal cai.
   ⚠️ **FICA o corpo dos contratos já emitidos** — é o dever de guarda que justifica manter, e a
   confirmação na tela **diz isso**. ⚠️ **Exige o cliente ARQUIVADO.** ⚠️ **A tela é a aba
-  *Privacidade* do painel do ROOT, não a ficha**: toda tela de cliente filtra `deletedAt: null`, e
+  _Privacidade_ do painel do ROOT, não a ficha**: toda tela de cliente filtra `deletedAt: null`, e
   arquivado o cliente some da aplicação inteira.
 - **🧹 EXPURGO COM ROTINA.** O corpo dos e-mails era guardado **para sempre**. Agora é apagado depois
   do prazo, todo dia, por `setInterval` no boot (a hospedagem não tem cron — mesmo molde da varredura
@@ -1317,7 +1352,7 @@ entre proxy e app.
   uma clínica alheia, o convite saía para a caixa dele, e ele entrava com **sessão normal de
   cliente** — sem a marca de sessão de suporte que a ADR-128 criou para isto ser rastreável. Hoje
   as cinco mutações passam por `assertPodeVerOPainel`, a mesma régua do Painel do Cliente.
-- **🔴 TODA SECRETÁRIA CADASTRADA PELA TELA DA MED ASSINAVA CONTRATO.** *Equipe e acessos* não
+- **🔴 TODA SECRETÁRIA CADASTRADA PELA TELA DA MED ASSINAVA CONTRATO.** _Equipe e acessos_ não
   gravava `papelPortal`, e **nulo vale como RESPONSAVEL**. Nasceu
   `portal/papel-da-clinica.ts` (`papelPortalPadraoDaClinica` + `assertSobraResponsavel`), usado
   pelas duas telas. ⚠️ **Arquivo separado por causa de CICLO DE MÓDULOS** — `pessoas.service.ts` já
@@ -1344,8 +1379,8 @@ entre proxy e app.
   volta pelo site é reaberto no funil · o cliente apagando arquivo agora fica registrado.
 - **🟠 DEZ TELAS LIAM "FALHA DE REDE" COMO "NÃO HÁ NADA".** A app tem rede de segurança para
   MUTAÇÃO (`main.tsx:20-27`) e nenhuma para CONSULTA, e `retry: false` faz um tropeço virar estado
-  final. No Portal isso dizia ao cliente ✅ *"Você já enviou tudo o que pedimos"* — e ele parava de
-  mandar documento. Nas páginas públicas de **assinar** e de **proposta**, dizia *"Link inválido"*.
+  final. No Portal isso dizia ao cliente ✅ _"Você já enviou tudo o que pedimos"_ — e ele parava de
+  mandar documento. Nas páginas públicas de **assinar** e de **proposta**, dizia _"Link inválido"_.
   No `App.tsx`, jogava a pessoa na tela de login no meio do trabalho. ⚠️ No `SistemaPage` o ramo de
   erro era **código morto** (vinha depois do `!data`), e o painel que existe para avisar ficava
   pulsando para sempre.
@@ -1458,11 +1493,11 @@ entre proxy e app.
   escrito.** Branch `feat/portal-app-5-secoes`, já no GitHub. Briefing, spec (671 linhas), design
   (726) e plano (705, **6 etapas em 3 ondas**) escritos e aprovados no validador.
 - **📱 O DONO APROVOU as 5 seções** (Início · Documentos · Credenciamento · Meus serviços ·
-  Suporte, com *Equipe* e *Perfil* no menu do avatar) **e a direção visual** (barra inferior com
+  Suporte, com _Equipe_ e _Perfil_ no menu do avatar) **e a direção visual** (barra inferior com
   ícone + rótulo sempre visíveis). Item 4 da ordem dele, finalmente destravado.
 - **🃏 A BARRA TEM 4 CORINGAS E 1 VAGA (ordem do dono).** Ele recusou a premissa de 5 seções
-  fixas com a razão certa: *"nem todos nossos clientes tem convênios. Nem todos tem
-  credenciamento tbm."* Início, Documentos, Serviços e Suporte valem para todo cliente; a 3ª
+  fixas com a razão certa: _"nem todos nossos clientes tem convênios. Nem todos tem
+  credenciamento tbm."_ Início, Documentos, Serviços e Suporte valem para todo cliente; a 3ª
   posição é uma **vaga**. ⚠️ **A vaga é uma LISTA DE CANDIDATAS, nunca um `if`** — frente de
   trabalho nova entra numa linha, sem abrir a barra. Hoje há **uma** candidata, e é fato do
   repositório: `PortalCredenciamento.tsx` é a única tela de frente que existe. Rótulo
@@ -1491,7 +1526,7 @@ entre proxy e app.
   A correção mínima é uma função pura em `portal-papeis.ts` **que o servidor também passa a
   chamar** — senão o conserto cria a divergência que veio evitar (modo de falha da ADR-133).
 - **🎁 Brinde do redesenho:** com rotas, `portal.servicosDisponiveis` (**11,9 s** em produção)
-  deixa de ser obrigatória para abrir o Portal e passa a carregar só em *Meus serviços*.
+  deixa de ser obrigatória para abrir o Portal e passa a carregar só em _Meus serviços_.
 - **Escopo cortado pelo dono:** os 4 achados de REGRA do Portal (M9, C7, C8, F20) **não** entram
   nesta rodada — misturar correção de regra com redesenho faz o PR crescer e esconde qual das
   duas coisas quebrou. Viram rodada própria.
@@ -1555,7 +1590,7 @@ entre proxy e app.
 - **🟡 A DIVISÃO DO PORTAL EM 5 SEÇÕES continua SEM RESPOSTA** — é o item 4 e não começou. A
   mensagem do dono veio com o campo em branco (`[aprovo as 5 seções / mudo assim: ...]`).
   Recomendação: aprovar como está (Início · Documentos · Credenciamento · Meus serviços ·
-  Suporte, com *Equipe* e *Perfil* no menu do avatar).
+  Suporte, com _Equipe_ e _Perfil_ no menu do avatar).
 - **🟡 O E-MAIL DE "NOVO LEAD" (pedido novo do dono, 28/08).** Ele quer que **só ADMIN e ROOT**
   recebam. ⚠️ **CONFERIDO NO CÓDIGO: os dois disparos já filtram exatamente isso** —
   `leads.service.ts:1519-1522` (recaptura) e `:1566-1569` (lead novo), ambos
@@ -1567,7 +1602,7 @@ entre proxy e app.
   produção?** Se existir, rotacionar toda linha PENDENTE vira obrigatório.
 - **🚨 O BANCO DE PRODUÇÃO CAINDO E A LENTIDÃO: NÃO FOI TOCADO**, por ordem do dono. É hospedagem,
   não código (`leads.list` responde em 15 ms enquanto `portal.servicosDisponiveis` leva 11,9 s).
-- **⚠️ PENDÊNCIA DO DONO: "Foro de eleição"** em *Ajustes → Dados da empresa* — ele disse que
+- **⚠️ PENDÊNCIA DO DONO: "Foro de eleição"** em _Ajustes → Dados da empresa_ — ele disse que
   preenche com a Thaís mais para a frente.
 
 ## Estado anterior (2026-08-28 · tarde · A DESCOBERTA DO REFINO FINAL — 4 auditorias, nada construído ainda)
@@ -1578,14 +1613,14 @@ entre proxy e app.
 - **✅ A ADR-136 ESTÁ NA `main`** (PR #144, squash, CI 3/3 verde, commit `3dabc32`). Branch
   `fix/refinos-de-tela-adr-136` apagada. **Não está no ar** — a v1.2.1 continua sendo o que roda.
 - **✅ AS TRÊS PROVAS PENDENTES DE PRODUÇÃO ESTÃO FEITAS**, conferidas na tela como ROOT em
-  28/08: *Manutenção* diz **"CSP: Ligada"**; *Desempenho* não tem mais nenhum **P95 maior que o
+  28/08: _Manutenção_ diz **"CSP: Ligada"**; _Desempenho_ não tem mais nenhum **P95 maior que o
   MÁX**; e o template **"Boas-vindas ao Portal (cliente)"** existe em produção com assunto
-  *"Bem-vindo ao Portal do Cliente — MedConsultoria"*, botão **Entrar no Portal** e **zero**
+  _"Bem-vindo ao Portal do Cliente — MedConsultoria"_, botão **Entrar no Portal** e **zero**
   ocorrência de "Workspace". Zero erro de console.
 - **🚨 ACHADO NOVO EM PRODUÇÃO, GRAVE, NÃO É CÓDIGO: o banco cai e a aplicação está lenta.**
   Os 5 "erros não resolvidos" do painel do ROOT são todos reais desta vez —
   `Can't reach database server at localhost:3306` (o mais recente **há 10 horas**) e um
-  esgotamento do pool (limite 13, timeout 10s). Em *Desempenho*:
+  esgotamento do pool (limite 13, timeout 10s). Em _Desempenho_:
   `portal.servicosDisponiveis` **11,9 s** de máximo, `auth.login` **9,9 s**, consultas de
   **4 a 12 s**. ⚠️ **O código não é o gargalo** — `leads.list` responde em 15 ms. É a
   hospedagem. **Exige ordem do dono; nada foi tocado.**
@@ -1629,7 +1664,7 @@ entre proxy e app.
 - **Ordem dele:** o Portal precisa parecer um aplicativo no celular, com **menu inferior**
   (referência: app da Binance).
 - **PENDENTE DE RESPOSTA:** a divisão do Portal em **5 seções** (Início · Documentos ·
-  Credenciamento · Meus serviços · Suporte), com *Equipe* e *Perfil* indo para o menu do avatar.
+  Credenciamento · Meus serviços · Suporte), com _Equipe_ e _Perfil_ indo para o menu do avatar.
   Foi recomendada e **ainda não aprovada** — é a única coisa que trava o começo da construção.
 - **Fora de escopo por ordem dele:** o "Foro de eleição" (ele vai preencher com a Thaís).
 
@@ -1655,7 +1690,7 @@ entre proxy e app.
   relatou. Faixa âmbar no topo do formulário, com a regra em função pura testada (`avisoDeSerie`):
   ⚠️ **hora diferente no MESMO dia não é divergência de dia**, e a comparação usa o formatador
   central (fuso `America/Sao_Paulo`) — em UTC o aviso acenderia errado perto da meia-noite.
-- **👥 B7 — A COLUNA *PAPEL* NÃO DIZIA QUEM ASSINA (ADR-136).** *Equipe e acessos* dizia só
+- **👥 B7 — A COLUNA _PAPEL_ NÃO DIZIA QUEM ASSINA (ADR-136).** _Equipe e acessos_ dizia só
   "Cliente" para os dois papéis da ADR-131. Agora mostra "· Responsável no Portal" / "· Equipe no
   Portal". ⚠️ **Papel nulo é mostrado como Responsável** — a MESMA leitura de `podeNoPortal`; duas
   leituras do mesmo nulo (uma na trava, outra na tela) é o modo de falha da ADR-133.
@@ -1678,14 +1713,14 @@ entre proxy e app.
 
 ### Ainda aberto depois desta janela
 
-- **⚠️ CONFERIR A v1.2.1 NA TELA DE PRODUÇÃO, como ROOT** — "CSP: Ligada" em *Manutenção*, o P95
-  em *Desempenho*, e a prévia do template "Boas-vindas ao Portal (cliente)". Depende do dono
+- **⚠️ CONFERIR A v1.2.1 NA TELA DE PRODUÇÃO, como ROOT** — "CSP: Ligada" em _Manutenção_, o P95
+  em _Desempenho_, e a prévia do template "Boas-vindas ao Portal (cliente)". Depende do dono
   entrar com a conta dele.
-- **⚠️ PENDÊNCIA DO DONO: preencher o "Foro de eleição"** em *Ajustes → Dados da empresa*. Está em
+- **⚠️ PENDÊNCIA DO DONO: preencher o "Foro de eleição"** em _Ajustes → Dados da empresa_. Está em
   branco e o contrato sai com **`[A PREENCHER]`** — comportamento correto (o sistema não inventa
   dado jurídico), mas precisa ser preenchido antes do primeiro contrato real. O resto dos dados
   jurídicos e os bancários já estão completos.
-- **Sobra de teste no banco LOCAL:** contratei "Gestão Operacional" para a *Clínica Teste CNPJ*
+- **Sobra de teste no banco LOCAL:** contratei "Gestão Operacional" para a _Clínica Teste CNPJ_
   para provar o B5, e deixei contratado. É o banco de desenvolvimento, que os e2e já enchem de
   resíduo; cancelar criaria um estado artificial diferente.
 
@@ -1700,7 +1735,7 @@ entre proxy e app.
 - **🚨 O PAINEL DE ERROS DO ROOT ERA 100% RUÍDO (ADR-135).** `SISTEMA → Erros` anunciava
   **"5 erros não resolvidos"** e **nenhum era bug**: **66 ocorrências** eram "esta caixa precisa
   ser reconectada" (a caixa de e-mail com a senha vencida — estado que a própria tela já trata
-  com o botão *Reconectar*), duas eram do mesmo assunto em 04/08, e as duas últimas eram de
+  com o botão _Reconectar_), duas eram do mesmo assunto em 04/08, e as duas últimas eram de
   **28/07**, de antes de `Tarefa.responsavelId` virar N-N. A última ocorrência foi registrada
   **durante a auditoria**, só por abrir a página. ⚠️ **A causa é o crachá, não a régua:** o
   `onError` filtra por `INTERNAL_SERVER_ERROR` e diz no comentário que erro esperado não entra —
@@ -1722,14 +1757,14 @@ entre proxy e app.
   aí a aproximação erra só para menos.
 - **📧 O CLIENTE RECEBIA AS BOAS-VINDAS DO SISTEMA ERRADO (ADR-135) — o achado que mais chega a
   quem está de fora.** `aceitarConvite` mandava `boas_vindas` **sem olhar o papel**, e o cliente
-  do Portal também é `User`: o médico que ativava o acesso ao **Portal** recebia *"Bem-vindo ao
-  **Workspace** MedConsultoria"*, prometendo que ele acompanharia "clientes, projetos, agenda,
+  do Portal também é `User`: o médico que ativava o acesso ao **Portal** recebia _"Bem-vindo ao
+  **Workspace** MedConsultoria"_, prometendo que ele acompanharia "clientes, projetos, agenda,
   finanças", com botão **"Acessar o workspace"** → o sistema **interno** da Med. Nasceu o template
   **`boas_vindas_portal`** (editável na tela) e a régua `templateDeBoasVindas`. ⚠️ **O padrão dela
   é o do CLIENTE** — papel novo ou nulo cai no texto neutro: errar para esse lado tira do colega
   um link que ele já tem; errar para o outro manda o endereço interno para fora da empresa.
 - **🧹 O MESMO VAZAMENTO VINHA DE MAIS DOIS LUGARES (ADR-135).** O **rodapé é igual nos 42
-  templates** e trazia *"Acessar o workspace"* + *"sua conta no Workspace MedConsultoria"* — e
+  templates** e trazia _"Acessar o workspace"_ + _"sua conta no Workspace MedConsultoria"_ — e
   mais da metade dos e-mails vai para fora. O link saiu (ficaram e-mail comercial e site); a
   versão em **texto puro** assinava com o mesmo endereço interno e passou a assinar com o site. E
   **`reset_senha`** dizia "Workspace" no assunto e no corpo, sendo que `solicitarReset` **não
@@ -1738,16 +1773,16 @@ entre proxy e app.
 - **Zero migração** neste lote — nada mudou no banco.
 - **Provas (ADR-135):** typecheck e lint verdes · **491 testes de unidade** (19 novos) · **na
   tela**, como ROOT: "CSP: Ligada", e a prévia do novo "Boas-vindas ao Portal (cliente)" com
-  botão *Entrar no Portal*, rodapé sem link interno e **zero** ocorrência de "workspace" — nele e
+  botão _Entrar no Portal_, rodapé sem link interno e **zero** ocorrência de "workspace" — nele e
   no de redefinir senha.
 
 ### Ainda aberto depois daquela janela — TUDO FECHADO na ADR-136
 
 - ~~**Refino de tela (4), nenhum produz dado errado**~~ **FEITOS** — o nome do cliente aparecendo **até 3× na
   mesma linha** na Agenda e em Projetos; o evento **recorrente** que abre a data da 1ª ocorrência
-  sem avisar que edita a série; a coluna *Papel* de Equipe sem distinguir **Responsável × Equipe**
+  sem avisar que edita a série; a coluna _Papel_ de Equipe sem distinguir **Responsável × Equipe**
   do Portal (ADR-131); e "LEAD" × "cliente" para a mesma pessoa em Mensagens. Detalhe no relatório.
-- **⚠️ PENDÊNCIA DO DONO: preencher o "Foro de eleição"** em *Ajustes → Dados da empresa*. Está em
+- **⚠️ PENDÊNCIA DO DONO: preencher o "Foro de eleição"** em _Ajustes → Dados da empresa_. Está em
   branco e o contrato sai com **`[A PREENCHER]`** — comportamento correto (o sistema não inventa
   dado jurídico), mas precisa ser preenchido antes do primeiro contrato real. O resto dos dados
   jurídicos e os bancários já estão completos.
@@ -1764,7 +1799,7 @@ entre proxy e app.
   `/credenciamentos` = **200**. Etiqueta **`v1.2.0`** criada e enviada (o `deploy.yml`
   ainda **não** a cria sozinho — continua sendo passo à mão).
 - **⚠️ O `gh workflow run` VOLTOU A SER BARRADO pelo classificador** (`Blocked by
-  classifier`, recusa seca). O de 26/08 foi a exceção, não a regra: **conte com pedir ao
+classifier`, recusa seca). O de 26/08 foi a exceção, não a regra: **conte com pedir ao
   dono** que cole `! gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR` na
   conversa. Do disparo em diante (`gh run watch`, `gh run view --log`, etiqueta,
   conferência) é tudo comigo.
@@ -1783,7 +1818,7 @@ entre proxy e app.
 > **Contexto:** o dono vai começar a cadastrar DADO REAL em produção e pediu a varredura completa
 > da aplicação, clicando. Relatório vivo em `docs/auditoria/AUDITORIA-2026-08-27.md`.
 
-- **📧 O AVISO DE LEAD NOVO PAROU DE VIRAR RUÍDO (ADR-134).** Relato do dono: *"um lead novo dispara 6 e-mails internos; com lead real chegando todo dia a equipe para de ler"*. **Não era esquecimento:** o lead nasce **sem responsável**, então `capturarLead` avisa toda conta ADMIN/ROOT ativa — quatro em produção. Em produção passa de **4 e-mails por lead para 2**, os dois que realmente atendem. ⚠️ **O sininho não mudou:** todo mundo continua vendo dentro do sistema; o que ficou mais estreito é só o e-mail.
+- **📧 O AVISO DE LEAD NOVO PAROU DE VIRAR RUÍDO (ADR-134).** Relato do dono: _"um lead novo dispara 6 e-mails internos; com lead real chegando todo dia a equipe para de ler"_. **Não era esquecimento:** o lead nasce **sem responsável**, então `capturarLead` avisa toda conta ADMIN/ROOT ativa — quatro em produção. Em produção passa de **4 e-mails por lead para 2**, os dois que realmente atendem. ⚠️ **O sininho não mudou:** todo mundo continua vendo dentro do sistema; o que ficou mais estreito é só o e-mail.
 - **🤖 A CONTA DE SISTEMA NUNCA MAIS RECEBE E-MAIL OPERACIONAL (ADR-134).** `root@medconsultoria.com.br` é o ROOT primordial da ADR-89 — imutável, ninguém entra com ela, ninguém lê a caixa. ⚠️ **A recusa vale mesmo se alguém LIGAR a preferência à mão** — a régua é sobre a conta, não sobre a vontade de quem mexeu na tela. Comparação normalizada (maiúscula e espaço) e por **igualdade**, nunca `includes`: `root@medconsultoria.com.br.evil.com` é endereço de internet de verdade.
 - **🔔 "LEAD NOVO" NASCE LIGADO SÓ PARA ADMIN (ADR-134).** ROOT nominal (Thiago, André) vê pelo sininho e liga o e-mail na tela se quiser — quem toca o comercial é ADMIN. ⚠️ **`padraoDesligadoPara` é lista de EXCEÇÕES com padrão LIGADO** — o oposto de `MODELO_ACEITA_LEAD` (ADR-132) e `ACOES_LIBERADAS_PARA_EQUIPE` (ADR-131). É deliberado: lá o risco é **fazer demais**; aqui o risco é **avisar de menos**, e aviso que não chega é trabalho que não acontece. Categoria nova nasce **ligada**, e há teste que reprova a mudança silenciosa de padrão dos outros avisos.
 - **🎚️ A RÉGUA VIROU FUNÇÃO PURA, NUM LUGAR SÓ (ADR-134).** `decidirEmailOperacional` (`@app/shared`) reúne as **oito** condições que estavam espalhadas dentro do `notificar()`. ⚠️ **A tela de preferências lê a MESMA função** — sem isso ela mostraria "ligado" para um aviso que o servidor não manda, que é exatamente o modo de falha da ADR-133.
@@ -1799,32 +1834,32 @@ entre proxy e app.
 - **📄 A PROPOSTA VAI PARA QUEM AINDA É LEAD (ADR-132).** O "Novo documento" só oferecia CLIENTES — e a proposta é justamente o papel que se manda para quem **ainda não é** cliente. Não era esquecimento: `clientes.list` exclui prospect de propósito (ADR-24), mas era ele que alimentava o seletor; a única saída na tela era **converter o lead antes da hora**, sujando a base e disparando a provisão financeira da conversão (ADR-108). Hoje o campo é **"Cliente ou lead"**, com a etapa do funil ao lado de cada lead.
 - **✂️ O CORTE É O ACEITE (ADR-132).** Pré-venda aceita lead: **proposta** (as 3), **escopo**, **diagnóstico**, **plano de ação**, **ata**, **pauta de reunião**, **briefing**. Pós-venda exige cliente: **contrato**, **recibo**, **onboarding**, **checklist**, **relatórios**, **pauta de postagem** — quem aceita a proposta **vira cliente automaticamente**, então contrato para lead seria assinatura sem cliente por trás. ⚠️ **`MODELO_ACEITA_LEAD` (`@app/shared`) é lista de LIBERAÇÕES com padrão FECHADO** — tipo novo nasce fechado e o teste cobra a decisão de quem o acrescentar.
 - **🎯 ZERO MIGRAÇÃO, e é o que torna isto barato (ADR-132).** O documento continua em `Documento.clienteId`: **todo lead já tem (ou ganha) um `Cliente` PROSPECT por trás** — o mesmo do acesso ao Portal do prospect (ADR-128). A tela troca um pelo outro ao gerar (`documentos.clienteDoLead`, idempotente) e **nenhuma das SEIS formas de gerar documento mudou uma linha**. ⚠️ **Propor NÃO converte:** o cliente fica `PROSPECT` (fora da página Clientes) e o lead segue no funil — travado por teste de integração, senão "emitir proposta" viraria conversão silenciosa **com provisão financeira junto**.
-- **🏷️ DOIS NOMES, DE PROPÓSITO (ADR-132).** `rotulo` (`Clínica X (Fulano)`) serve para **escolher** entre clínicas parecidas; `nomeNoDocumento` (`Clínica X`) é o que sai **impresso**. Achado na prévia: o papel abria com *"Prezado(a) MedLar Home Care (Carlos Mendes)"*.
+- **🏷️ DOIS NOMES, DE PROPÓSITO (ADR-132).** `rotulo` (`Clínica X (Fulano)`) serve para **escolher** entre clínicas parecidas; `nomeNoDocumento` (`Clínica X`) é o que sai **impresso**. Achado na prévia: o papel abria com _"Prezado(a) MedLar Home Care (Carlos Mendes)"_.
 - **📁 O PAINEL DO LEAD GANHOU O BLOCO "DOCUMENTOS" (ADR-132).** Sem ele a Thaís emitiria a proposta e **não a acharia mais pelo funil** — a mesma falha de costura entre telas das ADR-105 e ADR-128.
-- **📧 "ENVIADOS HOJE" CONTAVA FALHA COMO ENVIO.** O monitor mostrava, ao mesmo tempo, *Enviados (7 dias) 0*, *Taxa de entrega 0%* e *Enviados hoje 23* — três números que não podem ser verdade juntos. ⚠️ **É esse número que faz alguém concluir que o e-mail está saindo quando nenhum sai** — foi assim que a ADR-122 passou meses sem ser notada. Agora conta só `ENVIADO`, e **as falhas do dia aparecem ao lado**.
+- **📧 "ENVIADOS HOJE" CONTAVA FALHA COMO ENVIO.** O monitor mostrava, ao mesmo tempo, _Enviados (7 dias) 0_, _Taxa de entrega 0%_ e _Enviados hoje 23_ — três números que não podem ser verdade juntos. ⚠️ **É esse número que faz alguém concluir que o e-mail está saindo quando nenhum sai** — foi assim que a ADR-122 passou meses sem ser notada. Agora conta só `ENVIADO`, e **as falhas do dia aparecem ao lado**.
 - **🔁 RECAPTURA DE LEAD PARA DE JOGAR DADO FORA.** Quem voltava ao site informando a clínica que faltava, ou corrigindo o telefone, tinha o dado novo **descartado em silêncio** (só a mensagem entrava em observações). Agora **completa o que está vazio e nunca sobrescreve** — o inverso deixaria o formulário público apagar por cima a correção que a equipe fez à mão.
 - **⚠️ PENDÊNCIAS DA AUDITORIA:** ~~(1) o **catálogo público** (`/comecar`) e o **"Solicitar" do Portal** listam todo serviço ativo — lixo de teste no banco local~~ **RESOLVIDO em 27/08: conferido em PRODUÇÃO, só os 10 serviços reais aparecem**; ~~(2) um lead novo dispara 6 notificações internas~~ **RESOLVIDO na ADR-134**; (3) **ainda aberta** — a varredura de tela **não terminou** (faltam Tarefas, Agenda, Projetos, E-mail, Mensagens, Ajustes, Serviços, Modelos, Equipe, Sistema).
 - **📭 E-MAIL NÃO SAI DO LOCALHOST, e isso não é defeito da aplicação:** a máquina do dono não tem servidor de e-mail (`connect ECONNREFUSED 127.0.0.1:587`). O **disparo** funciona (o registro sai com destinatário e assunto certos); a **entrega** só se prova em produção, onde já foi provada em 22/08 (ADR-122).
-- **Provas (ADR-132):** typecheck e lint verdes · **460 testes de unidade** (4 novos na régua pura) · **8 de integração** contra o MySQL de verdade (5 do documento-para-lead + 3 do monitor de e-mails) · e2e `flows-documento-para-lead` (2 casos) · **na tela**: proposta gerada para o lead *MedLar Home Care*, banco com `PROSPECT` + `convertidoEmClienteId: null` + **um** cliente só, e a proposta de volta no painel do lead.
+- **Provas (ADR-132):** typecheck e lint verdes · **460 testes de unidade** (4 novos na régua pura) · **8 de integração** contra o MySQL de verdade (5 do documento-para-lead + 3 do monitor de e-mails) · e2e `flows-documento-para-lead` (2 casos) · **na tela**: proposta gerada para o lead _MedLar Home Care_, banco com `PROSPECT` + `convertidoEmClienteId: null` + **um** cliente só, e a proposta de volta no painel do lead.
 
 ## Estado anterior (2026-08-27 · manhã · ADR-131)
 
 - **👥 VÁRIOS USUÁRIOS POR CLÍNICA (ADR-131) — o maior pedido em aberto, feito.** Cada médico e cada secretária entra com o próprio e-mail e a própria senha; acabou a conta única cuja senha circulava no WhatsApp da clínica. Dois papéis em `User.papelPortal`: **RESPONSAVEL** fala pela clínica (aceita proposta, contrata, cancela, convida) e **EQUIPE** toca o operacional (documento, formulário, agenda, suporte).
 - **🔒 A TRAVA É SOBRE ASSINAR, NÃO SOBRE VER (ADR-131).** Os dois papéis leem tudo daquela clínica, valores inclusive — mesma escolha da ADR-128. ⚠️ **A lista `ACOES_LIBERADAS_PARA_EQUIPE` é de LIBERAÇÕES e o padrão é NEGAR**, num lugar só (`portalProcedure`, só em mutação): **ação nova nasce fechada**. Quem escrever a próxima precisa decidir que a secretária pode. Papel **nulo vale como RESPONSAVEL** (contas anteriores à regra).
 - **🚫 A CLÍNICA NUNCA FICA SEM QUEM ASSINE (ADR-131).** `sobraResponsavel` (pura, testada) recusa rebaixar, desativar ou revogar o último responsável, em português. Ninguém revoga o próprio acesso. **Revogar é desativar, nunca excluir** — apagar deixaria "alguém" no lugar do nome de quem agiu (ADR-109); as sessões abertas caem junto.
-- **🖥️ DUAS TELAS, UM COMPONENTE E UM SERVIÇO (ADR-131).** Card *"Pessoas com acesso ao Portal"* na ficha (equipe da Med) e seção *"Quem da clínica entra aqui"* no Portal (o responsável convida os colegas sem passar pela Med). Mesmas regras nos dois lados — duas cópias divergiriam e a Thaís veria um estado enquanto o cliente vê outro.
-- **🐛 DOIS DEFEITOS QUE SÓ APARECERAM CLICANDO (ADR-131):** (1) ⚠️ **`ativo = false` é AMBÍGUO** — conta convidada e ainda sem senha também nasce inativa, e a secretária recém-convidada aparecia como **"acesso revogado"**. Nasceu `User.acessoRevogadoEm`; o mesmo engano estava em **três lugares** (a situação da lista, a mensagem de e-mail duplicado e a régua do "sobra responsável"). (2) a **primeira** pessoa da clínica entrava como *Equipe* e a clínica ficava sem ninguém para assinar — hoje o padrão do convite muda conforme a clínica, e há aviso amarelo enquanto ninguém falar por ela.
+- **🖥️ DUAS TELAS, UM COMPONENTE E UM SERVIÇO (ADR-131).** Card _"Pessoas com acesso ao Portal"_ na ficha (equipe da Med) e seção _"Quem da clínica entra aqui"_ no Portal (o responsável convida os colegas sem passar pela Med). Mesmas regras nos dois lados — duas cópias divergiriam e a Thaís veria um estado enquanto o cliente vê outro.
+- **🐛 DOIS DEFEITOS QUE SÓ APARECERAM CLICANDO (ADR-131):** (1) ⚠️ **`ativo = false` é AMBÍGUO** — conta convidada e ainda sem senha também nasce inativa, e a secretária recém-convidada aparecia como **"acesso revogado"**. Nasceu `User.acessoRevogadoEm`; o mesmo engano estava em **três lugares** (a situação da lista, a mensagem de e-mail duplicado e a régua do "sobra responsável"). (2) a **primeira** pessoa da clínica entrava como _Equipe_ e a clínica ficava sem ninguém para assinar — hoje o padrão do convite muda conforme a clínica, e há aviso amarelo enquanto ninguém falar por ela.
 - **📧 O convite daqui SEMPRE manda e-mail**, diferente de `garantirAcessoPortal` (ADR-128): lá a conta nasce como efeito colateral de cadastrar um cliente; aqui alguém digitou nome e e-mail e apertou "Convidar".
 - **✔️ Duas migrações JÁ NO AR** (aplicadas em 27/08 às 21:43): `20260827053330_usuarios_por_clinica` e `20260827054802_acesso_revogado_em`. Aditivas — três colunas nuláveis, uma FK `SET NULL`, um índice e um `UPDATE` marcando quem já tem acesso como RESPONSAVEL. Reverter é `DROP COLUMN` nas três.
 - **Provas (ADR-131):** typecheck e lint verdes · **585 testes** do `@app/api` (15 de integração novos contra o MySQL de verdade, provando isolamento entre clínicas; 14 de unidade na regra pura) · e2e `flows-pessoas-do-portal` verde no banco isolado · **na tela**, convite pela ficha e pelo Portal, e a prova de ponta a ponta: rebaixado a EQUIPE, `portal.cancelarServico` respondeu **403** em português e `portal.suporte.abrir` respondeu **200**.
 
 ## Estado anterior (2026-08-27 · madrugada · ADR-130)
 
-- **📋 AUDITORIA DE FORMATAÇÃO DOS 16 MODELOS, CLICANDO EM TODOS (ADR-130).** O relato do dono era *"a proposta comercial de faturamento está desformatada"*; o defeito achado atinge **todos** os modelos: `.doc-body ul/ol` declarava `padding-left` e **nunca declarou `list-style`** — o reset do Tailwind zera o marcador em toda a aplicação, e a folha nunca o devolvia. A lista **numerada de seis passos** da proposta de faturamento chegava ao cliente **sem os números**. ⚠️ **E a janela de impressão NÃO carrega o Tailwind**, então lá os números apareciam: tela e PDF discordando de novo, pelo caminho oposto ao da ADR-129. Travado por teste que lê o `DOC_STYLES`.
+- **📋 AUDITORIA DE FORMATAÇÃO DOS 16 MODELOS, CLICANDO EM TODOS (ADR-130).** O relato do dono era _"a proposta comercial de faturamento está desformatada"_; o defeito achado atinge **todos** os modelos: `.doc-body ul/ol` declarava `padding-left` e **nunca declarou `list-style`** — o reset do Tailwind zera o marcador em toda a aplicação, e a folha nunca o devolvia. A lista **numerada de seis passos** da proposta de faturamento chegava ao cliente **sem os números**. ⚠️ **E a janela de impressão NÃO carrega o Tailwind**, então lá os números apareciam: tela e PDF discordando de novo, pelo caminho oposto ao da ADR-129. Travado por teste que lê o `DOC_STYLES`.
 - **☐ O CHECKLIST CHEGAVA SEM CAIXA NENHUMA (ADR-130).** `marked` emite `- [ ]` como `<input type=checkbox>`, e `input` é **proibido** no sanitizador — corretamente. O efeito era o Checklist de credenciamento virar texto pelado. A caixa virou **caractere** (`☐`/`☑`), que atravessa sanitizador, impressão e Word. ⚠️ **A proibição do `input` fica como está.**
 - **📑 QUAL PROPOSTA SERVE PARA QUÊ (ADR-130, decisão do dono).** A **comercial** é a padrão, que junta os serviços — e **credenciamento e faturamento ficam FORA dela**, porque cada um tem proposta e regra de cobrança próprias (ADR-104 e ADR-127). A **de faturamento perdeu o seletor "Serviços da proposta"**: o serviço entra marcado sozinho e a tela só pergunta o **percentual**. ⚠️ Quem separa é o **PREÇO** (`ehServicoSomentePercentual`) e o **nome canônico** (`ehServicoDeCredenciamento`), **nunca** `categoria === "Faturamento"` — a comparação que já saiu 4 vezes.
-- **👁️ A PRÉVIA MOSTRA DADO REAL (ADR-130).** Com o cliente escolhido, a prévia dizia `[nome do cliente]` — escondendo o que se confere antes de gerar: como o papel fica **com o nome da clínica dentro**, que é mais comprido e quebra as linhas de outro jeito. E os rótulos deixaram de ser nome de código: `[dadosPagamento]` → *dados para pagamento*, `[clausulas_servicos]` → *condições de cada serviço*.
-- **🧹 PADRONIZAÇÃO ACHADA CLICANDO (ADR-130):** título **duplicado** no corpo de Contrato, Escopo e Recibo (o cabeçalho da folha já o imprime) · *"Suporte comercial"* era `###` filho da seção errada, virou `##` · os grupos do **Onboarding** eram negrito, não título — ⚠️ **negrito não é título e a paginação não o protege de ficar órfão** · a **descrição do serviço saiu de dentro da linha** da tabela e ganhou linha própria · *"5% do faturamento (Faturamento) — por mês"* virou **"Faturamento: 5% do faturamento mensal"** · `Foto 3x4` → `Foto 3×4`.
+- **👁️ A PRÉVIA MOSTRA DADO REAL (ADR-130).** Com o cliente escolhido, a prévia dizia `[nome do cliente]` — escondendo o que se confere antes de gerar: como o papel fica **com o nome da clínica dentro**, que é mais comprido e quebra as linhas de outro jeito. E os rótulos deixaram de ser nome de código: `[dadosPagamento]` → _dados para pagamento_, `[clausulas_servicos]` → _condições de cada serviço_.
+- **🧹 PADRONIZAÇÃO ACHADA CLICANDO (ADR-130):** título **duplicado** no corpo de Contrato, Escopo e Recibo (o cabeçalho da folha já o imprime) · _"Suporte comercial"_ era `###` filho da seção errada, virou `##` · os grupos do **Onboarding** eram negrito, não título — ⚠️ **negrito não é título e a paginação não o protege de ficar órfão** · a **descrição do serviço saiu de dentro da linha** da tabela e ganhou linha própria · _"5% do faturamento (Faturamento) — por mês"_ virou **"Faturamento: 5% do faturamento mensal"** · `Foto 3x4` → `Foto 3×4`.
 - **📏 MEDIDO E NÃO MUDADO (ADR-130):** o vazio de meia folha na proposta de credenciamento **não é defeito** — sobravam 316px de conteúdo, mas com as margens o espaço útil era ~124px e a lista tem 193px. Fatiar deixaria "3 passos aqui, 3 na outra folha". Vale a regra da ADR-129: **o bloco desce inteiro**.
 - **✅ O item que faltava aqui — vários usuários por clínica — FOI FEITO na ADR-131** (ver Estado atual).
 - **🏦 ⚠️ ERRATA (28/08): os dados bancários de PRODUÇÃO NÃO estão preenchidos.** O que foi
@@ -1836,24 +1871,24 @@ entre proxy e app.
 
 - **🖨️ O PDF NÃO USAVA A PAGINAÇÃO QUE A TELA MOSTRAVA (ADR-129).** O pedido era revisar os 16 modelos atrás de quebra de página errada; o defeito achado é maior: o preview media e distribuía o conteúdo em folhas A4, e `imprimirDocumento` jogava o documento **inteiro numa folha só**, deixando o Chrome cortar onde quisesse, **sem uma regra `break-inside` sequer**. O que a Thaís conferia na tela **não era** o que chegava ao médico. Hoje tela e impressão usam a **mesma** `paginarDocumento`, e a impressão emite **uma folha por página** com altura A4 exata.
 - **📐 A FOLHA DA TELA VIROU UMA A4 DE VERDADE (ADR-129).** 793×1122 px a 96dpi, margens 18mm × 16mm, com o `zoom` encolhendo para caber. ⚠️ **Medir no tamanho real é o que faz preview e PDF concordarem** — antes a folha tinha 620px com a fonte em tamanho normal, então o texto ocupava proporcionalmente **mais** espaço na tela do que no papel e os dois nunca poderiam bater. Os valores são arredondados **para baixo** da conta em mm: 1px sobrando vira folha em branco no fim do PDF.
-- **🧾 CABEÇALHO E RODAPÉ EM TODAS AS FOLHAS, SEM REPETIR A CAPA (ADR-129).** Capa completa só na 1ª; nas seguintes, um **cabeçalho corrido** de uma linha (logo pequeno + *título — tipo nº*). Rodapé em todas, e **nasceu o "Página N de M"**, que não existia. O **código de integridade sai só na última** folha — ele identifica o documento, não a folha.
+- **🧾 CABEÇALHO E RODAPÉ EM TODAS AS FOLHAS, SEM REPETIR A CAPA (ADR-129).** Capa completa só na 1ª; nas seguintes, um **cabeçalho corrido** de uma linha (logo pequeno + _título — tipo nº_). Rodapé em todas, e **nasceu o "Página N de M"**, que não existia. O **código de integridade sai só na última** folha — ele identifica o documento, não a folha.
 - **✍️ A REGRA DE QUEBRA VIROU FUNÇÃO PURA TESTADA** (`paginacao.ts`): quem **mede** é o navegador, quem **decide** é código sem DOM. ⚠️ **Tabela que cabe numa folha inteira NUNCA é fatiada** — é o que impede a **assinatura partida** (traço numa folha, nome na outra); tabela maior que a folha é fatiada por **linhas inteiras** repetindo o cabeçalho; e **título carrega a fila inteira de títulos abaixo dele mais o começo do conteúdo**.
-- **🐛 DOIS DEFEITOS QUE SÓ A TELA MOSTROU, com testes verdes (ADR-129):** (1) a 1ª régua do título órfão pedia *"duas linhas"* do bloco seguinte — mas **parágrafo não se parte**, e *"Prazos e rotina de faturamento"* ficou sozinho no pé da folha 2; (2) corrigida, *"Como funciona o nosso serviço"* continuou órfão porque é seguido de **outro título**. E um terceiro, na impressão: a **última folha ainda quebrava depois** (folha em branco no fim do PDF), porque `.doc-sheet:last-child` não casa — o último filho do corpo da janela de impressão é a tag `<script>`. Hoje a última é marcada por **classe**.
+- **🐛 DOIS DEFEITOS QUE SÓ A TELA MOSTROU, com testes verdes (ADR-129):** (1) a 1ª régua do título órfão pedia _"duas linhas"_ do bloco seguinte — mas **parágrafo não se parte**, e _"Prazos e rotina de faturamento"_ ficou sozinho no pé da folha 2; (2) corrigida, _"Como funciona o nosso serviço"_ continuou órfão porque é seguido de **outro título**. E um terceiro, na impressão: a **última folha ainda quebrava depois** (folha em branco no fim do PDF), porque `.doc-sheet:last-child` não casa — o último filho do corpo da janela de impressão é a tag `<script>`. Hoje a última é marcada por **classe**.
 - **✅ Auditoria completa na tela:** **16/16 modelos** e **18 documentos reais (45 folhas)** com zero título órfão, zero conteúdo estourando a folha, cabeçalho e rodapé em todas, capa uma vez só e contador certo. Travado por `e2e/flows-documentos-paginacao.spec.ts`. ⚠️ **O Word (`.doc`) fica em fluxo único** de propósito — ele pagina sozinho.
-- **📭 CADASTRO PELA EQUIPE NÃO AVISA O CLIENTE (ADR-128, ordem do dono).** E-mail de boas-vindas/acesso é **só para quem se cadastra sozinho em `/comecar`**. ⚠️ **O defeito não era onde parecia:** cadastro manual de **lead** já não mandava nada; o e-mail saía porque as caixinhas de confirmação de *cadastrar cliente* e *converter lead* **vinham marcadas**, e ninguém desmarca. Agora `garantirAcessoPortal` **exige** uma `OrigemDoAcesso` (`AUTOCADASTRO` · `EQUIPE` · `EQUIPE_COM_AVISO`) — o compilador cobra a escolha de quem escrever a próxima chamada, em vez de a regra depender de uma caixinha. O terceiro caminho, **contratar serviço na ficha**, também escapava (criava acesso e convidava sem caixa nenhuma) e entrou na regra.
+- **📭 CADASTRO PELA EQUIPE NÃO AVISA O CLIENTE (ADR-128, ordem do dono).** E-mail de boas-vindas/acesso é **só para quem se cadastra sozinho em `/comecar`**. ⚠️ **O defeito não era onde parecia:** cadastro manual de **lead** já não mandava nada; o e-mail saía porque as caixinhas de confirmação de _cadastrar cliente_ e _converter lead_ **vinham marcadas**, e ninguém desmarca. Agora `garantirAcessoPortal` **exige** uma `OrigemDoAcesso` (`AUTOCADASTRO` · `EQUIPE` · `EQUIPE_COM_AVISO`) — o compilador cobra a escolha de quem escrever a próxima chamada, em vez de a regra depender de uma caixinha. O terceiro caminho, **contratar serviço na ficha**, também escapava (criava acesso e convidava sem caixa nenhuma) e entrou na regra.
 - **🖥️ A EQUIPE PODE VER O PAINEL DO CLIENTE — "vê tudo, não assina nada" (ADR-128).** Botão **Painel** no card do lead, no card e na tabela de clientes, e na ficha. É **sessão de suporte**, não login emprestado: `Session.operadorId` guarda quem entrou, o `userId` continua sendo o cliente (⚠️ **o isolamento do `portalProcedure` não muda uma linha**), e o histórico passa a dizer "Thaís, vendo como Clínica X". ⚠️ **A trava do só-leitura mora no `portalProcedure`**, barrando toda **mutação** — marcar ação por ação exigiria lembrar da lista em toda ação nova, e no Portal escrever é sempre falar pelo cliente. O `/upload` repete a trava porque não passa por lá. Dura **30 minutos**, e "Voltar ao meu acesso" devolve a sessão original **sem novo login**. ADMIN+ sempre; funcionário só nos clientes dele. Registrado em `activityLog`.
-- **🚦 O CARD DO PORTAL TEM TRÊS ESTADOS, NÃO DOIS (ADR-128).** `SEM_ACESSO` → **Enviar acesso** · `CONVIDADO` → **Reenviar acesso**, dizendo *"convidado há 6 dias, ainda não entrou"* · `ATIVO` → **Painel**, dizendo *"último acesso há 2 dias"*. O do meio é o que a Thaís não tinha: saber que convidou e ninguém apareceu. Pediu `User.ultimoAcessoEm`, marcado ⚠️ **só no login com senha** — sessão de suporte da equipe não conta, porque o número responde "o CLIENTE veio?".
+- **🚦 O CARD DO PORTAL TEM TRÊS ESTADOS, NÃO DOIS (ADR-128).** `SEM_ACESSO` → **Enviar acesso** · `CONVIDADO` → **Reenviar acesso**, dizendo _"convidado há 6 dias, ainda não entrou"_ · `ATIVO` → **Painel**, dizendo _"último acesso há 2 dias"_. O do meio é o que a Thaís não tinha: saber que convidou e ninguém apareceu. Pediu `User.ultimoAcessoEm`, marcado ⚠️ **só no login com senha** — sessão de suporte da equipe não conta, porque o número responde "o CLIENTE veio?".
 - **🐛 DEFEITO ACHADO NA TELA e corrigido (ADR-128):** um cliente pode ter **duas** contas de Portal. Pegando "a primeira por data", a ficha mostrava **"Enviar acesso" para quem entrava no Portal todo dia**. Hoje `acessoAoPortal` recebe a **lista** e manda quem **realmente abre a porta**; sem nenhuma ativa, a régua do "convidado há N dias" é a conta **mais antiga** (reenviar convite não zera a espera do cliente).
 - **✔️ Migração JÁ NO AR** (aplicada em 27/08 às 21:43): `20260827003000_sessao_de_suporte_e_ultimo_acesso`. Três colunas **novas e nuláveis** + FK `SET NULL` + índice. Nada apagado, nada convertido; reverter é derrubar FK, índice e colunas.
 - **📌 RITMO DE TRABALHO (ordem do dono, 26/08):** desenvolver no **localhost** → mandar para o **GitHub** → **publicar UMA vez no fim do dia**. Nada de publicar a cada tarefa; parar no merge com CI verde e não oferecer deploy.
 
 ## Estado anterior (2026-08-26 · noite, depois da publicação)
 
-- **📄 A PROPOSTA DE FATURAMENTO VIROU O PAPEL REAL DA THAÍS (ADR-127).** O dono mandou o modelo que ela usa (Proposta 33 — Prisma Visão) com a regra: **a estrutura do conteúdo é dela, a forma pode ser lapidada**. O corpo agora traz, na ordem dela: abertura institucional própria do faturamento · **Objetivo da parceria** com os convênios · **Como funciona o nosso serviço**, e antes das seis etapas **o que a Clínica precisa entregar** (dados do paciente, autorizações, tabelas, acesso à plataforma e aos portais) · **Suporte comercial** · **Gestão e acompanhamento** · **Prazos e rotina** · investimento · dados para pagamento · **Confidencialidade**. ⚠️ **A numeração das seções saiu** (era minha, não dela) — e tirá-la resolveu um desleixo que só a prévia mostrou: o título *Investimento* aparecia duas vezes seguidas, porque o bloco `{{servicos}}` já traz o seu.
+- **📄 A PROPOSTA DE FATURAMENTO VIROU O PAPEL REAL DA THAÍS (ADR-127).** O dono mandou o modelo que ela usa (Proposta 33 — Prisma Visão) com a regra: **a estrutura do conteúdo é dela, a forma pode ser lapidada**. O corpo agora traz, na ordem dela: abertura institucional própria do faturamento · **Objetivo da parceria** com os convênios · **Como funciona o nosso serviço**, e antes das seis etapas **o que a Clínica precisa entregar** (dados do paciente, autorizações, tabelas, acesso à plataforma e aos portais) · **Suporte comercial** · **Gestão e acompanhamento** · **Prazos e rotina** · investimento · dados para pagamento · **Confidencialidade**. ⚠️ **A numeração das seções saiu** (era minha, não dela) — e tirá-la resolveu um desleixo que só a prévia mostrou: o título _Investimento_ aparecia duas vezes seguidas, porque o bloco `{{servicos}}` já traz o seu.
 - **💸 O FATURAMENTO É SÓ PERCENTUAL, E A PORCENTAGEM VARIA POR CLIENTE (ADR-127, ordem do dono).** A tabela de faixas do papel de exemplo (valor fixo embaixo, percentual em cima) **não entrou** — o dono corrigiu o próprio exemplo. O sistema já fazia isso: `Servico.percentual` é o padrão e o campo é **editável dentro de cada proposta**. **Zero código de preço novo, zero migração para isso.** ⚠️ A tabela do exemplo tinha dois defeitos que teriam virado nossos: `R$ 1.1200,00`, que não é número, e um buraco entre R$ 25.000 e R$ 100.000.
 - **🏦 NASCEU O BLOCO "DADOS PARA PAGAMENTO", em Ajustes → Dados da empresa (ADR-127).** Cinco colunas novas e nuláveis em `IdentidadeInstitucional` (banco, agência, conta, titular, chave PIX) e o marcador `{{dadosPagamento}}`. Sai na **Proposta comercial** e na **de faturamento**; ⚠️ **NÃO sai na de credenciamento** — ordem do dono: ali a Thaís só cobra depois do sucesso na operadora, e a conta a receber nasce na aprovação (ADR-104). ⚠️ **A regra do vazio é o que importa:** campo em branco não vira `Agência: ` na frente do cliente — a linha some; com os cinco em branco, **a seção inteira some**. É função pura testada (`montarDadosPagamento`, em `@app/shared`). **Pendência da Thaís: preencher os dados de verdade em produção.**
-- **🧾 "CONDIÇÕES DE PAGAMENTO" SAIU DAS PROPOSTAS (ADR-127, ordem do dono).** Não há condição a negociar: é sempre PIX, e o PIX já vai no bloco acima. O campo saiu do construtor, do schema (`condicoes`) e dos três formatos. ⚠️ **A frase do repasse virou automática:** sempre que a proposta inclui um serviço cobrado **só por percentual**, o documento diz sozinho *"O recebimento do Repasse será sempre feito após o crédito na conta da Clínica."* — inclusive em proposta misturada. O texto continua vindo de `Servico.condicaoPagamento` (ADR-125), editável na tela de Serviços: mudar uma vírgula não é publicação.
-- **📉 O FATURAMENTO MÉDIO MENSAL SAIU DO PAPEL E FICOU NO FUNIL (ADR-127).** O dono levantou a dúvida certa — *"o cliente pode faturar muito ou pouco e teremos que toda hora ficar mudando a média"* — e o número tinha dois usos, só um incomodando. No papel, *"R$ 6.000,00/mês (5% de R$ 120.000,00)"* é **promessa que envelhece no mês seguinte**; no funil, sem ele o lead volta a valer **R$ 0,00** (o defeito que a ADR-125 consertou de manhã). Então a conta impressa saiu e ⚠️ **o marcador `{{faturamento_mensal}}` foi REMOVIDO** do servidor e da prévia — não basta parar de usar, o número não pode ter caminho até o papel. O campo continua no construtor, marcado *"não aparece no documento"*, alimentando o valor do negócio como antes. Como não vai mais ao cliente, **ninguém precisa mantê-lo atualizado**.
+- **🧾 "CONDIÇÕES DE PAGAMENTO" SAIU DAS PROPOSTAS (ADR-127, ordem do dono).** Não há condição a negociar: é sempre PIX, e o PIX já vai no bloco acima. O campo saiu do construtor, do schema (`condicoes`) e dos três formatos. ⚠️ **A frase do repasse virou automática:** sempre que a proposta inclui um serviço cobrado **só por percentual**, o documento diz sozinho _"O recebimento do Repasse será sempre feito após o crédito na conta da Clínica."_ — inclusive em proposta misturada. O texto continua vindo de `Servico.condicaoPagamento` (ADR-125), editável na tela de Serviços: mudar uma vírgula não é publicação.
+- **📉 O FATURAMENTO MÉDIO MENSAL SAIU DO PAPEL E FICOU NO FUNIL (ADR-127).** O dono levantou a dúvida certa — _"o cliente pode faturar muito ou pouco e teremos que toda hora ficar mudando a média"_ — e o número tinha dois usos, só um incomodando. No papel, _"R$ 6.000,00/mês (5% de R$ 120.000,00)"_ é **promessa que envelhece no mês seguinte**; no funil, sem ele o lead volta a valer **R$ 0,00** (o defeito que a ADR-125 consertou de manhã). Então a conta impressa saiu e ⚠️ **o marcador `{{faturamento_mensal}}` foi REMOVIDO** do servidor e da prévia — não basta parar de usar, o número não pode ter caminho até o papel. O campo continua no construtor, marcado _"não aparece no documento"_, alimentando o valor do negócio como antes. Como não vai mais ao cliente, **ninguém precisa mantê-lo atualizado**.
 - **🔁 A COMPARAÇÃO POR CATEGORIA VOLTOU — PELA QUARTA VEZ — E FOI MORTA DE NOVO (ADR-127).** `categoria === "Faturamento" ? emReais(percentual) : null` estava em **quatro lugares** de `documentos.service.ts`, montando o item da proposta a partir do cliente e do lead: **qualquer serviço percentual de outra categoria perderia o percentual em silêncio** ao virar proposta. Ninguém tinha sido mordido; seria no dia em que a Thaís pusesse % num serviço de Gestão. Agora há **teste lendo o arquivo do servidor**, além do que já lia o da tela.
 - **✔️ Migração JÁ NO AR** (mais tardar em 27/08 às 21:43): `20260826230000_dados_para_pagamento`. Cinco colunas **novas e nuláveis** — nada apagado, nada convertido, nenhuma linha existente muda de valor; reverter é `DROP COLUMN` nas cinco.
 - **Provas:** typecheck e lint verdes · **441 testes de unidade** (13 novos) · **29 contra o MySQL de verdade** · e2e isolado verde em `flows-documentos-criar`, `flows-documentos-ui`, `flows-comercial` e `flows-ajustes-catalogos` · **na tela**, proposta **0230** (Clínica Vida Plena) com as seções na ordem da Thaís, os convênios, a frase do repasse e o bloco bancário `Nubank / 0001 / 686169152-5 / Thais Garcia Gestão Saúde / 34.270.022/0001-93`, **sem** conta impressa, **sem** marcador cru e **sem** erro de console.
@@ -1863,36 +1898,36 @@ entre proxy e app.
 - **✅ NO AR DESDE 26/08/2026 às 18:57.** Publicação `33015554302` no commit `d5dcc7c`, disparada por `workflow_dispatch`. A **suíte completa rodou antes de tocar no servidor** (`build-test` + `e2e` + `integration`, os três verdes — o elo da ADR-121), depois 7/7 no deploy: `node_modules preservado`, **`All migrations have been successfully applied`** (as TRÊS novas), ensaio de boot com **16 portas ouvindo**, `restart.txt marcado em 2026-08-26 18:56:46`, `/health` = `{"status":"ok"}`, `/` e `/credenciamentos` = **200**. ⚠️ **O que NÃO foi conferido:** a tela de produção logada. O smoke test prova que o site responde, não que a proposta de faturamento desenha certo lá — a conferência na tela exige a sessão do dono. Quem abrir primeiro deve olhar `/documentos` (Novo documento → Proposta de faturamento médico) e `/ajustes` → Operadoras.
 
 - **🏥 CADA PROPOSTA DE CREDENCIAMENTO É DE UMA OPERADORA SÓ (ADR-126).** O papel real da Thaís negocia com uma operadora por vez — cada uma tem prazo, documentação e desfecho próprios, e uma proposta com três operadoras dentro **não pode ser aceita pela metade**. Consequência aceita pelo dono: credenciar em três = **três propostas, três números** (0225, 0226, 0227). ⚠️ **A grade médico × operadora NÃO mudou** (ADR-104): quem virou "uma só" é o DOCUMENTO. Na tela o construtor inverteu a ordem — escolhe-se a operadora, depois marcam-se os médicos daquela proposta. Provado na tela: proposta **0228** para a Clínica Bem Estar saiu com Unimed e `| Dra. Helena Martins Prado — Cardiologista | Unimed | R$ 25,00 |`.
-- **📊 A PROPOSTA DE FATURAMENTO NASCEU: só percentual, sempre mensal (ADR-126).** Modelo novo **"Proposta de faturamento médico"** (reconhecido pelo marcador `{{convenios}}` no corpo, como o credenciamento se reconhece por `{{operadoras}}`). A linha do serviço percentual **perdeu valor, quantidade e avulso/mensal** — e ⚠️ **quem decide isso é o PREÇO** (`ehServicoSomentePercentual`, em `@app/shared`), **nunca a categoria**: foi a terceira vez que a comparação `categoria === "Faturamento"` precisou ser removida, e agora há um teste que reprova a volta dela. A proposta traz os **convênios atendidos** e o **faturamento médio mensal**, e o papel mostra a **conta feita** — *"Valor estimado do serviço: R$ 6.000,00/mês (5% de R$ 120.000,00)"* —, não o percentual solto. Provado na tela: proposta **0229** para a Clínica Vida Plena, com Unimed + Bradesco Saúde no corpo e a condição de pagamento do serviço pré-preenchida sozinha (ADR-125).
+- **📊 A PROPOSTA DE FATURAMENTO NASCEU: só percentual, sempre mensal (ADR-126).** Modelo novo **"Proposta de faturamento médico"** (reconhecido pelo marcador `{{convenios}}` no corpo, como o credenciamento se reconhece por `{{operadoras}}`). A linha do serviço percentual **perdeu valor, quantidade e avulso/mensal** — e ⚠️ **quem decide isso é o PREÇO** (`ehServicoSomentePercentual`, em `@app/shared`), **nunca a categoria**: foi a terceira vez que a comparação `categoria === "Faturamento"` precisou ser removida, e agora há um teste que reprova a volta dela. A proposta traz os **convênios atendidos** e o **faturamento médio mensal**, e o papel mostra a **conta feita** — _"Valor estimado do serviço: R$ 6.000,00/mês (5% de R$ 120.000,00)"_ —, não o percentual solto. Provado na tela: proposta **0229** para a Clínica Vida Plena, com Unimed + Bradesco Saúde no corpo e a condição de pagamento do serviço pré-preenchida sozinha (ADR-125).
 - **🔗 A OPERADORA VIROU UM CADASTRO SÓ, COM MARCAÇÃO POR SERVIÇO (ADR-126).** `Operadora.usoCredenciamento` e `Operadora.usoFaturamento`, ambas **`true` para todas as que já existiam** — senão a primeira proposta de faturamento abriria vazia e pareceria defeito. Em **Ajustes → Operadoras e convênios** a tela mostra abas (Todas / Credenciamento / Faturamento), mas o registro é o mesmo: a mesma Unimed que se credencia é a Unimed cujas contas se faturam. ⚠️ **Desmarcar as duas é recusado** — operadora invisível em todas as listas se lê como perda de dado. ⚠️ **A grade do credenciamento continua mostrando** a operadora desmarcada que já tenha processo daquele cliente (mesma lição da ADR-105).
-- **🏷️ OS CONVÊNIOS FICAM COM O CLIENTE, NÃO COM O DOCUMENTO (ADR-126).** `ClienteServico ↔ Operadora` (N-N): a lista nasce da proposta aceita, é editável na ficha em **Serviços → Editar preço → "Preço e convênios"**, e o cliente a vê no **Portal**. ⚠️ **Os convênios viajam DENTRO do item da proposta** (`conveniosIds`), não soltos no documento — é assim que atravessam o aceite, pelo mesmo caminho que serviço e preço já percorrem; e são **ids, não nomes**, porque nome copiado não sobrevive a um "renomear" no catálogo. Provado na tela: ficha mostrando *"Convênios atendidos: Unimed, Omint"* e Portal mostrando os cinco.
+- **🏷️ OS CONVÊNIOS FICAM COM O CLIENTE, NÃO COM O DOCUMENTO (ADR-126).** `ClienteServico ↔ Operadora` (N-N): a lista nasce da proposta aceita, é editável na ficha em **Serviços → Editar preço → "Preço e convênios"**, e o cliente a vê no **Portal**. ⚠️ **Os convênios viajam DENTRO do item da proposta** (`conveniosIds`), não soltos no documento — é assim que atravessam o aceite, pelo mesmo caminho que serviço e preço já percorrem; e são **ids, não nomes**, porque nome copiado não sobrevive a um "renomear" no catálogo. Provado na tela: ficha mostrando _"Convênios atendidos: Unimed, Omint"_ e Portal mostrando os cinco.
 - **↩️ A PROPOSTA CORRIGE O LEAD (ADR-126).** O faturamento mensal informado na proposta é o **mesmo número** que a Qualificação pergunta: corrigi-lo ali grava no lead e recalcula o valor do negócio, pela mesma `reconciliarPassosAuto`. Um número só, andando para frente — sem isso o card mostraria um valor velho ao lado de um documento com o valor novo. É best-effort de propósito: proposta emitida não cai porque o funil recusou um número, e lead já convertido não é tocado.
 - **✔️ As três migrações do dia JÁ ESTÃO NO AR** (aplicadas às 18:56 na publicação acima): `20260826150000_faturamento_percentual_e_condicao_pagamento` (ADR-125) e `20260826193338_operadora_por_servico_e_convenios_do_cliente` e `20260826213000_remove_exigencia_operadoras_duplicada` (ADR-126). As duas primeiras são **aditivas** — nada apagado, nada convertido, nenhuma linha existente muda de valor. Reverter a segunda = apagar `Operadora.usoCredenciamento`, `Operadora.usoFaturamento` e a tabela `_ClienteServicoOperadoras`. **A terceira APAGA dado** (uma linha de exigencia), com guarda: so onde ninguem respondeu; reverter = recadastrar a exigencia em Servicos.
-- **🧹 A EXIGÊNCIA DUPLICADA FOI REMOVIDA (ADR-126, ordem do dono).** *"Quais operadoras você atende?"* pedia em texto livre exatamente a lista que virou campo estruturado — o Portal mostrava a mesma pergunta duas vezes, uma delas obrigatória. ⚠️ **Precisou ser migração** (`20260826213000_remove_exigencia_operadoras_duplicada`), não só tirar da semente: `seedRequisitosSeVazio` só semeia com a tabela **vazia**. ⚠️ **A guarda é o que importa:** o `DELETE` só apaga onde ninguém respondeu e nada foi enviado — onde houver resposta a exigência **fica**, porque apagá-la levaria junto o trabalho do cliente. O `Formulario` interno **não** é apagado (seria `Cascade` nas respostas). No local: 0 respostas, 0 arquivos, as outras 6 exigências do Faturamento intactas.
+- **🧹 A EXIGÊNCIA DUPLICADA FOI REMOVIDA (ADR-126, ordem do dono).** _"Quais operadoras você atende?"_ pedia em texto livre exatamente a lista que virou campo estruturado — o Portal mostrava a mesma pergunta duas vezes, uma delas obrigatória. ⚠️ **Precisou ser migração** (`20260826213000_remove_exigencia_operadoras_duplicada`), não só tirar da semente: `seedRequisitosSeVazio` só semeia com a tabela **vazia**. ⚠️ **A guarda é o que importa:** o `DELETE` só apaga onde ninguém respondeu e nada foi enviado — onde houver resposta a exigência **fica**, porque apagá-la levaria junto o trabalho do cliente. O `Formulario` interno **não** é apagado (seria `Cascade` nas respostas). No local: 0 respostas, 0 arquivos, as outras 6 exigências do Faturamento intactas.
 
 ## Estado anterior (2026-08-26)
 
-- **💰 O SERVIÇO PERCENTUAL PAROU DE PEDIR UM VALOR FIXO QUE NÃO EXISTE (ADR-125).** O Faturamento de contas médicas não tem preço fixo — a Med ganha um **percentual** do que a clínica fatura —, e mesmo assim o passo obrigatório da Qualificação exigia *"Registrar o valor estimado da oportunidade"* e **travava a etapa**. Pior que travar: o lead valia **R$ 0,00** no card e no total da coluna, então o negócio mais valioso do mês podia aparecer como zero. Agora a Qualificação pergunta **"Registrar o faturamento mensal estimado do cliente"** e o sistema **calcula** o valor (faturamento × percentual). ⚠️ **A regra NÃO cita "Faturamento" em lugar nenhum — ela lê o PREÇO do serviço** (`planejarEstimativaDoLead`, pura, em `@app/shared`, usada pelo servidor E pela tela): havendo qualquer valor fixo entre os serviços, volta a pedir a estimativa como sempre; o **caso misturado** (Faturamento + Gestão) continua no comportamento antigo de propósito, senão o valor fixo sumiria do relatório. A troca é **automática nos dois sentidos** — marcar um serviço de preço fixo devolve a pergunta antiga sozinho. O **credenciamento fica fora da conta**, igual ao provisionamento da conversão (ADR-104/108); para as duas regras não divergirem, `ehServicoDeCredenciamento` **mudou de casa** para o `shared`. Provado na tela: marcar Faturamento troca o campo ao vivo, digitar mostra *"Valor do negócio: R$ 100,00/mês (5% de R$ 2.000,00)"*, e card/painel/total da coluna mostram R$ 100,00. ⚠️ **Ficou de fora, e já era assim antes:** o total do funil soma valor **mensal** com valor **avulso** no mesmo bolo.
-- **📄 A CONDIÇÃO DE PAGAMENTO SAIU DA MEMÓRIA DE QUEM DIGITA (ADR-125).** A condição do Faturamento é sempre a mesma frase — *"O recebimento do Repasse será sempre feito após o crédito na conta da Clínica."* — e dependia de alguém lembrar de escrevê-la, igual, em toda proposta, num campo livre com placeholder *"Ex.: 30% + 2x"*. Virou **`Servico.condicaoPagamento`**, editável em **Serviços → Configurar → Detalhes** (mesmo molde de `clausulasContrato`): a proposta **pré-preenche** com a condição de cada serviço escolhido, sem repetir, e **para de mexer assim que alguém digita** — proposta se negocia. ⚠️ **O texto NÃO está no código**: mudar uma vírgula é a Thaís editar a tela, não uma publicação. Descartadas: sumir com o campo (a proposta ficaria muda sobre quando o cliente paga, e não sobrevive ao caso misturado) e escrever a frase no código.
-- **🧹 DOIS CONSERTOS EM CLIENTES, achados ao verificar (ADR-125).** (1) A linha **"Valor contratado"** do *Resumo comercial* soma o `valorEstimado` dos leads ganhos; para quem só paga percentual isso dá zero e a linha **sumia da tela** — a ficha ficava muda sobre o que o cliente paga. Agora, sem valor fixo, mostra o preço real do que está contratado (`5% do faturamento/mês`). (2) No editor de preço da ficha, o campo de % só aparecia para a categoria "Faturamento", e a gravação faz `percentual: ehFaturamento ? … : null` — abrir e salvar **qualquer outro serviço apagava o percentual dele em silêncio**. Hoje quem decide é o preço, não a categoria. Não mordia ninguém ainda; morderia no dia em que a Thaís pusesse % em outro serviço.
+- **💰 O SERVIÇO PERCENTUAL PAROU DE PEDIR UM VALOR FIXO QUE NÃO EXISTE (ADR-125).** O Faturamento de contas médicas não tem preço fixo — a Med ganha um **percentual** do que a clínica fatura —, e mesmo assim o passo obrigatório da Qualificação exigia _"Registrar o valor estimado da oportunidade"_ e **travava a etapa**. Pior que travar: o lead valia **R$ 0,00** no card e no total da coluna, então o negócio mais valioso do mês podia aparecer como zero. Agora a Qualificação pergunta **"Registrar o faturamento mensal estimado do cliente"** e o sistema **calcula** o valor (faturamento × percentual). ⚠️ **A regra NÃO cita "Faturamento" em lugar nenhum — ela lê o PREÇO do serviço** (`planejarEstimativaDoLead`, pura, em `@app/shared`, usada pelo servidor E pela tela): havendo qualquer valor fixo entre os serviços, volta a pedir a estimativa como sempre; o **caso misturado** (Faturamento + Gestão) continua no comportamento antigo de propósito, senão o valor fixo sumiria do relatório. A troca é **automática nos dois sentidos** — marcar um serviço de preço fixo devolve a pergunta antiga sozinho. O **credenciamento fica fora da conta**, igual ao provisionamento da conversão (ADR-104/108); para as duas regras não divergirem, `ehServicoDeCredenciamento` **mudou de casa** para o `shared`. Provado na tela: marcar Faturamento troca o campo ao vivo, digitar mostra *"Valor do negócio: R$ 100,00/mês (5% de R$ 2.000,00)"*, e card/painel/total da coluna mostram R$ 100,00. ⚠️ **Ficou de fora, e já era assim antes:** o total do funil soma valor **mensal** com valor **avulso** no mesmo bolo.
+- **📄 A CONDIÇÃO DE PAGAMENTO SAIU DA MEMÓRIA DE QUEM DIGITA (ADR-125).** A condição do Faturamento é sempre a mesma frase — _"O recebimento do Repasse será sempre feito após o crédito na conta da Clínica."_ — e dependia de alguém lembrar de escrevê-la, igual, em toda proposta, num campo livre com placeholder _"Ex.: 30% + 2x"_. Virou **`Servico.condicaoPagamento`**, editável em **Serviços → Configurar → Detalhes** (mesmo molde de `clausulasContrato`): a proposta **pré-preenche** com a condição de cada serviço escolhido, sem repetir, e **para de mexer assim que alguém digita** — proposta se negocia. ⚠️ **O texto NÃO está no código**: mudar uma vírgula é a Thaís editar a tela, não uma publicação. Descartadas: sumir com o campo (a proposta ficaria muda sobre quando o cliente paga, e não sobrevive ao caso misturado) e escrever a frase no código.
+- **🧹 DOIS CONSERTOS EM CLIENTES, achados ao verificar (ADR-125).** (1) A linha **"Valor contratado"** do _Resumo comercial_ soma o `valorEstimado` dos leads ganhos; para quem só paga percentual isso dá zero e a linha **sumia da tela** — a ficha ficava muda sobre o que o cliente paga. Agora, sem valor fixo, mostra o preço real do que está contratado (`5% do faturamento/mês`). (2) No editor de preço da ficha, o campo de % só aparecia para a categoria "Faturamento", e a gravação faz `percentual: ehFaturamento ? … : null` — abrir e salvar **qualquer outro serviço apagava o percentual dele em silêncio**. Hoje quem decide é o preço, não a categoria. Não mordia ninguém ainda; morderia no dia em que a Thaís pusesse % em outro serviço.
 - **🔑 A senha do ambiente LOCAL agora é escolhida por quem vai usá-la.** `pnpm senha:rotacionar <senha>` aceita a senha; sem argumento continua sorteando. O dono não conseguia entrar como `root@` nem `thais.garcia@` no localhost — **as contas estavam sadias**, a senha é que era um sorteio de 24 caracteres guardado só no arquivo de variáveis. ⚠️ **Troca TODAS as contas internas** que ainda usavam a senha de desenvolvimento (foram 6), não só as duas pedidas. A trava de produção (a mesma do `demo-seed`) vale nas duas formas, e a validação da senha escolhida é **função pura testada** — aspas duplas, barra invertida ou quebra de linha corromperiam o arquivo **em silêncio** e trancariam tudo fora. Nada de produção é tocado.
 - **✔️ Migração JÁ NO AR** (mais tardar em 27/08 às 21:43): `20260826150000_faturamento_percentual_e_condicao_pagamento`. Duas colunas **novas e nuláveis** (`Lead.faturamentoMensalEstimado`, `Servico.condicaoPagamento`) — nada é apagado nem convertido, nenhuma linha existente muda de valor, e reverter é apagar as duas colunas.
 
 ## Estado anterior (2026-08-22)
 
-- **✅ NO AR DESDE 22/08/2026 às 19:03 — e o E-MAIL FINALMENTE FUNCIONA, provado na tela.** Publicação `32591319305` no commit `f23a1f2`: a **suíte completa rodou antes de tocar no servidor** (`build-test` + `e2e` + `integration`, os três verdes — primeira vez que o elo da ADR-121 foi exercido de verdade), depois 7/7 no deploy com `found 0 vulnerabilities`, `No pending migrations to apply`, `/health` = `{"status":"ok"}`, `/` e `/credenciamentos` = 200. **A prova do e-mail não é o deploy verde, é o monitor:** enviados em 7 dias saiu de **0 → 5**, taxa de entrega de **0% → 17%**, e o e-mail *"Seu acesso ao Portal do Cliente"* para **`tibamooca@gmail.com`** — o mesmo que em 21/08 falhou no certificado — aparece **`enviado`**. **A senha SMTP estava certa**: a ressalva de que a autenticação seria a próxima barreira **não se concretizou**. ⚠️ **Para testar e-mail de novo, NÃO reenvie o formulário com um endereço já no funil:** o `capturarLead` deduplica por e-mail, atualiza o lead existente e não manda convite novo (só as 4 notificações internas). Use o botão **"Enviar acesso"** no card do lead — foi assim que a prova foi feita — ou um endereço inédito; "Enviar acesso" **move o lead para "Qualificação"**, reversível arrastando.
+- **✅ NO AR DESDE 22/08/2026 às 19:03 — e o E-MAIL FINALMENTE FUNCIONA, provado na tela.** Publicação `32591319305` no commit `f23a1f2`: a **suíte completa rodou antes de tocar no servidor** (`build-test` + `e2e` + `integration`, os três verdes — primeira vez que o elo da ADR-121 foi exercido de verdade), depois 7/7 no deploy com `found 0 vulnerabilities`, `No pending migrations to apply`, `/health` = `{"status":"ok"}`, `/` e `/credenciamentos` = 200. **A prova do e-mail não é o deploy verde, é o monitor:** enviados em 7 dias saiu de **0 → 5**, taxa de entrega de **0% → 17%**, e o e-mail _"Seu acesso ao Portal do Cliente"_ para **`tibamooca@gmail.com`** — o mesmo que em 21/08 falhou no certificado — aparece **`enviado`**. **A senha SMTP estava certa**: a ressalva de que a autenticação seria a próxima barreira **não se concretizou**. ⚠️ **Para testar e-mail de novo, NÃO reenvie o formulário com um endereço já no funil:** o `capturarLead` deduplica por e-mail, atualiza o lead existente e não manda convite novo (só as 4 notificações internas). Use o botão **"Enviar acesso"** no card do lead — foi assim que a prova foi feita — ou um endereço inédito; "Enviar acesso" **move o lead para "Qualificação"**, reversível arrastando.
 - **~~Publicar exige a mão do dono~~ — DEIXOU DE SER VERDADE em 26/08.** Em 21/08 o classificador de segurança barrou `gh workflow run` **e** `gh api .../dispatches`, testado nas duas formas; em **26/08 o mesmo `gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR` passou** e a publicação foi disparada por mim. **Tente primeiro** antes de pedir ao dono; se barrar de novo, ele cola o comando com `!` na conversa (a saída cai no chat e eu acompanho por `gh run view <id>`). ⚠️ **O que continua exigindo a mão dele é o SIM**, não o comando. ⚠️ **O `deploy.yml` NÃO cria a etiqueta sozinho** — descoberto em 26/08, quando a publicação saiu sem `git tag` e a etiqueta teve de ser criada à mão depois. Etiquetas: `v1.0.0` marca `bd61f6a` (22/08) e `v1.1.0` marca `d5dcc7c` (26/08).
-- **📧 O DIAGNÓSTICO: nenhum e-mail jamais tinha saído de produção (ADR-122) — hoje resolvido e no ar.** O dono criou um lead pelo site e não recebeu nada; o relato era sobre **um** e-mail, o problema era **todos**. O monitor `/emails-enviados` em 21/08 mostrava **25 falhas em 7 dias, taxa de entrega 0%** e — filtrando "Enviados" + "Todo o período" — *"Nenhum e-mail encontrado"*: nunca houve uma entrega. Todas as falhas com a **mesma** mensagem: `Hostname/IP does not match certificate's altnames: Host: localhost. is not in the cert's altnames: DNS:atena.hostsrv.org`. **Não era senha, porta nem firewall — era o nome no certificado:** `SMTP_HOST=localhost` (o servidor de e-mail roda na própria máquina da TineHost), mas o certificado apresentado é o da máquina física. O disparo sempre funcionou (as 4 notificações internas e o acesso ao Portal foram tentados às 17:00); o transporte é que nunca completava. Conserto em `apps/api/src/lib/email-tls.ts`: a conferência do **nome** do certificado é dispensada **só para loopback** — host remoto continua validando inteiro, e a **caixa pessoal** (`modules/email/smtp.ts`) **não** foi tocada, porque lá trafega a senha do webmail de cada pessoa. ⚠️ **Duas armadilhas:** o erro veio como `localhost.` **com ponto final**, então `=== "localhost"` não pegaria; e a comparação é contra conjunto fechado, nunca `includes` (`localhost.evil.com` é endereço de internet de verdade). ⚠️ **Ressalva:** isto derruba a primeira barreira, a única comprovada. Se a senha SMTP do servidor estiver expirada (pendência do dono desde 05/08), o e-mail falhará de novo com mensagem **de autenticação**. **A ressalva da senha SMTP NÃO se concretizou:** depois de publicar, a taxa saiu de 0% e o e-mail externo foi entregue. A senha estava certa.
+- **📧 O DIAGNÓSTICO: nenhum e-mail jamais tinha saído de produção (ADR-122) — hoje resolvido e no ar.** O dono criou um lead pelo site e não recebeu nada; o relato era sobre **um** e-mail, o problema era **todos**. O monitor `/emails-enviados` em 21/08 mostrava **25 falhas em 7 dias, taxa de entrega 0%** e — filtrando "Enviados" + "Todo o período" — _"Nenhum e-mail encontrado"_: nunca houve uma entrega. Todas as falhas com a **mesma** mensagem: `Hostname/IP does not match certificate's altnames: Host: localhost. is not in the cert's altnames: DNS:atena.hostsrv.org`. **Não era senha, porta nem firewall — era o nome no certificado:** `SMTP_HOST=localhost` (o servidor de e-mail roda na própria máquina da TineHost), mas o certificado apresentado é o da máquina física. O disparo sempre funcionou (as 4 notificações internas e o acesso ao Portal foram tentados às 17:00); o transporte é que nunca completava. Conserto em `apps/api/src/lib/email-tls.ts`: a conferência do **nome** do certificado é dispensada **só para loopback** — host remoto continua validando inteiro, e a **caixa pessoal** (`modules/email/smtp.ts`) **não** foi tocada, porque lá trafega a senha do webmail de cada pessoa. ⚠️ **Duas armadilhas:** o erro veio como `localhost.` **com ponto final**, então `=== "localhost"` não pegaria; e a comparação é contra conjunto fechado, nunca `includes` (`localhost.evil.com` é endereço de internet de verdade). ⚠️ **Ressalva:** isto derruba a primeira barreira, a única comprovada. Se a senha SMTP do servidor estiver expirada (pendência do dono desde 05/08), o e-mail falhará de novo com mensagem **de autenticação**. **A ressalva da senha SMTP NÃO se concretizou:** depois de publicar, a taxa saiu de 0% e o e-mail externo foi entregue. A senha estava certa.
 - **📦 O REPOSITÓRIO MUDOU DE DONO, e a org TEM REGRA DE REPOSITÓRIO: a `main` só aceita PR, com 3 verificações obrigatórias.** Push direto na `main` **deixou de existir** — tentar responde `GH013: Changes must be made through a pull request` + `3 of 3 required status checks are expected`. A conta pessoal antiga não tinha isso; a organização já vem com o ruleset. Consequência prática: **todo trabalho, inclusive documentação, passa por PR** — e a decisão da ADR-121 de **não** pôr `paths-ignore` em `pull_request` se provou certa por pouco, porque com check obrigatório um PR só de `.md` que não disparasse a CI ficaria travado para sempre. Saiu de `thi-garcia` e foi para a organização `garcia-goncalves` (plano Team). O sócio André (`andgoncs`) é **Owner da org**, o que lhe dá `admin` aqui automaticamente — não há nada a conceder repositório a repositório. O GitHub redireciona o endereço antigo, então nada quebrou; mesmo assim o `remote` local foi reapontado em 21/08 e as **3 citações ao nome velho** em `docs/DEPLOY.md` e `docs/LINKS.md` foram corrigidas. Endereço correto: `https://github.com/garcia-goncalves/workspace-medconsultoria`.
 - **✂️ A CI FICOU ESCALONADA — este repositório sozinho consumia 116% da cota de Actions da conta inteira (ADR-121).** Medido tarefa a tarefa: **2.313 min em 30 dias**, contra 3.000 min de cota para 15 repositórios; `e2e` (1.160) + `integration` (590) eram 58% do gasto da conta toda. A cobrança é **por job, arredondada para cima a cada minuto** — três jobs em paralelo fazem 6,3 min de relógio custarem ~13 min de cota. Agora: `push` na `main` roda **só `build-test`**; `pull_request` roda tudo; e o `deploy.yml` **chama a CI completa** (`workflow_call` + job `suite` com `needs: suite`) no commit exato que vai ao ar — sem esse elo o corte viraria buraco de cobertura. Entraram também `concurrency` com `cancel-in-progress: true` (18 execuções do mês foram substituídas e vieram cobradas inteiras), `needs: build-test` nos dois jobs caros e `paths-ignore` de `.md`/`docs/**` **só no `push`** (em `pull_request` travaria PR de documentação). ⚠️ **Não copie o `concurrency` da CI para o `deploy.yml`:** lá é `cancel-in-progress: false` de propósito — CI cancelada não custa nada, publicação cancelada no meio deixa o servidor indefinido. Duas hipóteses já **mortas pela medição**, não as repita: não havia duplicata `push`/`pull_request` (1 commit em 174) e não faltava cache de dependência (`pnpm install` leva 3 s).
-- **✅ A COBRANÇA DO GITHUB FOI RESOLVIDA PELO DONO (20/08) — Actions funcionando de novo.** Entre ~20:29 e ~21:40 de 19/08 toda execução morria em 2-3 s antes de receber máquina (`runner` vazio, zero passos), com a mensagem literal *"The job was not started because recent account payments have failed or your spending limit needs to be increased"* — derrubando **CI e Deploy juntos**, porque os dois são workflows. **Provado que voltou, não presumido:** reexecutei a CI da `main` e ela pegou máquina e percorreu os passos até o fim, **verde nos três jobs** (`build-test`, `e2e`, `integration`) no commit `33d0d65`. **A regra de diagnóstico que fica:** execução de OUTRA pessoa passando enquanto a minha morre em segundos, com `runner_name` vazio, é **conta**, não código — e a mensagem só aparece em `gh run view <id>`, nunca em `--log-failed` (que responde "log not found").
-- **A ADR-118 (dinheiro em `Decimal`) JÁ ESTÁ EM PRODUÇÃO** — publicada às 19:45–20:01 de 19/08 pela **outra janela** (deploy `workflow_dispatch` no commit `a3a7f02`, 7/7 verde, `found 0 vulnerabilities`, `All migrations have been successfully applied`). **Conferido NA TELA de produção em 19/08 às 20:40** (o modo de falha da ADR-118 é "R$ NaN" **sem erro de console**, então tipagem verde não bastava): catálogo em `/servicos` mostrando `R$ 3.500,00/mês`, `3,5% do faturamento/mês` e `R$ 1.500,00`; `/leads` e `/financeiro` com `R$ 0,00` — **nenhum NaN, zero erro de console**. Ressalva honesta: funil e Financeiro estão **vazios** em produção, então o valor estimado do lead e a conta a receber não foram exercidos com dado real — quem exercer primeiro deve olhar.
+- **✅ A COBRANÇA DO GITHUB FOI RESOLVIDA PELO DONO (20/08) — Actions funcionando de novo.** Entre ~20:29 e ~21:40 de 19/08 toda execução morria em 2-3 s antes de receber máquina (`runner` vazio, zero passos), com a mensagem literal _"The job was not started because recent account payments have failed or your spending limit needs to be increased"_ — derrubando **CI e Deploy juntos**, porque os dois são workflows. **Provado que voltou, não presumido:** reexecutei a CI da `main` e ela pegou máquina e percorreu os passos até o fim, **verde nos três jobs** (`build-test`, `e2e`, `integration`) no commit `33d0d65`. **A regra de diagnóstico que fica:** execução de OUTRA pessoa passando enquanto a minha morre em segundos, com `runner_name` vazio, é **conta**, não código — e a mensagem só aparece em `gh run view <id>`, nunca em `--log-failed` (que responde "log not found").
+- **A ADR-118 (dinheiro em `Decimal`) JÁ ESTÁ EM PRODUÇÃO** — publicada às 19:45–20:01 de 19/08 pela **outra janela** (deploy `workflow_dispatch` no commit `a3a7f02`, 7/7 verde, `found 0 vulnerabilities`, `All migrations have been successfully applied`). **Conferido NA TELA de produção em 19/08 às 20:40** (o modo de falha da ADR-118 é "R$ NaN" **sem erro de console**, então tipagem verde não bastava): catálogo em `/servicos` mostrando `R$ 3.500,00/mês`, `3,5% do faturamento/mês`e`R$ 1.500,00`; `/leads` e `/financeiro` com `R$ 0,00` — **nenhum NaN, zero erro de console**. Ressalva honesta: funil e Financeiro estão **vazios** em produção, então o valor estimado do lead e a conta a receber não foram exercidos com dado real — quem exercer primeiro deve olhar.
 - **⏸️ A ADR-119 (cliente sempre PJ) está mesclada na `main` (PR #105), com CI VERDE, e NÃO está no ar — falta só o "pode subir" do dono.** Não há impedimento técnico nenhum: `main` = `33d0d65`, CI verde, nenhum deploy em andamento, e o PR #106 do André segue **aberto e não mesclado** (publicar não leva o trabalho dele). O sim não foi dado porque a sessão acabou antes — **a publicação é irreversível pelo dado** e por isso não se aperta o botão sozinho. Publicar é `gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR`, **rodado por mim, não pelo dono**. ⚠️ Avisar antes: a migração **move para as observações da ficha** o CPF de quem era pessoa física e a marcação de PF **some do banco** (o número muda de lugar, a distinção acaba); e o `npm ci` deixa a produção ~1 min reinstalando dependências enquanto segue servindo.
 - **A CI voltou a ser confiável: o navegador de teste agora é cacheado (ADR-120, PR #107, mesclado em `33d0d65`).** O job `integration` da `main` tinha sido **cancelado pelo limite de 25 min baixando o Chromium**, com o código intacto — falha de infraestrutura que se lê como falha de código. Rodada de prova depois do merge: 3/3 verdes.
 
 - **Todo cliente é pessoa jurídica — a escolha PF/PJ deixou de existir (ADR-119).** Os clientes da Med são médicos e clínicas, e todos têm CNPJ. `Cliente.tipo`/`ClienteTipo` foram **removidos do banco** e `Cliente.documento` virou **`Cliente.cnpj`** (migração `20260819161500_cliente_sempre_pj`, escrita à mão: o Prisma geraria `DROP`+`ADD` e apagaria os CNPJs gravados). **A parte que importa não estava na tela:** a **conversão do lead** criava cliente **pessoa física** sozinha quando o lead não tinha "Empresa" preenchida (`tipo: temEmpresa ? "PJ" : "PF"`) — e a triagem do credenciamento depois reprovava esse cliente pela regra R1, um INAPTO fabricado pelo próprio sistema. Hoje a conta nasce PJ nos dois casos e a pessoa do lead vira **contato principal sempre** (a conta é uma empresa, e empresa não atende telefone). **`Lead.cnpj` é novo** (opcional no 1º contato, viaja para a ficha na conversão). **CNPJ passou a ser validado por dígito verificador** na tela e no servidor (`validarCNPJ`, `packages/shared/src/cnpj.ts`) — antes só havia máscara e `11.111.111/1111-11` era aceito; aceita o **formato alfanumérico** (`12.ABC.345/01DE-35`, válido para empresa aberta desde julho/2026). A **R1 da triagem foi aposentada** (R2…R6 mantêm o número de propósito). ⚠️ **De novo a armadilha da ADR-118:** typecheck em zero **não** provou nada — `createLead`, `updateLead` e o painel do lead descartavam o `cnpj` **em silêncio**. Provado com 5 testes contra MySQL de verdade (inclusive o banco recusando `tipo='PF'`) e na tela: lead sem empresa → converter → cliente PJ com CNPJ e contato principal. ⚠️ Em produção a migração **move para as observações da ficha** o CPF de quem era pessoa física, e a marcação de PF **some** (irreversível).
 
-- **Dinheiro em `Decimal`, e a última dívida da auditoria de 05/08 fechada (ADR-118).** Os cinco campos que ainda eram `Float` — `Servico.valor`/`percentual`, `ClienteServico.valor`/`percentual` e `Lead.valorEstimado` — viraram `DECIMAL(12,2)` (migração `20260819153758_dinheiro_em_decimal`). **A parte que quase deu errado é a que importa:** trocar o tipo faz o Prisma devolver um objeto `Decimal.js`, e um `Decimal` que atravessa o tRPC vira objeto no JSON — a tela mostra **"R$ NaN" sem um único erro no console**, pior do que o centavo que o `Float` errava. O `tsc` pegou 10 caminhos; **não pegou dois** (`ativarServicoCliente` e `cancelarServicoCliente`, que devolviam o objeto cru do Prisma — este último usado também pelo **Portal do cliente**), achados por varredura de revisor depois do typecheck verde. Regra que fica: **`Decimal` nunca atravessa o tRPC** — a conversão é `emReais()`/`emReaisOu()` em `apps/api/src/lib/dinheiro.ts`. Provado com `typeof` em runtime contra MySQL de verdade (`dinheiro-decimal.integration.test.ts`, 7 verdes) e **na tela**: contratar "Gestão Operacional" pela ficha mostrou `R$ 3.500,00/mês`, catálogo/funil/Início/Financeiro sem NaN, zero erro de console. ⚠️ Em produção o `ALTER TABLE` **arredonda** o que tiver mais de duas casas (que é o lixo do `Float` — o arredondamento é o conserto).
+- **Dinheiro em `Decimal`, e a última dívida da auditoria de 05/08 fechada (ADR-118).** Os cinco campos que ainda eram `Float` — `Servico.valor`/`percentual`, `ClienteServico.valor`/`percentual` e `Lead.valorEstimado` — viraram `DECIMAL(12,2)` (migração `20260819153758_dinheiro_em_decimal`). **A parte que quase deu errado é a que importa:** trocar o tipo faz o Prisma devolver um objeto `Decimal.js`, e um `Decimal` que atravessa o tRPC vira objeto no JSON — a tela mostra **"R$ NaN" sem um único erro no console**, pior do que o centavo que o `Float` errava. O `tsc` pegou 10 caminhos; **não pegou dois** (`ativarServicoCliente` e `cancelarServicoCliente`, que devolviam o objeto cru do Prisma — este último usado também pelo **Portal do cliente**), achados por varredura de revisor depois do typecheck verde. Regra que fica: **`Decimal` nunca atravessa o tRPC** — a conversão é `emReais()`/`emReaisOu()` em `apps/api/src/lib/dinheiro.ts`. Provado com `typeof` em runtime contra MySQL de verdade (`dinheiro-decimal.integration.test.ts`, 7 verdes) e **na tela**: contratar "Gestão Operacional" pela ficha mostrou `R$ 3.500,00/mês`, catálogo/funil/Início/Financeiro sem NaN, zero erro de console. ⚠️ Em produção o `ALTER TABLE`**arredonda** o que tiver mais de duas casas (que é o lixo do`Float` — o arredondamento é o conserto).
 
 ## Estado anterior (2026-08-18)
 
@@ -1907,7 +1942,7 @@ entre proxy e app.
 - **NO AR desde 17/08/2026 às 17:52, publicado pelo GitHub (ADR-113).** Correções ADR-108/109/110/112 em produção; conferido de fora: `/health` = `{"status":"ok"}`, `/`, `/credenciamentos` e `/comecar` = 200, login sem a faixa "AMBIENTE LOCAL", zero erro de console. **A primeira publicação revelou dois defeitos antigos que o laptop escondia:** (1) `scripts/bundle-deploy.mjs` importava `esbuild` sem ninguém declarar — convivem 4 versões na árvore, e qual montava o artefato de produção era sorte da ordem de instalação (fixado em `0.27.7`); (2) **a TineHost corta conexões SSH repetidas de um IP desconhecido** e o runner é sempre IP novo — o workflow passou a abrir **UMA** conexão (`ControlMaster`) reaproveitada por todos os passos, sem voltar a encadear com `&&` (a cicatriz do `prisma generate` continua valendo).
 
 - **Falha ALTA nova em dependência, pega sozinha pela CI (ADR-112):** `deepmerge-ts` <8 (exaustão de pilha). Override escopado `"deepmerge-ts@7": "^8.0.0"`, e entrou teste que lê e-mail de verdade pelo `mailparser` — pulo de versão maior por baixo do e-mail apareceria como caixa em branco em produção, sem erro. Foi a **primeira vez que o portão da ADR-107 reprovou algo por conta própria**.
-- **⚠️ PUBLICAR MUDOU: agora é um botão no GitHub, não `./deploy.sh` (ADR-111).** Actions → **Deploy** → *Run workflow* → digitar **`PUBLICAR`**. Mesma sequência de 6 passos, rodando no runner: a chave SSH saiu do disco e foi para *GitHub Secrets*, e o classificador de segurança não barra mais a publicação (foi o que travou a ADR-108 já pronta e com CI verde). **`concurrency: deploy-producao` acabou com a armadilha dos dois deploys simultâneos** — a segunda execução espera a primeira. **Os três segredos (`DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`) já estão postos** — confira com `gh secret list`. A chave que eles guardam foi trocada em 18/08 (ADR-114); a antiga (`~/.ssh/medconsultoria_deploy`) não abre mais nada. O `deploy.sh` fica no repositório como documentação e saída de emergência. Detalhe em `docs/DEPLOY.md` §0.
+- **⚠️ PUBLICAR MUDOU: agora é um botão no GitHub, não `./deploy.sh` (ADR-111).** Actions → **Deploy** → _Run workflow_ → digitar **`PUBLICAR`**. Mesma sequência de 6 passos, rodando no runner: a chave SSH saiu do disco e foi para _GitHub Secrets_, e o classificador de segurança não barra mais a publicação (foi o que travou a ADR-108 já pronta e com CI verde). **`concurrency: deploy-producao` acabou com a armadilha dos dois deploys simultâneos** — a segunda execução espera a primeira. **Os três segredos (`DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`) já estão postos** — confira com `gh secret list`. A chave que eles guardam foi trocada em 18/08 (ADR-114); a antiga (`~/.ssh/medconsultoria_deploy`) não abre mais nada. O `deploy.sh` fica no repositório como documentação e saída de emergência. Detalhe em `docs/DEPLOY.md` §0.
 - **A conversão do lead não cobra mais credenciamento antes da hora (ADR-108).** Achado percorrendo o fluxo pela tela: lead cujo único serviço era **Credenciamento médico e odontológico** virava cliente **já com conta a receber** no card Financeiro da ficha — e seria cobrado **de novo** quando a operadora aprovasse. O laço da soma pulava o credenciamento; o **fallback da estimativa do funil** não olhava os serviços e provisionava mesmo assim. A regra virou função pura testável (`planejarProvisaoDaConversao`), e no caso **misturado** a observação da conta agora diz em português que o credenciamento não está naquele valor. Provado na tela: R$ 12.000,00 de estimativa → **"Nenhuma conta vinculada."**.
 - **"Alguém concluiu um projeto" agora é "Automação" (ADR-109).** O projeto se conclui e se reabre sozinho quando o último cartão fecha; o histórico grava sem usuário, e o Início inventava uma pessoa. O servidor passa a devolver `auto`, e "Alguém" voltou a valer só para autor genuinamente desconhecido.
 - **Botão "Ligar" do painel do lead volta a discar (ADR-110):** o `tel:` saía com máscara (`tel:(11) 98765-4321`) e o discador engasgava; agora usa os mesmos dígitos do WhatsApp.
@@ -1922,7 +1957,7 @@ entre proxy e app.
 
 ## Estado anterior (2026-08-11)
 
-- **Painel de Credenciamentos (ADR-106) — a tela `/credenciamentos`**, no menu em Negócio: uma linha por cruzamento médico × operadora de **todos** os clientes, que responde a pergunta da Thaís de manhã — *o que travou?*. Antes o andamento só existia dentro da ficha de cada cliente, um por vez, e ela mantinha planilha paralela. A tela **abre pelo que está parado há mais tempo** (o contrário do padrão daqui, de propósito), marca em amarelo o que passou de **60 dias** sem andar — número dado pela Thaís, editável em **Ajustes → Dados da empresa** (migração `20260811204308`) —, filtra por cliente/operadora/situação combinados, e deixa mudar a situação sem sair da tela **reusando a mesma função da ficha**, para as travas de dinheiro não viverem em dois lugares. `A_PROTOCOLAR` também conta como atraso (a culpa ali é nossa); estado final nunca é marcado e mostra a **data** do desfecho, não "parado há N dias". Médico desativado continua na lista, marcado "fora da lista" (mesma decisão da ADR-105). Verificado na tela: alerta acendeu em 2 linhas na ordem certa e aprovar pelo painel criou a conta a receber de R$ 2.500 no Financeiro.
+- **Painel de Credenciamentos (ADR-106) — a tela `/credenciamentos`**, no menu em Negócio: uma linha por cruzamento médico × operadora de **todos** os clientes, que responde a pergunta da Thaís de manhã — _o que travou?_. Antes o andamento só existia dentro da ficha de cada cliente, um por vez, e ela mantinha planilha paralela. A tela **abre pelo que está parado há mais tempo** (o contrário do padrão daqui, de propósito), marca em amarelo o que passou de **60 dias** sem andar — número dado pela Thaís, editável em **Ajustes → Dados da empresa** (migração `20260811204308`) —, filtra por cliente/operadora/situação combinados, e deixa mudar a situação sem sair da tela **reusando a mesma função da ficha**, para as travas de dinheiro não viverem em dois lugares. `A_PROTOCOLAR` também conta como atraso (a culpa ali é nossa); estado final nunca é marcado e mostra a **data** do desfecho, não "parado há N dias". Médico desativado continua na lista, marcado "fora da lista" (mesma decisão da ADR-105). Verificado na tela: alerta acendeu em 2 linhas na ordem certa e aprovar pelo painel criou a conta a receber de R$ 2.500 no Financeiro.
 - **Armadilha nova:** `prisma migrate dev` **reexecuta o seed** e recria as contas internas com `senhaTrocadaEm` nulo (ADR-91) — o e2e passa a falhar no setup com "3 campos de senha", porque cai na página obrigatória de definir senha. Destrave marcando `senhaTrocadaEm` nas contas de equipe do banco **de desenvolvimento**. Produção usa `migrate deploy`, que não roda seed.
 - **Documentos reais de cliente NÃO vão para o repositório** (decisão do dono em 11/08/2026): os PDFs em `brand/identidade/` têm dados de gente e operadoras de verdade, e o `.gitignore` passou a barrá-los. Material de marca sem dado pessoal segue versionado.
 
@@ -1958,14 +1993,14 @@ entre proxy e app.
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-152). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-153). Deploy: `docs/DEPLOY.md`.
    API do agente (integração com a Cora): `docs/API_AGENTE.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
 ## Regras rápidas
 
 - Responder **sempre em PT-BR**. Testar envio de e-mail SÓ com `tibamooca@gmail.com` ou `contato@medconsultoria.com.br`.
-- **`pnpm --filter @app/api test` NÃO é só unidade — ele MANDA E-MAIL REAL.** O `include` do Vitest varre também `src/test/*.integration.test.ts` (é assim de propósito: o CI roda a suíte inteira). Para unidade pura use **`pnpm --filter @app/api test:unit`**.
+- **`pnpm --filter @app/api test` NÃO é só unidade — ele MANDA E-MAIL REAL** quando há SMTP no `.env` (com `SMTP_HOST/USER/PASS` vazios, o envio cai no modo dev e nada sai). O `include` do Vitest varre também `src/test/*.integration.test.ts` (é assim de propósito: o CI roda a suíte inteira). Para unidade pura use **`pnpm --filter @app/api test:unit`**.
 - **Na 1ª tarefa do dia, SUBIR o localhost sem o dono pedir** (`node scripts/keep-alive.mjs`), conferir que 4310 e 4319 respondem e informar os links. O dono quer sempre poder ver a app ao vivo — ver `docs/LINKS.md`.
 - Dev local: app SEMPRE no ar via `scripts/keep-alive.mjs`; para migrar Prisma use MODO PAUSA (`touch scripts/.keepalive-pause`). MySQL dev na porta 3307; web 4310 / API 4319.
 - Fluxo: branch → commit → PR → CI verde → merge → deploy. Commit/push só quando fizer sentido; nunca na `main` direto.

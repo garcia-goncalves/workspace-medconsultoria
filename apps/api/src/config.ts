@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { chaveValida } from "./lib/cripto.js";
 
 /**
  * Configuração validada no boot. O app NÃO sobe com env inválida.
@@ -39,6 +40,11 @@ const schema = z.object({
   // Gerar com: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
   // Ausente → o e-mail dentro da aplicação fica DESLIGADO (mesma degradação do SMTP).
   EMAIL_CRYPTO_KEY: z.string().optional(),
+  // Chave de cifra do dado pessoal de PACIENTE na Conciliação — CPF, telefone e e-mail que vêm
+  // no relatório de produção (32 bytes em base64, gerada como a de cima). Separada da
+  // EMAIL_CRYPTO_KEY de propósito: rotacionar uma não pode tornar ilegível a outra.
+  // Ausente → o módulo de Conciliação fica DESLIGADO e o resto da app segue normal.
+  PACIENTE_CRYPTO_KEY: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -85,12 +91,10 @@ export const isAiEnabled = !!config.GEMINI_API_KEY && !iaDesligada;
 /** E-mail "real" só quando SMTP está completo; caso contrário, modo dev (link em tela). */
 export const isEmailReal = !!(config.SMTP_HOST && config.SMTP_USER && config.SMTP_PASS);
 /** E-mail dentro da app (IMAP por usuário) só liga com a chave de cifra presente e válida. */
-export const isEmailAppEnabled = (() => {
-  const b64 = config.EMAIL_CRYPTO_KEY;
-  if (!b64) return false;
-  try {
-    return Buffer.from(b64, "base64").length === 32;
-  } catch {
-    return false;
-  }
-})();
+export const isEmailAppEnabled = chaveValida(config.EMAIL_CRYPTO_KEY);
+/**
+ * Conciliação só liga com a chave do paciente presente e válida. Sem ela, o CPF/telefone/e-mail
+ * do relatório entrariam em claro no banco — e a decisão de 11/09/2026 é que isso não acontece.
+ * Desligar o módulo é preferível a importar sem cifra.
+ */
+export const isConciliacaoEnabled = chaveValida(config.PACIENTE_CRYPTO_KEY);
