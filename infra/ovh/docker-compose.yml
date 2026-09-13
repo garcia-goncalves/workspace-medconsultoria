@@ -1,33 +1,41 @@
-# Produção no VPS (ADR-154). Mora em /srv/medconsultoria/docker-compose.yml.
+# Produção na VPS OVH (ADR-154). Mora em ~/medconsultoria/docker-compose.yml.
 #
-# O servidor NÃO constrói nada: a imagem vem pronta do GHCR, montada pela CI. Se você se pegar
-# rodando `docker compose build` aqui, parou de valer o motivo da migração.
+# ⚠️ A VPS É COMPARTILHADA com outros projetos (descoberto em 13/09/2026, ~20 containers no ar).
+# Por isso:
+#   - NÃO há Caddy aqui: as portas 80/443 são do nginx do HOST, que publica todos os sites.
+#     O arquivo do site está em `infra/ovh/nginx-medconsultoria.conf`.
+#   - O app escuta SÓ em 127.0.0.1:4319 — nada deste projeto fica exposto fora do loopback.
+#   - O banco não publica porta nenhuma; quem fala com ele é a rede interna do compose.
 #
-# Os três comandos do deploy, nesta ordem e cada um com seu código de saída:
-#   docker compose pull
+# Os três comandos, nesta ordem e cada um com seu código de saída:
+#   docker compose up -d mysql
 #   docker compose run --rm app npm run prisma:deploy
-#   docker compose up -d
+#   docker compose up -d app
 #
 # Encadear com `&&` foi o que, na esteira antiga, fazia o deploy dizer "concluído" com a migration
 # falhada e o app servindo o código anterior. A lição não era da hospedagem — é desta ordem.
 
+name: medconsultoria
+
 services:
   app:
-    image: ${APP_IMAGE:?defina APP_IMAGE no .env (ghcr.io/owner/repo:tag)}
+    # Local (construída na VPS, o padrão dos vizinhos) ou do GHCR, se APP_IMAGE vier no .env.
+    image: ${APP_IMAGE:-medconsultoria:atual}
     restart: unless-stopped
     # Tudo vem do .env do servidor, inclusive a DATABASE_URL — ela NÃO é montada aqui de
     # propósito: string de conexão com senha não entra em arquivo versionado.
     # ⚠️ Dentro da rede do compose o host do banco é `mysql`, nunca `localhost`.
     env_file: .env
+    ports:
+      - "127.0.0.1:4319:4319"
     volumes:
-      # Os uploads NÃO podem morar dentro do container: sumiriam na primeira troca de imagem.
-      # O caminho é ABSOLUTO porque o app recusa UPLOADS_DIR relativo em produção.
-      - ./uploads:/dados/uploads
+      # Volume NOMEADO, não pasta do host: herda o dono (`node`) da imagem sem precisar de sudo
+      # para chown — o usuário da VPS não é o uid 1000. E arquivo dentro do container sumiria
+      # na primeira troca de imagem.
+      - uploads:/dados/uploads
     depends_on:
       mysql:
         condition: service_healthy
-    expose:
-      - "4319"
 
   mysql:
     image: mysql:8.4
@@ -35,38 +43,16 @@ services:
     # Mesma collation do docker-compose.yml de desenvolvimento. Divergir aqui é acentuação
     # quebrada em nome de paciente e ordenação diferente da que os testes provaram.
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:?}
-      MYSQL_USER: ${MYSQL_USER:?}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
+    env_file: .env
     volumes:
       - mysql_dados:/var/lib/mysql
-      # Os dumps saem daqui e sobem para FORA da máquina. Backup no mesmo VPS não é backup.
-      - ./backups:/backups
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      # `$$` para o compose não interpolar: a senha é lida DENTRO do container.
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p\"$$MYSQL_ROOT_PASSWORD\""]
       interval: 10s
       timeout: 5s
       retries: 12
-    # O banco não fica exposto na internet: quem fala com ele é a rede interna do compose.
-    expose:
-      - "3306"
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_dados:/data
-      - caddy_config:/config
-    depends_on:
-      - app
 
 volumes:
+  uploads:
   mysql_dados:
-  caddy_dados:
-  caddy_config:

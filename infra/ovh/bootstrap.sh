@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# ⚠️ SÓ PARA VPS DEDICADA E VAZIA. A VPS OVH atual é COMPARTILHADA com outros projetos, tem
+# SSH na porta 3119 e nginx do host nas 80/443 — este script NÃO roda lá: ele libera só a
+# porta 22 antes de ligar o firewall (tranca a 3119 para fora) e reescreve o sshd de todos.
+#
 # Prepara o VPS do zero (ADR-154). Rode NO SERVIDOR, como root, UMA vez:
 #
 #   bash bootstrap.sh
