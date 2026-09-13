@@ -22,14 +22,19 @@ existir**: ninguém instala dependência em produção.
 
 ## 1. Fase 0 — antes de tocar em qualquer coisa
 
-**1.1 Escolher o datacenter.** A OVH **não tem** datacenter no Brasil. Beauharnois (Canadá, `BHS`) é a
-escolha padrão: a medição de 12/09 mostrou **146 ms de handshake TCP** contra a TineHost atual, ou seja,
-a produção de hoje **já não está no Brasil** — BHS empata ou melhora. Confirmar a opção na tela do
-pedido.
+**1.1 Escolher o datacenter.** A OVH **não tem** datacenter no Brasil (a Local Zone de São Paulo é só
+um pedido aberto no roadmap público, sem data). A VPS usada é a da **Alemanha**, compartilhada com
+outros projetos. ⚠️ **O custo é latência, não lei:** em 13/09 a conexão da máquina do dono levou
+**~280 ms** até a VPS, contra **~190 ms** da TineHost — a Alemanha fica **mais lenta que hoje** para
+quem usa o sistema do Brasil. Uma VPS em São Paulo ficaria na casa de 10–30 ms.
 
-**1.2 Aderir às cláusulas-padrão da ANPD** (Resolução CD/ANPD nº 19/2024; o período de graça terminou em
-23/08/2025). Sem elas, hospedar dado pessoal fora do Brasil não tem base contratual válida.
-⚠️ Isto **já vale para a TineHost** — a migração não cria a pendência, só a torna visível.
+**1.2 Transferência internacional (LGPD) — a Alemanha está coberta.** Desde **26/01/2026** a
+**Resolução CD/ANPD nº 32/2026** reconhece a **adequação da União Europeia**, e a UE reconhece a do
+Brasil. Transferir dado pessoal para servidor na UE **dispensa, em regra, as cláusulas-padrão** da
+Resolução CD/ANPD nº 19/2024. ⚠️ **Isso vale para a UE, não para qualquer país:** Canadá ou EUA
+continuariam exigindo as cláusulas. ⚠️ O resto da LGPD continua valendo onde quer que o servidor
+esteja — base legal, segurança, e dizer ao titular **quem hospeda** os dados (a página
+`/privacidade` hoje não cita o provedor de hospedagem, nem para a TineHost).
 
 **1.3 Levantar os segredos do `.env` de produção**, pelo File Manager do painel, sem SSH.
 ⚠️ **`PACIENTE_CRYPTO_KEY` e `EMAIL_CRYPTO_KEY` são COPIADAS, jamais regeradas.** Gerar de novo torna

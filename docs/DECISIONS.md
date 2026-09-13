@@ -5901,13 +5901,16 @@ patch, e custa mais que o resto da máquina inteira. Para um sistema com uma dez
 para fora da máquina resolve. O que essa escolha **obriga**: backup automatizado, guardado fora, e
 **restaurado uma vez em ensaio**. Backup nunca restaurado é esperança, não garantia.
 
-**5. O dado continua fora do Brasil — e isso vira decisão consciente, não descuido.** A OVH não tem
-datacenter no Brasil. Medido em 12/09, o handshake TCP contra a TineHost dá **146 ms**: a produção de
-hoje **já está fora**. Beauharnois (Canadá) empata ou melhora, então a migração não piora nada. O que
-ela obriga é o que já estava vencido: desde **23/08/2025** (Resolução CD/ANPD nº 19/2024) a
-transferência internacional só é válida com as **cláusulas-padrão da ANPD** assinadas com o fornecedor.
-Assinar é item da Fase 0. Se um dia a exigência for dado em território nacional, a decisão muda de
-fornecedor — não de arquitetura: a esteira em container vai inteira para qualquer VPS.
+**5. Onde o dado mora: a lei não impede a Alemanha; a latência pesa contra.** A OVH não tem
+datacenter no Brasil, e a VPS disponível é a da Alemanha (compartilhada com outros projetos). A
+primeira versão desta ADR dizia que qualquer servidor fora do país exigiria as cláusulas-padrão da
+Resolução CD/ANPD nº 19/2024 — **estava desatualizada**: desde **26/01/2026** a **Resolução CD/ANPD
+nº 32/2026** reconhece a adequação da União Europeia (reciprocamente), e para servidor na UE as
+cláusulas deixam de ser exigidas, em regra. ⚠️ **Só para a UE** — Canadá ou EUA continuariam
+exigindo. O que pesa contra a Alemanha é **medido, não jurídico**: ~280 ms de conexão a partir da
+máquina do dono, contra ~190 ms da TineHost de hoje, para uma equipe que usa o sistema o dia inteiro
+do Brasil. Por isso a recomendação é **São Paulo** para este projeto, quando houver máquina lá — e
+trocar de lugar é trocar de fornecedor, não de arquitetura: a esteira em container vai inteira.
 
 **6. A TineHost fica ligada e intocada por 14 dias depois do corte.** Rollback é apontar o DNS de volta.
 O ponto de não retorno é declarado e é um só: **quando alguém escrever no VPS**. Antes disso, voltar não
