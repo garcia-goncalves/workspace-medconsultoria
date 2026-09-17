@@ -1,0 +1,71 @@
+name: Diagnóstico do servidor
+
+# Só leitura, de propósito: nada aqui apaga, move ou reinicia coisa nenhuma em produção.
+# Nasceu em 17/09/2026 porque o passo "3/7 · Snapshot do release atual" do deploy.yml
+# falhou duas vezes seguidas, sempre em ~40s, com o SSH devolvendo o código genérico 255
+# — sem mensagem de erro visível. Objetivo: ver espaço em disco, quantos backups
+# acumularam e se sobrou algum node_modules preservado de um deploy cancelado antes de
+# tentar publicar de novo às cegas.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    environment: producao
+    permissions: {}
+    env:
+      DEPLOY_PATH: /home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html
+      DEPLOY_SSH_PORT: "1992"
+    steps:
+      - name: Abrir conexão
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          (umask 077; printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key)
+          cat > ~/.ssh/config <<CFG
+          Host deploy
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            Port $DEPLOY_SSH_PORT
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ServerAliveInterval 30
+            ServerAliveCountMax 6
+            ConnectTimeout 30
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Espaço em disco, backups acumulados e processos pendurados
+        run: |
+          set -euo pipefail
+          ssh -o LogLevel=ERROR deploy "
+            echo '--- espaço em disco (quota da conta) ---'
+            df -h ~ 2>/dev/null || echo 'df não disponível nesta hospedagem'
+            echo
+            echo '--- backups acumulados em ~/backups (contagem + tamanho, sem nomes) ---'
+            if [ -d ~/backups ]; then
+              echo \"\$(ls ~/backups 2>/dev/null | wc -l) arquivo(s)\"
+              du -sh ~/backups 2>/dev/null || true
+            else
+              echo 'pasta não existe'
+            fi
+            echo
+            echo '--- sobrou node_modules preservado de deploy cancelado? ---'
+            du -sh ~/nm-antes 2>/dev/null || echo 'não existe (bom sinal)'
+            echo
+            echo '--- tamanho do app publicado ---'
+            du -sh '$DEPLOY_PATH' 2>/dev/null || true
+            echo
+            echo '--- processos node/npm pendurados (só o binário, sem argumentos) ---'
+            ps -u \$(whoami) -o pid,etime,comm 2>/dev/null | grep -iE 'node|npm' | grep -v grep || echo 'nenhum'
+            echo
+            echo '--- quota (se existir o comando) ---'
+            quota -s 2>/dev/null || echo 'comando quota indisponível'
+          "
