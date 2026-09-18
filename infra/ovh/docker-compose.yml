@@ -1,0 +1,58 @@
+# Produção na VPS OVH (ADR-154). Mora em ~/medconsultoria/docker-compose.yml.
+#
+# ⚠️ A VPS É COMPARTILHADA com outros projetos (descoberto em 13/09/2026, ~20 containers no ar).
+# Por isso:
+#   - NÃO há Caddy aqui: as portas 80/443 são do nginx do HOST, que publica todos os sites.
+#     O arquivo do site está em `infra/ovh/nginx-medconsultoria.conf`.
+#   - O app escuta SÓ em 127.0.0.1:4319 — nada deste projeto fica exposto fora do loopback.
+#   - O banco não publica porta nenhuma; quem fala com ele é a rede interna do compose.
+#
+# Os três comandos, nesta ordem e cada um com seu código de saída:
+#   docker compose up -d mysql
+#   docker compose run --rm app npm run prisma:deploy
+#   docker compose up -d app
+#
+# Encadear com `&&` foi o que, na esteira antiga, fazia o deploy dizer "concluído" com a migration
+# falhada e o app servindo o código anterior. A lição não era da hospedagem — é desta ordem.
+
+name: medconsultoria
+
+services:
+  app:
+    # Local (construída na VPS, o padrão dos vizinhos) ou do GHCR, se APP_IMAGE vier no .env.
+    image: ${APP_IMAGE:-medconsultoria:atual}
+    restart: unless-stopped
+    # Tudo vem do .env do servidor, inclusive a DATABASE_URL — ela NÃO é montada aqui de
+    # propósito: string de conexão com senha não entra em arquivo versionado.
+    # ⚠️ Dentro da rede do compose o host do banco é `mysql`, nunca `localhost`.
+    env_file: .env
+    ports:
+      - "127.0.0.1:4319:4319"
+    volumes:
+      # Volume NOMEADO, não pasta do host: herda o dono (`node`) da imagem sem precisar de sudo
+      # para chown — o usuário da VPS não é o uid 1000. E arquivo dentro do container sumiria
+      # na primeira troca de imagem.
+      - uploads:/dados/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    # Mesma collation do docker-compose.yml de desenvolvimento. Divergir aqui é acentuação
+    # quebrada em nome de paciente e ordenação diferente da que os testes provaram.
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    env_file: .env
+    volumes:
+      - mysql_dados:/var/lib/mysql
+    healthcheck:
+      # `$$` para o compose não interpolar: a senha é lida DENTRO do container.
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p\"$$MYSQL_ROOT_PASSWORD\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  uploads:
+  mysql_dados:

@@ -13,76 +13,30 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-18 · site instável na TineHost → decisão de migrar para a VPS da OVH, EM ANDAMENTO)
+## Estado atual (2026-09-13 · VPS OVH NO AR como homologação, com os dados de produção · ADR-154)
 
-### 🚨 Por que o site ficou instável — achado, não corrigido no destino atual
+- **🌐 https://homolog.workspace.medconsultoria.com.br** — VPS OVH na **Alemanha**, **compartilhada**
+  com outros projetos do dono. ⚠️ **Acesso SSH (host, porta, usuário) NÃO vai neste arquivo: o
+  repositório é público** — pergunte ao dono. Projeto em `~/medconsultoria` (compose + `.env` 600),
+  app só em `127.0.0.1:4319`, publicado pelo **nginx do HOST** com certificado Let's Encrypt
+  (renovação automática pelo `certbot.timer`, vence 12/12/2026). ⚠️ **NUNCA rode o `bootstrap.sh`
+  nessa VPS** (o SSH dela não é na porta 22, e o script tranca o acesso) e **nunca publique 80/443
+  pelo compose**.
+- **📦 OS DADOS DE PRODUÇÃO FORAM IMPORTADOS**, conferidos **44 de 44 tabelas idênticas ao dump**
+  (983 linhas) + a migração `conciliacao_producao` aplicada por cima (84 no total). Banco
+  **`medconsultoria_prod`**; o banco vazio `medconsultoria` ficou intacto como volta atrás. A cópia
+  do dump na VPS foi apagada; a foto de perfil real está no volume `medconsultoria_uploads`.
+  ⚠️ MySQL 8.4 aqui × MariaDB 10.6 lá: `Lead` é **palavra reservada** no MySQL 8 — SQL à mão precisa
+  de crase. ⚠️ `docker compose run` **come o stdin** de um script por `ssh … bash -s`: use `-T </dev/null`.
+- **⏳ AINDA NÃO É A PRODUÇÃO.** `workspace.medconsultoria.com.br` segue na TineHost, com o incidente
+  de 12/09 aberto (front novo × back velho, `npm ci` travado duas vezes). O corte é mudar o DNS — só
+  depois do login conferido e dos segredos no `.env` da VPS, que hoje **não tem** `EMAIL_CRYPTO_KEY`,
+  `GEMINI_API_KEY` nem `SMTP_*` (e o `SMTP_HOST` lá não pode ser `localhost`).
+- **⚖️ LGPD: a Alemanha está coberta** pela adequação UE–Brasil (Resolução CD/ANPD nº 32/2026, de
+  26/01/2026) — sem cláusulas-padrão. O custo é **latência** (~280 ms contra ~190 ms da TineHost);
+  a recomendação para depois é uma VPS em São Paulo, e a esteira em container vai inteira.
 
-- **O relato do dono:** "o site está fora do ar". Na hora, respondia (HTTP 200) — a instabilidade era
-  **intermitente**. Causa raiz encontrada: dois deploys de 12/09 (`34707951960`, `34715413064`) ficaram
-  **travados por horas** no passo que roda `npm ci --omit=dev` no servidor e tiveram que ser
-  **cancelados manualmente** pelo André — mas o artefato novo (`dist/`) **já tinha sido extraído** antes
-  de travar (`last-modified` do `index.html` batia com o horário exato do cancelamento). Resultado:
-  código novo com instalação de dependências possivelmente incompleta, nunca confirmada.
-- **🔴 NOVO E MAIS GRAVE, achado ao tentar publicar de novo em 17/09: a TineHost parou de aceitar
-  QUALQUER comando novo por SSH.** As duas tentativas de publicação falharam rápido (~40s) no passo
-  "Snapshot do release atual", sempre com `Process completed with exit code 255` — sem mensagem. Um
-  workflow de diagnóstico **só leitura**, criado para investigar
-  (`.github/workflows/diagnostico-servidor.yml`, PR #200, mesclado), revelou o motivo exato:
-  **`exec request failed on channel 0`** — o SSH abre a conexão, mas o servidor **recusa criar
-  processo novo**. Hipótese forte (não confirmada por falta de acesso): a conta da TineHost (revenda
-  DirectAdmin, sem root) estourou o teto de processos simultâneos, provavelmente por processos
-  zumbis deixados pelos deploys de 12/09 que travaram. **Isso está fora do alcance de qualquer
-  ferramenta que o Workspace tem** — nem SSH via GitHub Actions resolve, porque é a própria conta que
-  está recusando. Só se destrava de dentro do painel da TineHost ou com o suporte deles.
-- **⚠️ O site que está no ar (v1.8.0, commit `f901dc6` ou próximo) NÃO foi tocado por nada disto** —
-  continua respondendo normalmente. O problema é não conseguir publicar NADA novo, não o ar atual.
-
-### 🚀 Decisão do dono: migrar a hospedagem do Workspace de TineHost para a VPS da OVH
-
-- **Por quê:** a TineHost é hospedagem compartilhada, sem controle de verdade (sem `sudo`, sem Docker,
-  processo derrubado por tempo/limite) — é estruturalmente instável para este uso, e o achado acima é
-  sintoma disso, não causa isolada. A OVH é uma VPS onde o dono é root.
-- **✅ O robô publicador (runner próprio do GitHub Actions) JÁ ESTÁ instalado e ativo na OVH desde
-  31/08/2026** (`servidor-ovh`, etiquetas `self-hosted,ovh,producao` — roteiro em
-  `~/.claude/templates/publicacao/INSTALAR-RUNNER.md`). O molde de publicação é
-  `garcia-goncalves/deploy-padrao` (privado), baseado em **Docker Compose**, custo zero de minutos de
-  Actions. **Este projeto (Workspace) NÃO tem `Dockerfile` nem `docker-compose.prod.yml` ainda** — só
-  existe `docker-compose.yml` na raiz, que é só o MySQL de desenvolvimento local (porta 3307).
-- **✅ Repositório tornado PRIVADO em 17/09/2026** (era público desde ADR de 04/09, por causa de cota
-  de Actions — deixou de fazer sentido com runner próprio). **Regra dura que passou a valer:**
-  repositório atendido por runner próprio nunca pode ser público (PR de estranho rodaria dentro do
-  servidor). Confirmado via `gh repo view` → `"visibility":"PRIVATE"`.
-- **🔑 ACHADO CRÍTICO, NÃO VERIFICADO AINDA — o André JÁ SUBIU uma cópia do Workspace na OVH.**
-  Está em `homolog.medconsultoria.com.br`, com o DNS desse subdomínio já apontado (no DirectAdmin da
-  TineHost) para a VPS da OVH. Segundo o dono, o André disse que "basta trocar o nome do subdomínio
-  homolog para workspace" para terminar. **Isto pode significar que boa parte do trabalho de
-  containerização (Dockerfile, compose, proxy reverso/HTTPS) JÁ EXISTE na VPS** — a próxima sessão
-  **precisa investigar isso primeiro**, antes de escrever qualquer arquivo novo, para não duplicar ou
-  conflitar com o que o André já fez. Ver "A RETOMAR" no handoff da sessão de 18/09.
-- **🌐 Mapa de DNS que resultou da conversa com o dono, e que NÃO PODE mudar sem ele saber:**
-  `medconsultoria.com.br` (site institucional) já está na OVH; `workspace.medconsultoria.com.br`
-  (este projeto) ainda está na TineHost, migrando para a OVH; **o e-mail (Webmail, envio e
-  recebimento) fica PARA SEMPRE na TineHost** — só o registro DNS do subdomínio do Workspace pode
-  mudar, nunca os registros de e-mail (MX/webmail) do domínio.
-- **📦 O banco de dados de produção (`medconsultoria_workspace`, MySQL/MariaDB, 3,56 MB, 59 tabelas)
-  já foi exportado e está copiado na VPS da OVH**, em `/home/tiba/medconsultoria_workspace.sql`
-  (transferido em 18/09/2026, via `pscp`). **Ainda não foi importado em lugar nenhum** — só está lá,
-  esperando o banco de destino existir. A cópia local (no Windows do dono) foi apagada depois do envio
-  — o arquivo tem dado real de cliente e de paciente.
-- **⚠️ Armadilha paga nesta sessão, registrada em memória:** a chave SSH da VPS OVH é um arquivo
-  **`.ppk` (formato PuTTY)**, não o formato OpenSSH comum — `ssh`/`scp` (tanto o do Git Bash quanto o
-  nativo do Windows) recusam com "invalid format"/"error in libcrypto". A ferramenta certa é
-  **`pscp.exe`** (parceiro de linha de comando do PuTTY, já instalado em `C:\Program Files\PuTTY\`),
-  apontando `-i` para o `.ppk` — e o destino remoto precisa de **caminho absoluto**
-  (`tiba@IP:/home/tiba/arquivo`), porque `pscp` não expande `~`.
-- **⚠️ SSH da TineHost também travado para uma nova tentativa de dump** — por isso o banco foi
-  exportado pelo **phpMyAdmin no navegador** (painel DirectAdmin → Bancos de Dados MySQL →
-  phpMyAdmin → Exportar → Rápida/SQL), não por linha de comando. É um caminho que funciona mesmo com
-  o SSH negando processo novo, e vale lembrar da próxima vez que a TineHost travar assim.
-- **Nada de código de produto mudou nesta sessão** — só infraestrutura/investigação. O único código
-  novo é `.github/workflows/diagnostico-servidor.yml` (só leitura, revisado por security-reviewer).
-
-## Estado atual (2026-09-11 · Conciliação Fase 1 — pronta e verificada na tela, NÃO publicada)
+## Estado anterior (2026-09-11 · Conciliação Fase 1 — pronta e verificada na tela, NÃO publicada)
 
 - **🧾 CONCILIAÇÃO — Fase 1 pronta e verificada na tela, NÃO publicada (ADR-153).** A produção de
   consultas do cliente entra pelo sistema: `/conciliacao` (fora do menu — ver abaixo), importação

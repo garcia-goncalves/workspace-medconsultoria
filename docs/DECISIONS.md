@@ -5850,3 +5850,77 @@ existe (§4b da spec), com a defasagem medida em ~3,5 meses entre atendimento e 
 seja, a Fase 2 mais valiosa deixou de ser "importar cirurgia" e passou a ser **conciliar
 cirurgia** — onde está a frase dos 18 mil × 800. A chave de casamento é o número do
 **atendimento**, não o CPF, e os códigos são de tabelas diferentes (TUSS × SIGTAP).
+
+## ADR-154 — A produção sai da hospedagem compartilhada: VPS próprio, e nada é construído no servidor
+
+**Data:** 12/09/2026 · **Situação:** proposta · **Runbook:** `docs/MIGRACAO_OVH.md`
+
+### Como apareceu
+
+Publicando a Conciliação (ADR-153), o deploy travou **duas vezes seguidas no mesmo passo** — o `npm ci`
+dentro do servidor. Os dois logs dizem a mesma coisa:
+
+```
+17:35:58  node_modules preservado          20:07:10  node_modules preservado
+19:50:51  ##[error]The operation was canceled.   20:45:17  ##[error]The operation was canceled.
+```
+
+Duas horas e quinze na primeira, trinta e oito minutos na segunda, **sem uma linha de log** entre uma
+coisa e outra: o `npm ci` entra e não volta. E o pior não foi travar — foi **onde** travou. O passo 4/7
+já tinha estendido o `tar` sobre o `public_html`, então o LiteSpeed passou a servir o **front novo**
+enquanto o processo Node em memória seguia sendo o **back velho**. Resultado na tela do dono:
+`No procedure found on path "conciliacao.competencias"`. Produção incoerente por um deploy pela metade.
+
+Isso não é azar. É a conta de uma decisão antiga: **montar o ambiente de produção dentro de uma
+hospedagem compartilhada, a cada publicação**. As cinco "cicatrizes" do `deploy.sh` são todas dessa
+mesma família — `npm` que só existe no virtualenv do CloudLinux (ADR-111), `/tmp` em outro dispositivo
+(ADR-117), `.htaccess` que o `rsync --delete` apagaria, SSH estrangulado por IP desconhecido (ADR-113),
+`node_modules` apagado antes de instalar (ADR-116). Cada uma custou uma queda e ganhou um comentário
+de vinte linhas. A sexta chegou em 12/09.
+
+### As decisões
+
+**1. Sai a hospedagem compartilhada; entra um VPS com root.** O ganho não é a marca do fornecedor — é
+parar de pedir licença ao CloudLinux para rodar Node. A OVH foi a escolhida porque é onde o dono já se
+move com desenvoltura, e um VPS-2 (4 vCore, 8 GB, ~US$ 8,50/mês) sobra para esta carga.
+
+**2. A imagem é construída na CI. Ninguém instala dependência em produção.** É o coração da decisão: o
+`npm ci` que travou **deixa de existir no servidor**. Ele roda no build da imagem, onde falhar é barato
+e o log é legível. O servidor passa a fazer três coisas — `pull`, `migrate`, `up -d` — e nenhuma delas
+resolve dependência. O `bundle-deploy.mjs` e o `conferir-artefato.mjs` continuam: mudam de lugar, não
+de função.
+
+**3. O tráfego só troca com prova de vida.** O ensaio de boot do passo 6/7 vira `healthcheck` do
+container: o Docker não encaminha para quem não respondeu `/health`. E a **migration roda antes**, em
+container descartável — nunca junto da instalação, que foi o que fez o passo 5/7 carregar três
+responsabilidades e travar todas de uma vez.
+
+**4. MySQL em container no mesmo VPS, não banco gerenciado.** O gerenciado tira o fardo de backup e
+patch, e custa mais que o resto da máquina inteira. Para um sistema com uma dezena de usuários, o
+`mysql:8.4` — **o mesmo do `docker-compose.yml` de desenvolvimento, mesma collation** — com dump diário
+para fora da máquina resolve. O que essa escolha **obriga**: backup automatizado, guardado fora, e
+**restaurado uma vez em ensaio**. Backup nunca restaurado é esperança, não garantia.
+
+**5. Onde o dado mora: a lei não impede a Alemanha; a latência pesa contra.** A OVH não tem
+datacenter no Brasil, e a VPS disponível é a da Alemanha (compartilhada com outros projetos). A
+primeira versão desta ADR dizia que qualquer servidor fora do país exigiria as cláusulas-padrão da
+Resolução CD/ANPD nº 19/2024 — **estava desatualizada**: desde **26/01/2026** a **Resolução CD/ANPD
+nº 32/2026** reconhece a adequação da União Europeia (reciprocamente), e para servidor na UE as
+cláusulas deixam de ser exigidas, em regra. ⚠️ **Só para a UE** — Canadá ou EUA continuariam
+exigindo. O que pesa contra a Alemanha é **medido, não jurídico**: ~280 ms de conexão a partir da
+máquina do dono, contra ~190 ms da TineHost de hoje, para uma equipe que usa o sistema o dia inteiro
+do Brasil. Por isso a recomendação é **São Paulo** para este projeto, quando houver máquina lá — e
+trocar de lugar é trocar de fornecedor, não de arquitetura: a esteira em container vai inteira.
+
+**6. A TineHost fica ligada e intocada por 14 dias depois do corte.** Rollback é apontar o DNS de volta.
+O ponto de não retorno é declarado e é um só: **quando alguém escrever no VPS**. Antes disso, voltar não
+custa nada; depois, custa o que foi escrito.
+
+### O que esta ADR não faz
+
+Não migra nada. É a decisão e o plano; a execução está em `docs/MIGRACAO_OVH.md`, em cinco fases, e a
+Fase 3 (ensaio com dado real, produção no ar) é o portão: **sem ensaio verde, não há cutover**.
+
+E não conserta o incidente de 12/09 — a produção segue com front novo e back velho até o `npm ci` da
+TineHost ser destravado ou o front ser revertido. Migrar sob pressão, com a produção meio quebrada, é
+como trocar o pneu em movimento: é assim que nasce a próxima cicatriz.

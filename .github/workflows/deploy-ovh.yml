@@ -1,0 +1,143 @@
+name: Deploy OVH
+
+# A esteira do VPS (ADR-154). Publicar NÃO é automático: o gatilho é o botão "Run workflow".
+#
+# O QUE MUDOU EM RELAÇÃO AO `deploy.yml` DA TINEHOST: o servidor deixou de montar o ambiente.
+# Aqui a imagem é construída no runner, publicada no GHCR, e o servidor só faz `pull`, `migrate`
+# e `up -d`. O `npm ci` em produção — que travou duas vezes em 12/09/2026, 2h15 e 38 min, sem uma
+# linha de log — não existe mais.
+#
+# `confirmar` aceita:
+#   SO_IMAGEM  → constrói e publica a imagem, e PARA. Não toca no servidor.
+#   PUBLICAR   → constrói, publica e sobe no VPS.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: "PUBLICAR (sobe no VPS) ou SO_IMAGEM (só constrói a imagem)"
+        required: true
+        type: choice
+        options: [SO_IMAGEM, PUBLICAR]
+
+# Dois deploys ao mesmo tempo disputam o mesmo banco e a mesma troca de container. O segundo
+# espera o primeiro — a armadilha mais cara do projeto, resolvida de graça aqui.
+concurrency:
+  group: deploy-producao
+  cancel-in-progress: false
+
+env:
+  IMAGEM: ghcr.io/${{ github.repository }}
+
+jobs:
+  # A suíte COMPLETA no commit EXATO que vai ao ar. Nada toca o servidor antes dela fechar verde.
+  suite:
+    uses: ./.github/workflows/ci.yml
+
+  imagem:
+    needs: suite
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: tag
+        run: echo "tag=${{ env.IMAGEM }}:${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A imagem leva DUAS etiquetas: a do commit (é ela que o servidor sobe, e é ela que permite
+      # voltar para a anterior com um `up -d`) e `main`, para quem quiser a mais recente.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.tag.outputs.tag }},${{ env.IMAGEM }}:main
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publicar:
+    if: github.event.inputs.confirmar == 'PUBLICAR'
+    needs: imagem
+    runs-on: ubuntu-latest
+    environment: producao
+    env:
+      # Onde o projeto mora de verdade na VPS compartilhada (conferido em 18/09/2026). Relativo de
+      # propósito: o ssh já começa na home, e `~` entre as aspas simples do `cd` não se expande.
+      ALVO: medconsultoria
+    steps:
+      - name: 1/5 · Abrir a conexão com o VPS
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_key && chmod 600 ~/.ssh/vps_key
+          cat > ~/.ssh/config <<CFG
+          Host vps
+            HostName $VPS_HOST
+            User $VPS_USER
+            IdentityFile ~/.ssh/vps_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ConnectTimeout 30
+          CFG
+          chmod 600 ~/.ssh/config
+          ssh vps "echo conectado: \$(hostname)"
+
+      # A tag do commit entra no .env do servidor. É isso que torna o rollback um `up -d`:
+      # trocar a linha para a tag anterior e subir de novo.
+      - name: 2/5 · Apontar o .env para a imagem deste commit
+        run: |
+          set -euo pipefail
+          ssh vps "cd '$ALVO' && sed -i 's|^APP_IMAGE=.*|APP_IMAGE=${{ needs.imagem.outputs.tag }}|' .env && grep '^APP_IMAGE=' .env"
+
+      - name: 3/5 · Baixar a imagem
+        run: ssh vps "cd '$ALVO' && docker compose pull app"
+
+      # Passo PRÓPRIO, antes de o tráfego trocar — e em container descartável. Encadear isto com
+      # o resto foi o que, na esteira antiga, deixava o deploy dizer "concluído" com a migration
+      # falhada e o app servindo o código anterior.
+      - name: 4/5 · Migrations
+        run: ssh vps "cd '$ALVO' && docker compose run --rm app npm run prisma:deploy"
+
+      # O `up -d` respeita o healthcheck da imagem: container que não responde /health não recebe
+      # tráfego. É o ensaio de boot de antes, agora contínuo.
+      - name: 5/5 · Subir e provar que subiu
+        run: |
+          set -euo pipefail
+          ssh vps "cd '$ALVO' && docker compose up -d"
+          sleep 20
+          ssh vps "cd '$ALVO' && docker compose ps"
+
+      # Sem isto o workflow fica verde com o site fora do ar — a regra que não muda de hospedagem:
+      # não se anuncia publicação sem resposta HTTP lida.
+      - name: Smoke test — o site respondeu de verdade?
+        run: |
+          set -euo pipefail
+          DOMINIO="$(ssh vps "cd '$ALVO' && grep '^DOMINIO=' .env | cut -d= -f2")"
+          SAUDE="$(curl -fsS --compressed --max-time 30 "https://$DOMINIO/health")"
+          echo "$SAUDE"
+          echo "$SAUDE" | grep -q '"status":"ok"' || { echo "!! /health não disse ok"; exit 1; }
+          for ROTA in / /credenciamentos; do
+            CODIGO="$(curl -s --compressed -o /dev/null -w '%{http_code}' --max-time 30 "https://$DOMINIO$ROTA")"
+            echo "$ROTA -> $CODIGO"
+            [ "$CODIGO" = "200" ] || { echo "!! $ROTA não devolveu 200"; exit 1; }
+          done
+          echo "NO AR: https://$DOMINIO"
+
+      - name: Limpar a chave do runner
+        if: always()
+        run: rm -f ~/.ssh/vps_key ~/.ssh/config

@@ -1,0 +1,20 @@
+# O contexto do build é o monorepo inteiro; tudo que não entra no artefato sai daqui.
+# Cada MB a menos é tempo de upload do contexto a cada build.
+node_modules
+**/node_modules
+**/dist
+.git
+.github
+.turbo
+.playwright-mcp
+test-results
+playwright-report
+e2e
+e2e-integration
+docs
+brand
+*.png
+*.log
+.env
+.env.*
+!.env.example
