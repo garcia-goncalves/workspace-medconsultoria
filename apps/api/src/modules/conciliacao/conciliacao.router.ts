@@ -4,6 +4,9 @@ import { isConciliacaoEnabled } from "../../config.js";
 import * as service from "./conciliacao.service.js";
 import * as painel from "./conciliacao-painel.service.js";
 import * as cirurgias from "./cirurgias.service.js";
+import * as financeira from "./conciliacao-financeira.service.js";
+import * as recebido from "./recebido.service.js";
+import * as exportacao from "./exportacao.js";
 
 /**
  * CONCILIAÇÃO — Fase 1: a produção de consultas, vista pela EQUIPE.
@@ -24,6 +27,23 @@ import * as cirurgias from "./cirurgias.service.js";
 const clienteId = z.string().min(1);
 /** `AAAA-MM`. Validar aqui evita que um mês inventado crie um lote órfão que ninguém acha. */
 const competencia = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Competência deve ser no formato AAAA-MM (ex.: 2026-08).");
+/** Reais, com teto: um número absurdo é engano de digitação, não uma cirurgia de R$ 10 bilhões. */
+const dinheiro = z.number().finite().min(0, "Valor não pode ser negativo.").max(99_999_999.99);
+const dataISO = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data deve ser AAAA-MM-DD.");
+const statusConciliacao = z
+  .enum([
+    "NAO_REALIZADA",
+    "NAO_COBRAR",
+    "SEM_ATENDIMENTO",
+    "SEM_VALOR",
+    "A_RECEBER",
+    "PAGO",
+    "GLOSA_PARCIAL",
+    "GLOSA_TOTAL",
+    "PAGO_A_MAIS",
+    "RECEBIDO_SEM_VALOR",
+  ])
+  .optional();
 
 export const conciliacaoRouter = router({
   /** A tela pergunta antes de oferecer o botão de importar. */
@@ -125,6 +145,7 @@ export const conciliacaoRouter = router({
         operadoraId: z.string().optional(),
         profissionalId: z.string().optional(),
         situacao: z.enum(["SEM_ATENDIMENTO", "AUTORIZACAO_PENDENTE", "NAO_EXECUTADA"]).optional(),
+        statusConciliacao,
         busca: z.string().trim().max(120).optional(),
         pagina: z.number().int().min(1).optional(),
       }),
@@ -134,4 +155,96 @@ export const conciliacaoRouter = router({
   resumoCirurgias: funcionarioProcedure
     .input(z.object({ clienteId, competencia: competencia.optional() }))
     .query(({ input }) => cirurgias.resumoDasCirurgias(input.clienteId, input.competencia)),
+
+  // ─── Fase 2b: o dinheiro (spec 2026-09-18-conciliacao-fase-2b-design.md) ───────────────────
+
+  /** Todos os clientes com produção, com o placar de cada um. */
+  visaoGeral: funcionarioProcedure.query(() => financeira.visaoGeral()),
+
+  editarCirurgia: funcionarioProcedure
+    .input(
+      z.object({
+        clienteId,
+        cirurgiaId: z.string().min(1),
+        codigoProcedimento: z.string().trim().max(40).nullable().optional(),
+        valorCobrado: dinheiro.nullable().optional(),
+        valorRecebido: dinheiro.nullable().optional(),
+        dataPagamento: dataISO.nullable().optional(),
+        naoCobrar: z.boolean().optional(),
+        observacao: z.string().max(2000).nullable().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const { clienteId: cid, cirurgiaId, ...edicao } = input;
+      return financeira.editarCirurgia(cid, cirurgiaId, edicao);
+    }),
+
+  procedimentos: funcionarioProcedure.input(z.object({ clienteId })).query(({ input }) => financeira.listarProcedimentos(input.clienteId)),
+
+  salvarProcedimento: funcionarioProcedure
+    .input(
+      z.object({
+        clienteId,
+        textoBruto: z.string().min(1).max(255),
+        operadoraId: z.string().min(1).nullable(),
+        codigo: z.string().trim().max(40).nullable(),
+        valor: dinheiro.nullable(),
+      }),
+    )
+    .mutation(({ input }) => financeira.salvarProcedimento(input)),
+
+  previsualizarRepasse: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
+    const { bytes } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
+    return recebido.previsualizarRepasse({ clienteId: input.clienteId, bytes });
+  }),
+
+  importarRepasse: funcionarioProcedure
+    .input(z.object({ clienteId, arquivoId: z.string().min(1), substituir: z.boolean().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const { bytes, nome } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
+      return recebido.importarRepasse({
+        clienteId: input.clienteId,
+        bytes,
+        nomeArquivo: nome,
+        arquivoId: input.arquivoId,
+        usuarioId: ctx.user.id,
+        substituir: input.substituir,
+      });
+    }),
+
+  recebidoSemProducao: funcionarioProcedure
+    .input(z.object({ clienteId }))
+    .query(({ input }) => recebido.listarRecebidoSemProducao(input.clienteId)),
+
+  previsualizarPlanilha: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
+    const { bytes } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
+    return recebido.previsualizarPlanilha({ clienteId: input.clienteId, bytes });
+  }),
+
+  importarPlanilha: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input, ctx }) => {
+    const { bytes, nome } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
+    return recebido.importarPlanilha({
+      clienteId: input.clienteId,
+      bytes,
+      nomeArquivo: nome,
+      arquivoId: input.arquivoId,
+      usuarioId: ctx.user.id,
+    });
+  }),
+
+  /**
+   * As três planilhas, como texto CSV. É MUTATION de propósito: leva nome de paciente, e por
+   * query ele sairia na URL (e no log) — a mesma razão das queries daqui irem por POST.
+   */
+  exportar: funcionarioProcedure
+    .input(z.object({ clienteId, competencia: competencia.optional(), statusConciliacao }))
+    .mutation(async ({ input }) => {
+      const linhas = await cirurgias.linhasParaExportar(input);
+      return {
+        modelo: exportacao.planilhaModelo(linhas),
+        porConvenio: exportacao.resumoPorConvenio(linhas),
+        porMesMedico: exportacao.resumoPorMesMedico(linhas),
+        linhas: linhas.length,
+      };
+    }),
 });

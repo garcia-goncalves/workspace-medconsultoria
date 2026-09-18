@@ -1,7 +1,9 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { hashBytes } from "../../lib/hash.js";
-import { ErroDePlanilha, lerGrade, type Formato } from "./planilha/index.js";
+import { ErroDePlanilha, lerGrade, normalizarTexto, type Formato } from "./planilha/index.js";
+import type { StatusConciliacao } from "./conciliacao-cirurgica.js";
+import { montarConciliacao, totalizar, type LinhaConciliada, type TotaisConciliacao } from "./conciliacao-financeira.service.js";
 import { carregarDePara, exigirModuloLigado } from "./conciliacao.service.js";
 import { somarPorOperadora, somarPorProfissional, type SomaOperadora, type SomaProfissional } from "./conciliacao-painel.service.js";
 import { chaveDoConvenio, chaveDoProfissional, competenciaDe, ErroDeLeitura, type ProblemaDeLinha } from "./producao-consultas.js";
@@ -342,30 +344,7 @@ export async function importarCirurgias(entrada: {
 
 // ─── Leitura para a tela ────────────────────────────────────────────────────────────────────────
 
-/** As colunas que a tela pode ver. Nada de prontuário — ele nem é gravado. */
-const CAMPOS_VISIVEIS = {
-  id: true,
-  numeroCirurgia: true,
-  atendimento: true,
-  dataCirurgia: true,
-  competencia: true,
-  pacienteNome: true,
-  procedimento: true,
-  status: true,
-  statusBruto: true,
-  autorizacao: true,
-  autorizacaoBruto: true,
-  categoriaConvenio: true,
-  convenioBruto: true,
-  plano: true,
-  profissionalBruto: true,
-  anestesista: true,
-  opme: true,
-  tempoMinutos: true,
-  operadora: { select: { id: true, nome: true } },
-  profissional: { select: { id: true, nome: true } },
-} as const;
-
+/** Filtro pelo que a conciliação diz — o status é calculado, então o filtro é feito em memória. */
 export type SituacaoCirurgia = "SEM_ATENDIMENTO" | "AUTORIZACAO_PENDENTE" | "NAO_EXECUTADA";
 
 export interface FiltroCirurgias {
@@ -374,45 +353,44 @@ export interface FiltroCirurgias {
   operadoraId?: string;
   profissionalId?: string;
   situacao?: SituacaoCirurgia;
+  statusConciliacao?: StatusConciliacao;
   busca?: string;
   pagina?: number;
 }
 
-function whereDeSituacao(situacao?: SituacaoCirurgia) {
-  if (situacao === "SEM_ATENDIMENTO") return { atendimento: null };
-  if (situacao === "AUTORIZACAO_PENDENTE") return { autorizacao: "PENDENTE" as const };
-  if (situacao === "NAO_EXECUTADA") return { status: { not: "EXECUTADA" as const } };
-  return {};
+function passaNoFiltro(l: LinhaConciliada, f: FiltroCirurgias): boolean {
+  if (f.competencia && l.competencia !== f.competencia) return false;
+  if (f.operadoraId && l.operadora?.id !== f.operadoraId) return false;
+  if (f.profissionalId && l.profissional?.id !== f.profissionalId) return false;
+  if (f.situacao === "SEM_ATENDIMENTO" && l.atendimento) return false;
+  if (f.situacao === "AUTORIZACAO_PENDENTE" && l.autorizacao !== "PENDENTE") return false;
+  if (f.situacao === "NAO_EXECUTADA" && l.status === "EXECUTADA") return false;
+  if (f.statusConciliacao && l.statusConciliacao !== f.statusConciliacao) return false;
+  if (f.busca && !normalizarTexto(l.pacienteNome).includes(normalizarTexto(f.busca))) return false;
+  return true;
 }
 
+/**
+ * A lista da tela, já conciliada: cada cirurgia com cobrado, recebido, glosa e status. Os totais
+ * são do FILTRO inteiro, não da página — "quanto glosou a Unimed em maio" é uma soma, não 50 linhas.
+ */
 export async function listarCirurgias(filtro: FiltroCirurgias) {
   const pagina = Math.max(1, filtro.pagina ?? 1);
-  const where = {
-    clienteId: filtro.clienteId,
-    ...(filtro.competencia ? { competencia: filtro.competencia } : {}),
-    ...(filtro.operadoraId ? { operadoraId: filtro.operadoraId } : {}),
-    ...(filtro.profissionalId ? { profissionalId: filtro.profissionalId } : {}),
-    ...whereDeSituacao(filtro.situacao),
-    ...(filtro.busca ? { pacienteNome: { contains: filtro.busca } } : {}),
-  };
-
-  const [linhas, total] = await Promise.all([
-    prisma.producaoCirurgia.findMany({
-      where,
-      select: CAMPOS_VISIVEIS,
-      orderBy: [{ dataCirurgia: "desc" }, { numeroCirurgia: "desc" }],
-      skip: (pagina - 1) * POR_PAGINA,
-      take: POR_PAGINA,
-    }),
-    prisma.producaoCirurgia.count({ where }),
-  ]);
-
+  const { linhas } = await montarConciliacao(filtro.clienteId);
+  const filtradas = linhas.filter((l) => passaNoFiltro(l, filtro));
   return {
-    linhas: linhas.map((l) => ({ ...l, dataCirurgia: dia(l.dataCirurgia) })),
-    total,
+    linhas: filtradas.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA),
+    total: filtradas.length,
     pagina,
     porPagina: POR_PAGINA,
+    totais: totalizar(filtradas),
   };
+}
+
+/** Tudo o que o filtro alcança, sem paginar — é o que a exportação leva. */
+export async function linhasParaExportar(filtro: Omit<FiltroCirurgias, "pagina">) {
+  const { linhas } = await montarConciliacao(filtro.clienteId);
+  return linhas.filter((l) => passaNoFiltro(l, filtro));
 }
 
 /** Os meses que têm cirurgia, e a última importação — o que a tela mostra no topo. */
@@ -462,9 +440,13 @@ export interface ResumoCirurgias {
   porOperadora: SomaOperadora[];
   porProfissional: SomaProfissional[];
   porProcedimento: { procedimento: string; cirurgias: number }[];
+  /** Cobrado, recebido, glosa e a receber do período — Fase 2b. */
+  dinheiro: TotaisConciliacao;
+  /** Repasse que entrou e não casa com cirurgia nenhuma (do cliente todo, não do mês). */
+  recebidoSemProducao: { total: number; linhas: number };
 }
 
-/** O resumo do período (ou de um mês). Contagens, não dinheiro — o valor depende dos pacotes. */
+/** O resumo do período (ou de um mês): as contagens e, desde a Fase 2b, o dinheiro. */
 export async function resumoDasCirurgias(clienteId: string, competencia?: string): Promise<ResumoCirurgias> {
   const base = { clienteId, ...(competencia ? { competencia } : {}) };
   const executada = { ...base, status: "EXECUTADA" as const };
@@ -496,6 +478,7 @@ export async function resumoDasCirurgias(clienteId: string, competencia?: string
     }),
     prisma.mapeamentoConvenio.findMany({ where: { clienteId }, select: { textoNormalizado: true, particular: true } }),
   ]);
+  const conciliacao = await montarConciliacao(clienteId);
 
   const categorias: Record<CategoriaConvenio, number> = { SUS: 0, CONVENIO: 0, AUTOGESTAO: 0, PARTICULAR: 0, OUTRO: 0 };
   for (const c of porCategoria) categorias[c.categoriaConvenio] = c._count._all;
@@ -519,5 +502,7 @@ export async function resumoDasCirurgias(clienteId: string, competencia?: string
     porOperadora: somaOperadora,
     porProfissional: somaProfissional,
     porProcedimento: porProcedimento.map((p) => ({ procedimento: p.procedimento, cirurgias: p._count._all })),
+    dinheiro: totalizar(conciliacao.linhas.filter((l) => !competencia || l.competencia === competencia)),
+    recebidoSemProducao: conciliacao.semProducao,
   };
 }

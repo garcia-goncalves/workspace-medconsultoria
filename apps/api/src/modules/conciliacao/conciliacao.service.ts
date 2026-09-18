@@ -447,7 +447,11 @@ export async function ligarProfissional(entrada: {
       update: { textoBruto: entrada.textoBruto, profissionalId: entrada.profissionalId },
     });
 
-    const distintos = { where: { clienteId: entrada.clienteId }, select: { profissionalBruto: true }, distinct: ["profissionalBruto" as const] };
+    const distintos = {
+      where: { clienteId: entrada.clienteId },
+      select: { profissionalBruto: true },
+      distinct: ["profissionalBruto" as const],
+    };
     const deConsulta = await tx.producaoConsulta.findMany(distintos);
     const deCirurgia = await tx.producaoCirurgia.findMany(distintos);
     const equivalentes = [...new Set([...deConsulta, ...deCirurgia].map((d) => d.profissionalBruto))].filter(
