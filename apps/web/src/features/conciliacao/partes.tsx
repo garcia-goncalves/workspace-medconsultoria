@@ -4,6 +4,36 @@ import { Button } from "../../components/ui/button";
 
 /** Peças usadas pelas duas produções da Conciliação — consultas e cirurgias. */
 
+/**
+ * Os status da conciliação de uma cirurgia (calculados no servidor — `conciliacao-cirurgica.ts`).
+ * A ordem é a do filtro: primeiro o que pede ação.
+ */
+export const STATUS_CONCILIACAO = {
+  GLOSA_PARCIAL: { rotulo: "Glosa parcial", cor: "text-destructive" },
+  GLOSA_TOTAL: { rotulo: "Glosa total", cor: "text-destructive" },
+  A_RECEBER: { rotulo: "A receber", cor: "text-warning" },
+  SEM_VALOR: { rotulo: "Sem valor de referência", cor: "text-warning" },
+  SEM_ATENDIMENTO: { rotulo: "Sem atendimento", cor: "text-warning" },
+  RECEBIDO_SEM_VALOR: { rotulo: "Recebido sem referência", cor: "text-warning" },
+  PAGO_A_MAIS: { rotulo: "Pago a mais", cor: "text-primary" },
+  PAGO: { rotulo: "Pago", cor: "text-success" },
+  NAO_COBRAR: { rotulo: "Não cobrar", cor: "text-muted-foreground" },
+  NAO_REALIZADA: { rotulo: "Não realizada", cor: "text-muted-foreground" },
+} as const;
+export type StatusConciliacao = keyof typeof STATUS_CONCILIACAO;
+
+/** Baixa um texto como arquivo. O CSV já vem com BOM do servidor, para o Excel ler acento. */
+export function baixarTexto(conteudo: string, nome: string, tipo = "text/csv;charset=utf-8") {
+  const url = URL.createObjectURL(new Blob([conteudo], { type: tipo }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nome;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function Paginacao({
   pagina,
   porPagina,

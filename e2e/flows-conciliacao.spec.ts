@@ -90,8 +90,9 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
     await page.goto("/conciliacao");
     await expect(page.getByRole("heading", { name: "Conciliação" })).toBeVisible();
 
-    // ── 1. Sem cliente escolhido, a tela pede um em vez de mostrar tabela vazia ──────────────
-    await expect(page.getByText(/escolha um cliente/i)).toBeVisible();
+    // ── 1. Sem cliente escolhido, a tela mostra a VISÃO GERAL de todos (Fase 2b) — ou diz que
+    //       ainda não há produção nenhuma, no banco novo da CI.
+    await expect(page.getByText(/visão geral — todos os clientes|nenhum cliente com produção importada/i)).toBeVisible();
 
     await escolherNoCombo(page, /cliente/i, clienteNome);
 
@@ -251,6 +252,62 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
     const html = await page.content();
     expect(html, "o prontuário vazou para a tela").not.toContain("PRONTUARIO-SINTETICO");
     expect(html, "o leito vazou para a tela").not.toContain("LEITO-SINTETICO");
+  });
+
+  test("Fase 2b: valor do procedimento, repasse, glosa e exportação — pela tela", async ({ page }) => {
+    // Continua do teste anterior: 2 revascularizações executadas (uma com atendimento 19100001,
+    // outra sem) e 1 reservada, todas SUS. Dados SINTÉTICOS.
+    await page.goto("/conciliacao");
+    await escolherNoCombo(page, /cliente/i, clienteNome);
+    await page.getByRole("tab", { name: /cirurgias/i }).click();
+
+    // ── 1. O valor do procedimento vira o COBRADO ────────────────────────────────────────────
+    await page.getByRole("button", { name: /procedimentos e valores/i }).click();
+    const proc = page.getByRole("dialog");
+    await proc.getByLabel("Valor — Padrão").first().fill("1000000"); // centavos → R$ 10.000,00
+    await proc
+      .getByRole("button", { name: /^salvar$/i })
+      .first()
+      .click();
+    await expect(page.getByText(/valor salvo/i)).toBeVisible({ timeout: 15_000 });
+    await proc.getByRole("button", { name: /concluído/i }).click();
+    // Duas executadas × 10.000; a reservada fica fora.
+    await expect(page.getByText("R$ 20.000,00").first()).toBeVisible({ timeout: 15_000 });
+
+    // ── 2. O repasse entra: casa pelo atendimento, e o incremento aparece à parte ────────────
+    await page.getByRole("button", { name: /importar repasse/i }).click();
+    const rep = page.getByRole("dialog");
+    await rep.locator('input[type="file"]').setInputFiles({
+      name: "repasse.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(
+        [
+          "Convênio;Atend;Medico Executor;Paciente;Dt Item;Código;Descrição;Data Pagamento;Vl Repasse",
+          `SUS - BP Paulista;19100001;DR. ${MEDICO.toUpperCase()};PACIENTE CIR 1 ${RUN};04/05/2026;406010935;Revasc;31/08/2026;8.000,00`,
+          ";0;;;;0;INCREMENTO JULHO;31/08/2026;500,00",
+        ].join("\n"),
+        "utf8",
+      ),
+    });
+    await expect(rep.getByText(/casam com cirurgias/i)).toBeVisible({ timeout: 15_000 });
+    await rep.getByRole("button", { name: /^importar$/i }).click();
+    await expect(page.getByText(/linha\(s\) de repasse importada/i)).toBeVisible({ timeout: 20_000 });
+
+    // Glosa de 2.000 na cirurgia 1 (cobrado 10.000, recebido 8.000), e o incremento não sumiu.
+    await expect(page.getByText("R$ 2.000,00").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("button", { name: /glosa parcial/i }).first()).toBeVisible();
+    await expect(page.getByText(/R\$ 500,00 de repasse sem cirurgia/i)).toBeVisible();
+
+    // ── 3. Exportar: o MODELO e os dois resumos ───────────────────────────────────────────────
+    const downloads: string[] = [];
+    page.on("download", (d) => downloads.push(d.suggestedFilename()));
+    await page.getByRole("button", { name: /exportar planilhas/i }).click();
+    await expect(page.getByText(/exportada\(s\) em 3 planilhas/i)).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => downloads.length, { timeout: 10_000 }).toBe(3);
+    expect(downloads.some((n) => n.startsWith("conciliacao_"))).toBe(true);
+
+    // E nada disso trouxe o prontuário para a tela.
+    expect(await page.content(), "o prontuário vazou para a tela").not.toContain("PRONTUARIO-SINTETICO");
   });
 
   test("arquivo que não é o relatório é recusado com recado em português", async ({ page }) => {

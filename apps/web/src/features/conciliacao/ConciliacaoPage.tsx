@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/ta
 import { ImportarProducaoDialog } from "./ImportarProducaoDialog";
 import { ImportarCirurgiasDialog } from "./ImportarCirurgiasDialog";
 import { CirurgiasPainel } from "./CirurgiasPainel";
+import { VisaoGeralConciliacao } from "./VisaoGeralConciliacao";
 import { ListaResumo, Paginacao } from "./partes";
 
 /**
@@ -115,10 +116,12 @@ export function ConciliacaoPage() {
       </div>
 
       {!habilitado ? (
-        <EmptyState
-          icon={FileSpreadsheet}
-          title="Escolha um cliente"
-          description="A produção é sempre de um cliente. Selecione acima para ver os meses importados."
+        // Sem cliente escolhido, a tela mostra todos — e escolher é clicar no nome.
+        <VisaoGeralConciliacao
+          onEscolher={(id) => {
+            trocarCliente(id);
+            setAba("cirurgias");
+          }}
         />
       ) : (
         <>
@@ -134,7 +137,11 @@ export function ConciliacaoPage() {
             <TabsContent value="cirurgias">
               {/* `key`: trocar de cliente recria o painel e zera os filtros — filtro herdado de outra
                   clínica faria a tela dizer "nenhuma cirurgia" sem motivo visível. */}
-              <CirurgiasPainel key={clienteId} clienteId={clienteId} />
+              <CirurgiasPainel
+                key={clienteId}
+                clienteId={clienteId}
+                clienteNome={opcoesCliente.find((c) => c.value === clienteId)?.label ?? ""}
+              />
             </TabsContent>
 
             <TabsContent value="consultas" className="space-y-4">
