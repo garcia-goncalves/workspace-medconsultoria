@@ -13,7 +13,30 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-11 · Conciliação Fase 1 — pronta e verificada na tela, NÃO publicada)
+## Estado atual (2026-09-13 · VPS OVH NO AR como homologação, com os dados de produção · ADR-154)
+
+- **🌐 https://homolog.workspace.medconsultoria.com.br** — VPS OVH na **Alemanha**, **compartilhada**
+  com outros projetos do dono. ⚠️ **Acesso SSH (host, porta, usuário) NÃO vai neste arquivo: o
+  repositório é público** — pergunte ao dono. Projeto em `~/medconsultoria` (compose + `.env` 600),
+  app só em `127.0.0.1:4319`, publicado pelo **nginx do HOST** com certificado Let's Encrypt
+  (renovação automática pelo `certbot.timer`, vence 12/12/2026). ⚠️ **NUNCA rode o `bootstrap.sh`
+  nessa VPS** (o SSH dela não é na porta 22, e o script tranca o acesso) e **nunca publique 80/443
+  pelo compose**.
+- **📦 OS DADOS DE PRODUÇÃO FORAM IMPORTADOS**, conferidos **44 de 44 tabelas idênticas ao dump**
+  (983 linhas) + a migração `conciliacao_producao` aplicada por cima (84 no total). Banco
+  **`medconsultoria_prod`**; o banco vazio `medconsultoria` ficou intacto como volta atrás. A cópia
+  do dump na VPS foi apagada; a foto de perfil real está no volume `medconsultoria_uploads`.
+  ⚠️ MySQL 8.4 aqui × MariaDB 10.6 lá: `Lead` é **palavra reservada** no MySQL 8 — SQL à mão precisa
+  de crase. ⚠️ `docker compose run` **come o stdin** de um script por `ssh … bash -s`: use `-T </dev/null`.
+- **⏳ AINDA NÃO É A PRODUÇÃO.** `workspace.medconsultoria.com.br` segue na TineHost, com o incidente
+  de 12/09 aberto (front novo × back velho, `npm ci` travado duas vezes). O corte é mudar o DNS — só
+  depois do login conferido e dos segredos no `.env` da VPS, que hoje **não tem** `EMAIL_CRYPTO_KEY`,
+  `GEMINI_API_KEY` nem `SMTP_*` (e o `SMTP_HOST` lá não pode ser `localhost`).
+- **⚖️ LGPD: a Alemanha está coberta** pela adequação UE–Brasil (Resolução CD/ANPD nº 32/2026, de
+  26/01/2026) — sem cláusulas-padrão. O custo é **latência** (~280 ms contra ~190 ms da TineHost);
+  a recomendação para depois é uma VPS em São Paulo, e a esteira em container vai inteira.
+
+## Estado anterior (2026-09-11 · Conciliação Fase 1 — pronta e verificada na tela, NÃO publicada)
 
 - **🧾 CONCILIAÇÃO — Fase 1 pronta e verificada na tela, NÃO publicada (ADR-153).** A produção de
   consultas do cliente entra pelo sistema: `/conciliacao` (fora do menu — ver abaixo), importação
