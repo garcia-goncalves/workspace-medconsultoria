@@ -73,7 +73,7 @@ export interface ResultadoImportacao {
   profissionaisLigadosAutomaticamente: number;
 }
 
-function exigirModuloLigado(): void {
+export function exigirModuloLigado(): void {
   if (isConciliacaoEnabled) return;
   throw new TRPCError({
     code: "PRECONDITION_FAILED",
@@ -119,7 +119,7 @@ function contarPorCompetencia(linhas: LinhaProducao[]): { competencia: string; l
 }
 
 /** O de-para já existente do cliente, indexado pela chave normalizada. */
-async function carregarDePara(clienteId: string) {
+export async function carregarDePara(clienteId: string) {
   const [convenios, profissionais, cadastrados] = await Promise.all([
     prisma.mapeamentoConvenio.findMany({ where: { clienteId } }),
     prisma.mapeamentoProfissional.findMany({ where: { clienteId } }),
@@ -399,18 +399,21 @@ export async function ligarConvenio(entrada: {
     // O `convenioBruto` gravado é o texto CRU, que varia de caixa entre exportações — por isso a
     // retroação casa pela lista de textos crus que normalizam para a mesma chave, e não por
     // igualdade simples. Sem isto, `Cassi` seria atualizado e `CASSI` ficaria para trás.
-    const distintos = await tx.producaoConsulta.findMany({
-      where: { clienteId: entrada.clienteId },
-      select: { convenioBruto: true },
-      distinct: ["convenioBruto"],
-    });
-    const equivalentes = distintos.map((d) => d.convenioBruto).filter((t) => normalizarTexto(t) === textoNormalizado);
+    // O de-para é o mesmo para consultas e cirurgias, então a retroação alcança as duas.
+    const distintos = { where: { clienteId: entrada.clienteId }, select: { convenioBruto: true }, distinct: ["convenioBruto" as const] };
+    const deConsulta = await tx.producaoConsulta.findMany(distintos);
+    const deCirurgia = await tx.producaoCirurgia.findMany(distintos);
+    const equivalentes = [...new Set([...deConsulta, ...deCirurgia].map((d) => d.convenioBruto))].filter(
+      (t) => normalizarTexto(t) === textoNormalizado,
+    );
 
     if (equivalentes.length === 0) return { count: 0 };
-    return tx.producaoConsulta.updateMany({
-      where: { clienteId: entrada.clienteId, convenioBruto: { in: equivalentes } },
-      data: { operadoraId: dados.operadoraId, plano: dados.plano },
-    });
+    const where = { clienteId: entrada.clienteId, convenioBruto: { in: equivalentes } };
+    const data = { operadoraId: dados.operadoraId, plano: dados.plano };
+    // Em sequência: dentro da transação interativa, uma operação de cada vez na mesma conexão.
+    const a = await tx.producaoConsulta.updateMany({ where, data });
+    const b = await tx.producaoCirurgia.updateMany({ where, data });
+    return { count: a.count + b.count };
   });
 
   return { linhasAtualizadas: count };
@@ -444,18 +447,20 @@ export async function ligarProfissional(entrada: {
       update: { textoBruto: entrada.textoBruto, profissionalId: entrada.profissionalId },
     });
 
-    const distintos = await tx.producaoConsulta.findMany({
-      where: { clienteId: entrada.clienteId },
-      select: { profissionalBruto: true },
-      distinct: ["profissionalBruto"],
-    });
-    const equivalentes = distintos.map((d) => d.profissionalBruto).filter((t) => chaveDoProfissional(t) === textoNormalizado);
+    const distintos = { where: { clienteId: entrada.clienteId }, select: { profissionalBruto: true }, distinct: ["profissionalBruto" as const] };
+    const deConsulta = await tx.producaoConsulta.findMany(distintos);
+    const deCirurgia = await tx.producaoCirurgia.findMany(distintos);
+    const equivalentes = [...new Set([...deConsulta, ...deCirurgia].map((d) => d.profissionalBruto))].filter(
+      (t) => chaveDoProfissional(t) === textoNormalizado,
+    );
 
     if (equivalentes.length === 0) return { count: 0 };
-    return tx.producaoConsulta.updateMany({
-      where: { clienteId: entrada.clienteId, profissionalBruto: { in: equivalentes } },
-      data: { profissionalId: entrada.profissionalId },
-    });
+    const where = { clienteId: entrada.clienteId, profissionalBruto: { in: equivalentes } };
+    const data = { profissionalId: entrada.profissionalId };
+    // Em sequência: dentro da transação interativa, uma operação de cada vez na mesma conexão.
+    const a = await tx.producaoConsulta.updateMany({ where, data });
+    const b = await tx.producaoCirurgia.updateMany({ where, data });
+    return { count: a.count + b.count };
   });
 
   return { linhasAtualizadas: count };

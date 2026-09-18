@@ -1166,7 +1166,8 @@ function AbaSessoes() {
           render: (s) => (
             <>
               <span className="font-medium">{s.user.nome}</span>
-              <div className="text-xs text-muted-foreground">{s.user.email}</div>
+              {/* `break-all`: e-mail comprido não tem onde quebrar e empurrava a página no celular. */}
+              <div className="break-all text-xs text-muted-foreground">{s.user.email}</div>
             </>
           ),
           valorOrdenacao: (s) => s.user.nome,
