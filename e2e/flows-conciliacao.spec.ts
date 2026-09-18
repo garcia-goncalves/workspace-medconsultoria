@@ -232,7 +232,8 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
 
     // A conferência diz o que vai acontecer ANTES de gravar.
     await expect(modal.getByText(/3 nova\(s\)/i)).toBeVisible({ timeout: 15_000 });
-    await expect(modal.getByText(/2 cirurgia\(s\) sem número de atendimento/i)).toBeVisible();
+    // 2 linhas sem atendimento, mas uma é a reservada: só a executada conta (mesma régua do resumo).
+    await expect(modal.getByText(/1 cirurgia\(s\) sem número de atendimento/i)).toBeVisible();
     await expect(modal.getByText(/1 cirurgia\(s\) não executada/i)).toBeVisible();
 
     await modal.getByRole("button", { name: /^importar$/i }).click();
