@@ -182,6 +182,75 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
     expect(html, "o telefone vazou na ficha do cliente").not.toContain("96067-6368");
   });
 
+  test("cirurgias do TASY: importar pela aba própria, conferir e ver o resumo", async ({ page }) => {
+    // Cabeçalho idêntico ao do mapa cirúrgico real; dados SINTÉTICOS. O prontuário vai marcado
+    // para provar que ele não chega à tela — ele nem é gravado (spec 2026-09-18 §2.3).
+    const cab =
+      '"Data";"Hora (UTC)";"Sala";"Duração prev (min)";"Paciente";"Prontuário";"Atendimento";"Nº Cirurgia";"Seq Cirurgia";"Convênio";"Tipo Conv";"Médico";"Anestesista";"Tipo Anestesia";"Procedimento";"Status";"Autorização";"Cód Aut";"Unid. Internação";"Setor";"Cód Pessoa";"OPME";"Tempo (min)";"Técnica"';
+    const linha = (n: string, atend: string, status: string) =>
+      [
+        "2026-05-04",
+        "2026-05-04T10:00:00Z",
+        "Sala 08",
+        "240",
+        `PACIENTE CIR ${n} ${RUN}`,
+        "PRONTUARIO-SINTETICO",
+        atend,
+        `${RUN.slice(-6)}${n}`,
+        "7900000000",
+        "SUS - BP Paulista",
+        "3",
+        `DR. ${MEDICO.toUpperCase()}`,
+        "",
+        "",
+        "Revascularização Miocárdica",
+        status,
+        "Pendente de autorização",
+        "PA",
+        "LEITO-SINTETICO",
+        "",
+        "1",
+        "Com OPME",
+        "240",
+        "Convencional",
+      ]
+        .map((x) => `"${x}"`)
+        .join(";");
+    const mapa = Buffer.from(
+      [cab, linha("1", "19100001", "Executada"), linha("2", "", "Executada"), linha("3", "", "Reservada")].join("\n"),
+      "utf8",
+    );
+
+    await page.goto("/conciliacao");
+    await escolherNoCombo(page, /cliente/i, clienteNome);
+    await page.getByRole("tab", { name: /cirurgias/i }).click();
+    await expect(page.getByText(/nenhuma cirurgia importada/i)).toBeVisible();
+
+    await page.getByRole("button", { name: /importar cirurgias/i }).click();
+    const modal = page.getByRole("dialog");
+    await modal.locator('input[type="file"]').setInputFiles({ name: "tasy.csv", mimeType: "text/csv", buffer: mapa });
+
+    // A conferência diz o que vai acontecer ANTES de gravar.
+    await expect(modal.getByText(/3 nova\(s\)/i)).toBeVisible({ timeout: 15_000 });
+    await expect(modal.getByText(/2 cirurgia\(s\) sem número de atendimento/i)).toBeVisible();
+    await expect(modal.getByText(/1 cirurgia\(s\) não executada/i)).toBeVisible();
+
+    await modal.getByRole("button", { name: /^importar$/i }).click();
+    await expect(page.getByText(/3 cirurgia\(s\) nova\(s\) importada/i)).toBeVisible({ timeout: 20_000 });
+
+    // Só as executadas contam; a reservada fica na lista, fora do total.
+    await expect(page.getByText(/1 sem número de atendimento/i)).toBeVisible();
+    await expect(page.getByText(/1 não executada/i)).toBeVisible();
+    await expect(page.getByRole("cell", { name: `PACIENTE CIR 1 ${RUN}` })).toBeVisible();
+    // O médico foi ligado sozinho pelo nome, e o convênio novo apareceu nas pendências.
+    await expect(page.getByRole("cell", { name: MEDICO }).first()).toBeVisible();
+    await expect(page.locator("select[aria-label='Operadora de SUS - BP Paulista']")).toHaveCount(1);
+
+    const html = await page.content();
+    expect(html, "o prontuário vazou para a tela").not.toContain("PRONTUARIO-SINTETICO");
+    expect(html, "o leito vazou para a tela").not.toContain("LEITO-SINTETICO");
+  });
+
   test("arquivo que não é o relatório é recusado com recado em português", async ({ page }) => {
     await page.goto("/conciliacao");
     await escolherNoCombo(page, /cliente/i, clienteNome);

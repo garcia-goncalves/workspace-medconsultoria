@@ -13,7 +13,11 @@ import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { toast } from "../../components/ui/toast";
 import { dataUTC } from "../../lib/format-date";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { ImportarProducaoDialog } from "./ImportarProducaoDialog";
+import { ImportarCirurgiasDialog } from "./ImportarCirurgiasDialog";
+import { CirurgiasPainel } from "./CirurgiasPainel";
+import { ListaResumo, Paginacao } from "./partes";
 
 /**
  * CONCILIAÇÃO — a produção de consultas do cliente, mês a mês.
@@ -41,6 +45,7 @@ export function ConciliacaoPage() {
   const [busca, setBusca] = useState("");
   const [pagina, setPagina] = useState(1);
   const [importando, setImportando] = useState(false);
+  const [aba, setAba] = useState<"consultas" | "cirurgias">("consultas");
 
   const utils = trpc.useUtils();
   const disponivel = trpc.conciliacao.disponivel.useQuery();
@@ -83,11 +88,11 @@ export function ConciliacaoPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Conciliação" subtitle="A produção de consultas que entra todo mês, por cliente e por competência.">
+      <PageHeader title="Conciliação" subtitle="A produção do cliente — consultas e cirurgias — que entra todo mês.">
         {habilitado && disponivel.data?.ligado && (
           <Button onClick={() => setImportando(true)}>
             <Upload className="mr-1.5 h-4 w-4" />
-            Importar produção
+            {aba === "cirurgias" ? "Importar cirurgias" : "Importar produção"}
           </Button>
         )}
       </PageHeader>
@@ -115,195 +120,184 @@ export function ConciliacaoPage() {
         />
       ) : (
         <>
+          {/* As pendências ficam FORA das abas: o de-para é o mesmo para consultas e cirurgias. */}
           {totalPendencias > 0 && <CardPendencias clienteId={clienteId} aoLigar={recarregar} />}
 
-          {competencias.isPending ? (
-            <Skeleton className="h-24 w-full" />
-          ) : competencias.error ? (
-            <QueryError message={competencias.error.message} onRetry={() => void competencias.refetch()} />
-          ) : (
-            <ResumoDoMes
-              lotes={competencias.data}
-              competencia={competencia}
-              setCompetencia={(c) => {
-                setCompetencia(c);
-                setPagina(1);
-              }}
-              resumo={resumo.data ?? null}
-            />
-          )}
+          <Tabs value={aba} onValueChange={(v) => setAba(v as "consultas" | "cirurgias")} className="space-y-4">
+            <TabsList aria-label="Tipo de produção">
+              <TabsTrigger value="consultas">Consultas</TabsTrigger>
+              <TabsTrigger value="cirurgias">Cirurgias (TASY)</TabsTrigger>
+            </TabsList>
 
-          <div className="rounded-lg border">
-            <div className="flex flex-wrap items-end gap-3 border-b p-3">
-              <div className="w-44 space-y-1">
-                <Label htmlFor="f-tipo">Tipo</Label>
-                <Select
-                  id="f-tipo"
-                  value={tipo}
-                  onChange={(e) => {
-                    setTipo(e.target.value);
+            <TabsContent value="cirurgias">
+              <CirurgiasPainel clienteId={clienteId} />
+            </TabsContent>
+
+            <TabsContent value="consultas" className="space-y-4">
+              {competencias.isPending ? (
+                <Skeleton className="h-24 w-full" />
+              ) : competencias.error ? (
+                <QueryError message={competencias.error.message} onRetry={() => void competencias.refetch()} />
+              ) : (
+                <ResumoDoMes
+                  lotes={competencias.data}
+                  competencia={competencia}
+                  setCompetencia={(c) => {
+                    setCompetencia(c);
                     setPagina(1);
                   }}
-                >
-                  <option value="">Todos</option>
-                  {Object.entries(TIPO_LABEL).map(([v, l]) => (
-                    <option key={v} value={v}>
-                      {l}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div className="w-56 space-y-1">
-                <Label htmlFor="f-operadora">Operadora</Label>
-                <Select
-                  id="f-operadora"
-                  value={operadoraId}
-                  onChange={(e) => {
-                    setOperadoraId(e.target.value);
-                    setPagina(1);
-                  }}
-                >
-                  <option value="">Todas</option>
-                  {(resumo.data?.porOperadora ?? [])
-                    .filter((o) => o.operadoraId)
-                    .map((o) => (
-                      <option key={o.operadoraId!} value={o.operadoraId!}>
-                        {o.rotulo}
-                      </option>
-                    ))}
-                </Select>
-              </div>
-              <div className="w-56 space-y-1">
-                <Label htmlFor="f-busca">Paciente</Label>
-                <Input
-                  id="f-busca"
-                  value={busca}
-                  placeholder="Buscar pelo nome…"
-                  onChange={(e) => {
-                    setBusca(e.target.value);
-                    setPagina(1);
-                  }}
+                  resumo={resumo.data ?? null}
                 />
-              </div>
-              {(tipo || operadoraId || busca) && (
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setTipo("");
-                    setOperadoraId("");
-                    setBusca("");
-                    setPagina(1);
-                  }}
-                >
-                  Limpar
-                </Button>
               )}
-            </div>
 
-            {producao.isPending ? (
-              <div className="space-y-2 p-3">
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-8 w-full" />
+              <div className="rounded-lg border">
+                <div className="flex flex-wrap items-end gap-3 border-b p-3">
+                  <div className="w-44 space-y-1">
+                    <Label htmlFor="f-tipo">Tipo</Label>
+                    <Select
+                      id="f-tipo"
+                      value={tipo}
+                      onChange={(e) => {
+                        setTipo(e.target.value);
+                        setPagina(1);
+                      }}
+                    >
+                      <option value="">Todos</option>
+                      {Object.entries(TIPO_LABEL).map(([v, l]) => (
+                        <option key={v} value={v}>
+                          {l}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="w-56 space-y-1">
+                    <Label htmlFor="f-operadora">Operadora</Label>
+                    <Select
+                      id="f-operadora"
+                      value={operadoraId}
+                      onChange={(e) => {
+                        setOperadoraId(e.target.value);
+                        setPagina(1);
+                      }}
+                    >
+                      <option value="">Todas</option>
+                      {(resumo.data?.porOperadora ?? [])
+                        .filter((o) => o.operadoraId)
+                        .map((o) => (
+                          <option key={o.operadoraId!} value={o.operadoraId!}>
+                            {o.rotulo}
+                          </option>
+                        ))}
+                    </Select>
+                  </div>
+                  <div className="w-56 space-y-1">
+                    <Label htmlFor="f-busca">Paciente</Label>
+                    <Input
+                      id="f-busca"
+                      value={busca}
+                      placeholder="Buscar pelo nome…"
+                      onChange={(e) => {
+                        setBusca(e.target.value);
+                        setPagina(1);
+                      }}
+                    />
+                  </div>
+                  {(tipo || operadoraId || busca) && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setTipo("");
+                        setOperadoraId("");
+                        setBusca("");
+                        setPagina(1);
+                      }}
+                    >
+                      Limpar
+                    </Button>
+                  )}
+                </div>
+
+                {producao.isPending ? (
+                  <div className="space-y-2 p-3">
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                  </div>
+                ) : producao.error ? (
+                  <QueryError message={producao.error.message} onRetry={() => void producao.refetch()} />
+                ) : producao.data.total === 0 ? (
+                  <EmptyState
+                    icon={FileSpreadsheet}
+                    title="Nenhum atendimento"
+                    description={
+                      tipo || operadoraId || busca
+                        ? "Nenhum atendimento com esses filtros."
+                        : "Este cliente ainda não tem produção importada. Use “Importar produção”."
+                    }
+                  />
+                ) : (
+                  <>
+                    <Table>
+                      <THead>
+                        <TR>
+                          <TH>Agenda</TH>
+                          <TH>Atendimento</TH>
+                          <TH>Paciente</TH>
+                          <TH>Tipo</TH>
+                          <TH>Convênio</TH>
+                          <TH>Profissional</TH>
+                        </TR>
+                      </THead>
+                      <tbody>
+                        {producao.data.linhas.map((l) => (
+                          <TR key={l.id}>
+                            <TD className="text-muted-foreground">{l.dataAgenda ? dataUTC(l.dataAgenda) : "—"}</TD>
+                            <TD>{dataUTC(l.dataAtendimento)}</TD>
+                            <TD className="font-medium">{l.pacienteNome}</TD>
+                            <TD>{TIPO_LABEL[l.tipoAtendimento] ?? l.tipoAtendimentoBruto}</TD>
+                            <TD>
+                              {l.operadora ? (
+                                <>
+                                  {l.operadora.nome}
+                                  {l.plano && <span className="text-muted-foreground"> · {l.plano}</span>}
+                                </>
+                              ) : (
+                                <span className="text-warning">
+                                  {l.convenioBruto} <span className="text-xs">(a ligar)</span>
+                                </span>
+                              )}
+                            </TD>
+                            <TD>
+                              {l.profissional?.nome ?? (
+                                <span className="text-warning">
+                                  {l.profissionalBruto} <span className="text-xs">(a ligar)</span>
+                                </span>
+                              )}
+                            </TD>
+                          </TR>
+                        ))}
+                      </tbody>
+                    </Table>
+                    <Paginacao
+                      pagina={producao.data.pagina}
+                      porPagina={producao.data.porPagina}
+                      total={producao.data.total}
+                      onPagina={setPagina}
+                    />
+                  </>
+                )}
               </div>
-            ) : producao.error ? (
-              <QueryError message={producao.error.message} onRetry={() => void producao.refetch()} />
-            ) : producao.data.total === 0 ? (
-              <EmptyState
-                icon={FileSpreadsheet}
-                title="Nenhum atendimento"
-                description={
-                  tipo || operadoraId || busca
-                    ? "Nenhum atendimento com esses filtros."
-                    : "Este cliente ainda não tem produção importada. Use “Importar produção”."
-                }
-              />
-            ) : (
-              <>
-                <Table>
-                  <THead>
-                    <TR>
-                      <TH>Agenda</TH>
-                      <TH>Atendimento</TH>
-                      <TH>Paciente</TH>
-                      <TH>Tipo</TH>
-                      <TH>Convênio</TH>
-                      <TH>Profissional</TH>
-                    </TR>
-                  </THead>
-                  <tbody>
-                    {producao.data.linhas.map((l) => (
-                      <TR key={l.id}>
-                        <TD className="text-muted-foreground">{l.dataAgenda ? dataUTC(l.dataAgenda) : "—"}</TD>
-                        <TD>{dataUTC(l.dataAtendimento)}</TD>
-                        <TD className="font-medium">{l.pacienteNome}</TD>
-                        <TD>{TIPO_LABEL[l.tipoAtendimento] ?? l.tipoAtendimentoBruto}</TD>
-                        <TD>
-                          {l.operadora ? (
-                            <>
-                              {l.operadora.nome}
-                              {l.plano && <span className="text-muted-foreground"> · {l.plano}</span>}
-                            </>
-                          ) : (
-                            <span className="text-warning">
-                              {l.convenioBruto} <span className="text-xs">(a ligar)</span>
-                            </span>
-                          )}
-                        </TD>
-                        <TD>
-                          {l.profissional?.nome ?? (
-                            <span className="text-warning">
-                              {l.profissionalBruto} <span className="text-xs">(a ligar)</span>
-                            </span>
-                          )}
-                        </TD>
-                      </TR>
-                    ))}
-                  </tbody>
-                </Table>
-                <Paginacao
-                  pagina={producao.data.pagina}
-                  porPagina={producao.data.porPagina}
-                  total={producao.data.total}
-                  onPagina={setPagina}
-                />
-              </>
-            )}
-          </div>
+            </TabsContent>
+          </Tabs>
         </>
       )}
 
-      {importando && <ImportarProducaoDialog clienteId={clienteId} open onClose={() => setImportando(false)} onImportado={recarregar} />}
-    </div>
-  );
-}
-
-function Paginacao({
-  pagina,
-  porPagina,
-  total,
-  onPagina,
-}: {
-  pagina: number;
-  porPagina: number;
-  total: number;
-  onPagina: (p: number) => void;
-}) {
-  const paginas = Math.ceil(total / porPagina);
-  if (paginas <= 1) return null;
-  return (
-    <div className="flex items-center justify-between border-t p-3 text-sm">
-      <span className="text-muted-foreground">
-        {(pagina - 1) * porPagina + 1}–{Math.min(pagina * porPagina, total)} de {total}
-      </span>
-      <div className="flex gap-2">
-        <Button variant="ghost" disabled={pagina <= 1} onClick={() => onPagina(pagina - 1)}>
-          Anterior
-        </Button>
-        <Button variant="ghost" disabled={pagina >= paginas} onClick={() => onPagina(pagina + 1)}>
-          Próxima
-        </Button>
-      </div>
+      {importando && aba === "consultas" && (
+        <ImportarProducaoDialog clienteId={clienteId} open onClose={() => setImportando(false)} onImportado={recarregar} />
+      )}
+      {importando && aba === "cirurgias" && (
+        <ImportarCirurgiasDialog clienteId={clienteId} open onClose={() => setImportando(false)} onImportado={recarregar} />
+      )}
     </div>
   );
 }
@@ -378,25 +372,6 @@ function ResumoDoMes({
           <ListaResumo titulo="Por profissional" itens={resumo.porProfissional} />
         </div>
       )}
-    </div>
-  );
-}
-
-function ListaResumo({ titulo, itens }: { titulo: string; itens: { rotulo: string; atendimentos: number; pendente: boolean }[] }) {
-  return (
-    <div className="rounded-lg bg-muted/40 p-3">
-      <p className="text-xs font-medium uppercase text-muted-foreground">{titulo}</p>
-      <ul className="mt-1 max-h-28 space-y-0.5 overflow-y-auto text-sm">
-        {itens.map((i) => (
-          <li key={i.rotulo} className="flex justify-between gap-2">
-            <span className={i.pendente ? "text-warning" : ""}>
-              {i.rotulo}
-              {i.pendente && <span className="text-xs"> (a ligar)</span>}
-            </span>
-            <strong>{i.atendimentos}</strong>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
