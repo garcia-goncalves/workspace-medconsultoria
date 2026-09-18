@@ -72,7 +72,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: producao
     env:
-      ALVO: /srv/medconsultoria
+      # Onde o projeto mora de verdade na VPS compartilhada (conferido em 18/09/2026). Relativo de
+      # propósito: o ssh já começa na home, e `~` entre as aspas simples do `cd` não se expande.
+      ALVO: medconsultoria
     steps:
       - name: 1/5 · Abrir a conexão com o VPS
         env:

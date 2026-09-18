@@ -59,7 +59,9 @@ export async function carregarArquivoDoCliente(clienteId: string, arquivoId: str
 /** Os meses já importados deste cliente, do mais recente para o mais antigo. */
 export async function competenciasImportadas(clienteId: string) {
   return prisma.producaoLote.findMany({
-    where: { clienteId, competenciaVigente: { not: null } },
+    // A origem é explícita: lote de cirurgia nunca é vigente, mas a lista de meses é das CONSULTAS
+    // e não deve depender desse detalhe para não misturar os dois.
+    where: { clienteId, origem: "CONSULTAS_NUVENS", competenciaVigente: { not: null } },
     select: {
       id: true,
       competencia: true,
@@ -167,58 +169,20 @@ export async function resumoDaCompetencia(clienteId: string, competencia: string
     }),
   ]);
 
-  const idsOperadora = [...new Set(porOperadora.map((o) => o.operadoraId).filter((x): x is string => !!x))];
-  const idsProfissional = [...new Set(porProfissional.map((p) => p.profissionalId).filter((x): x is string => !!x))];
-  const [operadoras, profissionaisCadastrados] = await Promise.all([
-    prisma.operadora.findMany({ where: { id: { in: idsOperadora } }, select: { id: true, nome: true } }),
-    prisma.profissional.findMany({ where: { id: { in: idsProfissional } }, select: { id: true, nome: true } }),
+  const [somaPorOperadora, somaPorProfissional] = await Promise.all([
+    somarPorOperadora(
+      porOperadora.map((g) => ({ operadoraId: g.operadoraId, convenioBruto: g.convenioBruto, n: g._count._all })),
+      mapeamentos,
+    ),
+    somarPorProfissional(
+      porProfissional.map((g) => ({ profissionalId: g.profissionalId, profissionalBruto: g.profissionalBruto, n: g._count._all })),
+    ),
   ]);
-  const nomeOperadora = new Map(operadoras.map((o) => [o.id, o.nome]));
-  const nomeProfissional = new Map(profissionaisCadastrados.map((p) => [p.id, p.nome]));
-  const ehParticular = new Map(mapeamentos.map((m) => [m.textoNormalizado, m.particular]));
-
-  // Agrupa por OPERADORA, não pelo texto: é a leitura "quanto de Porto Seguro", somando os planos
-  // Básico e Especial I numa linha só. Sem de-para, cada texto cru vira a própria linha, marcada
-  // como pendente — a tela mostra que aquele número ainda não está fechado.
-  const somaPorOperadora = new Map<string, SomaOperadora>();
-  for (const g of porOperadora) {
-    const particular = ehParticular.get(chaveDoConvenio(g.convenioBruto)) ?? false;
-    const chave = g.operadoraId ?? (particular ? "__particular__" : `bruto:${chaveDoConvenio(g.convenioBruto)}`);
-    const atual = somaPorOperadora.get(chave);
-    if (atual) {
-      atual.atendimentos += g._count._all;
-      continue;
-    }
-    const rotulo = g.operadoraId ? (nomeOperadora.get(g.operadoraId) ?? g.convenioBruto) : particular ? "Particular" : g.convenioBruto;
-    somaPorOperadora.set(chave, {
-      operadoraId: g.operadoraId,
-      rotulo,
-      particular,
-      atendimentos: g._count._all,
-      pendente: !g.operadoraId && !particular,
-    });
-  }
-
-  const somaPorProfissional = new Map<string, SomaProfissional>();
-  for (const g of porProfissional) {
-    const chave = g.profissionalId ?? `bruto:${chaveDoProfissional(g.profissionalBruto)}`;
-    const atual = somaPorProfissional.get(chave);
-    if (atual) {
-      atual.atendimentos += g._count._all;
-      continue;
-    }
-    somaPorProfissional.set(chave, {
-      profissionalId: g.profissionalId,
-      rotulo: g.profissionalId ? (nomeProfissional.get(g.profissionalId) ?? g.profissionalBruto) : g.profissionalBruto,
-      atendimentos: g._count._all,
-      pendente: !g.profissionalId,
-    });
-  }
 
   const tipos = Object.fromEntries(porTipo.map((t) => [t.tipoAtendimento, t._count._all]));
   const total = porTipo.reduce((s, t) => s + t._count._all, 0);
   const cortesias = tipos.CORTESIA ?? 0;
-  const particulares = [...somaPorOperadora.values()].filter((o) => o.particular).reduce((s, o) => s + o.atendimentos, 0);
+  const particulares = somaPorOperadora.filter((o) => o.particular).reduce((s, o) => s + o.atendimentos, 0);
 
   return {
     competencia,
@@ -231,9 +195,65 @@ export async function resumoDaCompetencia(clienteId: string, competencia: string
       SEM_VINCULO_AGENDA: tipos.SEM_VINCULO_AGENDA ?? 0,
       OUTRO: tipos.OUTRO ?? 0,
     },
-    porOperadora: [...somaPorOperadora.values()].sort((a, b) => b.atendimentos - a.atendimentos),
-    porProfissional: [...somaPorProfissional.values()].sort((a, b) => b.atendimentos - a.atendimentos),
+    porOperadora: somaPorOperadora,
+    porProfissional: somaPorProfissional,
   };
+}
+
+/**
+ * Agrupa por OPERADORA, não pelo texto: é a leitura "quanto de Porto Seguro", somando os planos
+ * Básico e Especial I numa linha só. Sem de-para, cada texto cru vira a própria linha, marcada
+ * como pendente — a tela mostra que aquele número ainda não está fechado.
+ *
+ * Compartilhado por consultas e cirurgias: as duas usam o MESMO de-para, então somam igual.
+ */
+export async function somarPorOperadora(
+  grupos: { operadoraId: string | null; convenioBruto: string; n: number }[],
+  mapeamentos: { textoNormalizado: string; particular: boolean }[],
+): Promise<SomaOperadora[]> {
+  const ids = [...new Set(grupos.map((g) => g.operadoraId).filter((x): x is string => !!x))];
+  const operadoras = await prisma.operadora.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true } });
+  const nomeOperadora = new Map(operadoras.map((o) => [o.id, o.nome]));
+  const ehParticular = new Map(mapeamentos.map((m) => [m.textoNormalizado, m.particular]));
+
+  const soma = new Map<string, SomaOperadora>();
+  for (const g of grupos) {
+    const particular = ehParticular.get(chaveDoConvenio(g.convenioBruto)) ?? false;
+    const chave = g.operadoraId ?? (particular ? "__particular__" : `bruto:${chaveDoConvenio(g.convenioBruto)}`);
+    const atual = soma.get(chave);
+    if (atual) {
+      atual.atendimentos += g.n;
+      continue;
+    }
+    const rotulo = g.operadoraId ? (nomeOperadora.get(g.operadoraId) ?? g.convenioBruto) : particular ? "Particular" : g.convenioBruto;
+    soma.set(chave, { operadoraId: g.operadoraId, rotulo, particular, atendimentos: g.n, pendente: !g.operadoraId && !particular });
+  }
+  return [...soma.values()].sort((a, b) => b.atendimentos - a.atendimentos);
+}
+
+export async function somarPorProfissional(
+  grupos: { profissionalId: string | null; profissionalBruto: string; n: number }[],
+): Promise<SomaProfissional[]> {
+  const ids = [...new Set(grupos.map((g) => g.profissionalId).filter((x): x is string => !!x))];
+  const cadastrados = await prisma.profissional.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true } });
+  const nomeProfissional = new Map(cadastrados.map((p) => [p.id, p.nome]));
+
+  const soma = new Map<string, SomaProfissional>();
+  for (const g of grupos) {
+    const chave = g.profissionalId ?? `bruto:${chaveDoProfissional(g.profissionalBruto)}`;
+    const atual = soma.get(chave);
+    if (atual) {
+      atual.atendimentos += g.n;
+      continue;
+    }
+    soma.set(chave, {
+      profissionalId: g.profissionalId,
+      rotulo: g.profissionalId ? (nomeProfissional.get(g.profissionalId) ?? g.profissionalBruto) : g.profissionalBruto,
+      atendimentos: g.n,
+      pendente: !g.profissionalId,
+    });
+  }
+  return [...soma.values()].sort((a, b) => b.atendimentos - a.atendimentos);
 }
 
 /**
@@ -241,7 +261,9 @@ export async function resumoDaCompetencia(clienteId: string, competencia: string
  * número": enquanto houver pendência, o resumo por operadora está incompleto — e a tela diz isso.
  */
 export async function pendenciasDePara(clienteId: string) {
-  const [convenios, profissionais, jaLigadoConv, jaLigadoProf] = await Promise.all([
+  // O de-para é um só para consultas e cirurgias — a pendência também. Ligar "Sul América" aqui
+  // resolve as duas produções de uma vez.
+  const [convConsulta, profConsulta, convCirurgia, profCirurgia, jaLigadoConv, jaLigadoProf] = await Promise.all([
     prisma.producaoConsulta.groupBy({
       by: ["convenioBruto"],
       where: { clienteId, operadoraId: null },
@@ -252,9 +274,21 @@ export async function pendenciasDePara(clienteId: string) {
       where: { clienteId, profissionalId: null },
       _count: { _all: true },
     }),
+    prisma.producaoCirurgia.groupBy({
+      by: ["convenioBruto"],
+      where: { clienteId, operadoraId: null },
+      _count: { _all: true },
+    }),
+    prisma.producaoCirurgia.groupBy({
+      by: ["profissionalBruto"],
+      where: { clienteId, profissionalId: null },
+      _count: { _all: true },
+    }),
     prisma.mapeamentoConvenio.findMany({ where: { clienteId }, select: { textoNormalizado: true } }),
     prisma.mapeamentoProfissional.findMany({ where: { clienteId }, select: { textoNormalizado: true } }),
   ]);
+  const convenios = [...convConsulta, ...convCirurgia];
+  const profissionais = [...profConsulta, ...profCirurgia];
 
   // Já mapeado como PARTICULAR também tem `operadoraId` nulo — e não é pendência. Por isso a
   // exclusão olha a existência do mapeamento, nunca a ausência de operadora.

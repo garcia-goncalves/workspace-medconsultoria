@@ -45,12 +45,15 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=deps  /app/node_modules ./node_modules
-COPY --from=build /app/apps/api/dist ./
+# `--chown` na cópia, NUNCA `chown -R` depois: numa camada nova o chown recursivo REGRAVA cada
+# arquivo (~1 GB de node_modules). No disco da VPS compartilhada isso ficou 70 min sem terminar
+# em 18/09/2026; com `--chown` o passo sumiu.
+COPY --from=deps  --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/apps/api/dist ./
 # Os uploads moram FORA de /app, em caminho absoluto: o próprio app recusa subir em produção
 # com UPLOADS_DIR relativo ("deve ser um caminho ABSOLUTO e persistente, fora do diretório do
 # deploy"). E é volume porque arquivo dentro do container some na primeira troca de imagem.
-RUN mkdir -p /dados/uploads && chown -R node:node /app /dados
+RUN mkdir -p /dados/uploads && chown node:node /app && chown -R node:node /dados
 USER node
 EXPOSE 4319
 

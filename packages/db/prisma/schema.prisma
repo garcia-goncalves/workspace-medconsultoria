@@ -311,6 +311,7 @@ model Cliente {
   credenciamentos         Credenciamento[]
   producaoLotes           ProducaoLote[]
   producaoConsultas       ProducaoConsulta[]
+  producaoCirurgias       ProducaoCirurgia[]
   mapeamentosConvenio     MapeamentoConvenio[]
   mapeamentosProfissional MapeamentoProfissional[]
 
@@ -425,6 +426,7 @@ model Operadora {
   /// Convênios que o cliente atende, por serviço contratado (ADR-126).
   clienteServicos     ClienteServico[]     @relation("ClienteServicoOperadoras")
   producaoConsultas   ProducaoConsulta[]
+  producaoCirurgias   ProducaoCirurgia[]
   mapeamentosConvenio MapeamentoConvenio[]
 
   @@index([ordem])
@@ -742,6 +744,7 @@ model Profissional {
   arquivos                Arquivo[]
   credenciamentos         Credenciamento[]
   producaoConsultas       ProducaoConsulta[]
+  producaoCirurgias       ProducaoCirurgia[]
   mapeamentosProfissional MapeamentoProfissional[]
 
   @@index([clienteId])
@@ -1871,10 +1874,11 @@ model AgentDelegation {
 // Spec: docs/superpowers/specs/2026-09-11-conciliacao-producao-design.md
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
-/// De qual relatório veio o lote. Só há um valor na Fase 1; `CIRURGIAS_TASY` e o repasse entram
-/// na Fase 2 (a spec §4b já registra o formato do repasse).
+/// De qual relatório veio o lote. O repasse entra na Fase 2b (a spec §4b já registra o formato).
 enum OrigemProducao {
   CONSULTAS_NUVENS
+  /// Mapa cirúrgico do TASY — spec 2026-09-18-conciliacao-cirurgias-tasy-design.md.
+  CIRURGIAS_TASY
 }
 
 enum StatusLote {
@@ -1926,6 +1930,12 @@ model ProducaoLote {
   /// Mesma ideia da trava de recorrência do Financeiro (ADR-93): a regra mora no banco.
   competenciaVigente String? @db.Char(7)
 
+  /// Só nos lotes de CIRURGIAS_TASY: o TASY exporta um PERÍODO, não um mês. Nesses lotes
+  /// `competencia` é o mês da cirurgia mais recente e `competenciaVigente` é sempre nula — quem
+  /// impede duplicar é o `@@unique([clienteId, numeroCirurgia])` de `ProducaoCirurgia`.
+  periodoInicio DateTime? @db.Date
+  periodoFim    DateTime? @db.Date
+
   importadoPorId   String?
   substituidoPorId String?
   substituidoEm    DateTime?
@@ -1938,6 +1948,7 @@ model ProducaoLote {
   substituidoPor ProducaoLote?      @relation("LoteSubstituicao", fields: [substituidoPorId], references: [id], onDelete: SetNull)
   substituiu     ProducaoLote[]     @relation("LoteSubstituicao")
   consultas      ProducaoConsulta[]
+  cirurgias      ProducaoCirurgia[]
 
   /// Um lote VIGENTE por cliente/origem/competência. Os substituídos têm `competenciaVigente`
   /// nulo e ficam fora da trava.
@@ -2011,6 +2022,92 @@ model ProducaoConsulta {
   @@index([profissionalId])
   @@index([pacienteCpfApelido])
   @@index([dataAtendimento])
+}
+
+/// `Tipo Conv` do TASY: 1 particular · 2 convênio · 3 SUS · 6 autogestão. Desconhecido é OUTRO.
+enum CategoriaConvenio {
+  PARTICULAR
+  CONVENIO
+  SUS
+  AUTOGESTAO
+  OUTRO
+}
+
+enum StatusCirurgia {
+  EXECUTADA
+  /// Agendada e não realizada. Fica na lista, fora dos totais de produção.
+  RESERVADA
+  OUTRO
+}
+
+/// Pelo `Cód Aut` do TASY: A · PZ · PA · NN.
+enum AutorizacaoCirurgia {
+  AUTORIZADO
+  PARCIAL
+  PENDENTE
+  NAO_NECESSITA
+  OUTRO
+}
+
+/// Uma cirurgia do mapa cirúrgico do TASY.
+///
+/// Diferente de `ProducaoConsulta`, a identidade é o **número da cirurgia**: o TASY exporta
+/// períodos que se sobrepõem, e reimportar ATUALIZA a linha (status, autorização, atendimento) em
+/// vez de duplicá-la. `loteId` aponta para o último lote que a escreveu.
+///
+/// ⚠️ Prontuário, código da pessoa e leito **não são gravados** (minimização, spec §2.3). O nome do
+/// paciente fica em claro pela mesma razão da Fase 1.
+model ProducaoCirurgia {
+  id String @id @default(cuid())
+
+  loteId      String
+  clienteId   String
+  competencia String @db.Char(7)
+  linha       Int
+
+  numeroCirurgia String  @db.VarChar(20)
+  /// A chave do repasse (Fase 2b). **Nulo é estado conhecido** e a tela o mostra: sem ele a
+  /// cirurgia não casa com o que foi pago.
+  atendimento    String? @db.VarChar(20)
+
+  dataCirurgia DateTime  @db.Date
+  inicioEm     DateTime?
+
+  pacienteNome String
+  procedimento String @db.VarChar(255)
+
+  status           StatusCirurgia
+  statusBruto      String
+  autorizacao      AutorizacaoCirurgia
+  autorizacaoBruto String
+
+  categoriaConvenio CategoriaConvenio
+  tipoConvenioBruto String?
+  convenioBruto     String
+  /// Resolvido pelo MESMO de-para das consultas. Nulo é válido — a tela pede para ligar.
+  operadoraId       String?
+  plano             String?
+
+  profissionalBruto String
+  profissionalId    String?
+  anestesista       String?
+  opme              Boolean?
+  tempoMinutos      Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lote         ProducaoLote  @relation(fields: [loteId], references: [id], onDelete: Cascade)
+  cliente      Cliente       @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  operadora    Operadora?    @relation(fields: [operadoraId], references: [id], onDelete: SetNull)
+  profissional Profissional? @relation(fields: [profissionalId], references: [id], onDelete: SetNull)
+
+  @@unique([clienteId, numeroCirurgia])
+  @@index([clienteId, competencia])
+  @@index([clienteId, atendimento])
+  @@index([loteId])
+  @@index([operadoraId])
+  @@index([profissionalId])
 }
 
 /// De-para do texto do convênio para a operadora do catálogo.

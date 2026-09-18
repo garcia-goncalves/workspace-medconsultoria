@@ -1,6 +1,5 @@
-import type { ReactNode } from "react";
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, FileSpreadsheet } from "lucide-react";
+import { FileSpreadsheet } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
@@ -10,6 +9,7 @@ import { Table, THead, TH, TR, TD } from "../../components/ui/table";
 import { UploadArquivo, type ArquivoEnviado } from "../../components/ui/upload-arquivo";
 import { toast } from "../../components/ui/toast";
 import { dataUTC } from "../../lib/format-date";
+import { Aviso } from "./partes";
 
 /**
  * Importar o relatório de produção — em três passos, nesta ordem: **enviar → conferir → gravar**.
@@ -242,17 +242,5 @@ export function ImportarProducaoDialog({
         )}
       </div>
     </Modal>
-  );
-}
-
-function Aviso({ tom, children }: { tom: "atencao" | "erro"; children: ReactNode }) {
-  const cor = tom === "erro" ? "border-destructive/30 bg-destructive/5" : "border-warning/30 bg-warning/5";
-  const Icone = tom === "erro" ? AlertTriangle : CheckCircle2;
-  const corIcone = tom === "erro" ? "text-destructive" : "text-warning";
-  return (
-    <div className={`flex gap-2 rounded-lg border p-3 text-sm ${cor}`}>
-      <Icone className={`mt-0.5 h-4 w-4 shrink-0 ${corIcone}`} />
-      <div>{children}</div>
-    </div>
   );
 }

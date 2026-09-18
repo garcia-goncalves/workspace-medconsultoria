@@ -374,7 +374,7 @@ export async function excluirDefinitivoCliente(id: string, userId: string) {
   // andamento do credenciamento na operadora.
   const [
     projetos, documentos, contas, servicos, eventos, acessos, arquivosCli, conversas, respostas, leads,
-    suporte, profissionais, credenciamentos,
+    suporte, profissionais, credenciamentos, producao,
   ] = await Promise.all([
     prisma.projeto.count({ where: { clienteId: id } }),
     prisma.documento.count({ where: { clienteId: id } }),
@@ -389,12 +389,15 @@ export async function excluirDefinitivoCliente(id: string, userId: string) {
     prisma.suporteMensagem.count({ where: { clienteId: id } }),
     prisma.profissional.count({ where: { clienteId: id } }),
     prisma.credenciamento.count({ where: { clienteId: id } }),
+    // Cada lote leva junto, em cascata, as consultas OU cirurgias importadas por ele.
+    prisma.producaoLote.count({ where: { clienteId: id } }),
   ]);
 
   const vinculos: Record<string, number> = {
     projetos, documentos, financeiro: contas, serviços: servicos, agenda: eventos,
     "acessos ao Portal": acessos, arquivos: arquivosCli, conversas, "respostas de formulário": respostas, leads,
     "mensagens de suporte": suporte, "médicos cadastrados": profissionais, credenciamentos,
+    "importações de produção": producao,
   };
   const bloqueios = Object.entries(vinculos).filter(([, n]) => n > 0);
   if (bloqueios.length) {

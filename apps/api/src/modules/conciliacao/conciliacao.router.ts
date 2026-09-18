@@ -3,6 +3,7 @@ import { router, funcionarioProcedure } from "../../trpc/trpc.js";
 import { isConciliacaoEnabled } from "../../config.js";
 import * as service from "./conciliacao.service.js";
 import * as painel from "./conciliacao-painel.service.js";
+import * as cirurgias from "./cirurgias.service.js";
 
 /**
  * CONCILIAÇÃO — Fase 1: a produção de consultas, vista pela EQUIPE.
@@ -93,4 +94,44 @@ export const conciliacaoRouter = router({
   ligarProfissional: funcionarioProcedure
     .input(z.object({ clienteId, textoBruto: z.string().min(1), profissionalId: z.string().min(1) }))
     .mutation(({ input }) => service.ligarProfissional(input)),
+
+  // ─── Fase 2a: o mapa cirúrgico do TASY (spec 2026-09-18) ───────────────────────────────────
+  // Mesmas regras de acesso e de privacidade das consultas. Sem competência na importação: o
+  // TASY manda um PERÍODO e a cirurgia é identificada pelo próprio número.
+
+  previsualizarCirurgias: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
+    const { bytes } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
+    return cirurgias.previsualizarCirurgias({ clienteId: input.clienteId, bytes });
+  }),
+
+  importarCirurgias: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input, ctx }) => {
+    const { bytes, nome } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
+    return cirurgias.importarCirurgias({
+      clienteId: input.clienteId,
+      bytes,
+      nomeArquivo: nome,
+      arquivoId: input.arquivoId,
+      usuarioId: ctx.user.id,
+    });
+  }),
+
+  mesesCirurgias: funcionarioProcedure.input(z.object({ clienteId })).query(({ input }) => cirurgias.mesesDasCirurgias(input.clienteId)),
+
+  cirurgias: funcionarioProcedure
+    .input(
+      z.object({
+        clienteId,
+        competencia: competencia.optional(),
+        operadoraId: z.string().optional(),
+        profissionalId: z.string().optional(),
+        situacao: z.enum(["SEM_ATENDIMENTO", "AUTORIZACAO_PENDENTE", "NAO_EXECUTADA"]).optional(),
+        busca: z.string().trim().max(120).optional(),
+        pagina: z.number().int().min(1).optional(),
+      }),
+    )
+    .query(({ input }) => cirurgias.listarCirurgias(input)),
+
+  resumoCirurgias: funcionarioProcedure
+    .input(z.object({ clienteId, competencia: competencia.optional() }))
+    .query(({ input }) => cirurgias.resumoDasCirurgias(input.clienteId, input.competencia)),
 });
