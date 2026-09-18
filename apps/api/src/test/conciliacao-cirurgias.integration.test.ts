@@ -167,6 +167,52 @@ describe("importar o mapa cirúrgico", () => {
     expect(c102.autorizacao).toBe("AUTORIZADO");
   });
 
+  it("arquivo MAIS ANTIGO importado depois não rebaixa o que o mais novo gravou", async () => {
+    // Um export antigo (abril) que ainda via a 101 sem atendimento e a 102 reservada. Se ele
+    // valesse, a 101 perderia o número do atendimento e a 102 voltaria a reservada — e reimportar
+    // o de junho seria recusado pela trava do mesmo arquivo.
+    const antigo = arquivo(
+      cir("101", { data: "2026-04-20", atend: "" }),
+      cir("102", { data: "2026-04-20", status: "Reservada", cod: "PA", aut: "Pendente de autorização" }),
+      cir("099", { data: "2026-04-01" }),
+    );
+    const p = await previsualizarCirurgias({ clienteId, bytes: antigo });
+    expect(p).toMatchObject({ novas: 1, jaExistentes: 0, mantidas: 2 });
+
+    const r = await importarCirurgias({ clienteId, bytes: antigo, nomeArquivo: "tasy-abril.csv", usuarioId });
+    expect(r).toMatchObject({ novas: 1, atualizadas: 0, mantidas: 2 });
+
+    const c101 = await prisma.producaoCirurgia.findUniqueOrThrow({
+      where: { clienteId_numeroCirurgia: { clienteId, numeroCirurgia: "101" } },
+    });
+    expect(c101.atendimento).toBe("9101");
+    const c102 = await prisma.producaoCirurgia.findUniqueOrThrow({
+      where: { clienteId_numeroCirurgia: { clienteId, numeroCirurgia: "102" } },
+    });
+    expect(c102.status).toBe("EXECUTADA");
+    // Limpa a 099 para não mexer nas contagens dos testes seguintes.
+    await prisma.producaoCirurgia.delete({ where: { clienteId_numeroCirurgia: { clienteId, numeroCirurgia: "099" } } });
+  });
+
+  it("o MESMO número de cirurgia em outro cliente é outra cirurgia — nada se mistura", async () => {
+    const outro = await prisma.cliente.create({ data: { nome: `Outra clínica cir ${SUFIXO}` } });
+    try {
+      const r = await importarCirurgias({
+        clienteId: outro.id,
+        bytes: arquivo(cir("100", { atend: "OUTRO-CLIENTE" })),
+        nomeArquivo: "tasy-outro.csv",
+        usuarioId,
+      });
+      expect(r).toMatchObject({ novas: 1, atualizadas: 0 });
+      const deste = await prisma.producaoCirurgia.findUniqueOrThrow({
+        where: { clienteId_numeroCirurgia: { clienteId, numeroCirurgia: "100" } },
+      });
+      expect(deste.atendimento).toBe("9100");
+    } finally {
+      await prisma.cliente.delete({ where: { id: outro.id } });
+    }
+  });
+
   it("recusa o relatório de consultas", async () => {
     await expect(
       importarCirurgias({ clienteId, bytes: Buffer.from("Nome;Valor\nx;1", "utf8"), nomeArquivo: "x.csv", usuarioId }),
@@ -245,6 +291,8 @@ describe("leitura pela tela", () => {
       caller.conciliacao.resumoCirurgias({ clienteId }),
       caller.conciliacao.mesesCirurgias({ clienteId }),
     ]);
+    // A prévia também: a amostra é a primeira coisa que a tela desenha, antes de gravar.
+    retornos.push((await previsualizarCirurgias({ clienteId, bytes: arquivo(cir("777")) })) as never);
     const json = JSON.stringify(retornos);
     expect(json).not.toMatch(/PRONTUARIO-SECRETO|LEITO-SECRETO|PESSOA-SECRETA/);
     expect(json).not.toMatch(/"(prontuario|codPessoa|cpf|telefone|email)"/i);

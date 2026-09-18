@@ -123,6 +123,16 @@ describe("interpretarMapaCirurgico", () => {
     ]);
   });
 
+  it("número de cirurgia ou atendimento maior que a coluna vira linha ignorada, não erro do banco", async () => {
+    const r = await ler(
+      linha({ cirurgia: "1".repeat(21) }),
+      linha({ cirurgia: "2", atendimento: "9".repeat(21) }),
+      linha({ cirurgia: "3" }),
+    );
+    expect(r.linhas.map((l) => l.numeroCirurgia)).toEqual(["3"]);
+    expect(r.ignoradas.map((i) => i.linha)).toEqual([2, 3]);
+  });
+
   it("devolve o período coberto pelo arquivo", async () => {
     const r = await ler(linha({ cirurgia: "1", data: "2026-03-10" }), linha({ cirurgia: "2", data: "2025-09-18" }));
     expect(r.periodo?.inicio.toISOString().slice(0, 10)).toBe("2025-09-18");

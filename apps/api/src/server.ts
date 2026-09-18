@@ -37,7 +37,19 @@ import type { Context } from "./trpc/context.js";
 // com o batch cheio (ex.: a ficha do cliente) o path passa de 100 chars e o find-my-way
 // do Fastify devolveria 414. 5000 cobre qualquer batch com folga.
 const app = Fastify({
-  logger: true,
+  // A URL vai para o log SEM a querystring: numa query do tRPC ela carrega o `input` inteiro —
+  // inclusive o nome de paciente digitado na busca da Conciliação. Log não tem cifra nem prazo.
+  logger: {
+    serializers: {
+      req: (req) => ({
+        method: req.method,
+        url: req.url.split("?")[0],
+        host: req.host,
+        remoteAddress: req.ip,
+        remotePort: req.socket?.remotePort,
+      }),
+    },
+  },
   trustProxy: [...PROXY_CONFIAVEL],
   maxParamLength: 5000,
 });
@@ -92,6 +104,9 @@ await app.register(fastifyTRPCPlugin, {
   trpcOptions: {
     router: appRouter,
     createContext,
+    // Aceita query por POST: a tela da Conciliação manda as dela assim, para o nome do paciente
+    // não entrar em URL (e dali no log de acesso do nginx). GET continua valendo para o resto.
+    allowMethodOverride: true,
     onError({
       path,
       error,

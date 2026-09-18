@@ -46,6 +46,25 @@ Tempo (min) · Técnica`.
 9. **SUS não é operadora do catálogo hoje.** Para "SUS - BP Paulista" sair das pendências, basta
    cadastrar a operadora "SUS" em Ajustes → Operadoras (marcada como faturamento).
 
+10. **O arquivo mais recente vale** (achado da revisão). Uma cirurgia gravada por um lote de
+    período mais novo **não** é sobrescrita por um arquivo mais antigo — ela fica "mantida" e a
+    conferência diz quantas. E número de atendimento já conhecido nunca volta a nulo.
+11. **Nome de paciente não vai para URL nem para log** (achado da revisão, valia também para a
+    Fase 1). As queries da Conciliação saem por POST (`methodOverride`), e o logger do Fastify
+    grava a URL sem querystring.
+12. **Cirurgia que some de um export posterior fica como estava.** O TASY não diz "cancelada";
+    ela simplesmente não vem. Marcar isso exigiria saber se o período do arquivo a cobria de
+    ponta a ponta — fica para quando houver caso real.
+
+## Pendências
+
+- **Quem pode ver:** as rotas são `funcionarioProcedure` (qualquer funcionário, qualquer
+  cliente), como na Fase 1. É a pergunta 3 da §11 da spec da Fase 1 — com procedimento cirúrgico
+  junto do nome, pesa mais. Decisão do dono.
+- **Desfazer uma importação** (arquivo do médico errado na ficha errada): não existe. A tela
+  mostra o cliente em destaque na conferência; o conserto hoje é por banco.
+- **Retenção** das tabelas de produção (consultas e cirurgias) ainda não entrou no expurgo.
+
 ## 3. Fora de escopo
 
 Valor em reais (depende dos "5 modelinhos" de códigos por cirurgia) e o cruzamento com o

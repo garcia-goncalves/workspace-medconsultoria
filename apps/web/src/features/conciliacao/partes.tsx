@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, Info } from "lucide-react";
 import { Button } from "../../components/ui/button";
 
 /** Peças usadas pelas duas produções da Conciliação — consultas e cirurgias. */
@@ -55,7 +55,8 @@ export function ListaResumo({ titulo, itens }: { titulo: string; itens: { rotulo
 
 export function Aviso({ tom, children }: { tom: "atencao" | "erro"; children: ReactNode }) {
   const cor = tom === "erro" ? "border-destructive/30 bg-destructive/5" : "border-warning/30 bg-warning/5";
-  const Icone = tom === "erro" ? AlertTriangle : CheckCircle2;
+  // Aviso de atenção NÃO leva ✓: um check se lê como "tudo certo" justamente onde há algo a olhar.
+  const Icone = tom === "erro" ? AlertTriangle : Info;
   const corIcone = tom === "erro" ? "text-destructive" : "text-warning";
   return (
     <div className={`flex gap-2 rounded-lg border p-3 text-sm ${cor}`}>

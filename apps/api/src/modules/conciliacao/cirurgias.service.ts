@@ -48,6 +48,8 @@ export interface PreviaCirurgias {
   /** Quantas ainda não existem no sistema, e quantas vão só ser atualizadas. */
   novas: number;
   jaExistentes: number;
+  /** Já gravadas por um arquivo de período mais novo — ficam como estão. */
+  mantidas: number;
   semAtendimento: number;
   naoExecutadas: number;
   ignoradas: ProblemaDeLinha[];
@@ -64,6 +66,7 @@ export interface ResultadoCirurgias {
   linhasLidas: number;
   novas: number;
   atualizadas: number;
+  mantidas: number;
   linhasIgnoradas: number;
   semAtendimento: number;
   conveniosNovos: string[];
@@ -124,20 +127,44 @@ function levantarDePara(linhas: LinhaCirurgia[], dePara: Awaited<ReturnType<type
   return { aLigar, conveniosNovos: [...conveniosNovos.values()].sort(), profissionaisNovos: [...profissionaisNovos.values()].sort() };
 }
 
-async function numerosJaGravados(clienteId: string, linhas: LinhaCirurgia[]): Promise<Set<string>> {
+/**
+ * Separa o arquivo em três grupos: cirurgias **novas**, as que serão **atualizadas**, e as que
+ * ficam como estão (**mantidas**) porque quem as gravou foi um arquivo de período MAIS NOVO.
+ *
+ * ⚠️ Sem esta terceira categoria, importar o export de maio depois do de junho faria a cirurgia
+ * voltar a "reservada" e perder o número do atendimento — e reimportar junho seria recusado pela
+ * trava do mesmo arquivo. O arquivo mais recente vale; o mais velho só acrescenta.
+ */
+async function classificar(clienteId: string, linhas: LinhaCirurgia[], fimDoArquivo: Date | null) {
   const existentes = await prisma.producaoCirurgia.findMany({
     where: { clienteId, numeroCirurgia: { in: linhas.map((l) => l.numeroCirurgia) } },
-    select: { numeroCirurgia: true },
+    select: { numeroCirurgia: true, lote: { select: { periodoFim: true } } },
   });
-  return new Set(existentes.map((e) => e.numeroCirurgia));
+  const fimDeQuemGravou = new Map(existentes.map((e) => [e.numeroCirurgia, e.lote.periodoFim]));
+
+  const novas: LinhaCirurgia[] = [];
+  const atualizar: LinhaCirurgia[] = [];
+  const mantidas: LinhaCirurgia[] = [];
+  for (const l of linhas) {
+    if (!fimDeQuemGravou.has(l.numeroCirurgia)) novas.push(l);
+    else {
+      const fim = fimDeQuemGravou.get(l.numeroCirurgia);
+      if (fim && fimDoArquivo && fim > fimDoArquivo) mantidas.push(l);
+      else atualizar.push(l);
+    }
+  }
+  return { novas, atualizar, mantidas };
 }
+
+/** O número que a tela e o resumo chamam de "sem atendimento": só conta o que foi executado. */
+const semAtendimentoExecutadas = (linhas: LinhaCirurgia[]) => linhas.filter((l) => l.status === "EXECUTADA" && !l.atendimento).length;
 
 export async function previsualizarCirurgias(entrada: { clienteId: string; bytes: Buffer }): Promise<PreviaCirurgias> {
   exigirModuloLigado();
   const { grade, leitura } = await lerEInterpretar(entrada.bytes);
-  const [dePara, existentes, lote] = await Promise.all([
+  const [dePara, grupos, lote] = await Promise.all([
     carregarDePara(entrada.clienteId),
-    numerosJaGravados(entrada.clienteId, leitura.linhas),
+    classificar(entrada.clienteId, leitura.linhas, leitura.periodo?.fim ?? null),
     prisma.producaoLote.findFirst({
       where: { clienteId: entrada.clienteId, origem: "CIRURGIAS_TASY", hashArquivo: hashBytes(entrada.bytes), status: "IMPORTADO" },
       orderBy: { createdAt: "desc" },
@@ -145,16 +172,16 @@ export async function previsualizarCirurgias(entrada: { clienteId: string; bytes
     }),
   ]);
   const { conveniosNovos, profissionaisNovos } = levantarDePara(leitura.linhas, dePara);
-  const jaExistentes = leitura.linhas.filter((l) => existentes.has(l.numeroCirurgia)).length;
 
   return {
     formato: grade.formato,
     cabecalhoNaLinha: leitura.cabecalhoNaLinha,
     periodo: leitura.periodo ? { inicio: dia(leitura.periodo.inicio), fim: dia(leitura.periodo.fim) } : null,
     totalLinhas: leitura.linhas.length,
-    novas: leitura.linhas.length - jaExistentes,
-    jaExistentes,
-    semAtendimento: leitura.linhas.filter((l) => !l.atendimento).length,
+    novas: grupos.novas.length,
+    jaExistentes: grupos.atualizar.length,
+    mantidas: grupos.mantidas.length,
+    semAtendimento: semAtendimentoExecutadas(leitura.linhas),
     naoExecutadas: leitura.linhas.filter((l) => l.status !== "EXECUTADA").length,
     ignoradas: leitura.ignoradas,
     colunasAusentes: leitura.colunasAusentes,
@@ -194,7 +221,10 @@ export async function importarCirurgias(entrada: {
   }
   const periodo = leitura.periodo;
 
-  const [dePara, existentes] = await Promise.all([carregarDePara(entrada.clienteId), numerosJaGravados(entrada.clienteId, leitura.linhas)]);
+  const [dePara, { novas, atualizar, mantidas }] = await Promise.all([
+    carregarDePara(entrada.clienteId),
+    classificar(entrada.clienteId, leitura.linhas, periodo.fim),
+  ]);
   const { aLigar, conveniosNovos, profissionaisNovos } = levantarDePara(leitura.linhas, dePara);
 
   const resolvido = (l: LinhaCirurgia) => {
@@ -204,6 +234,10 @@ export async function importarCirurgias(entrada: {
     return { operadoraId: conv?.operadoraId ?? null, plano: conv?.plano ?? null, profissionalId: prof };
   };
 
+  // Texto livre cortado no tamanho da coluna: um valor longo demais derrubaria a importação
+  // INTEIRA com erro do banco, sem dizer qual linha. (Número e atendimento o leitor já barra.)
+  const t = (s: string) => s.slice(0, 191);
+  const tn = (s: string | null) => (s === null ? null : t(s));
   const campos = (l: LinhaCirurgia, loteId: string) => ({
     loteId,
     competencia: l.competencia,
@@ -211,73 +245,85 @@ export async function importarCirurgias(entrada: {
     atendimento: l.atendimento,
     dataCirurgia: l.dataCirurgia,
     inicioEm: l.inicioEm,
-    pacienteNome: l.pacienteNome,
+    pacienteNome: t(l.pacienteNome),
     procedimento: l.procedimento.slice(0, 255),
     status: l.status,
-    statusBruto: l.statusBruto,
+    statusBruto: t(l.statusBruto),
     autorizacao: l.autorizacao,
-    autorizacaoBruto: l.autorizacaoBruto,
+    autorizacaoBruto: t(l.autorizacaoBruto),
     categoriaConvenio: l.categoriaConvenio,
-    tipoConvenioBruto: l.tipoConvenioBruto,
-    convenioBruto: l.convenioBruto,
-    profissionalBruto: l.profissionalBruto,
-    anestesista: l.anestesista,
+    tipoConvenioBruto: tn(l.tipoConvenioBruto),
+    convenioBruto: t(l.convenioBruto),
+    profissionalBruto: t(l.profissionalBruto),
+    anestesista: tn(l.anestesista),
     opme: l.opme,
     tempoMinutos: l.tempoMinutos,
     ...resolvido(l),
   });
 
-  const novas = leitura.linhas.filter((l) => !existentes.has(l.numeroCirurgia));
-  const atualizar = leitura.linhas.filter((l) => existentes.has(l.numeroCirurgia));
-
   // Tudo ou nada: um período pela metade parece completo na tela.
-  const loteId = await prisma.$transaction(
-    async (tx) => {
-      const lote = await tx.producaoLote.create({
-        data: {
-          clienteId: entrada.clienteId,
-          competencia: competenciaDe(periodo.fim),
-          // Nula de propósito: a trava "um lote vigente por mês" é das consultas (spec §2.2).
-          competenciaVigente: null,
-          origem: "CIRURGIAS_TASY",
-          periodoInicio: periodo.inicio,
-          periodoFim: periodo.fim,
-          arquivoId: entrada.arquivoId ?? null,
-          nomeArquivo: entrada.nomeArquivo,
-          formato: grade.formato,
-          hashArquivo,
-          status: "IMPORTADO",
-          linhasLidas: leitura.linhas.length + leitura.ignoradas.length,
-          linhasImportadas: leitura.linhas.length,
-          linhasIgnoradas: leitura.ignoradas.length,
-          importadoPorId: entrada.usuarioId,
-        },
-        select: { id: true },
-      });
+  const loteId = await prisma
+    .$transaction(
+      async (tx) => {
+        const lote = await tx.producaoLote.create({
+          data: {
+            clienteId: entrada.clienteId,
+            competencia: competenciaDe(periodo.fim),
+            // Nula de propósito: a trava "um lote vigente por mês" é das consultas (spec §2.2).
+            competenciaVigente: null,
+            origem: "CIRURGIAS_TASY",
+            periodoInicio: periodo.inicio,
+            periodoFim: periodo.fim,
+            arquivoId: entrada.arquivoId ?? null,
+            nomeArquivo: entrada.nomeArquivo,
+            formato: grade.formato,
+            hashArquivo,
+            status: "IMPORTADO",
+            linhasLidas: leitura.linhas.length + leitura.ignoradas.length,
+            linhasImportadas: leitura.linhas.length,
+            linhasIgnoradas: leitura.ignoradas.length,
+            importadoPorId: entrada.usuarioId,
+          },
+          select: { id: true },
+        });
 
-      for (const [chave, { textoBruto, profissionalId }] of aLigar) {
-        await tx.mapeamentoProfissional.create({
-          data: { clienteId: entrada.clienteId, textoBruto, textoNormalizado: chave, profissionalId },
-        });
-      }
+        for (const [chave, { textoBruto, profissionalId }] of aLigar) {
+          await tx.mapeamentoProfissional.create({
+            data: { clienteId: entrada.clienteId, textoBruto, textoNormalizado: chave, profissionalId },
+          });
+        }
 
-      if (novas.length > 0) {
-        await tx.producaoCirurgia.createMany({
-          data: novas.map((l) => ({ clienteId: entrada.clienteId, numeroCirurgia: l.numeroCirurgia, ...campos(l, lote.id) })),
+        if (novas.length > 0) {
+          await tx.producaoCirurgia.createMany({
+            data: novas.map((l) => ({ clienteId: entrada.clienteId, numeroCirurgia: l.numeroCirurgia, ...campos(l, lote.id) })),
+          });
+        }
+        // A mesma cirurgia, vista de novo: o que o TASY diz HOJE vale (status, autorização, número
+        // do atendimento que chegou depois). Uma a uma porque cada linha muda coisas diferentes.
+        for (const l of atualizar) {
+          const { atendimento, ...resto } = campos(l, lote.id);
+          await tx.producaoCirurgia.update({
+            where: { clienteId_numeroCirurgia: { clienteId: entrada.clienteId, numeroCirurgia: l.numeroCirurgia } },
+            // Número de atendimento já conhecido nunca volta a nulo: é a chave do repasse, e perdê-lo
+            // tiraria a cirurgia da conciliação sem ninguém perceber.
+            data: atendimento ? { ...resto, atendimento } : resto,
+          });
+        }
+        return lote.id;
+      },
+      { timeout: 120_000, maxWait: 15_000 },
+    )
+    .catch((e: unknown) => {
+      // Duas importações ao mesmo tempo: o índice único segura a duplicata, mas o erro cru do banco
+      // viraria "erro interno". Quem chegou depois recebe o recado e tenta de novo.
+      if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Outra importação deste cliente terminou ao mesmo tempo. Nada foi gravado — confira a lista e envie de novo.",
         });
       }
-      // A mesma cirurgia, vista de novo: o que o TASY diz HOJE vale (status, autorização, número
-      // do atendimento que chegou depois). Uma a uma porque cada linha muda coisas diferentes.
-      for (const l of atualizar) {
-        await tx.producaoCirurgia.update({
-          where: { clienteId_numeroCirurgia: { clienteId: entrada.clienteId, numeroCirurgia: l.numeroCirurgia } },
-          data: campos(l, lote.id),
-        });
-      }
-      return lote.id;
-    },
-    { timeout: 120_000, maxWait: 15_000 },
-  );
+      throw e;
+    });
 
   return {
     loteId,
@@ -285,8 +331,9 @@ export async function importarCirurgias(entrada: {
     linhasLidas: leitura.linhas.length + leitura.ignoradas.length,
     novas: novas.length,
     atualizadas: atualizar.length,
+    mantidas: mantidas.length,
     linhasIgnoradas: leitura.ignoradas.length,
-    semAtendimento: leitura.linhas.filter((l) => !l.atendimento).length,
+    semAtendimento: semAtendimentoExecutadas(leitura.linhas),
     conveniosNovos,
     profissionaisNovos,
     profissionaisLigadosAutomaticamente: aLigar.size,

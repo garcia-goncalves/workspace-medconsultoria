@@ -52,9 +52,11 @@ export function ConciliacaoPage() {
   const clientes = trpc.clientes.list.useQuery({});
 
   const habilitado = !!clienteId;
-  const competencias = trpc.conciliacao.competencias.useQuery({ clienteId }, { enabled: habilitado });
+  // As consultas da aba Consultas só rodam com ela aberta; as pendências valem para as duas.
+  const naAbaConsultas = habilitado && aba === "consultas";
+  const competencias = trpc.conciliacao.competencias.useQuery({ clienteId }, { enabled: naAbaConsultas });
   const pendencias = trpc.conciliacao.pendencias.useQuery({ clienteId }, { enabled: habilitado });
-  const resumo = trpc.conciliacao.resumo.useQuery({ clienteId, competencia }, { enabled: habilitado && !!competencia });
+  const resumo = trpc.conciliacao.resumo.useQuery({ clienteId, competencia }, { enabled: naAbaConsultas && !!competencia });
   const producao = trpc.conciliacao.producao.useQuery(
     {
       clienteId,
@@ -64,7 +66,7 @@ export function ConciliacaoPage() {
       busca: busca.trim() || undefined,
       pagina,
     },
-    { enabled: habilitado },
+    { enabled: naAbaConsultas },
   );
 
   const opcoesCliente = useMemo(() => (clientes.data ?? []).map((c) => ({ value: c.id, label: c.nome })), [clientes.data]);
@@ -130,7 +132,9 @@ export function ConciliacaoPage() {
             </TabsList>
 
             <TabsContent value="cirurgias">
-              <CirurgiasPainel clienteId={clienteId} />
+              {/* `key`: trocar de cliente recria o painel e zera os filtros — filtro herdado de outra
+                  clínica faria a tela dizer "nenhuma cirurgia" sem motivo visível. */}
+              <CirurgiasPainel key={clienteId} clienteId={clienteId} />
             </TabsContent>
 
             <TabsContent value="consultas" className="space-y-4">
@@ -296,7 +300,13 @@ export function ConciliacaoPage() {
         <ImportarProducaoDialog clienteId={clienteId} open onClose={() => setImportando(false)} onImportado={recarregar} />
       )}
       {importando && aba === "cirurgias" && (
-        <ImportarCirurgiasDialog clienteId={clienteId} open onClose={() => setImportando(false)} onImportado={recarregar} />
+        <ImportarCirurgiasDialog
+          clienteId={clienteId}
+          clienteNome={opcoesCliente.find((c) => c.value === clienteId)?.label ?? ""}
+          open
+          onClose={() => setImportando(false)}
+          onImportado={recarregar}
+        />
       )}
     </div>
   );

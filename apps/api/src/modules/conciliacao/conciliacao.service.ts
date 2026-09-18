@@ -400,18 +400,9 @@ export async function ligarConvenio(entrada: {
     // retroação casa pela lista de textos crus que normalizam para a mesma chave, e não por
     // igualdade simples. Sem isto, `Cassi` seria atualizado e `CASSI` ficaria para trás.
     // O de-para é o mesmo para consultas e cirurgias, então a retroação alcança as duas.
-    const [deConsulta, deCirurgia] = await Promise.all([
-      tx.producaoConsulta.findMany({
-        where: { clienteId: entrada.clienteId },
-        select: { convenioBruto: true },
-        distinct: ["convenioBruto"],
-      }),
-      tx.producaoCirurgia.findMany({
-        where: { clienteId: entrada.clienteId },
-        select: { convenioBruto: true },
-        distinct: ["convenioBruto"],
-      }),
-    ]);
+    const distintos = { where: { clienteId: entrada.clienteId }, select: { convenioBruto: true }, distinct: ["convenioBruto" as const] };
+    const deConsulta = await tx.producaoConsulta.findMany(distintos);
+    const deCirurgia = await tx.producaoCirurgia.findMany(distintos);
     const equivalentes = [...new Set([...deConsulta, ...deCirurgia].map((d) => d.convenioBruto))].filter(
       (t) => normalizarTexto(t) === textoNormalizado,
     );
@@ -419,7 +410,9 @@ export async function ligarConvenio(entrada: {
     if (equivalentes.length === 0) return { count: 0 };
     const where = { clienteId: entrada.clienteId, convenioBruto: { in: equivalentes } };
     const data = { operadoraId: dados.operadoraId, plano: dados.plano };
-    const [a, b] = [await tx.producaoConsulta.updateMany({ where, data }), await tx.producaoCirurgia.updateMany({ where, data })];
+    // Em sequência: dentro da transação interativa, uma operação de cada vez na mesma conexão.
+    const a = await tx.producaoConsulta.updateMany({ where, data });
+    const b = await tx.producaoCirurgia.updateMany({ where, data });
     return { count: a.count + b.count };
   });
 
@@ -454,18 +447,9 @@ export async function ligarProfissional(entrada: {
       update: { textoBruto: entrada.textoBruto, profissionalId: entrada.profissionalId },
     });
 
-    const [deConsulta, deCirurgia] = await Promise.all([
-      tx.producaoConsulta.findMany({
-        where: { clienteId: entrada.clienteId },
-        select: { profissionalBruto: true },
-        distinct: ["profissionalBruto"],
-      }),
-      tx.producaoCirurgia.findMany({
-        where: { clienteId: entrada.clienteId },
-        select: { profissionalBruto: true },
-        distinct: ["profissionalBruto"],
-      }),
-    ]);
+    const distintos = { where: { clienteId: entrada.clienteId }, select: { profissionalBruto: true }, distinct: ["profissionalBruto" as const] };
+    const deConsulta = await tx.producaoConsulta.findMany(distintos);
+    const deCirurgia = await tx.producaoCirurgia.findMany(distintos);
     const equivalentes = [...new Set([...deConsulta, ...deCirurgia].map((d) => d.profissionalBruto))].filter(
       (t) => chaveDoProfissional(t) === textoNormalizado,
     );
@@ -473,7 +457,9 @@ export async function ligarProfissional(entrada: {
     if (equivalentes.length === 0) return { count: 0 };
     const where = { clienteId: entrada.clienteId, profissionalBruto: { in: equivalentes } };
     const data = { profissionalId: entrada.profissionalId };
-    const [a, b] = [await tx.producaoConsulta.updateMany({ where, data }), await tx.producaoCirurgia.updateMany({ where, data })];
+    // Em sequência: dentro da transação interativa, uma operação de cada vez na mesma conexão.
+    const a = await tx.producaoConsulta.updateMany({ where, data });
+    const b = await tx.producaoCirurgia.updateMany({ where, data });
     return { count: a.count + b.count };
   });
 

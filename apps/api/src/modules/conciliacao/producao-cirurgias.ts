@@ -27,6 +27,9 @@ export const COLUNAS_EXIGIDAS_CIRURGIA = [
   "Status",
 ] as const;
 
+/** Tamanho das colunas `numeroCirurgia` e `atendimento` no banco. */
+const TAMANHO_DA_CHAVE = 20;
+
 export const COLUNAS_OPCIONAIS_CIRURGIA = [
   "Hora (UTC)",
   "Tipo Conv",
@@ -105,6 +108,13 @@ export function interpretarMapaCirurgico(grade: Grade): LeituraDasCirurgias {
       ignoradas.push({ linha: numeroDaLinha, motivo: "Sem número da cirurgia." });
       continue;
     }
+    // As duas colunas são chave (VARCHAR 20). Valor maior não é número do TASY — e gravá-lo
+    // derrubaria a importação inteira sem dizer a linha.
+    const atendimentoBruto = coluna("Atendimento", celulas);
+    if (numeroCirurgia.length > TAMANHO_DA_CHAVE || atendimentoBruto.length > TAMANHO_DA_CHAVE) {
+      ignoradas.push({ linha: numeroDaLinha, motivo: "Número da cirurgia ou do atendimento longo demais — não parece vir do TASY." });
+      continue;
+    }
     const dataCirurgia = interpretarData(dataBruta);
     if (!dataCirurgia) {
       ignoradas.push({ linha: numeroDaLinha, motivo: dataBruta ? `Data não reconhecida: "${dataBruta}".` : "Sem data da cirurgia." });
@@ -133,7 +143,7 @@ export function interpretarMapaCirurgico(grade: Grade): LeituraDasCirurgias {
     linhas.push({
       linha: numeroDaLinha,
       numeroCirurgia,
-      atendimento: vazioViraNulo(coluna("Atendimento", celulas)),
+      atendimento: vazioViraNulo(atendimentoBruto),
       dataCirurgia,
       inicioEm: interpretarInstante(coluna("Hora (UTC)", celulas)),
       competencia: competenciaDe(dataCirurgia),

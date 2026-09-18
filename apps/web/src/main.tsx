@@ -7,7 +7,7 @@ import "./index.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider, MutationCache } from "@tanstack/react-query";
-import { httpBatchLink } from "@trpc/client";
+import { httpBatchLink, splitLink } from "@trpc/client";
 import superjson from "superjson";
 import { trpc } from "./lib/trpc";
 import { App } from "./App";
@@ -27,16 +27,22 @@ const queryClient = new QueryClient({
   }),
 });
 
+const comCookie: typeof fetch = (url, options) => fetch(url, { ...options, credentials: "include" });
+
 const trpcClient = trpc.createClient({
   links: [
-    httpBatchLink({
-      url: "/trpc",
-      transformer: superjson,
-      // Divide lotes grandes em vários GETs em vez de estourar o limite de URL (evita 414).
-      maxURLLength: 2048,
-      fetch(url, options) {
-        return fetch(url, { ...options, credentials: "include" });
-      },
+    // A Conciliação leva NOME DE PACIENTE no input (a busca). Por GET, ele iria na URL — e URL vai
+    // para o log de acesso do nginx, sem cifra e sem prazo. Por isso as queries dela saem por POST.
+    splitLink({
+      condition: (op) => op.path.startsWith("conciliacao."),
+      true: httpBatchLink({ url: "/trpc", transformer: superjson, methodOverride: "POST", fetch: comCookie }),
+      false: httpBatchLink({
+        url: "/trpc",
+        transformer: superjson,
+        // Divide lotes grandes em vários GETs em vez de estourar o limite de URL (evita 414).
+        maxURLLength: 2048,
+        fetch: comCookie,
+      }),
     }),
   ],
 });

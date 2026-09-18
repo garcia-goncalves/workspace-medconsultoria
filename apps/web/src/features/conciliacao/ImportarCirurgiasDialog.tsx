@@ -18,11 +18,14 @@ import { Aviso } from "./partes";
  */
 export function ImportarCirurgiasDialog({
   clienteId,
+  clienteNome,
   open,
   onClose,
   onImportado,
 }: {
   clienteId: string;
+  /** Mostrado em destaque: importar o mapa de um médico na ficha de outra clínica não tem desfazer. */
+  clienteNome: string;
   open: boolean;
   onClose: () => void;
   onImportado: () => void;
@@ -34,6 +37,7 @@ export function ImportarCirurgiasDialog({
     onSuccess: (r) => {
       const extras = [
         r.atualizadas > 0 ? `${r.atualizadas} atualizada(s)` : null,
+        r.mantidas > 0 ? `${r.mantidas} mantida(s) por virem de arquivo mais recente` : null,
         r.semAtendimento > 0 ? `${r.semAtendimento} sem número de atendimento` : null,
         r.linhasIgnoradas > 0 ? `${r.linhasIgnoradas} linha(s) ignorada(s)` : null,
       ].filter(Boolean);
@@ -80,6 +84,9 @@ export function ImportarCirurgiasDialog({
       }
     >
       <div className="space-y-4">
+        <p className="text-sm">
+          Cliente: <strong>{clienteNome || "—"}</strong>
+        </p>
         <div className="rounded-lg border border-dashed p-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2 text-sm">
@@ -123,6 +130,12 @@ export function ImportarCirurgiasDialog({
               <Aviso tom="atencao">
                 {p.semAtendimento} cirurgia(s) sem número de atendimento. Elas entram, mas não vão casar com o relatório de repasse enquanto
                 o TASY não trouxer o número.
+              </Aviso>
+            )}
+            {p.mantidas > 0 && (
+              <Aviso tom="atencao">
+                {p.mantidas} cirurgia(s) já vieram de um arquivo mais recente e ficam como estão — este arquivo é mais antigo e só
+                acrescenta o que falta.
               </Aviso>
             )}
             {p.naoExecutadas > 0 && (
@@ -183,7 +196,8 @@ export function ImportarCirurgiasDialog({
                 </Table>
               </div>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Prontuário, código da pessoa e leito não são guardados — o arquivo original fica no acervo do cliente.
+                Prontuário, código da pessoa e leito não entram na produção. O arquivo original — com esses campos — fica guardado no acervo
+                do cliente.
               </p>
             </div>
           </>
