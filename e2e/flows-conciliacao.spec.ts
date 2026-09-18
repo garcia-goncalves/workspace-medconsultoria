@@ -240,8 +240,9 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
     await expect(page.getByText(/3 cirurgia\(s\) nova\(s\) importada/i)).toBeVisible({ timeout: 20_000 });
 
     // Só as executadas contam; a reservada fica na lista, fora do total.
-    await expect(page.getByText(/1 sem número de atendimento/i)).toBeVisible();
-    await expect(page.getByText(/1 não executada/i)).toBeVisible();
+    // `listitem`: o toast da importação também diz "1 sem número de atendimento".
+    await expect(page.getByRole("listitem").filter({ hasText: /^1 sem número de atendimento$/ })).toBeVisible();
+    await expect(page.getByRole("listitem").filter({ hasText: /^1 não executada/ })).toBeVisible();
     await expect(page.getByRole("cell", { name: `PACIENTE CIR 1 ${RUN}` })).toBeVisible();
     // O médico foi ligado sozinho pelo nome, e o convênio novo apareceu nas pendências.
     await expect(page.getByRole("cell", { name: MEDICO }).first()).toBeVisible();
