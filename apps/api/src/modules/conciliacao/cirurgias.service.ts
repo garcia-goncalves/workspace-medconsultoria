@@ -3,7 +3,13 @@ import { TRPCError } from "@trpc/server";
 import { hashBytes } from "../../lib/hash.js";
 import { ErroDePlanilha, lerGrade, normalizarTexto, type Formato } from "./planilha/index.js";
 import type { StatusConciliacao } from "./conciliacao-cirurgica.js";
-import { montarConciliacao, totalizar, type LinhaConciliada, type TotaisConciliacao } from "./conciliacao-financeira.service.js";
+import {
+  montarConciliacao,
+  totalizar,
+  type LinhaConciliada,
+  type RecebidoSemProducao,
+  type TotaisConciliacao,
+} from "./conciliacao-financeira.service.js";
 import { carregarDePara, exigirModuloLigado } from "./conciliacao.service.js";
 import { somarPorOperadora, somarPorProfissional, type SomaOperadora, type SomaProfissional } from "./conciliacao-painel.service.js";
 import { chaveDoConvenio, chaveDoProfissional, competenciaDe, ErroDeLeitura, type ProblemaDeLinha } from "./producao-consultas.js";
@@ -443,7 +449,7 @@ export interface ResumoCirurgias {
   /** Cobrado, recebido, glosa e a receber do período — Fase 2b. */
   dinheiro: TotaisConciliacao;
   /** Repasse que entrou e não casa com cirurgia nenhuma (do cliente todo, não do mês). */
-  recebidoSemProducao: { total: number; linhas: number };
+  recebidoSemProducao: RecebidoSemProducao;
 }
 
 /** O resumo do período (ou de um mês): as contagens e, desde a Fase 2b, o dinheiro. */

@@ -63,7 +63,7 @@ describe("repartirRecebido — um atendimento, várias cirurgias", () => {
     expect((r.get("a")! * 100 + r.get("b")! * 100) / 100).toBe(100);
   });
 
-  it("sem valor de referência: tudo na primeira, as outras ficam com zero — nada é inventado", () => {
+  it("sem valor de referência: tudo na primeira, as outras ficam SEM recebido (não zero — zero seria glosa total inventada)", () => {
     const r = repartirRecebido(
       [
         { id: "a", cobrado: null },
@@ -72,6 +72,6 @@ describe("repartirRecebido — um atendimento, várias cirurgias", () => {
       300,
     );
     expect(r.get("a")).toBe(300);
-    expect(r.get("b")).toBe(0);
+    expect(r.has("b")).toBe(false);
   });
 });

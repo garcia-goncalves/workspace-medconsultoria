@@ -151,6 +151,12 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
             <Numero titulo="A receber" valor={d.aReceber} dica="Cobrado do que ainda não foi pago" tom="atencao" />
           </div>
         )}
+        {r && r.recebidoSemProducao.naoAtribuido !== 0 && (
+          <p className="mt-2 text-sm text-warning">
+            {formatBRL(r.recebidoSemProducao.naoAtribuido)} de repasse não atribuído — de atendimentos cujas cirurgias estão marcadas "não
+            cobrar", não foram realizadas, ou já têm recebido digitado menor que o repasse.
+          </p>
+        )}
         {r && r.recebidoSemProducao.total !== 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
             <span className="text-warning">
@@ -398,6 +404,9 @@ function RecebidoSemProducaoDialog({ clienteId, onClose }: { clienteId: string; 
         <QueryError message={q.error.message} onRetry={() => void q.refetch()} />
       ) : (
         <div className="max-h-[60vh] overflow-auto rounded-lg border">
+          {q.data.length >= 200 && (
+            <p className="border-b p-2 text-xs text-muted-foreground">Mostrando as 200 mais recentes — o total acima soma todas.</p>
+          )}
           <Table>
             <THead>
               <TR>

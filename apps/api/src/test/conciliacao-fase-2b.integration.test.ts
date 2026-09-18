@@ -195,7 +195,7 @@ describe("recebido — o repasse do TASY", () => {
     });
 
     const resumo = await caller.conciliacao.resumoCirurgias({ clienteId });
-    expect(resumo.recebidoSemProducao).toEqual({ total: 12106.64, linhas: 1 });
+    expect(resumo.recebidoSemProducao).toEqual({ total: 12106.64, linhas: 1, naoAtribuido: 0 });
     // Cobrado inclui a 103: sem atendimento ela não casa com o repasse, mas foi realizada e é
     // dinheiro que deveria entrar (10.000 + 2.000 + 10.000). A 104, reservada, fica fora.
     expect(resumo.dinheiro).toMatchObject({ cobrado: 22000, recebido: 10200, glosa: 1800, aReceber: 0 });
@@ -206,18 +206,62 @@ describe("recebido — o repasse do TASY", () => {
     expect(sem[0]!.descricao).toBe("MC - JUNHO/26");
   });
 
-  it("o mesmo pagamento de novo: mesmo arquivo recusa; outro arquivo do período pede confirmação e SUBSTITUI", async () => {
+  it("o mesmo pagamento de novo: mesmo arquivo recusa; o relatório corrigido do MESMO médico pede confirmação e substitui", async () => {
     await expect(importarRepasse({ clienteId, bytes: repasse, nomeArquivo: "x.csv", usuarioId })).rejects.toThrow(/já foi importado/i);
 
-    const corrigido = buf(CAB_REPASSE, "Unimed;5000;Sergio;X;04/05/2026;1;R;31/08/2026;12.000,00");
+    const corrigido = buf(
+      CAB_REPASSE,
+      "Unimed;5000;Sergio;X;04/05/2026;1;R;31/08/2026;10.800,00",
+      "Unimed;5000;Gustavo;X;04/05/2026;1;Aux;31/08/2026;1.200,00",
+    );
     await expect(importarRepasse({ clienteId, bytes: corrigido, nomeArquivo: "y.csv", usuarioId })).rejects.toThrow(
       /Confirme a substituição/i,
     );
     const r = await importarRepasse({ clienteId, bytes: corrigido, nomeArquivo: "y.csv", usuarioId, substituir: true });
-    expect(r.substituidas).toBe(3);
-    // Não dobrou: só as linhas do arquivo novo valem para o período.
-    expect(await prisma.repasseLinha.count({ where: { clienteId } })).toBe(1);
+    // Troca as 2 linhas daqueles médicos naquele período — e o incremento (outro "executor") fica.
+    expect(r.substituidas).toBe(2);
+    expect(await prisma.repasseLinha.count({ where: { clienteId } })).toBe(3);
     expect((await linha("101")).statusConciliacao).toBe("PAGO"); // 12.000 repartidos: 10.000 + 2.000
+  });
+
+  it("o repasse de OUTRO médico no mesmo período não apaga o deste — e linha idêntica sem data é repetição", async () => {
+    const outroMedico = buf(CAB_REPASSE, "Unimed;7777;Outro Medico;X;04/05/2026;1;R;31/08/2026;500,00");
+    const r = await importarRepasse({ clienteId, bytes: outroMedico, nomeArquivo: "outro.csv", usuarioId });
+    expect(r.substituidas).toBe(0);
+    expect(await prisma.repasseLinha.count({ where: { clienteId } })).toBe(4);
+
+    // Sem coluna de data, a trava do período não existe — a da linha idêntica, sim.
+    const semData = "Convênio;Atend;Medico Executor;Vl Repasse";
+    await importarRepasse({ clienteId, bytes: buf(semData, "Amil;8888;Z;300,00"), nomeArquivo: "s1.csv", usuarioId });
+    await expect(
+      importarRepasse({ clienteId, bytes: buf(semData, "Amil;8888;Z;300,00", ""), nomeArquivo: "s2.csv", usuarioId }),
+    ).rejects.toThrow(/Confirme a substituição/i);
+    // Limpa para não mexer nos testes seguintes.
+    await prisma.repasseLinha.deleteMany({ where: { clienteId, atendimento: { in: ["7777", "8888"] } } });
+  });
+
+  it("recebido DIGITADO numa cirurgia é abatido do repasse do atendimento — nunca conta duas vezes", async () => {
+    const a = await linha("101");
+    await caller.conciliacao.editarCirurgia({ clienteId, cirurgiaId: a.id, valorRecebido: 10000 });
+    // Repasse do atendimento 5000 = 12.000; 10.000 digitados na 101 → sobram 2.000 para a 102.
+    expect((await linha("102")).recebido).toBe(2000);
+    const resumo = await caller.conciliacao.resumoCirurgias({ clienteId });
+    expect(resumo.dinheiro.recebido).toBe(12000);
+
+    // Digitado além do repasse: nada sobra para a 102, e nada é inventado.
+    await caller.conciliacao.editarCirurgia({ clienteId, cirurgiaId: a.id, valorRecebido: 12000 });
+    expect((await linha("102")).recebido).toBe(0);
+    await caller.conciliacao.editarCirurgia({ clienteId, cirurgiaId: a.id, valorRecebido: null });
+  });
+
+  it("repasse de atendimento sem cirurgia COBRÁVEL não some: vira 'não atribuído'", async () => {
+    const [a, b] = [await linha("101"), await linha("102")];
+    await caller.conciliacao.editarCirurgia({ clienteId, cirurgiaId: a.id, naoCobrar: true });
+    await caller.conciliacao.editarCirurgia({ clienteId, cirurgiaId: b.id, naoCobrar: true });
+    const resumo = await caller.conciliacao.resumoCirurgias({ clienteId });
+    expect(resumo.recebidoSemProducao.naoAtribuido).toBe(12000);
+    await caller.conciliacao.editarCirurgia({ clienteId, cirurgiaId: a.id, naoCobrar: false });
+    await caller.conciliacao.editarCirurgia({ clienteId, cirurgiaId: b.id, naoCobrar: false });
   });
 });
 
@@ -241,6 +285,29 @@ describe("recebido — a planilha preenchida volta", () => {
       statusConciliacao: "GLOSA_PARCIAL",
       dataPagamento: "2026-09-10",
       observacao: "sem atendimento no TASY, pago à parte",
+    });
+  });
+
+  it("exportar e devolver SEM mexer não congela nada — o cobrado continua vindo do de-para", async () => {
+    const e = await caller.conciliacao.exportar({ clienteId });
+    await expect(
+      importarPlanilha({ clienteId, bytes: Buffer.from(e.modelo, "utf8"), nomeArquivo: "ida-e-volta.csv", usuarioId }),
+    ).rejects.toThrow(/nada diferente/i);
+    // E o de-para segue mandando: mudar o preço do pacote muda o cobrado da 101 na hora.
+    await caller.conciliacao.salvarProcedimento({
+      clienteId,
+      textoBruto: "Revascularização Miocárdica",
+      operadoraId: unimedId,
+      codigo: "40020045",
+      valor: 11000,
+    });
+    expect(await linha("101")).toMatchObject({ cobrado: 11000, cobradoOrigem: "DE_PARA" });
+    await caller.conciliacao.salvarProcedimento({
+      clienteId,
+      textoBruto: "Revascularização Miocárdica",
+      operadoraId: unimedId,
+      codigo: "40020045",
+      valor: 10000,
     });
   });
 
@@ -272,7 +339,10 @@ describe("edição, filtros, exportação e visão geral", () => {
   it("exporta o MODELO com as colunas de sempre, prontuário vazio, e os dois resumos", async () => {
     const e = await caller.conciliacao.exportar({ clienteId });
     expect(e.linhas).toBe(4);
-    const [cab, ...corpo] = e.modelo.replace(/^\uFEFF/, "").trim().split("\r\n");
+    const [cab, ...corpo] = e.modelo
+      .replace(/^\uFEFF/, "")
+      .trim()
+      .split("\r\n");
     expect(cab).toBe(
       '"Data";"Nº Cirurgia";"Atendimento";"Paciente";"Prontuário";"Convênio";"Médico";"Procedimento (Tasy)";"Status Tasy";"Autorização Tasy";"Cód. Procedimento (De-Para)";"Valor cobrado (R$)";"Valor recebido (R$)";"Glosa (R$)";"Data pagamento";"Status conciliação";"Observação"',
     );
@@ -286,7 +356,7 @@ describe("edição, filtros, exportação e visão geral", () => {
   it("visão geral traz o cliente com o placar", async () => {
     const v = await caller.conciliacao.visaoGeral();
     const deste = v.find((c) => c.clienteId === clienteId)!;
-    expect(deste).toMatchObject({ cirurgias: 4, recebidoSemProducao: 0 });
+    expect(deste).toMatchObject({ cirurgias: 4, recebidoSemProducao: 12106.64 });
     expect(deste.cobrado).toBeGreaterThan(0);
   });
 

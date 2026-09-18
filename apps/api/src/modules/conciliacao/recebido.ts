@@ -16,9 +16,25 @@ const dia = (d: Date) => d.toISOString().slice(0, 10);
  * Texto → reais. `null` = célula vazia (nada a dizer); `undefined` = havia algo, e não é número.
  * A diferença importa: vazio não apaga o que já está gravado; ilegível é reportado, nunca zero.
  */
-export function interpretarValor(texto: string): number | null | undefined {
+export function interpretarValor(texto: string, opcoes: { numeroCru?: boolean } = {}): number | null | undefined {
   let s = texto.replace(/R\$/gi, "").replace(/\s/g, "");
   if (s === "" || s === "-") return null;
+  // Estorno escrito como contador escreve: "(1.234,56)" ou "1.234,56-". Deixá-lo de fora como
+  // ilegível inflaria o recebido pelo valor exato do estorno.
+  let sinal = 1;
+  const entreParenteses = /^\((.+)\)$/.exec(s);
+  if (entreParenteses) {
+    s = entreParenteses[1]!;
+    sinal = -1;
+  } else if (/^[^-].*-$/.test(s)) {
+    s = s.slice(0, -1);
+    sinal = -1;
+  }
+  // Célula NUMÉRICA do XLSX chega como o número cru ("250.125"): o ponto é sempre decimal. A
+  // regra do milhar abaixo transformaria 250,125 em 250.125 — mil vezes o valor, em silêncio.
+  if (opcoes.numeroCru && /^-?\d+(\.\d+)?(e-?\d+)?$/i.test(s)) {
+    return (sinal * Math.round(Number(s) * 100)) / 100;
+  }
   const temVirgula = s.includes(",");
   const temPonto = s.includes(".");
   if (temVirgula && temPonto) {
@@ -31,8 +47,11 @@ export function interpretarValor(texto: string): number | null | undefined {
     s = s.replace(/\./g, "");
   }
   if (!/^-?\d+(\.\d+)?$/.test(s)) return undefined;
-  return Math.round(Number(s) * 100) / 100;
+  return (sinal * Math.round(Number(s) * 100)) / 100;
 }
+
+/** O apóstrofo que a exportação põe na frente de `= + - @` (anti-fórmula) não volta para o banco. */
+const semProtecaoDeFormula = (s: string) => (/^'[=+\-@]/.test(s) ? s.slice(1) : s);
 
 // ─── 1. Repasse do TASY ─────────────────────────────────────────────────────────────────────────
 
@@ -103,10 +122,15 @@ export function interpretarRepasse(grade: Grade): LeituraDoRepasse {
       repasseAtual = grupo[1]!;
       continue;
     }
-    if (cheias.some((x) => EH_TOTAL.test(normalizarTexto(x)))) continue;
+    // Linha de total não é pagamento — mas é REPORTADA: uma descrição legítima que comece com
+    // "Total…" não pode sumir sem ninguém ver.
+    if (cheias.some((x) => EH_TOTAL.test(normalizarTexto(x)))) {
+      ignoradas.push({ linha: numero, motivo: "Linha de total/rodapé do relatório — não é um pagamento." });
+      continue;
+    }
 
     const bruto = col("Vl Repasse", c);
-    const valor = interpretarValor(bruto);
+    const valor = interpretarValor(bruto, { numeroCru: grade.formato === "xlsx" });
     if (valor === null) {
       ignoradas.push({ linha: numero, motivo: "Sem valor de repasse." });
       continue;
@@ -209,7 +233,7 @@ export function interpretarPlanilhaConciliacao(grade: Grade): LeituraDaPlanilha 
     const saida: LinhaPlanilha = { linha: numero, numeroCirurgia };
     const problemas: string[] = [];
 
-    const codigo = col(COL_CODIGO, c);
+    const codigo = semProtecaoDeFormula(col(COL_CODIGO, c));
     if (codigo) saida.codigoProcedimento = codigo.slice(0, 40);
 
     for (const [coluna, campo] of [
@@ -217,7 +241,7 @@ export function interpretarPlanilhaConciliacao(grade: Grade): LeituraDaPlanilha 
       [COL_RECEBIDO, "valorRecebido"],
     ] as const) {
       const bruto = col(coluna, c);
-      const v = interpretarValor(bruto);
+      const v = interpretarValor(bruto, { numeroCru: grade.formato === "xlsx" });
       if (v === undefined) problemas.push(`${coluna} não reconhecido: "${bruto}"`);
       else if (v !== null) saida[campo] = v;
     }
@@ -230,7 +254,7 @@ export function interpretarPlanilhaConciliacao(grade: Grade): LeituraDaPlanilha 
     }
 
     if (normalizarTexto(col(COL_STATUS, c)).startsWith("nao cobr")) saida.naoCobrar = true;
-    const obs = col(COL_OBS, c);
+    const obs = semProtecaoDeFormula(col(COL_OBS, c));
     if (obs) saida.observacao = obs.slice(0, 2000);
 
     if (problemas.length > 0) {

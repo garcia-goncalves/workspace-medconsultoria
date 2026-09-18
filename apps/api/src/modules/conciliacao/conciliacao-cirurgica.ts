@@ -67,7 +67,8 @@ export function glosaDe(cobrado: number | null, recebido: number | null): number
  * arredondamento vai para a última — a soma bate no centavo com o que o repasse pagou.
  *
  * Se alguma não tem valor de referência, proporção não existe: tudo vai para a primeira e as
- * outras ficam com zero. Repartir "igualmente" inventaria um número que ninguém disse.
+ * outras ficam FORA do mapa (recebido desconhecido, não zero). Repartir "igualmente" inventaria um
+ * número que ninguém disse — e zero fabricaria uma glosa total que não existiu.
  */
 export function repartirRecebido(cirurgias: { id: string; cobrado: number | null }[], total: number): Map<string, number> {
   const saida = new Map<string, number>();
@@ -76,7 +77,7 @@ export function repartirRecebido(cirurgias: { id: string; cobrado: number | null
 
   const semReferencia = cirurgias.some((c) => c.cobrado === null || centavos(c.cobrado) <= 0);
   if (cirurgias.length === 1 || semReferencia) {
-    cirurgias.forEach((c, i) => saida.set(c.id, i === 0 ? reais(totalC) : 0));
+    saida.set(cirurgias[0]!.id, reais(totalC));
     return saida;
   }
 

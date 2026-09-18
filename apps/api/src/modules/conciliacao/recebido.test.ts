@@ -17,6 +17,17 @@ describe("interpretarValor — dinheiro do jeito que as planilhas escrevem", () 
     expect(interpretarValor("abc")).toBeUndefined();
   });
 
+  it("estorno entre parênteses ou com sinal no fim é negativo, não ilegível", () => {
+    expect(interpretarValor("(1.234,56)")).toBe(-1234.56);
+    expect(interpretarValor("1.234,56-")).toBe(-1234.56);
+  });
+
+  it("número cru de XLSX: o ponto é decimal — 250.125 não vira duzentos e cinquenta mil", () => {
+    expect(interpretarValor("250.125", { numeroCru: true })).toBe(250.13);
+    expect(interpretarValor("1.000", { numeroCru: true })).toBe(1);
+    expect(interpretarValor("1.234,56", { numeroCru: true })).toBe(1234.56); // texto no XLSX segue a regra BR
+  });
+
   it("ponto de milhar sem vírgula (1.000) é milhar, não decimal", () => {
     expect(interpretarValor("1.000")).toBe(1000);
     expect(interpretarValor("1.000.000")).toBe(1000000);
@@ -62,6 +73,12 @@ describe("interpretarRepasse", () => {
     const r = interpretarRepasse(await grade(`${CAB}\nAmil;1;X;Y;01/05/2026;1;D;31/08/2026;abc`));
     expect(r.linhas).toHaveLength(0);
     expect(r.ignoradas[0]!.motivo).toMatch(/valor/i);
+  });
+
+  it("linha de total não é pagamento — e é reportada, não some", async () => {
+    const r = interpretarRepasse(await grade(`${CAB}\n;;;;;;Total do repasse;;13.306,64`));
+    expect(r.linhas).toHaveLength(0);
+    expect(r.ignoradas[0]!.motivo).toMatch(/total/i);
   });
 
   it("devolve o período de pagamento coberto", async () => {

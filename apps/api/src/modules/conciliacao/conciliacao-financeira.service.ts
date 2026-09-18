@@ -65,8 +65,14 @@ export interface TotaisConciliacao {
 }
 
 export interface RecebidoSemProducao {
+  /** Repasse cujo atendimento não tem cirurgia nenhuma (ou vem sem atendimento: incremento, acordo). */
   total: number;
   linhas: number;
+  /**
+   * Repasse de atendimento QUE TEM cirurgia, mas sem cirurgia para recebê-lo: todas com valor
+   * digitado (sobrou além do digitado), marcadas "não cobrar", ou não realizadas no TASY.
+   */
+  naoAtribuido: number;
 }
 
 /**
@@ -117,21 +123,27 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
     }),
   ]);
 
-  // De-para: a operadora da cirurgia primeiro, o padrão (operadora nula) depois.
+  // De-para: a operadora da cirurgia primeiro, o padrão (operadora nula) depois — CAMPO A CAMPO.
+  // Um código cadastrado só para a Unimed não pode esconder o valor padrão do procedimento.
   const dePara = new Map<string, { codigo: string | null; valor: number | null }>();
   for (const m of mapeamentos) {
     dePara.set(`${m.textoNormalizado}|${m.operadoraId ?? ""}`, { codigo: m.codigo, valor: emReais(m.valor) });
   }
   const buscarDePara = (procedimento: string, operadoraId: string | null) => {
     const chave = chaveDoProcedimento(procedimento);
-    return (operadoraId && dePara.get(`${chave}|${operadoraId}`)) || dePara.get(`${chave}|`) || null;
+    const daOperadora = operadoraId ? dePara.get(`${chave}|${operadoraId}`) : undefined;
+    const padrao = dePara.get(`${chave}|`);
+    return {
+      codigo: daOperadora?.codigo ?? padrao?.codigo ?? null,
+      valor: daOperadora?.valor ?? padrao?.valor ?? null,
+    };
   };
 
   // Repasse por atendimento. O que não tem atendimento, ou não casa com cirurgia nenhuma, é
   // recebido sem produção — dinheiro que entrou e precisa aparecer em algum lugar.
   const atendimentosComCirurgia = new Set(cirurgias.map((c) => c.atendimento).filter((a): a is string => !!a));
   const repassePorAtend = new Map<string, { total: number; ultimaData: Date | null }>();
-  const semProducao: RecebidoSemProducao = { total: 0, linhas: 0 };
+  const semProducao: RecebidoSemProducao = { total: 0, linhas: 0, naoAtribuido: 0 };
   for (const r of repasses) {
     const total = emReaisOu(r._sum.valor, 0);
     if (r.atendimento && atendimentosComCirurgia.has(r.atendimento)) {
@@ -150,36 +162,46 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
   const base = cirurgias.map((c) => {
     const manual = emReais(c.valorCobrado);
     const dp = buscarDePara(c.procedimento, c.operadoraId);
-    const cobrado = manual ?? dp?.valor ?? null;
+    const cobrado = manual ?? dp.valor;
     return {
       c,
-      codigo: c.codigoProcedimento ?? dp?.codigo ?? null,
+      codigo: c.codigoProcedimento ?? dp.codigo,
       cobrado,
       cobradoOrigem: manual !== null ? ("MANUAL" as const) : cobrado !== null ? ("DE_PARA" as const) : null,
     };
   });
 
-  // Repartição: só entre as cirurgias REALIZADAS e cobráveis daquele atendimento, e só das que
-  // não têm recebido digitado (o digitado manda).
+  // Repartição por atendimento, entre as cirurgias REALIZADAS e cobráveis dele.
+  // ⚠️ O recebido DIGITADO de uma delas é ABATIDO do repasse antes de repartir o resto — sem isso,
+  // digitar 600 numa cirurgia jogaria o repasse inteiro na outra e o dinheiro contaria duas vezes.
+  // O que sobra sem ninguém para receber (todas digitadas, "não cobrar", ou não realizadas) é
+  // repasse NÃO ATRIBUÍDO: aparece na tela, nunca some.
   const parteDoRepasse = new Map<string, number>();
   const compartilhado = new Set<string>();
-  const porAtend = new Map<string, typeof base>();
+  const cobraveis = new Map<string, typeof base>();
   for (const b of base) {
-    if (!b.c.atendimento || b.c.status !== "EXECUTADA" || b.c.naoCobrar || b.c.valorRecebido !== null) continue;
-    const lista = porAtend.get(b.c.atendimento) ?? [];
+    if (!b.c.atendimento || b.c.status !== "EXECUTADA" || b.c.naoCobrar) continue;
+    const lista = cobraveis.get(b.c.atendimento) ?? [];
     lista.push(b);
-    porAtend.set(b.c.atendimento, lista);
+    cobraveis.set(b.c.atendimento, lista);
   }
-  for (const [atend, lista] of porAtend) {
-    const rep = repassePorAtend.get(atend);
-    if (!rep) continue;
-    const ordenada = [...lista].sort((a, b) => a.c.numeroCirurgia.localeCompare(b.c.numeroCirurgia));
+  for (const [atend, rep] of repassePorAtend) {
+    const lista = cobraveis.get(atend) ?? [];
+    const digitado = lista.reduce((s, b) => somar(s, emReais(b.c.valorRecebido) ?? 0), 0);
+    const automaticas = lista
+      .filter((b) => b.c.valorRecebido === null)
+      .sort((a, b) => a.c.numeroCirurgia.localeCompare(b.c.numeroCirurgia));
+    const resto = Math.max(somar(rep.total, -digitado), 0);
+    if (automaticas.length === 0) {
+      semProducao.naoAtribuido = somar(semProducao.naoAtribuido, resto);
+      continue;
+    }
     const partes = repartirRecebido(
-      ordenada.map((b) => ({ id: b.c.id, cobrado: b.cobrado })),
-      rep.total,
+      automaticas.map((b) => ({ id: b.c.id, cobrado: b.cobrado })),
+      resto,
     );
     for (const [id, v] of partes) parteDoRepasse.set(id, v);
-    if (ordenada.length > 1) ordenada.forEach((b) => compartilhado.add(b.c.id));
+    if (lista.length > 1) lista.forEach((b) => compartilhado.add(b.c.id));
   }
 
   const linhas: LinhaConciliada[] = base.map(({ c, codigo, cobrado, cobradoOrigem }) => {
@@ -364,37 +386,39 @@ export async function visaoGeral() {
     orderBy: { nome: "asc" },
   });
 
-  return Promise.all(
-    clientes.map(async (cl) => {
-      const [{ linhas, semProducao }, consultas, ultima, convPend, profPend] = await Promise.all([
-        montarConciliacao(cl.id),
-        prisma.producaoConsulta.count({ where: { clienteId: cl.id } }),
-        prisma.producaoLote.findFirst({
-          where: { clienteId: cl.id, status: "IMPORTADO" },
-          orderBy: { createdAt: "desc" },
-          select: { createdAt: true, origem: true },
-        }),
-        prisma.producaoCirurgia.count({ where: { clienteId: cl.id, operadoraId: null } }),
-        prisma.producaoCirurgia.count({ where: { clienteId: cl.id, profissionalId: null } }),
-      ]);
-      const t = totalizar(linhas);
-      return {
-        clienteId: cl.id,
-        nome: cl.nome,
-        consultas,
-        cirurgias: linhas.length,
-        executadas: linhas.filter((l) => l.status === "EXECUTADA").length,
-        cobrado: t.cobrado,
-        recebido: t.recebido,
-        glosa: t.glosa,
-        aReceber: t.aReceber,
-        recebidoSemProducao: semProducao.total,
-        semValor: t.porStatus.SEM_VALOR ?? 0,
-        semAtendimento: t.porStatus.SEM_ATENDIMENTO ?? 0,
-        /** Cirurgias com convênio ou médico ainda sem de-para. */
-        pendenciasDePara: convPend + profPend,
-        ultimaImportacao: ultima ? { em: ultima.createdAt, origem: ultima.origem } : null,
-      };
-    }),
-  );
+  // UM cliente por vez: cada um já abre ~8 consultas em paralelo, e o pool é de 13 conexões
+  // (esgotamento já visto em produção). Somar N clientes em paralelo derrubaria o pool.
+  const saida = [];
+  for (const cl of clientes) {
+    const [{ linhas, semProducao }, consultas, ultima, convPend, profPend] = await Promise.all([
+      montarConciliacao(cl.id),
+      prisma.producaoConsulta.count({ where: { clienteId: cl.id } }),
+      prisma.producaoLote.findFirst({
+        where: { clienteId: cl.id, status: "IMPORTADO" },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true, origem: true },
+      }),
+      prisma.producaoCirurgia.count({ where: { clienteId: cl.id, operadoraId: null } }),
+      prisma.producaoCirurgia.count({ where: { clienteId: cl.id, profissionalId: null } }),
+    ]);
+    const t = totalizar(linhas);
+    saida.push({
+      clienteId: cl.id,
+      nome: cl.nome,
+      consultas,
+      cirurgias: linhas.length,
+      executadas: linhas.filter((l) => l.status === "EXECUTADA").length,
+      cobrado: t.cobrado,
+      recebido: t.recebido,
+      glosa: t.glosa,
+      aReceber: t.aReceber,
+      recebidoSemProducao: somar(semProducao.total, semProducao.naoAtribuido),
+      semValor: t.porStatus.SEM_VALOR ?? 0,
+      semAtendimento: t.porStatus.SEM_ATENDIMENTO ?? 0,
+      /** Cirurgias com convênio ou médico ainda sem de-para. */
+      pendenciasDePara: convPend + profPend,
+      ultimaImportacao: ultima ? { em: ultima.createdAt, origem: ultima.origem } : null,
+    });
+  }
+  return saida;
 }
