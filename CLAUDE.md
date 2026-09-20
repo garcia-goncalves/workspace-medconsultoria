@@ -50,6 +50,21 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - ⚠️ **NÃO ESTÁ NO AR.** A homologação segue com a Fase 2a; publicar a 2b depende dos segredos
   abaixo.
 
+### O polimento que faltava na tela
+
+- **Trocar de aba apagava os filtros da Conciliação.** `TabsContent` **desmontava** o painel
+  inativo, então ir a "Consultas" e voltar zerava competência, status, situação, operadora, busca e
+  página — quem confere mês a mês recomeçava do zero sem entender por quê. O componente
+  compartilhado ganhou `manterMontado`, com **montagem preguiçosa**: o painel só nasce quando a
+  aba é visitada, e a partir daí fica escondido em vez de ser destruído. ⚠️ Montar tudo de saída
+  resolveria e criaria outro problema — as consultas do painel escondido sairiam sem ninguém pedir.
+- **O filtro de operadora ficava vazio sem explicar.** A lista vem do resumo, que só roda com uma
+  competência escolhida; sem ela o campo tinha uma opção só, parecendo que a clínica não tem
+  operadora nenhuma. Agora ele fica desabilitado e **diz o que falta**.
+- Mais dois: o alvo de toque da lixeira do de-para (36px onde a própria feature já usa 44) e um
+  `title` num elemento não interativo que fazia o leitor de tela **ler duas vezes** o texto que já
+  está escrito logo abaixo.
+
 ### Fechar a competência — "maio está conferido"
 
 > **Leia** `docs/superpowers/specs/2026-09-20-conciliacao-fechamento-de-competencia-design.md`.

@@ -172,7 +172,10 @@ export function ConciliacaoPage() {
               <TabsTrigger value="cirurgias">Cirurgias (TASY)</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="cirurgias">
+            {/* `manterMontado`: trocar para "Consultas" e voltar zerava competência, status,
+                situação, operadora, busca e página — quem confere mês a mês recomeçava do zero.
+                A montagem continua preguiçosa: só nasce quando a aba é aberta. */}
+            <TabsContent value="cirurgias" manterMontado>
               {/* `key`: trocar de cliente recria o painel e zera os filtros — filtro herdado de outra
                   clínica faria a tela dizer "nenhuma cirurgia" sem motivo visível. */}
               <CirurgiasPainel key={clienteId} clienteId={clienteId} clienteNome={nomeDoCliente} />
@@ -228,6 +231,10 @@ export function ConciliacaoPage() {
                     <Select
                       id="f-operadora"
                       value={operadoraId}
+                      // ⚠️ A lista de operadoras vem do RESUMO, que só roda com uma competência
+                      // escolhida. Sem ela o campo ficava com uma opção só ("Todas"), parecendo
+                      // que a clínica não tem operadora nenhuma — em vez de dizer o que falta.
+                      disabled={!competencia}
                       onChange={(e) => {
                         setOperadoraId(e.target.value);
                         setPagina(1);
@@ -242,6 +249,7 @@ export function ConciliacaoPage() {
                           </option>
                         ))}
                     </Select>
+                    {!competencia && <p className="text-xs text-muted-foreground">Escolha uma competência para filtrar por operadora.</p>}
                   </div>
                   <div className="w-56 space-y-1">
                     <Label htmlFor="f-busca">Paciente</Label>

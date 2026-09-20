@@ -411,6 +411,34 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
     await expect(page.getByRole("button", { name: /fechar o mês/i })).toBeVisible({ timeout: 15_000 });
   });
 
+  test("trocar de aba não apaga os filtros da conciliação", async ({ page }) => {
+    await page.goto("/conciliacao");
+    await escolherNoCombo(page, /cliente/i, clienteNome);
+    await page.getByRole("tab", { name: /cirurgias/i }).click();
+
+    // Um filtro qualquer, escolhido a dedo para ser visível depois da volta.
+    await page.getByLabel(/recurso de glosa/i).selectOption("SEM_RECURSO");
+    await expect(page.getByLabel(/recurso de glosa/i)).toHaveValue("SEM_RECURSO");
+
+    await page.getByRole("tab", { name: /consultas/i }).click();
+    await expect(page.getByLabel(/^tipo$/i)).toBeVisible();
+
+    await page.getByRole("tab", { name: /cirurgias/i }).click();
+    // ⚠️ Antes o painel era DESMONTADO ao sair da aba, e voltar zerava competência, status,
+    // situação, operadora, busca e página — quem confere mês a mês recomeçava do zero.
+    await expect(page.getByLabel(/recurso de glosa/i)).toHaveValue("SEM_RECURSO");
+  });
+
+  test("sem competência escolhida, o filtro de operadora explica por que está vazio", async ({ page }) => {
+    await page.goto("/conciliacao");
+    await escolherNoCombo(page, /cliente/i, clienteNome);
+
+    // Aba Consultas, competência "Todas" (o padrão): o filtro de operadora não tem o que oferecer.
+    const operadora = page.getByLabel(/operadora/i);
+    await expect(operadora).toBeDisabled();
+    await expect(page.getByText(/escolha uma competência para filtrar por operadora/i)).toBeVisible();
+  });
+
   test("arquivo que não é o relatório é recusado com recado em português", async ({ page }) => {
     await page.goto("/conciliacao");
     await escolherNoCombo(page, /cliente/i, clienteNome);
