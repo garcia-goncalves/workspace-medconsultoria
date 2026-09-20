@@ -10,6 +10,12 @@ name: Deploy OVH
 # `confirmar` aceita:
 #   SO_IMAGEM  → constrói e publica a imagem, e PARA. Não toca no servidor.
 #   PUBLICAR   → constrói, publica e sobe no VPS.
+#
+# PUBLICAR exige QUATRO segredos no repositório — `SO_IMAGEM` não exige nenhum:
+#   VPS_HOST · VPS_USER · VPS_PORT · VPS_SSH_KEY
+# ⚠️ Os três primeiros são dados de acesso e por isso NÃO estão escritos em lugar nenhum do
+# repositório, que é público (ADR-154). `VPS_PORT` existe como segredo separado justamente
+# porque a porta deste VPS não é a 22.
 
 on:
   workflow_dispatch:
@@ -71,6 +77,11 @@ jobs:
     needs: imagem
     runs-on: ubuntu-latest
     environment: producao
+    # O pacote no GHCR nasce PRIVADO, mesmo vindo de repositório público. Sem esta permissão o
+    # `docker login` do passo 3 recebe um token que não lê pacote, e o `pull` falha com "denied".
+    permissions:
+      contents: read
+      packages: read
     env:
       # Onde o projeto mora de verdade na VPS compartilhada (conferido em 18/09/2026). Relativo de
       # propósito: o ssh já começa na home, e `~` entre as aspas simples do `cd` não se expande.
@@ -81,14 +92,20 @@ jobs:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_key && chmod 600 ~/.ssh/vps_key
+          # ⚠️ O SSH deste VPS NÃO é na porta 22 — e a porta não pode ser escrita aqui, porque o
+          # repositório é público. Sem o segredo `VPS_PORT` o passo falha dizendo isso, em vez de
+          # tentar a 22 e morrer em "Connection refused" trinta segundos depois.
+          [ -n "${VPS_PORT:-}" ] || { echo "!! falta o segredo VPS_PORT (gh secret set VPS_PORT)"; exit 1; }
           cat > ~/.ssh/config <<CFG
           Host vps
             HostName $VPS_HOST
             User $VPS_USER
+            Port $VPS_PORT
             IdentityFile ~/.ssh/vps_key
             IdentitiesOnly yes
             StrictHostKeyChecking accept-new
@@ -104,8 +121,15 @@ jobs:
           set -euo pipefail
           ssh vps "cd '$ALVO' && sed -i 's|^APP_IMAGE=.*|APP_IMAGE=${{ needs.imagem.outputs.tag }}|' .env && grep '^APP_IMAGE=' .env"
 
+      # O VPS não guarda credencial do GHCR de propósito (é máquina compartilhada com outros
+      # projetos do dono). Ele recebe o token EFÊMERO deste run, por stdin — nunca na linha de
+      # comando, que fica no histórico e no `ps` de quem mais estiver na máquina —, baixa a
+      # imagem, e o `docker logout` do fim devolve a máquina ao estado anterior.
       - name: 3/5 · Baixar a imagem
-        run: ssh vps "cd '$ALVO' && docker compose pull app"
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" | ssh vps "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+          ssh vps "cd '$ALVO' && docker compose pull app"
 
       # Passo PRÓPRIO, antes de o tráfego trocar — e em container descartável. Encadear isto com
       # o resto foi o que, na esteira antiga, deixava o deploy dizer "concluído" com a migration
@@ -138,6 +162,8 @@ jobs:
           done
           echo "NO AR: https://$DOMINIO"
 
-      - name: Limpar a chave do runner
+      - name: Limpar a chave do runner e a credencial deixada no VPS
         if: always()
-        run: rm -f ~/.ssh/vps_key ~/.ssh/config
+        run: |
+          ssh vps "docker logout ghcr.io" || true
+          rm -f ~/.ssh/vps_key ~/.ssh/config
