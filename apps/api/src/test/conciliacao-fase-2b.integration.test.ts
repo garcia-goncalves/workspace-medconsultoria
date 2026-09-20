@@ -69,6 +69,14 @@ beforeAll(async () => {
   await prisma.profissional.create({ data: { clienteId, nome: "Sergio Almeida de Oliveira", conselho: "CRM" } });
   const u = await prisma.user.create({ data: { nome: `F ${SUFIXO}`, email: `f2b-${SUFIXO}@teste.local`, role: "FUNCIONARIO" } });
   usuarioId = u.id;
+  // ⚠️ A Conciliação exige que o funcionário seja o RESPONSÁVEL pelo cliente (a régua do Painel
+  // do Cliente, ADR-128). Sem esta linha o `caller` leva FORBIDDEN em toda rota — que é a trava
+  // funcionando, não defeito do teste.
+  //
+  // Os DOIS clientes, de propósito: o teste do `editarCirurgia` com o cliente errado prova a posse
+  // conferida DENTRO do serviço (`WHERE clienteId`). Se a trava de fora barrasse antes, aquele
+  // teste passaria a verde sem exercer nada — a trava nova escondendo a antiga.
+  await prisma.cliente.updateMany({ where: { id: { in: [clienteId, outroClienteId] } }, data: { responsavelId: usuarioId } });
   caller = appRouter.createCaller({ user: { id: u.id, role: "FUNCIONARIO", nome: u.nome, email: u.email }, req: {}, res: {} } as never);
 
   // 101 e 102 no MESMO atendimento (acontece no arquivo real); 103 sem atendimento; 104 reservada.

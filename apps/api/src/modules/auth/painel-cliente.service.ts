@@ -36,8 +36,7 @@ import { createSession, destroySession } from "../../lib/session.js";
  * pelo cliente.
  */
 export const SUPORTE_SO_LEITURA =
-  "Você está vendo o Portal como o cliente, em modo de suporte — só leitura. " +
-  "Para agir, volte ao seu acesso e use as telas da equipe.";
+  "Você está vendo o Portal como o cliente, em modo de suporte — só leitura. " + "Para agir, volte ao seu acesso e use as telas da equipe.";
 
 /**
  * Quem pode abrir o painel de um cliente.
@@ -49,6 +48,23 @@ export async function assertPodeVerOPainel(ator: SessionUser, clienteId: string)
   if (!hasRoleLevel(ator.role, "FUNCIONARIO")) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito à equipe." });
   }
+  await assertClienteSobSuaResponsabilidade(ator, clienteId, "abrir o painel");
+}
+
+/**
+ * "Este cliente é seu?" — a metade da régua acima que outras telas também precisam.
+ *
+ * ADMIN e acima passam sempre; o funcionário só nos clientes sob a responsabilidade dele. Existe
+ * como função própria porque a **Conciliação** (o dinheiro que cada clínica cobrou e recebeu,
+ * paciente por paciente) precisa exatamente disto, e reescrever a mesma regra lá faria as duas
+ * divergirem na primeira mudança — o modo de falha da ADR-133.
+ *
+ * `oQue` entra na frase para o recado dizer o que a pessoa tentou fazer ("abrir o painel",
+ * "abrir a conciliação"), em vez de um "sem permissão" que não ensina nada.
+ *
+ * ⚠️ Não confere papel: quem chama já passou por `funcionarioProcedure` (ou pela linha acima).
+ */
+export async function assertClienteSobSuaResponsabilidade(ator: SessionUser, clienteId: string, oQue: string) {
   if (hasRoleLevel(ator.role, "ADMIN")) return;
   const meu = await prisma.cliente.findFirst({
     where: { id: clienteId, responsavelId: ator.id, deletedAt: null },
@@ -57,9 +73,19 @@ export async function assertPodeVerOPainel(ator: SessionUser, clienteId: string)
   if (!meu) {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "Você só pode abrir o painel dos clientes sob a sua responsabilidade.",
+      message: `Você só pode ${oQue} dos clientes sob a sua responsabilidade.`,
     });
   }
+}
+
+/**
+ * Os clientes que ESTA pessoa pode ver numa lista de vários clientes.
+ *
+ * `null` = todos (ADMIN+). Devolver o pedaço do `where` em vez de um booleano deixa o filtro
+ * explícito dentro da consulta, em vez de depender de quem chama lembrar de aplicá-lo.
+ */
+export function filtroDeClientesVisiveis(ator: SessionUser): { responsavelId: string } | null {
+  return hasRoleLevel(ator.role, "ADMIN") ? null : { responsavelId: ator.id };
 }
 
 /**
@@ -124,10 +150,7 @@ export async function abrirPainelDoCliente(
  * Encerra a sessão de suporte e devolve a sessão original do operador (ou `null` se ela já tiver
  * expirado, caso em que a tela manda para o login).
  */
-export async function voltarDoPainel(
-  atual: SessionUser,
-  sidAtual: string | undefined,
-): Promise<{ sid: string | null }> {
+export async function voltarDoPainel(atual: SessionUser, sidAtual: string | undefined): Promise<{ sid: string | null }> {
   if (!atual.operador) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Você não está em uma sessão de suporte." });
   }

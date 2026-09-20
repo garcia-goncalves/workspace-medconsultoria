@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { prisma } from "@app/db";
 import { router, funcionarioProcedure } from "../../trpc/trpc.js";
+import { assertClienteSobSuaResponsabilidade, filtroDeClientesVisiveis } from "../auth/painel-cliente.service.js";
 import { isConciliacaoEnabled } from "../../config.js";
 import * as service from "./conciliacao.service.js";
 import * as painel from "./conciliacao-painel.service.js";
@@ -19,10 +21,30 @@ import * as exportacao from "./exportacao.js";
  * de 20 MB e checagem de posse) e o que chega ao tRPC é o `arquivoId`. Assim o original fica
  * guardado no acervo do cliente, como a spec exige, e binário não passa por JSON.
  *
- * RBAC: `funcionarioProcedure` (FUNCIONARIO+). A Thaís precisa operar isto no dia a dia; o
- * Financeiro é ADMIN por lidar com dinheiro. Como há NOME de paciente na tela, subir para ADMIN é
- * uma palavra — é a pergunta 3 da §11 da spec, aguardando o Sérgio.
+ * RBAC: `conciliacaoProcedure` — FUNCIONARIO+ **e** dono daquele cliente. Ver logo abaixo.
  */
+
+/**
+ * FUNCIONARIO+ e responsável por AQUELE cliente.
+ *
+ * ⚠️ Era `funcionarioProcedure` puro, e isso dava a qualquer pessoa da equipe o dinheiro de
+ * TODOS os clientes — quanto cada clínica cobrou, recebeu e teve glosado, com nome de paciente
+ * ao lado. A régua nova não é nova: é a mesma do Painel do Cliente (ADR-128), que já vale para
+ * o dado pessoal, chegando à tela que tem o dado financeiro.
+ *
+ * ⚠️ **Mora no PROCEDURE, não dentro de cada serviço.** Espalhada pelos serviços, ela exigiria
+ * ser lembrada em toda rota nova — e a esquecida seria justamente a que vaza. Aqui rota nova
+ * nasce coberta, e há teste que reprova rota deste router escrita com `funcionarioProcedure`.
+ *
+ * A conferência lê o input CRU, antes do Zod da rota: depender do input já validado faria uma
+ * rota que mudasse o próprio formato rodar sem trava, sem erro e sem log. Rota SEM `clienteId`
+ * (a visão geral) passa por aqui e filtra por conta própria — ela lista vários clientes.
+ */
+const conciliacaoProcedure = funcionarioProcedure.use(async ({ ctx, next, getRawInput }) => {
+  const bruto = z.object({ clienteId: z.string().min(1) }).safeParse(await getRawInput());
+  if (bruto.success) await assertClienteSobSuaResponsabilidade(ctx.user, bruto.data.clienteId, "abrir a conciliação");
+  return next({ ctx });
+});
 
 const clienteId = z.string().min(1);
 /** `AAAA-MM`. Validar aqui evita que um mês inventado crie um lote órfão que ninguém acha. */
@@ -47,14 +69,34 @@ const statusConciliacao = z
 
 export const conciliacaoRouter = router({
   /** A tela pergunta antes de oferecer o botão de importar. */
-  disponivel: funcionarioProcedure.query(() => ({ ligado: isConciliacaoEnabled })),
+  disponivel: conciliacaoProcedure.query(() => ({ ligado: isConciliacaoEnabled })),
 
-  previsualizar: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
+  /**
+   * Os clientes que ESTA pessoa pode conciliar — a lista do seletor da tela.
+   *
+   * ⚠️ Não use `clientes.list` aqui: ela devolve a base inteira para qualquer funcionário (é
+   * assim no resto do sistema, de propósito). No seletor da Conciliação isso ofereceria
+   * justamente os clientes que o servidor recusa dois cliques depois — e a pessoa leria o
+   * "sem permissão" como defeito do sistema, não como regra.
+   *
+   * Lista TODOS os clientes visíveis, inclusive quem ainda não teve importação nenhuma: é por
+   * aqui que se escolhe o cliente para a PRIMEIRA importação. Quem já tem produção aparece na
+   * visão geral; quem não tem, só aqui.
+   */
+  clientes: conciliacaoProcedure.query(({ ctx }) =>
+    prisma.cliente.findMany({
+      where: { deletedAt: null, ...(filtroDeClientesVisiveis(ctx.user) ?? {}) },
+      select: { id: true, nome: true },
+      orderBy: { nome: "asc" },
+    }),
+  ),
+
+  previsualizar: conciliacaoProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
     const { bytes } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
     return service.previsualizarImportacao({ clienteId: input.clienteId, bytes });
   }),
 
-  importar: funcionarioProcedure
+  importar: conciliacaoProcedure
     .input(
       z.object({
         clienteId,
@@ -77,9 +119,9 @@ export const conciliacaoRouter = router({
       });
     }),
 
-  competencias: funcionarioProcedure.input(z.object({ clienteId })).query(({ input }) => painel.competenciasImportadas(input.clienteId)),
+  competencias: conciliacaoProcedure.input(z.object({ clienteId })).query(({ input }) => painel.competenciasImportadas(input.clienteId)),
 
-  producao: funcionarioProcedure
+  producao: conciliacaoProcedure
     .input(
       z.object({
         clienteId,
@@ -93,13 +135,13 @@ export const conciliacaoRouter = router({
     )
     .query(({ input }) => painel.listarProducao(input)),
 
-  resumo: funcionarioProcedure
+  resumo: conciliacaoProcedure
     .input(z.object({ clienteId, competencia }))
     .query(({ input }) => painel.resumoDaCompetencia(input.clienteId, input.competencia)),
 
-  pendencias: funcionarioProcedure.input(z.object({ clienteId })).query(({ input }) => painel.pendenciasDePara(input.clienteId)),
+  pendencias: conciliacaoProcedure.input(z.object({ clienteId })).query(({ input }) => painel.pendenciasDePara(input.clienteId)),
 
-  ligarConvenio: funcionarioProcedure
+  ligarConvenio: conciliacaoProcedure
     .input(
       z.object({
         clienteId,
@@ -111,7 +153,7 @@ export const conciliacaoRouter = router({
     )
     .mutation(({ input }) => service.ligarConvenio(input)),
 
-  ligarProfissional: funcionarioProcedure
+  ligarProfissional: conciliacaoProcedure
     .input(z.object({ clienteId, textoBruto: z.string().min(1), profissionalId: z.string().min(1) }))
     .mutation(({ input }) => service.ligarProfissional(input)),
 
@@ -119,12 +161,12 @@ export const conciliacaoRouter = router({
   // Mesmas regras de acesso e de privacidade das consultas. Sem competência na importação: o
   // TASY manda um PERÍODO e a cirurgia é identificada pelo próprio número.
 
-  previsualizarCirurgias: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
+  previsualizarCirurgias: conciliacaoProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
     const { bytes } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
     return cirurgias.previsualizarCirurgias({ clienteId: input.clienteId, bytes });
   }),
 
-  importarCirurgias: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input, ctx }) => {
+  importarCirurgias: conciliacaoProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input, ctx }) => {
     const { bytes, nome } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
     return cirurgias.importarCirurgias({
       clienteId: input.clienteId,
@@ -135,9 +177,9 @@ export const conciliacaoRouter = router({
     });
   }),
 
-  mesesCirurgias: funcionarioProcedure.input(z.object({ clienteId })).query(({ input }) => cirurgias.mesesDasCirurgias(input.clienteId)),
+  mesesCirurgias: conciliacaoProcedure.input(z.object({ clienteId })).query(({ input }) => cirurgias.mesesDasCirurgias(input.clienteId)),
 
-  cirurgias: funcionarioProcedure
+  cirurgias: conciliacaoProcedure
     .input(
       z.object({
         clienteId,
@@ -152,16 +194,21 @@ export const conciliacaoRouter = router({
     )
     .query(({ input }) => cirurgias.listarCirurgias(input)),
 
-  resumoCirurgias: funcionarioProcedure
+  resumoCirurgias: conciliacaoProcedure
     .input(z.object({ clienteId, competencia: competencia.optional() }))
     .query(({ input }) => cirurgias.resumoDasCirurgias(input.clienteId, input.competencia)),
 
   // ─── Fase 2b: o dinheiro (spec 2026-09-18-conciliacao-fase-2b-design.md) ───────────────────
 
   /** Todos os clientes com produção, com o placar de cada um. */
-  visaoGeral: funcionarioProcedure.query(() => financeira.visaoGeral()),
+  /**
+   * A única rota sem `clienteId` — e por isso a única que filtra por conta própria. ADMIN+ vê
+   * todos os clientes; o funcionário vê os dele. Sem este filtro, a tela que existe para dar a
+   * visão do conjunto seria o caminho mais curto para contornar a trava de cada cliente.
+   */
+  visaoGeral: conciliacaoProcedure.query(({ ctx }) => financeira.visaoGeral(filtroDeClientesVisiveis(ctx.user))),
 
-  editarCirurgia: funcionarioProcedure
+  editarCirurgia: conciliacaoProcedure
     .input(
       z.object({
         clienteId,
@@ -179,9 +226,9 @@ export const conciliacaoRouter = router({
       return financeira.editarCirurgia(cid, cirurgiaId, edicao);
     }),
 
-  procedimentos: funcionarioProcedure.input(z.object({ clienteId })).query(({ input }) => financeira.listarProcedimentos(input.clienteId)),
+  procedimentos: conciliacaoProcedure.input(z.object({ clienteId })).query(({ input }) => financeira.listarProcedimentos(input.clienteId)),
 
-  salvarProcedimento: funcionarioProcedure
+  salvarProcedimento: conciliacaoProcedure
     .input(
       z.object({
         clienteId,
@@ -193,12 +240,12 @@ export const conciliacaoRouter = router({
     )
     .mutation(({ input }) => financeira.salvarProcedimento(input)),
 
-  previsualizarRepasse: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
+  previsualizarRepasse: conciliacaoProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
     const { bytes } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
     return recebido.previsualizarRepasse({ clienteId: input.clienteId, bytes });
   }),
 
-  importarRepasse: funcionarioProcedure
+  importarRepasse: conciliacaoProcedure
     .input(z.object({ clienteId, arquivoId: z.string().min(1), substituir: z.boolean().optional() }))
     .mutation(async ({ input, ctx }) => {
       const { bytes, nome } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
@@ -212,16 +259,16 @@ export const conciliacaoRouter = router({
       });
     }),
 
-  recebidoSemProducao: funcionarioProcedure
+  recebidoSemProducao: conciliacaoProcedure
     .input(z.object({ clienteId }))
     .query(({ input }) => recebido.listarRecebidoSemProducao(input.clienteId)),
 
-  previsualizarPlanilha: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
+  previsualizarPlanilha: conciliacaoProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input }) => {
     const { bytes } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
     return recebido.previsualizarPlanilha({ clienteId: input.clienteId, bytes });
   }),
 
-  importarPlanilha: funcionarioProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input, ctx }) => {
+  importarPlanilha: conciliacaoProcedure.input(z.object({ clienteId, arquivoId: z.string().min(1) })).mutation(async ({ input, ctx }) => {
     const { bytes, nome } = await painel.carregarArquivoDoCliente(input.clienteId, input.arquivoId);
     return recebido.importarPlanilha({
       clienteId: input.clienteId,
@@ -236,7 +283,7 @@ export const conciliacaoRouter = router({
    * As três planilhas, como texto CSV. É MUTATION de propósito: leva nome de paciente, e por
    * query ele sairia na URL (e no log) — a mesma razão das queries daqui irem por POST.
    */
-  exportar: funcionarioProcedure
+  exportar: conciliacaoProcedure
     .input(z.object({ clienteId, competencia: competencia.optional(), statusConciliacao }))
     .mutation(async ({ input }) => {
       const linhas = await cirurgias.linhasParaExportar(input);

@@ -50,7 +50,10 @@ export function ConciliacaoPage() {
 
   const utils = trpc.useUtils();
   const disponivel = trpc.conciliacao.disponivel.useQuery();
-  const clientes = trpc.clientes.list.useQuery({});
+  // ⚠️ `conciliacao.clientes`, e não `clientes.list`: aquela devolve a base inteira a qualquer
+  // funcionário, e o seletor passaria a oferecer justamente os clientes que o servidor recusa
+  // dois cliques depois. A lista tem de ser a mesma que a trava do servidor aceita.
+  const clientes = trpc.conciliacao.clientes.useQuery();
 
   const habilitado = !!clienteId;
   // As consultas da aba Consultas só rodam com ela aberta; as pendências valem para as duas.

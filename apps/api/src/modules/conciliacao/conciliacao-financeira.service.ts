@@ -379,9 +379,12 @@ export async function salvarProcedimento(e: {
 
 // ─── Visão geral: todos os clientes ─────────────────────────────────────────────────────────────
 
-export async function visaoGeral() {
+export async function visaoGeral(soDestes: { responsavelId: string } | null = null) {
   const clientes = await prisma.cliente.findMany({
-    where: { deletedAt: null, producaoLotes: { some: {} } },
+    // ⚠️ `soDestes` vem do papel de quem pediu (`filtroDeClientesVisiveis`), NUNCA do pedido:
+    // funcionário vê os clientes dele, ADMIN+ vê todos. Sem isto, esta tela — que existe para
+    // dar a visão do conjunto — seria o caminho mais curto para contornar a trava por cliente.
+    where: { deletedAt: null, producaoLotes: { some: {} }, ...(soDestes ?? {}) },
     select: { id: true, nome: true },
     orderBy: { nome: "asc" },
   });
