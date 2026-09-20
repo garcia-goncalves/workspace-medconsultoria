@@ -313,6 +313,31 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
 
     // E nada disso trouxe o prontuário para a tela.
     expect(await page.content(), "o prontuário vazou para a tela").not.toContain("PRONTUARIO-SINTETICO");
+
+    // ── 4. A MESMA TELA, CHEIA DE DADO, NO CELULAR ────────────────────────────────────────────
+    //
+    // ⚠️ A varredura de responsividade (`responsividade-total.spec.ts`) percorre `/conciliacao`
+    // com a tela VAZIA — nenhum cliente escolhido, nenhuma cirurgia, nenhum modal. E o defeito
+    // de layout desta casa mora justamente no oposto: a lição de 02/09 é que a régua fica verde
+    // porque a CI semeia banco novo e a tela nasce sem nada. Aqui a tela está carregada de
+    // verdade, então mede-se aqui.
+    //
+    // A conferência é a do DOCUMENTO, de propósito: a varredura do outro arquivo é que faz a
+    // medição elemento a elemento (com as isenções de rolagem por desenho e texto truncado).
+    // Repetir aquele motor aqui seria a mesma régua em dois lugares.
+    await page.setViewportSize({ width: 360, height: 800 });
+    const sobra = async () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(await sobra(), "a tela de conciliação cheia vaza para o lado a 360px").toBeLessThanOrEqual(2);
+
+    // Os dois modais que só existem com dado na tela — o de Ajustes já mostrou, em 11/09, que
+    // modal com contador de 2 dígitos estoura a 360px sem ninguém perceber.
+    for (const botao of [/procedimentos e valores/i, /^conciliar a cirurgia/i]) {
+      await page.getByRole("button", { name: botao }).first().click();
+      await expect(page.getByRole("dialog")).toBeVisible({ timeout: 10_000 });
+      expect(await sobra(), `o modal ${String(botao)} vaza para o lado a 360px`).toBeLessThanOrEqual(2);
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+    }
   });
 
   test("arquivo que não é o relatório é recusado com recado em português", async ({ page }) => {
