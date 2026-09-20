@@ -382,6 +382,35 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
     await expect(page.getByRole("button", { name: /recurso da cirurgia .* em recurso/i }).first()).toBeVisible({ timeout: 15_000 });
   });
 
+  test("fechar a competência: o mês conferido trava a edição, e reabrir devolve", async ({ page }) => {
+    await page.goto("/conciliacao");
+    await escolherNoCombo(page, /cliente/i, clienteNome);
+    await page.getByRole("tab", { name: /cirurgias/i }).click();
+
+    // O selo só aparece com um MÊS escolhido — fechar "todos os meses" não quer dizer nada.
+    await expect(page.getByRole("button", { name: /fechar o mês/i })).toHaveCount(0);
+    await page.getByLabel(/^mês$/i).selectOption({ index: 1 });
+
+    await page.getByRole("button", { name: /fechar o mês/i }).click();
+    // ⚠️ Um trecho de UM elemento: o selo é "<mês> conferido em <data> por <quem>" num <span> e o
+    // "— editar … está bloqueado" em outro, e `getByText` casa dentro de um elemento só.
+    await expect(page.getByText(/editar cirurgia ou recurso deste mês está bloqueado/i)).toBeVisible({ timeout: 15_000 });
+
+    // ⚠️ O botão de editar CONTINUA na tela: a recusa explica, e tela que esconde não ensina.
+    await page
+      .getByRole("button", { name: /conciliar a cirurgia/i })
+      .first()
+      .click();
+    const modal = page.getByRole("dialog");
+    await modal.getByRole("button", { name: /^salvar$/i }).click();
+    await expect(page.getByText(/conferida e fechada/i).first()).toBeVisible({ timeout: 15_000 });
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    await page.getByRole("button", { name: /reabrir/i }).click();
+    await expect(page.getByRole("button", { name: /fechar o mês/i })).toBeVisible({ timeout: 15_000 });
+  });
+
   test("arquivo que não é o relatório é recusado com recado em português", async ({ page }) => {
     await page.goto("/conciliacao");
     await escolherNoCombo(page, /cliente/i, clienteNome);

@@ -548,3 +548,97 @@ describe("recurso de glosa", () => {
     ).rejects.toThrow(/não encontrado/i);
   });
 });
+
+/**
+ * FECHAR A COMPETÊNCIA — "este mês está conferido".
+ *
+ * ⚠️ A asserção que mais importa é a da §2 da spec: fechar **não congela número nenhum**. O mês
+ * fechado continua sendo calculado, e o que o fechamento guarda é um RETRATO — para dizer que os
+ * números mudaram depois, não para exibi-los no lugar do cálculo.
+ */
+describe("fechar a competência", () => {
+  const MES = "2026-05";
+  let callerAdmin: ReturnType<typeof appRouter.createCaller>;
+  let adminId = "";
+  let alvo = "";
+
+  beforeAll(async () => {
+    const a = await prisma.user.create({
+      data: { nome: `Chefe ${SUFIXO}`, email: `chefe-2b-${SUFIXO}@teste.local`, role: "ADMIN" },
+    });
+    adminId = a.id;
+    callerAdmin = appRouter.createCaller({
+      user: { id: a.id, role: "ADMIN", nome: a.nome, email: a.email },
+      req: {},
+      res: {},
+    } as never);
+    alvo = (await caller.conciliacao.cirurgias({ clienteId, competencia: MES })).linhas[0]!.id;
+  });
+
+  afterAll(async () => {
+    await prisma.competenciaFechada.deleteMany({ where: { clienteId } });
+    await prisma.user.deleteMany({ where: { id: adminId } });
+  });
+
+  it("o FUNCIONÁRIO concilia o mês, mas não declara que ele está conferido", async () => {
+    await expect(caller.conciliacao.fecharCompetencia({ clienteId, competencia: MES })).rejects.toThrow(/responde pela conta/i);
+  });
+
+  it("o ADMIN fecha, e o retrato guarda o que foi conferido", async () => {
+    const antes = (await caller.conciliacao.cirurgias({ clienteId, competencia: MES })).totais;
+    await callerAdmin.conciliacao.fecharCompetencia({ clienteId, competencia: MES, observacao: "conferido com a Juliana" });
+
+    const [f] = await caller.conciliacao.competenciasFechadas({ clienteId });
+    expect(f).toMatchObject({ competencia: MES, fechadoPor: expect.stringContaining("Chefe"), divergiu: false });
+    expect(f!.retrato.cobrado).toBe(antes.cobrado);
+    expect(f!.retrato.glosa).toBe(antes.glosa);
+  });
+
+  it("⚠️ e o mês fechado NÃO muda por edição manual — nem a cirurgia, nem o recurso dela", async () => {
+    await expect(caller.conciliacao.editarCirurgia({ clienteId, cirurgiaId: alvo, observacao: "x" })).rejects.toThrow(
+      /conferida e fechada/i,
+    );
+    await expect(caller.conciliacao.abrirRecurso({ clienteId, cirurgiaId: alvo, abertoEm: "2026-09-01" })).rejects.toThrow(
+      /conferida e fechada/i,
+    );
+  });
+
+  it("⚠️ mas o número CONTINUA sendo calculado — fechar não congela nada", async () => {
+    // Mudar o de-para do procedimento muda o cobrado de todas as cirurgias dele, inclusive as do
+    // mês fechado. É o comportamento certo (o dinheiro é o de hoje) e a razão de o retrato existir.
+    await callerAdmin.conciliacao.salvarProcedimento({
+      clienteId,
+      textoBruto: "Revascularização Miocárdica",
+      // ⚠️ Pelo de-para DA OPERADORA: o valor por operadora ganha do padrão (Fase 2b), então
+      // mexer no padrão não moveria nada — e o teste passaria verde sem exercer a divergência.
+      operadoraId: unimedId,
+      codigo: "40020045",
+      valor: 11000,
+    });
+
+    const [f] = await caller.conciliacao.competenciasFechadas({ clienteId });
+    expect(f!.divergiu, "o mês mudou depois de fechado e ninguém ficaria sabendo").toBe(true);
+    expect(f!.agora.cobrado).not.toBe(f!.retrato.cobrado);
+    // ⚠️ E o retrato NÃO foi reescrito: ele é a memória de quando se conferiu.
+    expect(f!.retrato.cobrado).toBeGreaterThan(0);
+  });
+
+  it("reabrir devolve a edição, e não apaga quem conferiu", async () => {
+    await callerAdmin.conciliacao.reabrirCompetencia({ clienteId, competencia: MES });
+    await caller.conciliacao.editarCirurgia({ clienteId, cirurgiaId: alvo, observacao: "reaberto e editado" });
+
+    // Some da lista de fechadas (é isso que "reaberto" significa para a tela)…
+    expect(await caller.conciliacao.competenciasFechadas({ clienteId })).toEqual([]);
+    // …mas a linha continua no banco, com quem fechou.
+    const linha = await prisma.competenciaFechada.findFirst({ where: { clienteId, competencia: MES } });
+    expect(linha).toMatchObject({ fechadoPorId: adminId, reabertoPorId: adminId });
+
+    await expect(callerAdmin.conciliacao.reabrirCompetencia({ clienteId, competencia: MES })).rejects.toThrow(/não está fechada/i);
+  });
+
+  it("não se fecha mês sem cirurgia nenhuma", async () => {
+    await expect(callerAdmin.conciliacao.fecharCompetencia({ clienteId, competencia: "2019-01" })).rejects.toThrow(
+      /não há cirurgia importada/i,
+    );
+  });
+});

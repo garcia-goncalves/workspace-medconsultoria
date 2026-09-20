@@ -40,6 +40,17 @@ export const ROTULO_RECURSO = {
 } as const;
 export type StatusRecurso = keyof typeof ROTULO_RECURSO;
 
+/** O que a tela precisa saber de uma competência fechada (ver `competenciasFechadas`). */
+export interface CompetenciaFechada {
+  competencia: string;
+  fechadoEm: string | Date;
+  fechadoPor: string | null;
+  observacao: string | null;
+  retrato: { cobrado: number; recebido: number; glosa: number; aReceber: number; cirurgias: number };
+  agora: { cobrado: number; recebido: number; glosa: number; aReceber: number; cirurgias: number };
+  divergiu: boolean;
+}
+
 /** Baixa um texto como arquivo. O CSV já vem com BOM do servidor, para o Excel ler acento. */
 export function baixarTexto(conteudo: string, nome: string, tipo = "text/csv;charset=utf-8") {
   const url = URL.createObjectURL(new Blob([conteudo], { type: tipo }));

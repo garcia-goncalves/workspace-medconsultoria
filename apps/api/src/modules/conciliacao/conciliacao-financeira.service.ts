@@ -389,6 +389,11 @@ export interface EdicaoCirurgia {
 }
 
 export async function editarCirurgia(clienteId: string, id: string, e: EdicaoCirurgia) {
+  // ⚠️ Mês conferido não muda por edição manual. A conferência é feita ANTES do `updateMany`,
+  // sobre a competência DA CIRURGIA — não sobre um mês vindo do pedido, que quem chama escolhe.
+  const alvo = await prisma.producaoCirurgia.findFirst({ where: { id, clienteId }, select: { competencia: true } });
+  if (alvo) await assertCompetenciaAberta(clienteId, alvo.competencia);
+
   // Posse no próprio WHERE: um id vindo da tela nunca edita a cirurgia de outro cliente.
   const { count } = await prisma.producaoCirurgia.updateMany({
     where: { id, clienteId },
@@ -403,6 +408,137 @@ export async function editarCirurgia(clienteId: string, id: string, e: EdicaoCir
   });
   if (count === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Cirurgia não encontrada neste cliente." });
   return { ok: true };
+}
+
+// ─── Fechar a competência: "este mês está conferido" ────────────────────────────────────────────
+
+/**
+ * ⚠️ FECHAR NÃO CONGELA NÚMERO NENHUM.
+ *
+ * Todo valor desta tela é calculado a cada leitura (Fase 2b). Gravá-los para "congelar" faria o
+ * mês fechado deixar de refletir um repasse que chegasse depois — dois dinheiros diferentes para a
+ * mesma cirurgia. O que se grava é um RETRATO do que foi conferido, e ele responde **outra**
+ * pergunta: *"mudou alguma coisa desde então?"*. Nenhuma tela o exibe como valor corrente.
+ *
+ * O que fechar de fato faz é **recusar a edição manual** daquele mês até alguém reabrir.
+ */
+export async function fecharCompetencia(clienteId: string, competencia: string, usuarioId: string, observacao?: string | null) {
+  const { linhas } = await montarConciliacao(clienteId);
+  const doMes = linhas.filter((l) => l.competencia === competencia);
+  if (doMes.length === 0) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Não há cirurgia importada em ${competencia} para conferir.` });
+  }
+  const t = totalizar(doMes);
+  const retrato = { cobrado: t.cobrado, recebido: t.recebido, glosa: t.glosa, aReceber: t.aReceber, cirurgias: doMes.length };
+
+  // Fechar de novo grava um retrato NOVO por cima e limpa a reabertura — mas a linha é a mesma,
+  // então "quem conferiu, e quando" continua sendo uma pergunta com resposta.
+  return prisma.competenciaFechada.upsert({
+    where: { clienteId_competencia: { clienteId, competencia } },
+    create: { clienteId, competencia, fechadoPorId: usuarioId, observacao: observacao?.trim() || null, ...retrato },
+    update: {
+      fechadoEm: new Date(),
+      fechadoPorId: usuarioId,
+      reabertoEm: null,
+      reabertoPorId: null,
+      observacao: observacao?.trim() || null,
+      ...retrato,
+    },
+    select: { id: true, competencia: true },
+  });
+}
+
+export async function reabrirCompetencia(clienteId: string, competencia: string, usuarioId: string) {
+  // Posse no próprio WHERE, e `reabertoEm: null` para reabrir duas vezes não reescrever quem
+  // reabriu primeiro — o mesmo desenho da resposta ao recurso.
+  const { count } = await prisma.competenciaFechada.updateMany({
+    where: { clienteId, competencia, reabertoEm: null },
+    data: { reabertoEm: new Date(), reabertoPorId: usuarioId },
+  });
+  if (count === 0) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `A competência ${competencia} não está fechada neste cliente.` });
+  }
+  return { ok: true };
+}
+
+export interface CompetenciaFechadaNaTela {
+  competencia: string;
+  fechadoEm: Date;
+  fechadoPor: string | null;
+  observacao: string | null;
+  /** O retrato do fechamento, e o valor de HOJE — a divergência é o que se quer ver. */
+  retrato: { cobrado: number; recebido: number; glosa: number; aReceber: number; cirurgias: number };
+  agora: { cobrado: number; recebido: number; glosa: number; aReceber: number; cirurgias: number };
+  /** Algum número mudou depois de o mês ter sido conferido. */
+  divergiu: boolean;
+}
+
+/** Os meses fechados deste cliente, cada um com o retrato e o valor de hoje ao lado. */
+export async function competenciasFechadas(clienteId: string): Promise<CompetenciaFechadaNaTela[]> {
+  const [fechadas, { linhas }] = await Promise.all([
+    prisma.competenciaFechada.findMany({
+      where: { clienteId, reabertoEm: null },
+      orderBy: { competencia: "desc" },
+      select: {
+        competencia: true,
+        fechadoEm: true,
+        observacao: true,
+        cobrado: true,
+        recebido: true,
+        glosa: true,
+        aReceber: true,
+        cirurgias: true,
+        fechadoPor: { select: { nome: true } },
+      },
+    }),
+    montarConciliacao(clienteId),
+  ]);
+
+  return fechadas.map((f) => {
+    const doMes = linhas.filter((l) => l.competencia === f.competencia);
+    const t = totalizar(doMes);
+    // `emReaisOu`, não `emReais`: as colunas são obrigatórias no banco, e o tipo precisa dizer
+    // isso — um `number | null` aqui obrigaria a tela a tratar um nulo que não existe.
+    const retrato = {
+      cobrado: emReaisOu(f.cobrado),
+      recebido: emReaisOu(f.recebido),
+      glosa: emReaisOu(f.glosa),
+      aReceber: emReaisOu(f.aReceber),
+      cirurgias: f.cirurgias,
+    };
+    const agora = { cobrado: t.cobrado, recebido: t.recebido, glosa: t.glosa, aReceber: t.aReceber, cirurgias: doMes.length };
+    return {
+      competencia: f.competencia,
+      fechadoEm: f.fechadoEm,
+      fechadoPor: f.fechadoPor?.nome ?? null,
+      observacao: f.observacao,
+      retrato,
+      agora,
+      divergiu: (Object.keys(retrato) as (keyof typeof retrato)[]).some((k) => retrato[k] !== agora[k]),
+    };
+  });
+}
+
+/**
+ * ⚠️ A TRAVA: mês conferido não muda por edição manual.
+ *
+ * Vale para editar a cirurgia e para mexer no recurso dela — as ações de PESSOA. A importação
+ * continua passando de propósito (ver a spec §3.1): o mapa do TASY vem por PERÍODO, e recusar o
+ * arquivo inteiro porque uma cirurgia cai em mês fechado faria a pessoa não importar nada.
+ */
+async function assertCompetenciaAberta(clienteId: string, competencia: string) {
+  const f = await prisma.competenciaFechada.findFirst({
+    where: { clienteId, competencia, reabertoEm: null },
+    select: { fechadoEm: true, fechadoPor: { select: { nome: true } } },
+  });
+  if (!f) return;
+  const quem = f.fechadoPor?.nome ? ` por ${f.fechadoPor.nome}` : "";
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message:
+      `A competência ${competencia} foi conferida e fechada${quem} em ${f.fechadoEm.toLocaleDateString("pt-BR")}. ` +
+      "Reabra o mês para poder alterá-lo.",
+  });
 }
 
 // ─── Fase 2c: o recurso de glosa ────────────────────────────────────────────────────────────────
@@ -433,12 +569,17 @@ export async function abrirRecurso(clienteId: string, usuarioId: string, e: Aber
   const linha = linhas.find((l) => l.id === e.cirurgiaId);
   if (!linha) throw new TRPCError({ code: "NOT_FOUND", message: "Cirurgia não encontrada neste cliente." });
 
+  // ⚠️ O mês fechado vem ANTES do "só se recorre de glosa": com o mês conferido a pessoa não pode
+  // agir de jeito nenhum, e mandá-la olhar o status da cirurgia seria o recado errado.
+  await assertCompetenciaAberta(clienteId, linha.competencia);
+
   if (!podeRecorrer(linha.statusConciliacao)) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
       message: "Só dá para recorrer de cirurgia com glosa. Esta está como “" + ROTULO_STATUS[linha.statusConciliacao] + "”.",
     });
   }
+
   if (linha.recurso?.status === "ABERTO") {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
@@ -474,6 +615,12 @@ export async function responderRecurso(
   recursoId: string,
   e: { status: "ACATADO" | "NEGADO" | "ENCERRADO"; respondidoEm: string; observacao?: string | null },
 ) {
+  const doRecurso = await prisma.recursoDeGlosa.findFirst({
+    where: { id: recursoId, clienteId },
+    select: { cirurgia: { select: { competencia: true } } },
+  });
+  if (doRecurso) await assertCompetenciaAberta(clienteId, doRecurso.cirurgia.competencia);
+
   // Posse no próprio WHERE, como em `editarCirurgia`: id da tela nunca alcança outro cliente.
   const { count } = await prisma.recursoDeGlosa.updateMany({
     where: { id: recursoId, clienteId, status: "ABERTO" },
