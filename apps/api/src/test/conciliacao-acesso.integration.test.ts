@@ -129,6 +129,45 @@ describe("a trava por cliente", () => {
   });
 });
 
+/**
+ * ⚠️ A OUTRA METADE DA RÉGUA DA ADR-128.
+ *
+ * A trava foi emprestada do Painel do Cliente porque o risco é o mesmo — dado de terceiro. Mas
+ * lá a régua tem duas metades: a trava e o REGISTRO (`painel_cliente.entrou`), que é o que
+ * permite responder *quem viu o quê, e quando*. Sem a segunda, não havia como saber quem mudou
+ * o valor de um procedimento ou importou um repasse no cliente de outra pessoa.
+ */
+describe("quem mexeu no dinheiro de quem fica registrado", () => {
+  it("a escrita grava no rastro de atividade, com a pessoa e o cliente", async () => {
+    await caller.conciliacao.salvarProcedimento({
+      clienteId: meuCliente,
+      textoBruto: "Proc",
+      operadoraId: null,
+      codigo: "30917042",
+      valor: 1234,
+    });
+
+    // O registro é best-effort (não pode derrubar a gravação), então é escrito FORA da transação
+    // da rota — esperar por ele é o certo aqui, e não sinal de teste frouxo.
+    await expect
+      .poll(
+        () =>
+          prisma.activityLog.count({
+            where: { userId: dono, acao: "conciliacao.salvarProcedimento", entidadeTipo: "cliente", entidadeId: meuCliente },
+          }),
+        { timeout: 5_000 },
+      )
+      .toBe(1);
+  });
+
+  it("LEITURA não entra no rastro — senão a tabela vira ruído e o expurgo volta a fazer falta", async () => {
+    const antes = await prisma.activityLog.count({ where: { entidadeId: meuCliente } });
+    await caller.conciliacao.cirurgias({ clienteId: meuCliente });
+    await caller.conciliacao.procedimentos({ clienteId: meuCliente });
+    expect(await prisma.activityLog.count({ where: { entidadeId: meuCliente } })).toBe(antes);
+  });
+});
+
 describe("a visão geral — a rota sem clienteId", () => {
   it("cada funcionário vê só os clientes dele", async () => {
     const meus = (await caller.conciliacao.visaoGeral()).clientes.map((c) => c.clienteId);

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import { SITUACOES_CLIENTE } from "@app/shared";
+import { registrarErro } from "../sistema/sistema.service.js";
 import { router, funcionarioProcedure } from "../../trpc/trpc.js";
 import { assertClienteSobSuaResponsabilidade, filtroDeClientesVisiveis } from "../auth/painel-cliente.service.js";
 import { isConciliacaoEnabled } from "../../config.js";
@@ -81,7 +82,7 @@ export function decidirConferenciaDeCliente(rota: string, inputCru: unknown): { 
  * A conferência lê o input CRU, antes do Zod da rota: depender do input já validado faria uma
  * rota que mudasse o próprio formato rodar sem trava, sem erro e sem log.
  */
-const conciliacaoProcedure = funcionarioProcedure.use(async ({ ctx, next, getRawInput, path }) => {
+const conciliacaoProcedure = funcionarioProcedure.use(async ({ ctx, next, getRawInput, path, type }) => {
   const rota = path.replace(/^conciliacao\./, "");
   const decisao = decidirConferenciaDeCliente(rota, await getRawInput());
   if (decisao === "recusado") {
@@ -93,7 +94,36 @@ const conciliacaoProcedure = funcionarioProcedure.use(async ({ ctx, next, getRaw
     });
   }
   if (decisao !== "liberado") await assertClienteSobSuaResponsabilidade(ctx.user, decisao.conferir, "abrir a conciliação");
-  return next({ ctx });
+
+  const resultado = await next({ ctx });
+
+  // ⚠️ QUEM MEXEU NO DINHEIRO DE QUEM.
+  //
+  // A trava acima foi emprestada da ADR-128 porque o risco é o mesmo — dado de terceiro. Mas lá a
+  // régua tem DUAS metades: a trava e o REGISTRO (`painel_cliente.entrou`), que é o que permite
+  // responder "quem viu o quê, e quando". Sem a segunda, não havia como saber quem mudou o valor
+  // de um procedimento, importou um repasse ou marcou uma cirurgia como "não cobrar".
+  //
+  // Só MUTAÇÃO, e só depois de dar certo: registrar leitura encheria a tabela (que já precisou de
+  // expurgo, ADR-148) e registrar tentativa que falhou diria que alguém fez o que não fez.
+  //
+  // Melhor esforço, mas NÃO calado: falhar aqui não pode derrubar uma importação que já gravou,
+  // e sumir em silêncio é o defeito que a ADR-140 corrigiu — então o erro vai para SISTEMA → Erros.
+  if (type === "mutation" && decisao !== "liberado" && resultado.ok) {
+    void prisma.activityLog
+      .create({
+        data: { userId: ctx.user.id, acao: `conciliacao.${rota}`, entidadeTipo: "cliente", entidadeId: decisao.conferir },
+      })
+      .catch((e: unknown) =>
+        registrarErro({
+          rota: path,
+          mensagem: `Falha ao registrar a atividade da Conciliação: ${e instanceof Error ? e.message : String(e)}`,
+          stack: e instanceof Error ? e.stack : null,
+          userId: ctx.user.id,
+        }),
+      );
+  }
+  return resultado;
 });
 
 const clienteId = z.string().min(1);
