@@ -185,11 +185,13 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 5. **O `inkflow-app` continua PARADO e comprometido** na mesma VPS (minerador `redis-server r`
    dentro do container, 394% de CPU por 11 h, parado em 18/09). Subir de novo sem **atualizar o
    Next/React, reconstruir a imagem do zero e trocar os segredos** é reabrir a porta.
-6. **A planilha `executantes-repasse*.xlsx`** (dez arquivos, 2025) **não é o relatório do TASY** —
-   é o controle do **anestesista** (Data, Paciente, Cirurgião, ValorRecebido, ValorRepasse,
-   DataRepasse) e **não tem número de atendimento**. Importá-la exigiria casar por nome + data,
-   que erra para o lado de atribuir dinheiro à pessoa errada. **Não foi implementada de propósito**
-   — decida se esse relatório entra, e de qual cliente ele é.
+6. ~~A planilha `executantes-repasse*.xlsx`~~ — **FECHADO em 20/09: é da NEXA, outra empresa do
+   dono, e não tem nada a ver com a Conciliação da MedConsultoria.** Ficam registrados os fatos,
+   para ninguém reabrir o assunto ao topar com os arquivos: dez arquivos de 2025, em `Downloads`,
+   controle de **repasse de anestesia** (23 anestesistas, hospitais Moriah) — quem opera é o
+   "Cirurgião" e quem recebe é o "Anestesista". **Não tem número de atendimento**, então importar
+   exigiria casar por nome + data, cujo erro não é "não achei" e sim **creditar dinheiro na
+   cirurgia errada, em silêncio**.
 
 ## Estado anterior (2026-09-13 · VPS OVH NO AR como homologação, com os dados de produção · ADR-154)
 
