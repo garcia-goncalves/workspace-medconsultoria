@@ -5924,3 +5924,101 @@ Fase 3 (ensaio com dado real, produção no ar) é o portão: **sem ensaio verde
 E não conserta o incidente de 12/09 — a produção segue com front novo e back velho até o `npm ci` da
 TineHost ser destravado ou o front ser revertido. Migrar sob pressão, com a produção meio quebrada, é
 como trocar o pneu em movimento: é assim que nasce a próxima cicatriz.
+
+---
+
+## ADR-155 — Conciliação, Fase 2b e o fecho: quem vê o dinheiro de quem, e o que TRAVOU
+
+**Data:** 2026-09-20 · **Contexto:** PRs #201, #203, #205, #206, #207
+
+### O problema, em uma frase
+
+A Conciliação passou a responder _"deveria ter recebido 18 mil, recebeu 800"_ — cobrado, recebido,
+glosa e status por cirurgia, para N clientes. Mas ela nasceu com **três buracos que não davam erro
+nenhum**: qualquer pessoa da equipe via o dinheiro de qualquer clínica, a tela sumia com os números
+quando uma consulta falhava, e o que estava **travado** parecia igual ao que estava só esperando.
+
+### A decisão 1 — a trava é a régua que já existe, e mora no procedure
+
+`funcionarioProcedure` puro deixava o `clienteId` vir do PEDIDO. A régua nova **não é nova**: é a do
+Painel do Cliente (ADR-128), que já protege dado pessoal, aplicada à tela que tem o dado financeiro.
+ADMIN+ vê tudo; o funcionário vê os clientes sob a responsabilidade dele.
+
+⚠️ **Ela mora no `conciliacaoProcedure`, não dentro de cada serviço.** Espalhada, precisaria ser
+lembrada em toda rota nova — e a esquecida seria justamente a que vaza (é o padrão que a ADR-140
+descreve: _"quantas portas existem para este dado?"_).
+
+### A decisão 2 — e ela nasceu FAIL-OPEN, que é o defeito que a própria correção criou
+
+A 1ª versão conferia quando achava `clienteId` no topo do input e **seguia em silêncio quando não
+achava**. A revisão mediu: `{ filtro: { clienteId } }`, lote `[{ clienteId }]`, `clienteIds[]`,
+string vazia e input ausente **pulavam a conferência**. Não era explorável só porque o Zod de cada
+rota exige `clienteId` no topo — seria o próximo commit, quando a planilha reimportada pedir uma
+edição em lote.
+
+Junto, a régua de TESTE que "conta rota por rota" passava verde com rota desprotegida em **cinco**
+formatos, o mais provável deles **rota em sub-router aninhado** — o padrão que o `clientes.router.ts`
+já usa, e como a Fase 2c vai nascer.
+
+**Cura única para os dois, em tempo de execução:** lista fechada das rotas que legitimamente não
+falam de um cliente (`disponivel`, `clientes`, `visaoGeral`) e **recusa** para qualquer outra cujo
+`clienteId` não apareça. Padrão NEGAR, o mesmo molde de `ACOES_LIBERADAS_PARA_EQUIPE` (ADR-131) e
+`MODELO_ACEITA_LEAD` (ADR-132). Régua de texto não garante o que só a execução garante.
+
+### A decisão 3 — trava sem registro é meia régua
+
+A ADR-128 grava `painel_cliente.entrou` porque é acesso a dado de terceiro. Emprestamos a trava e
+esquecemos o registro: não havia como responder **quem mudou o valor de um procedimento, importou um
+repasse ou marcou uma cirurgia como "não cobrar"**. Hoje toda MUTAÇÃO grava `conciliacao.<rota>`, no
+mesmo procedure — só depois de dar certo (tentativa falhada diria que alguém fez o que não fez), e
+leitura não entra (encheria a tabela que já precisou de expurgo, ADR-148).
+
+⚠️ O expurgo preserva esse rastro **por PREFIXO**, não por lista de nomes: com dezenas de rotas, a
+lista fixa envelheceria calada e a rota nova ficaria de fora sem ninguém perceber.
+
+### A decisão 4 — o status é calculado, e o ATRASO também
+
+Nada de status gravado: gravado, ele envelhece no dia em que alguém corrige um valor, e a cirurgia
+diria "Pago" com a glosa nova ao lado. A conta toda é em **centavos inteiros** — um centavo de ruído
+de ponto flutuante viraria "glosa parcial" na frente do médico.
+
+E o tempo entrou na régua: a defasagem entre a cirurgia e o pagamento é de **~3,5 meses**, medida nas
+amostras reais. Sem isso, _"a receber"_ de um ano atrás e de um mês atrás são a mesma frase, e a
+pergunta da manhã — **o que travou?** — não tem resposta. Virou `DIAS_ATE_O_PAGAMENTO_ESPERADO = 105`
+e `estaAtrasada`.
+
+⚠️ **Constante, não campo em Ajustes:** é característica do ciclo das operadoras, não preferência da
+casa. Virar campo é uma migração no dia em que alguém quiser — e o número já estará aqui, medido.
+
+⚠️ **Só o que ESPERA dinheiro fica atrasado.** Pago, glosado, não cobrado e não realizado, nunca:
+alarme que toca sempre ninguém lê. Mas a **contagem** inclui o que ainda não tem valor (sem de-para,
+sem atendimento), senão o cliente que nunca registrou preço apareceria como se estivesse em dia — e é
+justamente o caso que ninguém percebe.
+
+### A decisão 5 — falha de consulta não pode virar "não há nada"
+
+A revisão de React achou **seis** ocorrências do modo de falha que a ADR-140 já registrou, aqui numa
+tela onde o que some é **glosa e dinheiro a receber**: falha do resumo apagava os quatro números de
+dinheiro **enquanto a tabela abaixo carregava normal** — tela com cara de completa e sem glosa. E o
+vazio LEGÍTIMO (funcionário sem cliente sob responsabilidade) mandava _"escolha um cliente acima"_
+para quem não tem nenhum para escolher. São três estados distintos, e confundi-los é a regra da casa.
+
+### O que ficou de fora, de propósito
+
+- **O arquivo original do TASY continua baixável por qualquer funcionário.** `clientes.arquivos` é
+  `funcionarioProcedure` puro e o `GET /arquivos/:id` diz que _"equipe acessa qualquer um"_. Dentro
+  dele vão paciente, atendimento, convênio, médico, procedimento — **e prontuário e Cód. Pessoa**,
+  que o sistema deliberadamente não lê nem grava. O dado que a tela recusa mostrar sai inteiro pelo
+  download. **Fechar isso muda a régua do sistema todo**, e é decisão do dono.
+- **A planilha `executantes-repasse*.xlsx` não foi importada.** Ela não é o relatório do TASY: é o
+  controle do **anestesista** (Data, Paciente, Cirurgião, ValorRecebido, ValorRepasse, DataRepasse) e
+  **não tem número de atendimento**. Casar por nome + data erra para o lado de **atribuir dinheiro à
+  pessoa errada**, que é o erro que não se pode cometer numa tela de conciliação.
+- **Fechamento de competência** ("maio está conferido") não existe: o status é sempre calculado, então
+  todo mês parece perpetuamente aberto. É desenho a decidir, não defeito a corrigir.
+
+### Consequências
+
+Zero migração em todo o lote de fecho (#205, #206, #207). O leitor de planilha passou a entender
+`.xlsx` de tag prefixada — **dez arquivos reais eram recusados com a mensagem acusando quem enviou**,
+e arquivo que não rende linha nenhuma passou a dizer exatamente isso.
