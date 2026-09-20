@@ -1,14 +1,13 @@
 # DEPLOY.md — Publicar em produção (TineHost / DirectAdmin)
 
-
 > ## ✅ 20/08/2026 — a cobrança do GitHub foi resolvida; publicar está liberado
 >
 > Entre ~20:29 e ~21:40 de 19/08 **nada publicava e nada validava**: toda execução do Actions
 > falhava em 2-3 segundos, **antes de receber máquina** (`runner` vazio, zero passos), com a
 > mensagem literal do GitHub:
 >
-> > *The job was not started because recent account payments have failed or your spending limit
-> > needs to be increased. Please check the 'Billing & plans' section in your settings*
+> > _The job was not started because recent account payments have failed or your spending limit
+> > needs to be increased. Please check the 'Billing & plans' section in your settings_
 >
 > O dono acertou a cobrança e o Actions voltou: a CI da `main` (`33d0d65`) rodou até o fim,
 > **verde nos três jobs**. A tentativa de publicar durante o bloqueio (run `32299490737`)
@@ -16,14 +15,14 @@
 >
 > **Como reconhecer isto de novo, sem perder uma hora achando que é código:**
 >
-> | Sintoma | O que significa |
-> |---|---|
-> | Falha em 2-3 s, `runner_name` vazio, **zero passos** | Conta/cobrança — não é o código |
-> | Execução de OUTRA pessoa passando e a sua morrendo | Conta/cobrança |
-> | `gh run view --log-failed` responde *"log not found"* | Não houve log: o job nunca começou |
-> | A mensagem só aparece em **`gh run view <id>`** | É lá que se lê o motivo real |
+> | Sintoma                                               | O que significa                    |
+> | ----------------------------------------------------- | ---------------------------------- |
+> | Falha em 2-3 s, `runner_name` vazio, **zero passos**  | Conta/cobrança — não é o código    |
+> | Execução de OUTRA pessoa passando e a sua morrendo    | Conta/cobrança                     |
+> | `gh run view --log-failed` responde _"log not found"_ | Não houve log: o job nunca começou |
+> | A mensagem só aparece em **`gh run view <id>`**       | É lá que se lê o motivo real       |
 >
-> Só o dono resolve, em *Billing & plans* nas configurações da conta. **Não há contorno
+> Só o dono resolve, em _Billing & plans_ nas configurações da conta. **Não há contorno
 > técnico:** publicar do laptop é proibido desde a ADR-111/113 e é barrado pelo classificador.
 
 Guia para colocar o Workspace no ar em **https://workspace.medconsultoria.com.br**.
@@ -36,6 +35,65 @@ O app é **um único processo Node** (`server.js`) que serve, na mesma porta: a 
 
 ---
 
+## 0-A. O VPS OVH (a homologação de hoje) — `Deploy OVH`
+
+> **Este é o alvo atual.** O resto deste documento descreve a TineHost, que segue servindo
+> `workspace.medconsultoria.com.br`. A homologação — `https://homolog.workspace.medconsultoria.com.br`
+> — roda em container no VPS OVH, e a esteira dela é outra (ADR-154).
+
+**O que mudou:** o servidor deixou de montar o ambiente. A imagem é construída **no runner do
+GitHub**, publicada no GHCR, e o VPS só faz `pull`, `migrate` e `up -d`. O `npm ci` em produção —
+que travou duas vezes em 12/09/2026, 2h15 e 38 min, sem uma linha de log — não existe mais.
+
+### Como publicar
+
+Actions → **Deploy OVH** → _Run workflow_ → escolher:
+
+| Escolha     | O que faz                                                                                                                                             |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SO_IMAGEM` | Roda a suíte completa, constrói e publica a imagem. **Não toca no servidor.**                                                                         |
+| `PUBLICAR`  | O acima **e** sobe no VPS: aponta o `.env`, baixa a imagem, aplica migrations em container descartável, troca o container e faz smoke test por HTTPS. |
+
+### ⚠️ `PUBLICAR` exige QUATRO segredos, e eles ainda NÃO existem
+
+`SO_IMAGEM` não precisa de nenhum — já foi exercido e a imagem do commit está no GHCR. O caminho
+`PUBLICAR` é **inédito** até estes quatro serem postos (uma vez, só o dono):
+
+```bash
+gh secret set VPS_HOST      # o endereço do VPS
+gh secret set VPS_USER      # o usuário do SSH
+gh secret set VPS_PORT      # ⚠️ a porta NÃO é 22
+gh secret set VPS_SSH_KEY < ~/.ssh/<a_chave_privada>   # no PowerShell: Get-Content <arq> -Raw | gh secret set VPS_SSH_KEY
+```
+
+⚠️ **Os três primeiros são dados de acesso e por isso não estão escritos em lugar nenhum do
+repositório, que é público.** `VPS_PORT` existe como segredo separado justamente porque a porta
+deste VPS não é a padrão — sem ele o workflow **reprova dizendo o que falta**, em vez de gastar o
+tempo de conexão e morrer em "Connection refused".
+
+⚠️ **A chave tem de ser a PRIVADA, inteira** (com as linhas `BEGIN`/`END`), e a pública
+correspondente precisa estar no `authorized_keys` do VPS.
+
+### O que o workflow faz sozinho, e que não precisa ser lembrado
+
+- **A credencial do GHCR é efêmera.** O pacote nasce **privado**, mesmo vindo de repositório
+  público (conferido: `pull` anônimo responde 403). O VPS recebe o token do run por `stdin`, baixa
+  a imagem, e o `docker logout` do fim devolve a máquina ao estado anterior — ela é **compartilhada
+  com outros projetos do dono**, e credencial de registro guardada ali é dívida.
+- **Rollback é um `up -d`.** A tag do commit fica no `.env` do servidor (`APP_IMAGE=`); voltar é
+  trocar a linha para a tag anterior e subir de novo.
+- **Migrations em passo próprio**, em container descartável, **antes** de o tráfego trocar.
+- **Smoke test por HTTPS real** no fim — `/health` precisa dizer `ok`, e `/` e `/credenciamentos`
+  precisam responder 200. Sem isso o workflow ficaria verde com o site fora do ar.
+
+### ⛔ Duas coisas que NÃO se faz nesse VPS
+
+1. **Nunca rode o `bootstrap.sh` lá.** O SSH dele não é na porta 22 e o script tranca o acesso.
+2. **Nunca publique 80/443 pelo compose.** Quem publica é o **nginx do host**, com certificado
+   Let's Encrypt renovado pelo `certbot.timer`. O app escuta só em `127.0.0.1:4319`.
+
+---
+
 ## 0. Como se publica HOJE — o botão no GitHub (desde 17/08/2026)
 
 **O deploy não sai mais do computador de ninguém.** Ele roda no GitHub, pelo arquivo
@@ -44,7 +102,7 @@ sequência de 6 passos descrita neste documento.
 
 **Por que mudou:** a chave SSH precisava morar no disco de quem publicava, e o classificador
 de segurança do assistente barrava o comando de forma imprevisível — em 17/08/2026 ele barrou
-uma correção já pronta, testada e com CI verde. Agora a chave mora em *GitHub Secrets*, e
+uma correção já pronta, testada e com CI verde. Agora a chave mora em _GitHub Secrets_, e
 publicar é apertar um botão.
 
 ### Como publicar (o jeito do dono, sem terminal)
@@ -57,10 +115,10 @@ publicar é apertar um botão.
    que vai ao ar — uns 10 a 15 minutos a mais. É o preço de a CI ter ficado escalonada para
    caber no orçamento de Actions (ADR-121): quem chega à `main` por envio direto rodou só o
    teste barato, e é aqui que o caro acontece. Se a suíte reprovar, **nada é publicado**.
-4. **Deu certo quando** o último passo, *"Smoke test"*, terminar em verde mostrando
+4. **Deu certo quando** o último passo, _"Smoke test"_, terminar em verde mostrando
    `{"status":"ok"}` e `NO AR: https://workspace.medconsultoria.com.br`.
 5. **Deu errado?** O passo que falhou fica vermelho e diz o motivo. Se falhou no
-   *"Ensaio de boot"*, **a produção não foi tocada** — ela continua servindo a versão
+   _"Ensaio de boot"_, **a produção não foi tocada** — ela continua servindo a versão
    anterior, e não há nada de urgente a fazer.
 
 Pelo terminal, o equivalente é `gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR`.
@@ -90,8 +148,8 @@ git tag -a v1.2.0 <sha-publicado> -m "v1.2.0 — publicado em <data> (run <id>)"
 git push origin v1.2.0
 ```
 
-| Etiqueta | Commit | Publicada em | Execução |
-|---|---|---|---|
+| Etiqueta | Commit    | Publicada em     | Execução      |
+| -------- | --------- | ---------------- | ------------- |
 | `v1.0.0` | `bd61f6a` | 22/08/2026 19:03 | `32591319305` |
 | `v1.1.0` | `d5dcc7c` | 26/08/2026 18:57 | `33015554302` |
 | `v1.2.0` | `cf243e6` | 27/08/2026 21:43 | `33129316255` |
@@ -222,17 +280,20 @@ Só não é mais o caminho normal.
 No painel DirectAdmin da TineHost (ou com o suporte deles), reúna:
 
 **Acesso SSH**
+
 - [ ] **Host** SSH (ex.: `ssh.seudominio.com.br` ou um IP).
 - [ ] **Usuário** do DirectAdmin.
 - [ ] **Porta** SSH (geralmente 22; a TineHost às vezes usa outra).
 - [ ] Preferir **chave SSH** (mais seguro que senha). Se não tiver, eu te ajudo a gerar uma e cadastrar.
 
 **Banco de dados MySQL (de produção)**
+
 - [ ] Criar um **banco** e um **usuário** MySQL no painel (ex.: banco `medconsult_prod`, usuário `medconsult_app`).
 - [ ] Anotar **host** (normalmente `localhost`), **porta** (3306), **nome do banco**, **usuário** e **senha**.
 - [ ] Isso vira a `DATABASE_URL` de produção (ver §3).
 
 **Node / hospedagem**
+
 - [ ] Qual **versão do Node** a TineHost oferece? Precisa ser **≥ 20**.
 - [x] O painel usa **LiteSpeed/lsnode** para apps Node (confirmado — não é Passenger nem Nginx Unit).
 - [ ] O caminho da pasta do app (algo como `/home/SEU_USUARIO/domains/workspace.medconsultoria.com.br/app`).
@@ -316,7 +377,7 @@ O script `deploy.sh` faz tudo: build + bundle auto-contido + **snapshot de rollb
 > Antes de culpar o código, confirme que só há um deploy rodando.
 >
 > **Qual snapshot restaurar, se precisar voltar:** o **PRIMEIRO** da rodada. Do segundo deploy
-> em diante o snapshot já foi tirado *depois* de outro ter sobrescrito arquivos — restaurá-lo
+> em diante o snapshot já foi tirado _depois_ de outro ter sobrescrito arquivos — restaurá-lo
 > devolve um estado misturado.
 >
 > **Por que resolver no mesmo dia:** o passo 3 grava os arquivos novos **antes** do ensaio. Se
@@ -324,6 +385,7 @@ O script `deploy.sh` faz tudo: build + bundle auto-contido + **snapshot de rollb
 > versão nova, e o healthcheck automático (a cada 5 min) reiniciaria com ela.
 
 O que ele executa:
+
 1. `pnpm build:deploy` → gera `apps/api/dist/` com **`server.js` + `public/` (o SPA) + `prisma/` + `package.json` de produção**.
 2. **Snapshot** do release atual em `~/backups/release-pre-<TS>.tar.gz` — é o rollback.
 3. Envia o `dist/` por **`tar | ssh`** (o `.env` de produção fica intacto).
@@ -335,7 +397,7 @@ O que ele executa:
    `node_modules`** antes de instalar — é ~1 minuto com a produção servindo enquanto a pasta é refeita.
    🛟 **A rede de segurança (ADR-117):** antes do `npm ci`, o `node_modules` atual é copiado por
    hardlink para `~/nm-antes` — em `~`, e **não em `/tmp`**, que na TineHost é outro dispositivo
-   (`cp -al` falha com *Invalid cross-device link*). Se o `npm ci` falhar, a pasta anterior volta.
+   (`cp -al` falha com _Invalid cross-device link_). Se o `npm ci` falhar, a pasta anterior volta.
    **Sem cópia conferida, o deploy não apaga o `node_modules`** — em 18/08/2026 ele apagou, e a
    produção ficou sem dependências servindo só pelo processo que já estava carregado em memória.
 5. **Ensaio de boot** (`node app.cjs` por 15 s) com a produção ainda no ar servindo a versão antiga. Não subiu? O script **para aqui** e não reinicia nada.
@@ -344,7 +406,7 @@ O que ele executa:
 > **Três armadilhas que custaram ~9 min de produção fora do ar em 05/08/2026, todas comentadas dentro do `deploy.sh` — leia antes de "simplificar" o script:**
 >
 > - **Não é `rsync`, é `tar`.** O `--delete` do rsync apagaria o **`.htaccess`** (que é o que faz o LiteSpeed servir o site) e o `cgi-bin`, porque nenhum dos dois vem no artefato. De quebra, o Git Bash do Windows não tem `rsync` instalado — o script antigo nunca teria rodado nessa máquina.
-> - **`npm` não existe em sessão SSH não interativa.** Ele mora no virtualenv do CloudLinux (`source ~/nodevenv/.../20/bin/activate`). Sem isso o `npm ci` falha com *command not found*, o servidor fica com **`server.js` novo e `node_modules` velho**, e o app morre no boot com `ERR_MODULE_NOT_FOUND` — foi exatamente assim que a produção caiu (faltava `imapflow`).
+> - **`npm` não existe em sessão SSH não interativa.** Ele mora no virtualenv do CloudLinux (`source ~/nodevenv/.../20/bin/activate`). Sem isso o `npm ci` falha com _command not found_, o servidor fica com **`server.js` novo e `node_modules` velho**, e o app morre no boot com `ERR_MODULE_NOT_FOUND` — foi exatamente assim que a produção caiu (faltava `imapflow`).
 > - **Cada passo em uma conexão SSH própria.** Encadeado com `&&`, o `prisma generate` derruba o resto da cadeia: o deploy diz "concluído" e a aplicação segue rodando o código **antigo**.
 
 > **1º deploy:** garanta antes que o **`.env` de produção já existe no servidor** (§3) e que o **banco foi criado** (§1). Sem isso, as migrations falham.
@@ -361,15 +423,15 @@ O que ele executa:
 
 ## 7. Riscos a validar no 1º deploy (e planos B)
 
-| Item | Risco | Plano B |
-|------|-------|---------|
-| **`@node-rs/argon2` (nativo)** | Hash de senha usa binário nativo; hospedagem compartilhada pode não ter binário compatível (glibc/plataforma). | Trocar por `argon2` (WASM) ou `@node-rs/bcrypt`; ou pré-compilar. **Testar login logo no 1º deploy.** |
-| **Versão do Node** | Precisa ≥ 20. | Pedir upgrade à TineHost ou usar o selector de versão do painel. |
-| ~~**Passenger vs Nginx Unit**~~ | **RESOLVIDO:** confirmado **LiteSpeed/lsnode**. WebSocket não é suportado pelo proxy → tempo real por polling (ADR-84). | — |
-| **CSP do Helmet** | Hoje `contentSecurityPolicy: false` (para não quebrar o SPA). | Ligar e afinar `script-src` testando o SPA buildado (o Vite injeta um pequeno script de módulo). |
-| **Pool do MySQL** | Limite de conexões do plano. | Ajustar `connection_limit` na `DATABASE_URL` do Prisma. |
-| **Rede outbound (OpenAI)** | Pode estar bloqueada. | Só afeta a IA; sem a chave, o app funciona igual. |
-| **PDF de documentos** | — | Já é client-side (`window.print`/blob), **sem** puppeteer. Sem risco. |
+| Item                            | Risco                                                                                                                   | Plano B                                                                                               |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **`@node-rs/argon2` (nativo)**  | Hash de senha usa binário nativo; hospedagem compartilhada pode não ter binário compatível (glibc/plataforma).          | Trocar por `argon2` (WASM) ou `@node-rs/bcrypt`; ou pré-compilar. **Testar login logo no 1º deploy.** |
+| **Versão do Node**              | Precisa ≥ 20.                                                                                                           | Pedir upgrade à TineHost ou usar o selector de versão do painel.                                      |
+| ~~**Passenger vs Nginx Unit**~~ | **RESOLVIDO:** confirmado **LiteSpeed/lsnode**. WebSocket não é suportado pelo proxy → tempo real por polling (ADR-84). | —                                                                                                     |
+| **CSP do Helmet**               | Hoje `contentSecurityPolicy: false` (para não quebrar o SPA).                                                           | Ligar e afinar `script-src` testando o SPA buildado (o Vite injeta um pequeno script de módulo).      |
+| **Pool do MySQL**               | Limite de conexões do plano.                                                                                            | Ajustar `connection_limit` na `DATABASE_URL` do Prisma.                                               |
+| **Rede outbound (OpenAI)**      | Pode estar bloqueada.                                                                                                   | Só afeta a IA; sem a chave, o app funciona igual.                                                     |
+| **PDF de documentos**           | —                                                                                                                       | Já é client-side (`window.print`/blob), **sem** puppeteer. Sem risco.                                 |
 
 ---
 
@@ -408,18 +470,18 @@ node scripts/preflight.mjs        # ou: node preflight.mjs (se copiado para a ra
 
 Ele verifica, com base na stack real (exit ≠ 0 se alguma verificação **CRÍTICA** falhar):
 
-| Verificação | Nível | O que garante |
-|---|---|---|
-| Node ≥ 20 | crítico | versão suportada |
-| **Argon2id (hash+verify)** | crítico | o binário nativo `@node-rs/argon2` roda na hospedagem — **se falhar, o login não funciona** |
-| Plano B `bcryptjs` | aviso | fallback portátil disponível |
-| **UPLOADS_DIR** | crítico | caminho **absoluto** em produção + escrita/leitura reais |
-| **Conexão MySQL** (Prisma) | crítico | `DATABASE_URL` válida |
-| **Migrations aplicadas** | crítico | `_prisma_migrations` populada (rode `prisma migrate deploy` se divergir) |
-| Env obrigatórias + `SESSION_SECRET` forte | crítico | segredo ≥ 16 chars |
-| `NODE_ENV=production` | aviso | cookies `secure`, e-mail/CSP reais |
-| DNS de `WEB_ORIGIN`, rede OpenAI/SMTP | aviso | outbound liberado onde necessário |
-| ~~WebSocket (Socket.IO)~~ | obsoleto | WS indisponível na hospedagem (LiteSpeed/lsnode não faz upgrade); tempo real por **polling** (ADR-84) |
+| Verificação                               | Nível    | O que garante                                                                                         |
+| ----------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| Node ≥ 20                                 | crítico  | versão suportada                                                                                      |
+| **Argon2id (hash+verify)**                | crítico  | o binário nativo `@node-rs/argon2` roda na hospedagem — **se falhar, o login não funciona**           |
+| Plano B `bcryptjs`                        | aviso    | fallback portátil disponível                                                                          |
+| **UPLOADS_DIR**                           | crítico  | caminho **absoluto** em produção + escrita/leitura reais                                              |
+| **Conexão MySQL** (Prisma)                | crítico  | `DATABASE_URL` válida                                                                                 |
+| **Migrations aplicadas**                  | crítico  | `_prisma_migrations` populada (rode `prisma migrate deploy` se divergir)                              |
+| Env obrigatórias + `SESSION_SECRET` forte | crítico  | segredo ≥ 16 chars                                                                                    |
+| `NODE_ENV=production`                     | aviso    | cookies `secure`, e-mail/CSP reais                                                                    |
+| DNS de `WEB_ORIGIN`, rede OpenAI/SMTP     | aviso    | outbound liberado onde necessário                                                                     |
+| ~~WebSocket (Socket.IO)~~                 | obsoleto | WS indisponível na hospedagem (LiteSpeed/lsnode não faz upgrade); tempo real por **polling** (ADR-84) |
 
 Se o Argon2 nativo falhar no plano de hospedagem: a app tem **Plano B portátil (`bcryptjs`)** — a abstração `apps/api/src/lib/password.ts` identifica o algoritmo pelo prefixo do hash, então argon2 e bcrypt coexistem; no login bem-sucedido, hashes legados são **reescritos (rehash)** para Argon2id quando ele estiver disponível.
 
@@ -439,27 +501,31 @@ Se o Argon2 nativo falhar no plano de hospedagem: a app tem **Plano B portátil 
 > Ambiente **testado diretamente na TineHost** (probe Node + LiteSpeed/lsnode + Argon2, todos OK). **WebSocket NÃO é suportado** por essa infra — o tempo real de produção é **polling** (ADR-84). Este guia usa os valores reais confirmados. Onde aparecer **[CONFIRMAR]**, verifique no painel na hora.
 
 **Valores confirmados**
-| Item | Valor |
-|---|---|
-| Sistema | Linux EL8 x86_64 (CloudLinux) |
-| HOME | `/home3/medconsultoria` |
-| Application Root | `/home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html` ⚠️ **corrigido em 05/08/2026** — esta tabela dizia `/home3/medconsultoria/workspace-medconsultoria`, pasta que **não existe** no servidor |
-| Diretório do domínio | `/home3/medconsultoria/domains/workspace.medconsultoria.com.br` |
-| public_html | `/home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html` |
-| Uploads persistentes | `/home3/medconsultoria/app-data/workspace-medconsultoria/uploads` |
-| Node | **20.19.2** · npm 10.8.2 — **só dentro do virtualenv**: `source ~/nodevenv/domains/workspace.medconsultoria.com.br/public_html/20/bin/activate`. Numa sessão SSH não interativa, `npm` é *command not found* |
-| Banco | **MariaDB 10.6.22** em `localhost` |
-| Modo | **Production** · LiteSpeed/lsnode · startup `app.cjs` |
-| Domínio | `https://workspace.medconsultoria.com.br` |
-| Repositório | `https://github.com/garcia-goncalves/workspace-medconsultoria` (privado) |
+
+| Item                 | Valor                                                                                                                                                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sistema              | Linux EL8 x86_64 (CloudLinux)                                                                                                                                                                                         |
+| HOME                 | `/home3/medconsultoria`                                                                                                                                                                                               |
+| Application Root     | `/home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html` ⚠️ **corrigido em 05/08/2026** — esta tabela dizia `/home3/medconsultoria/workspace-medconsultoria`, pasta que **não existe** no servidor |
+| Diretório do domínio | `/home3/medconsultoria/domains/workspace.medconsultoria.com.br`                                                                                                                                                       |
+| public_html          | `/home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html`                                                                                                                                           |
+| Uploads persistentes | `/home3/medconsultoria/app-data/workspace-medconsultoria/uploads`                                                                                                                                                     |
+| Node                 | **20.19.2** · npm 10.8.2 — **só dentro do virtualenv**: `source ~/nodevenv/domains/workspace.medconsultoria.com.br/public_html/20/bin/activate`. Numa sessão SSH não interativa, `npm` é _command not found_          |
+| Banco                | **MariaDB 10.6.22** em `localhost`                                                                                                                                                                                    |
+| Modo                 | **Production** · LiteSpeed/lsnode · startup `app.cjs`                                                                                                                                                                 |
+| Domínio              | `https://workspace.medconsultoria.com.br`                                                                                                                                                                             |
+| Repositório          | `https://github.com/garcia-goncalves/workspace-medconsultoria` (privado)                                                                                                                                              |
 
 ### Passo 1 — Subdomínio + SSL (DirectAdmin)
+
 1. Em **Domain Setup**, garanta que `workspace.medconsultoria.com.br` existe e aponta para a conta.
 2. Em **SSL Certificates**, emita **Let's Encrypt** para o subdomínio (Force HTTPS ligado).
 3. **Remova/renomeie** o `index.html` padrão em `public_html` (senão ele intercepta o domínio e o lsnode não assume). Ex.: `mv public_html/index.html public_html/_index.html.bak`.
 
 ### Passo 2 — Criar a aplicação Node (CloudLinux Node.js Selector)
+
 No painel **Setup Node.js App** → **Create Application**:
+
 - **Node.js version:** `20.19.2`.
 - **Application mode:** `Production`.
 - **Application root:** `workspace-medconsultoria` (relativo ao HOME → `/home3/medconsultoria/workspace-medconsultoria`).
@@ -468,12 +534,15 @@ No painel **Setup Node.js App** → **Create Application**:
 - Criar. O painel gera um **virtualenv** e o registro do proxy (LiteSpeed/lsnode) em `public_html/.htaccess`. Anote o comando **"Enter to the virtual environment"** (`source /home3/medconsultoria/nodevenv/.../bin/activate`) para instalar deps com o Node certo.
 
 ### Passo 3 — Pasta persistente de uploads
+
 ```bash
 mkdir -p /home3/medconsultoria/app-data/workspace-medconsultoria/uploads
 ```
+
 Fica **fora** do Application Root e do `public_html` → o deploy (`rsync --delete`) não a toca. No `.env` de produção: `UPLOADS_DIR=/home3/medconsultoria/app-data/workspace-medconsultoria/uploads`.
 
 ### Passo 4 — Enviar o build + startup
+
 1. Na sua máquina: `pnpm build:deploy` (gera `apps/api/dist` auto-contido: `server.js` + `public/` + `prisma/` + `package.json` de produção + `preflight.mjs`).
 2. Ajuste o `deploy.sh` (`.env.deploy`): **`DEPLOY_PATH="/home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html"`**, host/usuário/porta/chave SSH.
    > ⚠️ **Corrigido em 10/08/2026.** Esta linha dizia `/home3/medconsultoria/workspace-medconsultoria` — pasta que **não existe** no servidor —, e o `.env.deploy` da máquina de quem publica tinha esse valor. O deploy morria no passo 2 com `cd: No such file or directory`. É o mesmo erro que a tabela do §9 já tinha corrigido em 05/08; aqui ele sobreviveu.
@@ -482,6 +551,7 @@ Fica **fora** do Application Root e do `public_html` → o deploy (`rsync --dele
 4. **Startup `app.cjs`** (gerado automaticamente pelo `bundle-deploy`, fica na raiz do Application Root ao lado de `server.js`): o lsnode carrega o startup via `require()` (CommonJS), então usar `.cjs` que faz `import("./server.js")` evita o `ERR_REQUIRE_ESM` (o `server.js` é ESM). **Validado localmente**: `node app.cjs` sobe a API e responde `/health`. O lsnode **intercepta o `.listen()`** do Fastify e gerencia a porta/socket — por isso `API_PORT` é ignorado sob lsnode (não precisa casar com a porta do painel).
 
 ### Passo 5 — Variáveis de ambiente (`.env` na raiz do Application Root)
+
 ```
 NODE_ENV=production
 # API_PORT: ignorado sob LiteSpeed/lsnode (ele gerencia a porta). Deixe o default ou omita.
@@ -493,31 +563,39 @@ UPLOADS_DIR=/home3/medconsultoria/app-data/workspace-medconsultoria/uploads
 OPENAI_API_KEY=...        # rotacionar antes de usar
 SMTP_HOST=... SMTP_PORT=587 SMTP_USER=... SMTP_PASS=... SMTP_FROM=...
 ```
+
 > O `.env` **nunca** é versionado nem sobrescrito pelo deploy (`rsync --exclude .env`).
 
 ### Passo 6 — Banco (MariaDB 10.6) + migrations + seed do ROOT
+
 1. Em **MySQL Management**, crie o banco + usuário e conceda permissão. Monte a `DATABASE_URL` com `@localhost:3306`.
 2. As **migrations** rodam no deploy (`prisma migrate deploy`). Para rodar à mão: dentro do virtualenv, `npx prisma migrate deploy`.
 3. **Seed do 1º ROOT:** com `SEED_ROOT_EMAIL/PASSWORD/NOME` no `.env`, rode `node prisma/seed.js` (ou `npx prisma db seed` se configurado). **Não** rode o `demo-seed` (dados fictícios) em produção.
 
 ### Passo 7 — Preflight (OBRIGATÓRIO antes de considerar publicado)
+
 Dentro do Application Root, no virtualenv:
+
 ```bash
 node preflight.mjs
 ```
+
 Só siga se **todas as verificações CRÍTICAS** passarem (Argon2, MySQL, migrations, UPLOADS_DIR absoluto+gravável, SESSION_SECRET). Ver §10.
 
 ### Passo 8 — Restart, logs, WebSocket
+
 - **Restart:** botão **Restart** no Node Selector, ou `touch tmp/restart.txt` no Application Root (lsnode/LiteSpeed relê).
 - **Logs:** `stderr.log`/`stdout.log` do lsnode (no painel ou em `~/logs`), + o `ErrorLog` no painel **Sistema** da app (ROOT).
 - **WebSocket:** **NÃO suportado** na TineHost — LiteSpeed/lsnode não faz upgrade de WS. O tempo real de produção é **polling** (ADR-84); religa o Socket.IO em prod com `VITE_REALTIME=1` se algum dia a hospedagem passar a suportar upgrade.
 
 ### Passo 9 — Atualização de versão (deploys futuros)
+
 `pnpm build:deploy` → `./deploy.sh` (rsync + migrate + restart). O `.env` e a pasta de uploads são preservados.
 
 ### Passo 10 — Backup e rollback
 
 **Backup automático (implementado 26/07):** scripts em `scripts/server/`, instalados no servidor em `~/domains/workspace.medconsultoria.com.br/ops/` e agendados no cron do usuário:
+
 - `backup-db.sh` — **diário 03:00 BRT**: `mysqldump --single-transaction` + gzip → `../backups/auto-db-<TS>.sql.gz`, **retém os 14 mais recentes** (rotação automática). Log em `../backups/backup.log`.
 - `healthcheck.sh` — **a cada 5 min**: `curl /health`; se cair (2 tentativas), dispara `touch tmp/restart.txt` (auto-restart do lsnode) e loga em `../backups/health.log`.
 - `install-cron.sh` — instalador **idempotente** (preserva crons existentes; roda uma vez).
