@@ -49,13 +49,57 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - ⚠️ **NÃO ESTÁ NO AR.** A homologação segue com a Fase 2a; publicar a 2b depende dos segredos
   abaixo.
 
+### A madrugada de 20/09 — o que mudou depois das duas revisões
+
+- **🔒 QUALQUER FUNCIONÁRIO VIA O DINHEIRO DE TODOS OS CLIENTES.** A Conciliação era
+  `funcionarioProcedure` puro: bastava trocar o `clienteId` do pedido. Hoje vale a MESMA régua do
+  Painel do Cliente (ADR-128) — ADMIN+ vê tudo, funcionário vê os clientes sob a responsabilidade
+  dele —, e ela mora no **procedure**, não nos serviços, para rota nova nascer coberta.
+- **🕳️ A REVISÃO DE SEGURANÇA ACHOU DOIS DEFEITOS ALTA NA PRÓPRIA CORREÇÃO, e é a lição da casa de
+  novo.** (1) A régua de teste que "conta rota por rota" passava VERDE com rota desprotegida em
+  **cinco** formatos — entre eles rota em **sub-router aninhado**, que é o padrão do
+  `clientes.router.ts` e é como a Fase 2c vai nascer. (2) O middleware era **fail-open**:
+  `clienteId` aninhado, lote de edições, lista de ids, string vazia ou input ausente **pulavam a
+  conferência em silêncio** (não explorável hoje só porque o Zod de cada rota exige `clienteId` no
+  topo). **Cura: padrão NEGAR em tempo de execução** — lista fechada (`disponivel`, `clientes`,
+  `visaoGeral`) e recusa para qualquer outra rota cujo `clienteId` não apareça.
+- ⚠️ **E UMA REGRESSÃO QUE A CORREÇÃO CRIOU:** a rota nova `conciliacao.clientes` perdeu o filtro
+  de situação comercial — e **todo lead do funil tem um `Cliente` PROSPECT por trás** (ADR-128/132),
+  então o seletor passaria a oferecer a base de leads inteira misturada com os clientes reais.
+- **📝 QUEM MEXEU NO DINHEIRO DE QUEM PASSOU A FICAR REGISTRADO.** A trava veio da ADR-128 pela
+  metade: lá a régua tem trava **e** registro. Agora toda MUTAÇÃO da Conciliação grava
+  `conciliacao.<rota>` no `ActivityLog` (só depois de dar certo; leitura não entra), e o expurgo de
+  retenção **preserva por PREFIXO** — lista fixa envelheceria calada, deixando rota nova de fora.
+- **🖥️ A REVISÃO DE REACT ACHOU SETE ALTA, seis do mesmo modo de falha que esta casa já registrou:
+  falha de consulta lida como "não há nada"** — numa tela onde o que some é **glosa e dinheiro a
+  receber**. Falha do resumo apagava os quatro números de dinheiro enquanto a tabela abaixo
+  carregava normal (tela com cara de completa e sem glosa); a lista de clientes tratava erro como
+  "você não tem cliente nenhum"; trocar a competência não limpava a operadora, e a tela dizia
+  "Todas" enquanto filtrava por uma; e apagar o valor de um convênio mudava o cobrado de **todas**
+  as cirurgias dele **sem confirmar**.
+- **📖 O GUIA "?" DESCREVIA METADE DA TELA** — foi escrito na Fase 1 e falava só de consultas.
+  Agora são dez passos cobrindo cirurgia, tabela de procedimentos, repasse, glosa, exportação,
+  visão geral e a defasagem de ~3,5 meses.
+- **📱 `/conciliacao` não estava na varredura de responsividade**, e a varredura mede a tela
+  **vazia** — então a medição da tela **cheia** (com dinheiro e modais, a 360px) foi para o fim do
+  teste e2e da Fase 2b, onde o dado já existe.
+- **🧾 DEZ `.xlsx` DE REPASSE REAIS ERAM RECUSADOS, e o defeito era o nosso leitor:** no OOXML o
+  prefixo de espaço de nomes é livre, e o leitor procurava `"<row"` literal — devolvia **zero
+  linha** para quem escreve `<x:row>`. Pior: a grade vazia seguia adiante e a mensagem **acusava
+  quem enviou** ("não reconheci este arquivo"). Hoje o arquivo que não rende linha nenhuma diz isso.
+
 ### O que depende do dono (nada disto é código)
 
 1. **Os QUATRO segredos do `Deploy OVH`**, sem os quais publicar continua sendo `ssh` na mão:
    `VPS_HOST`, `VPS_USER`, `VPS_PORT` e `VPS_SSH_KEY` (`gh secret set <nome>`). O workflow já
    existe e a imagem já é construída e publicada no GHCR por ele.
-2. **Quem pode ver a Conciliação.** Hoje qualquer FUNCIONARIO vê a de **todos os clientes** —
-   é a tela com mais dinheiro de terceiro do sistema.
+2. ⚠️ **O ARQUIVO ORIGINAL DO TASY CONTINUA BAIXÁVEL por qualquer funcionário**, e isso é
+   anterior à trava: `clientes.arquivos` é `funcionarioProcedure` puro e o `GET /arquivos/:id`
+   diz, no próprio comentário, que _"equipe acessa qualquer um"_. Dentro dele estão paciente,
+   atendimento, convênio, médico, procedimento — **e prontuário e Cód. Pessoa**, que o sistema
+   deliberadamente não lê nem grava. Ou seja: o dado que a Conciliação recusa mostrar na tela sai
+   inteiro pelo download. Fechar isso muda a régua do sistema todo, não só desta tela — é decisão
+   sua, não refatoração.
 3. **O de-para de procedimento com VALOR**, por cliente: sem ele o "cobrado" nasce vazio e a
    glosa não tem de quê ser calculada.
 4. **Perguntar à Juliana** por que 199 de 226 cirurgias do arquivo do Sergio Almeida estão como

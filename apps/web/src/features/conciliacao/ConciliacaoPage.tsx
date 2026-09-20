@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useBuscaAdiada } from "../../lib/use-busca-adiada";
 import { AlertTriangle, FileSpreadsheet, Link2, Upload } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { PageHeader } from "../../components/ui/page-header";
@@ -43,7 +44,7 @@ export function ConciliacaoPage() {
   const [competencia, setCompetencia] = useState("");
   const [tipo, setTipo] = useState("");
   const [operadoraId, setOperadoraId] = useState("");
-  const [busca, setBusca] = useState("");
+  const [busca, setBusca, buscaAdiada] = useBuscaAdiada();
   const [pagina, setPagina] = useState(1);
   const [importando, setImportando] = useState(false);
   const [aba, setAba] = useState<"consultas" | "cirurgias">("consultas");
@@ -67,10 +68,15 @@ export function ConciliacaoPage() {
       competencia: competencia || undefined,
       tipoAtendimento: (tipo || undefined) as "CONSULTA" | "CORTESIA" | "SEM_VINCULO_AGENDA" | "OUTRO" | undefined,
       operadoraId: operadoraId || undefined,
-      busca: busca.trim() || undefined,
+      busca: buscaAdiada.trim() || undefined,
       pagina,
     },
-    { enabled: naAbaConsultas },
+    {
+      enabled: naAbaConsultas,
+      // ⚠️ Mesma razão do painel de cirurgias: sem o valor anterior, a tabela pisca "nenhum
+      // atendimento" no meio da digitação, e isso se lê como "não achei".
+      placeholderData: (anterior) => anterior,
+    },
   );
 
   const opcoesCliente = useMemo(() => (clientes.data ?? []).map((c) => ({ value: c.id, label: c.nome })), [clientes.data]);
@@ -284,7 +290,7 @@ export function ConciliacaoPage() {
                   />
                 ) : (
                   <>
-                    <Table>
+                    <Table rotulo="Atendimentos do mês">
                       <THead>
                         <TR>
                           <TH>Agenda</TH>
@@ -468,6 +474,22 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
   // ⚠️ Enquanto o de-para não é ligado, o resumo por operadora fica INCOMPLETO — é o que este
   // próprio card diz mais abaixo. Sumir numa falha de consulta faz a pessoa ler um resumo
   // incompleto como completo, e é esse resumo que vai para a clínica.
+  // ⚠️ Sem as listas auxiliares não há o que escolher no "Ligar a…" — e a pessoa fica olhando um
+  // `<select>` vazio sem saber que foi a consulta que falhou, não que o cadastro esteja vazio.
+  const erroDeApoio = operadoras.error ?? profissionais.error;
+  if (erroDeApoio) {
+    return (
+      <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
+        <QueryError
+          message={erroDeApoio.message}
+          onRetry={() => {
+            void operadoras.refetch();
+            void profissionais.refetch();
+          }}
+        />
+      </div>
+    );
+  }
   if (pendencias.error) {
     return (
       <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">

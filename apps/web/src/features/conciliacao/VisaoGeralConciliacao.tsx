@@ -41,7 +41,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
           Cobrado {formatBRL(t.cobrado)} · recebido {formatBRL(t.recebido)} · glosa {formatBRL(t.glosa)} · a receber {formatBRL(t.aReceber)}
         </p>
       </div>
-      <Table>
+      <Table rotulo="Conciliação por cliente">
         <THead>
           <TR>
             <TH>Cliente</TH>

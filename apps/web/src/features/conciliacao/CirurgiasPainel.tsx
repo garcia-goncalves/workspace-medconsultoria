@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useBuscaAdiada } from "../../lib/use-busca-adiada";
 import { Download, FileUp, ListChecks, Stethoscope, Upload } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { EmptyState } from "../../components/ui/empty-state";
@@ -48,7 +49,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
   const [situacao, setSituacao] = useState<Situacao>("");
   const [status, setStatus] = useState<StatusConciliacao | "">("");
   const [operadoraId, setOperadoraId] = useState("");
-  const [busca, setBusca] = useState("");
+  const [busca, setBusca, buscaAdiada] = useBuscaAdiada();
   const [pagina, setPagina] = useState(1);
   const [dialogo, setDialogo] = useState<Dialogo>(null);
   const [editando, setEditando] = useState<CirurgiaConciliada | null>(null);
@@ -56,15 +57,23 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
   const utils = trpc.useUtils();
   const meses = trpc.conciliacao.mesesCirurgias.useQuery({ clienteId });
   const resumo = trpc.conciliacao.resumoCirurgias.useQuery({ clienteId, competencia: competencia || undefined });
-  const lista = trpc.conciliacao.cirurgias.useQuery({
-    clienteId,
-    competencia: competencia || undefined,
-    situacao: situacao || undefined,
-    statusConciliacao: status || undefined,
-    operadoraId: operadoraId || undefined,
-    busca: busca.trim() || undefined,
-    pagina,
-  });
+  const lista = trpc.conciliacao.cirurgias.useQuery(
+    {
+      clienteId,
+      competencia: competencia || undefined,
+      situacao: situacao || undefined,
+      statusConciliacao: status || undefined,
+      operadoraId: operadoraId || undefined,
+      busca: buscaAdiada.trim() || undefined,
+      pagina,
+    },
+    {
+      // ⚠️ Mantém a tabela ANTERIOR na tela enquanto a nova busca vai e volta. Sem isto, mudar
+      // filtro ou página joga a lista para o esqueleto e o "nenhum resultado" aparece no meio do
+      // caminho — que se lê como "não achei", e não como "ainda estou procurando".
+      placeholderData: (anterior) => anterior,
+    },
+  );
 
   const exportar = trpc.conciliacao.exportar.useMutation({
     onSuccess: (r) => {
@@ -304,7 +313,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           <EmptyState icon={Stethoscope} title="Nenhuma cirurgia" description="Nenhuma cirurgia com esses filtros." />
         ) : (
           <>
-            <Table>
+            <Table rotulo="Cirurgias conciliadas">
               <THead>
                 <TR>
                   <TH>Data</TH>
@@ -440,11 +449,11 @@ function RecebidoSemProducaoDialog({ clienteId, onClose }: { clienteId: string; 
       ) : q.error ? (
         <QueryError message={q.error.message} onRetry={() => void q.refetch()} />
       ) : (
-        <div className="max-h-[60vh] overflow-auto rounded-lg border">
+        <div tabIndex={0} aria-label="Linhas de repasse sem cirurgia" className="max-h-[60vh] overflow-auto rounded-lg border">
           {q.data.length >= 200 && (
             <p className="border-b p-2 text-xs text-muted-foreground">Mostrando as 200 mais recentes — o total acima soma todas.</p>
           )}
-          <Table>
+          <Table rotulo="Repasse sem cirurgia correspondente">
             <THead>
               <TR>
                 <TH>Pagamento</TH>
