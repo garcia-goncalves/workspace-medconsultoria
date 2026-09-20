@@ -1,4 +1,7 @@
-import type { StatusConciliacao } from "./conciliacao-cirurgica.js";
+// ⚠️ `ROTULO_STATUS` MORA no módulo do status, não aqui: a exportação é consumidora dele, e
+// uma segunda tabela de rótulos divergiria no dia em que um status novo nascesse.
+import { ROTULO_STATUS } from "./conciliacao-cirurgica.js";
+export { ROTULO_STATUS };
 import type { LinhaConciliada } from "./conciliacao-financeira.service.js";
 
 /**
@@ -12,19 +15,6 @@ import type { LinhaConciliada } from "./conciliacao-financeira.service.js";
  * ⚠️ `Prontuário` sai VAZIA: o sistema não o grava (minimização). A coluna fica para a planilha
  * continuar com o formato de sempre; quem precisar do prontuário tem o arquivo original do TASY.
  */
-
-export const ROTULO_STATUS: Record<StatusConciliacao, string> = {
-  NAO_REALIZADA: "Não realizada",
-  NAO_COBRAR: "Não cobrar",
-  SEM_ATENDIMENTO: "Sem atendimento",
-  SEM_VALOR: "Sem valor de referência",
-  A_RECEBER: "A receber",
-  PAGO: "Pago",
-  GLOSA_PARCIAL: "Glosa parcial",
-  GLOSA_TOTAL: "Glosa total",
-  PAGO_A_MAIS: "Pago a mais",
-  RECEBIDO_SEM_VALOR: "Recebido sem referência",
-};
 
 /** Texto entre aspas; e sem abrir porta para fórmula quando a planilha for aberta no Excel. */
 function texto(v: string | null | undefined): string {

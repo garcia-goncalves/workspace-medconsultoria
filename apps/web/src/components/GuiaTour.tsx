@@ -287,6 +287,18 @@ const GUIA_CONCILIACAO: Passo[] = [
       "Glosa é o que foi cobrado menos o que entrou; o status (a receber, pago, glosa parcial, glosa total, pago a mais) sai da comparação, a cada vez que a tela é aberta. Por isso nenhum deles é guardado no banco: se fossem, no dia em que o valor mudasse o rótulo continuaria dizendo “Pago” com a glosa nova do lado.",
   },
   {
+    icon: ArrowRightLeft,
+    titulo: "Glosou? Recorra — e o sistema cobra isso de você",
+    descricao:
+      "Toda cirurgia com glosa ganha o botão “Recorrer”: registre a data do protocolo, por onde foi e o que a operadora alegou. Depois, registre a resposta dela. O número que mais importa fica no alto da tela em vermelho — “X de glosa sem recurso”, o dinheiro que ninguém foi atrás —, e clicar nele filtra exatamente essas cirurgias. Recurso aberto há mais de 30 dias sem resposta aparece marcado: é o que precisa de telefonema.",
+  },
+  {
+    icon: CheckCircle2,
+    titulo: "Acatar o recurso NÃO dá o dinheiro por recebido",
+    descricao:
+      "Quando a operadora acata, registre isso — mas o valor só entra quando aparecer no próximo repasse importado, e aí a glosa se recalcula sozinha. É de propósito: o recurso guarda o processo (quando, por onde, protocolo, desfecho), nunca o dinheiro. Dois lugares guardando o mesmo valor divergem no primeiro pagamento diferente do combinado. E recorrer de novo não apaga a tentativa anterior — é ela que prova o que já foi respondido.",
+  },
+  {
     icon: CalendarClock,
     titulo: "Não espere o mês fechar batendo",
     descricao:

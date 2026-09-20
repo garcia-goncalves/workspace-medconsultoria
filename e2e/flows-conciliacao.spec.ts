@@ -340,6 +340,48 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
     }
   });
 
+  test("Fase 2c: recorrer da glosa, registrar a resposta e recorrer de novo — pela tela", async ({ page }) => {
+    await page.goto("/conciliacao");
+    await escolherNoCombo(page, /cliente/i, clienteNome);
+    await page.getByRole("tab", { name: /cirurgias/i }).click();
+
+    // ⚠️ A linha da glosa precisa OFERECER o recurso: glosa sem recurso é dinheiro perdido por
+    // omissão, e o botão escondido num modal seria o mesmo que não existir.
+    const recorrer = page.getByRole("button", { name: /abrir recurso da glosa/i }).first();
+    await expect(recorrer).toBeVisible({ timeout: 15_000 });
+    await recorrer.click();
+
+    const modal = page.getByRole("dialog");
+    await expect(modal.getByText(/recurso de glosa/i).first()).toBeVisible();
+    await modal.getByLabel(/por onde/i).fill("Portal da operadora");
+    // ⚠️ Exato: "Data do protocolo" também casa com /protocolo/i, e o Playwright recusa os dois.
+    await modal.getByLabel("Protocolo", { exact: true }).fill("PROT-E2E");
+    await modal.getByLabel(/o que a operadora alegou/i).fill("OPME não autorizado");
+    await modal.getByRole("button", { name: /registrar recurso/i }).click();
+
+    // O mesmo diálogo passa a pedir a RESPOSTA — não dá para abrir dois recursos ao mesmo tempo.
+    await expect(modal.getByRole("button", { name: /registrar resposta/i })).toBeVisible({ timeout: 15_000 });
+    await expect(modal.getByText(/tentativa 1/i)).toBeVisible();
+
+    // ⚠️ Acatar NÃO dá o dinheiro por recebido — a tela precisa dizer isso, senão a conta some.
+    await expect(modal.getByText(/acatado não dá o dinheiro por recebido/i)).toBeVisible();
+
+    await modal.getByLabel(/o que a operadora respondeu/i).selectOption("NEGADO");
+    await modal.getByRole("button", { name: /registrar resposta/i }).click();
+    await expect(modal.getByText(/tentativa 1/i)).toBeVisible({ timeout: 15_000 });
+
+    // Recorrer de novo é LINHA NOVA: a tentativa 1 negada continua à vista.
+    await modal.getByRole("button", { name: /registrar recurso/i }).click();
+    await expect(modal.getByText(/tentativa 2/i)).toBeVisible({ timeout: 15_000 });
+    await expect(modal.getByText(/tentativa 1/i)).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    // E a linha da tabela passou a falar do estado de agora.
+    await expect(page.getByRole("button", { name: /recurso da cirurgia .* em recurso/i }).first()).toBeVisible({ timeout: 15_000 });
+  });
+
   test("arquivo que não é o relatório é recusado com recado em português", async ({ page }) => {
     await page.goto("/conciliacao");
     await escolherNoCombo(page, /cliente/i, clienteNome);

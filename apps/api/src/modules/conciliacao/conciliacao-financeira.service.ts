@@ -2,7 +2,17 @@ import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 import { normalizarTexto } from "./planilha/index.js";
-import { estaAtrasada, glosaDe, repartirRecebido, statusDaConciliacao, type StatusConciliacao } from "./conciliacao-cirurgica.js";
+import {
+  DIAS_ATE_A_RESPOSTA_DO_RECURSO,
+  diasEntre,
+  estaAtrasada,
+  glosaDe,
+  repartirRecebido,
+  podeRecorrer,
+  ROTULO_STATUS,
+  statusDaConciliacao,
+  type StatusConciliacao,
+} from "./conciliacao-cirurgica.js";
 
 /**
  * CONCILIAÇÃO — Fase 2b: o dinheiro de cada cirurgia, calculado na LEITURA.
@@ -52,8 +62,21 @@ export interface LinhaConciliada {
   statusConciliacao: StatusConciliacao;
   /** Passou da defasagem normal entre a cirurgia e o pagamento (`DIAS_ATE_O_PAGAMENTO_ESPERADO`). */
   atrasada: boolean;
+  /** O recurso de glosa MAIS RECENTE desta cirurgia (Fase 2c). Nulo = nunca se recorreu. */
+  recurso: RecursoNaLinha | null;
   naoCobrar: boolean;
   observacao: string | null;
+}
+
+export interface RecursoNaLinha {
+  id: string;
+  tentativa: number;
+  status: "ABERTO" | "ACATADO" | "NEGADO" | "ENCERRADO";
+  protocolo: string | null;
+  abertoEm: Date;
+  respondidoEm: Date | null;
+  /** Aberto e sem resposta além do prazo — o que precisa de telefonema. */
+  semResposta: boolean;
 }
 
 export interface TotaisConciliacao {
@@ -67,6 +90,15 @@ export interface TotaisConciliacao {
   aReceberAtrasado: number;
   /** Quantas esperas venceram, inclusive as que ainda não têm valor para somar. */
   atrasadas: number;
+  /** Glosa das cirurgias com recurso ABERTO — o que está sendo disputado agora. */
+  emRecurso: number;
+  /**
+   * ⚠️ Glosa de quem NUNCA teve recurso — o dinheiro perdido por OMISSÃO, não por negativa.
+   * É o número mais importante desta tela: do resto, pelo menos alguém está tentando.
+   */
+  glosaSemRecurso: number;
+  /** Recursos abertos além do prazo de resposta — o que precisa de telefonema. */
+  recursosSemResposta: number;
   porStatus: Partial<Record<StatusConciliacao, number>>;
 }
 
@@ -90,7 +122,7 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
   // UMA vez para a montagem inteira: com `new Date()` dentro do laço, duas linhas da mesma lista
   // poderiam cair em lados diferentes do limite de atraso.
   const agora = new Date();
-  const [cirurgias, mapeamentos, repasses] = await Promise.all([
+  const [cirurgias, mapeamentos, repasses, recursos] = await Promise.all([
     prisma.producaoCirurgia.findMany({
       where: { clienteId },
       select: {
@@ -130,7 +162,40 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
       _sum: { valor: true },
       _max: { dataPagamento: true },
     }),
+    // Fase 2c. Vem tudo e a montagem fica com o MAIS RECENTE de cada cirurgia — as tentativas
+    // anteriores continuam no banco (é a prova de que a primeira foi negada) e aparecem no
+    // diálogo, mas a linha da tabela fala do estado de agora.
+    prisma.recursoDeGlosa.findMany({
+      where: { clienteId },
+      orderBy: [{ cirurgiaId: "asc" }, { tentativa: "desc" }],
+      select: {
+        id: true,
+        cirurgiaId: true,
+        tentativa: true,
+        status: true,
+        protocolo: true,
+        abertoEm: true,
+        respondidoEm: true,
+      },
+    }),
   ]);
+
+  // O mais recente de cada cirurgia: a ordenação acima põe a maior tentativa primeiro, então a
+  // PRIMEIRA que chega de cada cirurgia é a que vale.
+  const recursoDaCirurgia = new Map<string, RecursoNaLinha>();
+  for (const r of recursos) {
+    if (recursoDaCirurgia.has(r.cirurgiaId)) continue;
+    recursoDaCirurgia.set(r.cirurgiaId, {
+      id: r.id,
+      tentativa: r.tentativa,
+      status: r.status,
+      protocolo: r.protocolo,
+      abertoEm: r.abertoEm,
+      respondidoEm: r.respondidoEm,
+      // O relógio do recurso é OUTRO: conta da abertura, não da cirurgia.
+      semResposta: r.status === "ABERTO" && diasEntre(r.abertoEm, agora) > DIAS_ATE_A_RESPOSTA_DO_RECURSO,
+    });
+  }
 
   // De-para: a operadora da cirurgia primeiro, o padrão (operadora nula) depois — CAMPO A CAMPO.
   // Um código cadastrado só para a Unimed não pode esconder o valor padrão do procedimento.
@@ -258,6 +323,7 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
       // `new Date()` dentro do laço, duas linhas da mesma lista poderiam cair em lados diferentes
       // do limite.
       atrasada: estaAtrasada(status, c.dataCirurgia, agora),
+      recurso: recursoDaCirurgia.get(c.id) ?? null,
       naoCobrar: c.naoCobrar,
       observacao: c.observacao,
     };
@@ -278,6 +344,9 @@ export function totalizar(linhas: LinhaConciliada[]): TotaisConciliacao {
     aReceber: 0,
     aReceberAtrasado: 0,
     atrasadas: 0,
+    emRecurso: 0,
+    glosaSemRecurso: 0,
+    recursosSemResposta: 0,
     porStatus: {},
   };
   for (const l of linhas) {
@@ -293,6 +362,15 @@ export function totalizar(linhas: LinhaConciliada[]): TotaisConciliacao {
     if (l.atrasada) {
       t.atrasadas += 1;
       if (l.statusConciliacao === "A_RECEBER" && l.cobrado !== null) t.aReceberAtrasado = somar(t.aReceberAtrasado, l.cobrado);
+    }
+
+    if (l.recurso?.semResposta) t.recursosSemResposta += 1;
+    // ⚠️ Os dois números abaixo falam da glosa de AGORA, não do que se contestou lá atrás: se a
+    // operadora pagou parte depois do recurso, o que está em disputa encolheu junto. É por isso
+    // que o recurso não guarda valor nenhum.
+    if (l.glosa !== null && l.glosa > 0) {
+      if (l.recurso?.status === "ABERTO") t.emRecurso = somar(t.emRecurso, l.glosa);
+      else if (!l.recurso) t.glosaSemRecurso = somar(t.glosaSemRecurso, l.glosa);
     }
   }
   return t;
@@ -325,6 +403,115 @@ export async function editarCirurgia(clienteId: string, id: string, e: EdicaoCir
   });
   if (count === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Cirurgia não encontrada neste cliente." });
   return { ok: true };
+}
+
+// ─── Fase 2c: o recurso de glosa ────────────────────────────────────────────────────────────────
+
+export interface AberturaDeRecurso {
+  cirurgiaId: string;
+  abertoEm: string;
+  canal?: string | null;
+  protocolo?: string | null;
+  motivoDaGlosa?: string | null;
+  observacao?: string | null;
+}
+
+/**
+ * Abre um recurso da glosa de uma cirurgia.
+ *
+ * ⚠️ **A trava de "só se recorre do que foi glosado" é do SERVIDOR.** A tela também esconde o
+ * botão, mas esconder é conveniência; recusar é a regra. E ela é conferida sobre o status
+ * CALCULADO no instante da abertura — não há coluna no banco que responda isso.
+ *
+ * ⚠️ **Recorrer de novo é LINHA NOVA** (tentativa + 1), nunca edição da anterior: negado não vira
+ * acatado por edição, senão a segunda tentativa apagaria a prova de que a primeira foi negada — e
+ * é essa prova que se leva à operadora. Só que a anterior precisa estar FECHADA: dois recursos
+ * abertos ao mesmo tempo para a mesma cirurgia são dois protocolos disputando a mesma glosa.
+ */
+export async function abrirRecurso(clienteId: string, usuarioId: string, e: AberturaDeRecurso) {
+  const { linhas } = await montarConciliacao(clienteId);
+  const linha = linhas.find((l) => l.id === e.cirurgiaId);
+  if (!linha) throw new TRPCError({ code: "NOT_FOUND", message: "Cirurgia não encontrada neste cliente." });
+
+  if (!podeRecorrer(linha.statusConciliacao)) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "Só dá para recorrer de cirurgia com glosa. Esta está como “" + ROTULO_STATUS[linha.statusConciliacao] + "”.",
+    });
+  }
+  if (linha.recurso?.status === "ABERTO") {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: `Já existe um recurso aberto para esta cirurgia (tentativa ${linha.recurso.tentativa}). Registre a resposta da operadora antes de abrir outro.`,
+    });
+  }
+
+  return prisma.recursoDeGlosa.create({
+    data: {
+      clienteId,
+      cirurgiaId: e.cirurgiaId,
+      tentativa: (linha.recurso?.tentativa ?? 0) + 1,
+      abertoEm: new Date(`${e.abertoEm}T00:00:00Z`),
+      canal: e.canal?.trim() || null,
+      protocolo: e.protocolo?.trim() || null,
+      motivoDaGlosa: e.motivoDaGlosa?.trim() || null,
+      observacao: e.observacao?.trim() || null,
+      criadoPorId: usuarioId,
+    },
+    select: { id: true, tentativa: true },
+  });
+}
+
+/**
+ * Registra a resposta da operadora.
+ *
+ * ⚠️ O dinheiro NÃO entra por aqui, nem quando é ACATADO. Ele entra pelo repasse, como todo o
+ * resto — e é de lá que a glosa se recalcula. Gravar valor aqui criaria a segunda fonte do mesmo
+ * número que esta fase existe para não criar.
+ */
+export async function responderRecurso(
+  clienteId: string,
+  recursoId: string,
+  e: { status: "ACATADO" | "NEGADO" | "ENCERRADO"; respondidoEm: string; observacao?: string | null },
+) {
+  // Posse no próprio WHERE, como em `editarCirurgia`: id da tela nunca alcança outro cliente.
+  const { count } = await prisma.recursoDeGlosa.updateMany({
+    where: { id: recursoId, clienteId, status: "ABERTO" },
+    data: {
+      status: e.status,
+      respondidoEm: new Date(`${e.respondidoEm}T00:00:00Z`),
+      ...(e.observacao !== undefined ? { observacao: e.observacao?.trim() || null } : {}),
+    },
+  });
+  // `status: ABERTO` no filtro é o que torna a resposta IDEMPOTENTE no sentido certo: responder
+  // duas vezes não reescreve o desfecho já registrado, e a mensagem diz por quê.
+  if (count === 0) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Recurso não encontrado neste cliente, ou a resposta da operadora já foi registrada.",
+    });
+  }
+  return { ok: true };
+}
+
+/** O histórico completo de uma cirurgia — todas as tentativas, não só a mais recente. */
+export async function recursosDaCirurgia(clienteId: string, cirurgiaId: string) {
+  return prisma.recursoDeGlosa.findMany({
+    where: { clienteId, cirurgiaId },
+    orderBy: { tentativa: "desc" },
+    select: {
+      id: true,
+      tentativa: true,
+      status: true,
+      canal: true,
+      protocolo: true,
+      abertoEm: true,
+      respondidoEm: true,
+      motivoDaGlosa: true,
+      observacao: true,
+      criadoPor: { select: { nome: true } },
+    },
+  });
 }
 
 // ─── De-para de procedimento ────────────────────────────────────────────────────────────────────
@@ -424,6 +611,10 @@ export interface LinhaDaVisaoGeral {
   /** A parte de `aReceber` que travou — passou da defasagem normal de pagamento. */
   aReceberAtrasado: number;
   atrasadas: number;
+  /** Glosa que ninguém recorreu — o dinheiro perdido por omissão. */
+  glosaSemRecurso: number;
+  emRecurso: number;
+  recursosSemResposta: number;
   recebidoSemProducao: number;
   semValor: number;
   semAtendimento: number;
@@ -476,6 +667,9 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null) {
       aReceber: t.aReceber,
       aReceberAtrasado: t.aReceberAtrasado,
       atrasadas: t.atrasadas,
+      glosaSemRecurso: t.glosaSemRecurso,
+      emRecurso: t.emRecurso,
+      recursosSemResposta: t.recursosSemResposta,
       recebidoSemProducao: somar(semProducao.total, semProducao.naoAtribuido),
       semValor: t.porStatus.SEM_VALOR ?? 0,
       semAtendimento: t.porStatus.SEM_ATENDIMENTO ?? 0,
@@ -492,7 +686,8 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null) {
    * ganhasse paginação ou um teto, o cabeçalho viraria uma soma PARCIAL apresentada como total,
    * sem sinal nenhum. Somando aqui, ele acompanha o que a consulta de fato devolveu.
    */
-  const total = (k: "cobrado" | "recebido" | "glosa" | "aReceber" | "aReceberAtrasado") => saida.reduce((s, l) => somar(s, l[k]), 0);
+  const total = (k: "cobrado" | "recebido" | "glosa" | "aReceber" | "aReceberAtrasado" | "glosaSemRecurso") =>
+    saida.reduce((s, l) => somar(s, l[k]), 0);
   return {
     clientes: saida,
     totais: {
@@ -501,6 +696,7 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null) {
       glosa: total("glosa"),
       aReceber: total("aReceber"),
       aReceberAtrasado: total("aReceberAtrasado"),
+      glosaSemRecurso: total("glosaSemRecurso"),
     },
   };
 }

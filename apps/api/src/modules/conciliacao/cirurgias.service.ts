@@ -362,6 +362,12 @@ export interface FiltroCirurgias {
   statusConciliacao?: StatusConciliacao;
   /** Só o que já passou da defasagem normal de pagamento — a pergunta "o que travou?". */
   soAtrasadas?: boolean;
+  /**
+   * O recorte do recurso de glosa (Fase 2c):
+   * `SEM_RECURSO` é o dinheiro perdido por OMISSÃO — glosado e ninguém recorreu.
+   * `ABERTO` é o que está em disputa; `SEM_RESPOSTA`, o que passou do prazo e precisa de telefonema.
+   */
+  recurso?: "SEM_RECURSO" | "ABERTO" | "SEM_RESPOSTA" | "RESPONDIDO";
   busca?: string;
   pagina?: number;
 }
@@ -375,6 +381,15 @@ function passaNoFiltro(l: LinhaConciliada, f: FiltroCirurgias): boolean {
   if (f.situacao === "NAO_EXECUTADA" && l.status === "EXECUTADA") return false;
   if (f.statusConciliacao && l.statusConciliacao !== f.statusConciliacao) return false;
   if (f.soAtrasadas && !l.atrasada) return false;
+  if (f.recurso) {
+    // ⚠️ "Sem recurso" só faz sentido sobre o que FOI glosado: uma cirurgia paga também não tem
+    // recurso, e listá-la aqui afogaria a pergunta ("de qual glosa ninguém cuidou?") em ruído.
+    const glosada = l.statusConciliacao === "GLOSA_PARCIAL" || l.statusConciliacao === "GLOSA_TOTAL";
+    if (f.recurso === "SEM_RECURSO" && (!glosada || l.recurso)) return false;
+    if (f.recurso === "ABERTO" && l.recurso?.status !== "ABERTO") return false;
+    if (f.recurso === "SEM_RESPOSTA" && !l.recurso?.semResposta) return false;
+    if (f.recurso === "RESPONDIDO" && (!l.recurso || l.recurso.status === "ABERTO")) return false;
+  }
   if (f.busca && !normalizarTexto(l.pacienteNome).includes(normalizarTexto(f.busca))) return false;
   return true;
 }

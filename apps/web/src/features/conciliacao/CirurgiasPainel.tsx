@@ -14,8 +14,9 @@ import { QueryError } from "../../components/ui/query-error";
 import { toast } from "../../components/ui/toast";
 import { dataUTC } from "../../lib/format-date";
 import { formatBRL } from "../../lib/masks";
-import { baixarTexto, ListaResumo, Paginacao, STATUS_CONCILIACAO, type StatusConciliacao } from "./partes";
+import { baixarTexto, ListaResumo, Paginacao, ROTULO_RECURSO, STATUS_CONCILIACAO, type StatusConciliacao } from "./partes";
 import { EditarCirurgiaDialog, type CirurgiaConciliada } from "./EditarCirurgiaDialog";
+import { RecursoDeGlosaDialog } from "./RecursoDeGlosaDialog";
 import { ProcedimentosDialog } from "./ProcedimentosDialog";
 import { ImportarRecebidoDialog } from "./ImportarRecebidoDialog";
 
@@ -51,9 +52,11 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
   const [operadoraId, setOperadoraId] = useState("");
   const [busca, setBusca, buscaAdiada] = useBuscaAdiada();
   const [soAtrasadas, setSoAtrasadas] = useState(false);
+  const [recurso, setRecurso] = useState<"" | "SEM_RECURSO" | "ABERTO" | "SEM_RESPOSTA" | "RESPONDIDO">("");
   const [pagina, setPagina] = useState(1);
   const [dialogo, setDialogo] = useState<Dialogo>(null);
   const [editando, setEditando] = useState<CirurgiaConciliada | null>(null);
+  const [recorrendo, setRecorrendo] = useState<CirurgiaConciliada | null>(null);
 
   const utils = trpc.useUtils();
   const meses = trpc.conciliacao.mesesCirurgias.useQuery({ clienteId });
@@ -66,6 +69,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
       statusConciliacao: status || undefined,
       operadoraId: operadoraId || undefined,
       soAtrasadas: soAtrasadas || undefined,
+      recurso: recurso || undefined,
       busca: buscaAdiada.trim() || undefined,
       pagina,
     },
@@ -94,7 +98,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
     setPagina(1);
   };
   const recarregar = () => void utils.conciliacao.invalidate();
-  const temFiltro = !!(situacao || status || operadoraId || busca || soAtrasadas);
+  const temFiltro = !!(situacao || status || operadoraId || busca || soAtrasadas || recurso);
 
   if (meses.isPending) return <Skeleton className="h-24 w-full" />;
   if (meses.error) return <QueryError message={meses.error.message} onRetry={() => void meses.refetch()} />;
@@ -138,6 +142,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
               // A planilha leva o MESMO recorte que está na tela — exportar tudo quando a tela
               // mostra só o atrasado seria entregar outro documento do que se conferiu.
               soAtrasadas: soAtrasadas || undefined,
+              recurso: recurso || undefined,
             })
           }
         >
@@ -202,6 +207,32 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
             </div>
           </>
         )}
+        {r?.dinheiro && (r.dinheiro.glosaSemRecurso > 0 || r.dinheiro.emRecurso > 0) && (
+          <p className="mt-2 flex flex-wrap gap-x-3 text-sm">
+            {/* ⚠️ Perdido por OMISSÃO vem primeiro e em vermelho: do resto, pelo menos alguém está
+                tentando. Este é o número que ninguém estava vendo. */}
+            {r.dinheiro.glosaSemRecurso > 0 && (
+              <button
+                type="button"
+                className="min-h-11 text-left font-medium text-destructive underline-offset-2 hover:underline"
+                onClick={() => filtrar(() => setRecurso("SEM_RECURSO"))}
+              >
+                {formatBRL(r.dinheiro.glosaSemRecurso)} de glosa sem recurso
+              </button>
+            )}
+            {r.dinheiro.emRecurso > 0 && (
+              <button
+                type="button"
+                className="min-h-11 text-left text-primary underline-offset-2 hover:underline"
+                onClick={() => filtrar(() => setRecurso("ABERTO"))}
+              >
+                {formatBRL(r.dinheiro.emRecurso)} em recurso
+                {r.dinheiro.recursosSemResposta > 0 && ` · ${r.dinheiro.recursosSemResposta} sem resposta no prazo`}
+              </button>
+            )}
+          </p>
+        )}
+
         {r && r.recebidoSemProducao.naoAtribuido !== 0 && (
           <p className="mt-2 text-sm text-warning">
             {formatBRL(r.recebidoSemProducao.naoAtribuido)} de repasse não atribuído — de atendimentos cujas cirurgias estão marcadas "não
@@ -286,6 +317,18 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
             </Select>
           </div>
           <div className="w-56 space-y-1">
+            <Label htmlFor="cir-recurso">Recurso de glosa</Label>
+            <Select id="cir-recurso" value={recurso} onChange={(e) => filtrar(() => setRecurso(e.target.value as typeof recurso))}>
+              <option value="">Todos</option>
+              {/* Primeiro da lista de propósito: é a pergunta que custa dinheiro. */}
+              <option value="SEM_RECURSO">Glosa sem recurso (ninguém cuidou)</option>
+              <option value="SEM_RESPOSTA">Em recurso, sem resposta no prazo</option>
+              <option value="ABERTO">Em recurso</option>
+              <option value="RESPONDIDO">Já respondido pela operadora</option>
+            </Select>
+          </div>
+
+          <div className="w-44 space-y-1">
             <Label htmlFor="cir-atraso">Prazo</Label>
             <Select
               id="cir-atraso"
@@ -310,6 +353,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
                   setStatus("");
                   setOperadoraId("");
                   setSoAtrasadas(false);
+                  setRecurso("");
                   setBusca("");
                 })
               }
@@ -408,6 +452,23 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
                         >
                           {st.rotulo}
                         </Button>
+                        {/* ⚠️ Glosa sem recurso é dinheiro perdido por OMISSÃO — o botão precisa
+                            estar na própria linha, não escondido num modal que ninguém abre. */}
+                        {"glosa" in st || l.recurso ? (
+                          <Button
+                            variant="ghost"
+                            className={`block min-h-11 px-2 text-xs ${l.recurso ? ROTULO_RECURSO[l.recurso.status].cor : "text-muted-foreground"}`}
+                            aria-label={
+                              l.recurso
+                                ? `Recurso da cirurgia ${l.numeroCirurgia} — ${ROTULO_RECURSO[l.recurso.status].rotulo}`
+                                : `Abrir recurso da glosa da cirurgia ${l.numeroCirurgia}`
+                            }
+                            onClick={() => setRecorrendo(l)}
+                          >
+                            {l.recurso ? ROTULO_RECURSO[l.recurso.status].rotulo : "Recorrer"}
+                            {l.recurso?.semResposta && <span className="block text-destructive">sem resposta</span>}
+                          </Button>
+                        ) : null}
                       </TD>
                     </TR>
                   );
@@ -428,6 +489,16 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           onSalvo={recarregar}
         />
       )}
+      {recorrendo && (
+        <RecursoDeGlosaDialog
+          key={recorrendo.id}
+          clienteId={clienteId}
+          cirurgia={recorrendo}
+          onClose={() => setRecorrendo(null)}
+          onSalvo={recarregar}
+        />
+      )}
+
       {dialogo === "procedimentos" && <ProcedimentosDialog clienteId={clienteId} onClose={() => setDialogo(null)} onSalvo={recarregar} />}
       {(dialogo === "repasse" || dialogo === "planilha") && (
         <ImportarRecebidoDialog

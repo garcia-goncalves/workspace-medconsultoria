@@ -45,6 +45,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
         <p className="text-xs text-muted-foreground">
           Cobrado {formatBRL(t.cobrado)} · recebido {formatBRL(t.recebido)} · glosa {formatBRL(t.glosa)} · a receber {formatBRL(t.aReceber)}
           {t.aReceberAtrasado > 0 && <span className="text-destructive"> · {formatBRL(t.aReceberAtrasado)} passou do prazo</span>}
+          {t.glosaSemRecurso > 0 && <span className="text-destructive"> · {formatBRL(t.glosaSemRecurso)} de glosa sem recurso</span>}
         </p>
       </div>
       <Table rotulo="Conciliação por cliente">
@@ -58,6 +59,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
             <TH className="text-right">Glosa</TH>
             <TH className="text-right">A receber</TH>
             <TH className="text-right">Passou do prazo</TH>
+            <TH className="text-right">Glosa sem recurso</TH>
             <TH>Pendências</TH>
             <TH>Última importação</TH>
           </TR>
@@ -69,6 +71,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
               c.semAtendimento > 0 && `${c.semAtendimento} sem atendimento`,
               c.pendenciasDePara > 0 && `${c.pendenciasDePara} a ligar`,
               c.atrasadas > 0 && `${c.atrasadas} passou do prazo`,
+              c.recursosSemResposta > 0 && `${c.recursosSemResposta} recurso(s) sem resposta`,
               c.recebidoSemProducao !== 0 && `${formatBRL(c.recebidoSemProducao)} sem cirurgia`,
             ].filter(Boolean);
             return (
@@ -86,6 +89,10 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
                 <TD className="whitespace-nowrap text-right">{formatBRL(c.aReceber)}</TD>
                 <TD className={`whitespace-nowrap text-right ${c.aReceberAtrasado > 0 ? "text-destructive" : ""}`}>
                   {c.aReceberAtrasado > 0 ? formatBRL(c.aReceberAtrasado) : "—"}
+                </TD>
+                {/* Glosa que ninguém recorreu: dinheiro perdido por omissão, cliente a cliente. */}
+                <TD className={`whitespace-nowrap text-right ${c.glosaSemRecurso > 0 ? "font-medium text-destructive" : ""}`}>
+                  {c.glosaSemRecurso > 0 ? formatBRL(c.glosaSemRecurso) : "—"}
                 </TD>
                 <TD className="text-xs text-warning">{pendencias.join(" · ") || <span className="text-muted-foreground">—</span>}</TD>
                 <TD className="text-xs text-muted-foreground">{c.ultimaImportacao ? dataUTC(c.ultimaImportacao.em) : "—"}</TD>

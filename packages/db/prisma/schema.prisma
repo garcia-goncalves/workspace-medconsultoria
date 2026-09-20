@@ -92,46 +92,47 @@ model User {
   updatedAt        DateTime     @updatedAt
   deletedAt        DateTime?
 
-  sessions              Session[]
-  sessoesDeSuporte      Session[]              @relation("SessaoDeSuporte")
-  activityLogs          ActivityLog[]
-  cliente               Cliente?               @relation("UserCliente", fields: [clienteId], references: [id], onDelete: SetNull)
-  clientesResponsavel   Cliente[]              @relation("ClienteResponsavel")
-  leadsResponsavel      Lead[]                 @relation("LeadResponsavel")
-  projetosResponsavel   Projeto[]              @relation("ProjetoResponsavel")
-  projetosParticipa     ProjetoParticipante[]
-  cardsResponsavel      Card[]                 @relation("CardResponsavel")
-  timeEntries           TimeEntry[]
-  notas                 Nota[]
-  eventos               Evento[]               @relation("EventoDono")
-  eventoParticipacoes   EventoParticipante[]
-  notificacoes          Notificacao[]
-  mensagens             Mensagem[]
-  conversaParticipa     ConversaParticipante[]
-  conversasResponsavel  Conversa[]             @relation("ConversaResponsavel")
-  conversasCriadas      Conversa[]             @relation("ConversaCriador")
-  documentosCriados     Documento[]            @relation("DocCriador")
-  documentosAprovados   Documento[]            @relation("DocAprovador")
+  sessions               Session[]
+  sessoesDeSuporte       Session[]              @relation("SessaoDeSuporte")
+  activityLogs           ActivityLog[]
+  cliente                Cliente?               @relation("UserCliente", fields: [clienteId], references: [id], onDelete: SetNull)
+  clientesResponsavel    Cliente[]              @relation("ClienteResponsavel")
+  leadsResponsavel       Lead[]                 @relation("LeadResponsavel")
+  projetosResponsavel    Projeto[]              @relation("ProjetoResponsavel")
+  projetosParticipa      ProjetoParticipante[]
+  cardsResponsavel       Card[]                 @relation("CardResponsavel")
+  timeEntries            TimeEntry[]
+  notas                  Nota[]
+  eventos                Evento[]               @relation("EventoDono")
+  eventoParticipacoes    EventoParticipante[]
+  notificacoes           Notificacao[]
+  mensagens              Mensagem[]
+  conversaParticipa      ConversaParticipante[]
+  conversasResponsavel   Conversa[]             @relation("ConversaResponsavel")
+  conversasCriadas       Conversa[]             @relation("ConversaCriador")
+  documentosCriados      Documento[]            @relation("DocCriador")
+  documentosAprovados    Documento[]            @relation("DocAprovador")
   // Trilha de quem aceitou/assinou estando logado (ADR-137).
-  propostasRespondidas  Documento[]            @relation("PropostasRespondidas")
-  assinaturasFeitas     Assinatura[]           @relation("AssinaturasFeitas")
-  clientesAnonimizados  Cliente[]              @relation("ClientesAnonimizados")
-  documentoVersoes      DocumentoVersao[]
-  suporteMensagens      SuporteMensagem[]
-  tokens                Token[]
-  preferenciasEmail     PreferenciaEmail[]
-  contas                Conta[]                @relation("ContaDono")
-  categorias            Categoria[]            @relation("CategoriaDono")
-  tarefasCriadas        Tarefa[]               @relation("TarefaCriador")
-  tarefasResponsavel    TarefaResponsavel[]
-  caixasEmail           CaixaEmail[]
-  convidadoPor          User?                  @relation("ConvitePortal", fields: [convidadoPorId], references: [id], onDelete: SetNull)
-  convidou              User[]                 @relation("ConvitePortal")
+  propostasRespondidas   Documento[]            @relation("PropostasRespondidas")
+  assinaturasFeitas      Assinatura[]           @relation("AssinaturasFeitas")
+  clientesAnonimizados   Cliente[]              @relation("ClientesAnonimizados")
+  documentoVersoes       DocumentoVersao[]
+  suporteMensagens       SuporteMensagem[]
+  tokens                 Token[]
+  preferenciasEmail      PreferenciaEmail[]
+  contas                 Conta[]                @relation("ContaDono")
+  categorias             Categoria[]            @relation("CategoriaDono")
+  tarefasCriadas         Tarefa[]               @relation("TarefaCriador")
+  tarefasResponsavel     TarefaResponsavel[]
+  caixasEmail            CaixaEmail[]
+  convidadoPor           User?                  @relation("ConvitePortal", fields: [convidadoPorId], references: [id], onDelete: SetNull)
+  convidou               User[]                 @relation("ConvitePortal")
   // API DO AGENTE (ADR-149): delegações emitidas EM NOME desta pessoa, e as que ela emitiu.
-  delegacoesDeAgente    AgentDelegation[]      @relation("DelegacaoDoUsuario")
-  delegacoesEmitidas    AgentDelegation[]      @relation("DelegacaoEmitidaPor")
-  idempotenciasDeAgente AgentIdempotency[]     @relation("IdempotenciaDoAgente")
-  producaoLotes         ProducaoLote[]         @relation("LoteImportadoPor")
+  delegacoesDeAgente     AgentDelegation[]      @relation("DelegacaoDoUsuario")
+  delegacoesEmitidas     AgentDelegation[]      @relation("DelegacaoEmitidaPor")
+  idempotenciasDeAgente  AgentIdempotency[]     @relation("IdempotenciaDoAgente")
+  producaoLotes          ProducaoLote[]         @relation("LoteImportadoPor")
+  recursosDeGlosaCriados RecursoDeGlosa[]       @relation("RecursosDeGlosaCriados")
 
   @@index([role])
   @@index([clienteId])
@@ -312,6 +313,7 @@ model Cliente {
   producaoLotes           ProducaoLote[]
   producaoConsultas       ProducaoConsulta[]
   producaoCirurgias       ProducaoCirurgia[]
+  recursosDeGlosa         RecursoDeGlosa[]
   mapeamentosConvenio     MapeamentoConvenio[]
   mapeamentosProfissional MapeamentoProfissional[]
   mapeamentosProcedimento MapeamentoProcedimento[]
@@ -2042,6 +2044,57 @@ enum CategoriaConvenio {
   OUTRO
 }
 
+/// Fase 2c: o que a clínica fez DEPOIS de descobrir a glosa.
+///
+/// ⚠️ Não guarda DINHEIRO, de propósito. Quando a operadora acata, o valor entra num repasse
+/// futuro, sobe o `recebido` e faz a glosa se recalcular sozinha — um campo aqui seria uma segunda
+/// fonte do mesmo número, e as duas divergiriam no primeiro pagamento diferente do combinado.
+/// Isto guarda o PROCESSO: quando, por onde, com qual protocolo, e o desfecho.
+///
+/// ⚠️ O status aqui é GRAVADO, ao contrário do status da conciliação. Não é contradição: aquele é
+/// derivado de números que o sistema conhece; este é um fato do mundo que só uma pessoa sabe.
+model RecursoDeGlosa {
+  id         String @id @default(cuid())
+  clienteId  String
+  cirurgiaId String
+  /// Recorrer de novo é LINHA NOVA (molde do Credenciamento, ADR-104): negado não vira acatado por
+  /// edição, senão a segunda tentativa apagaria a prova de que a primeira foi negada.
+  tentativa  Int    @default(1)
+
+  status    StatusRecursoGlosa @default(ABERTO)
+  /// Portal da operadora, e-mail, telefone… texto livre porque cada operadora tem o seu.
+  canal     String?            @db.VarChar(60)
+  protocolo String?            @db.VarChar(60)
+
+  abertoEm     DateTime  @db.Date
+  respondidoEm DateTime? @db.Date
+
+  /// O que a OPERADORA alegou para glosar — é o que se contesta, e o que ensina a não repetir.
+  motivoDaGlosa String? @db.Text
+  observacao    String? @db.Text
+
+  criadoPorId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cliente   Cliente          @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  cirurgia  ProducaoCirurgia @relation(fields: [cirurgiaId], references: [id], onDelete: Cascade)
+  criadoPor User?            @relation("RecursosDeGlosaCriados", fields: [criadoPorId], references: [id], onDelete: SetNull)
+
+  /// Não existem duas linhas para a mesma cirurgia na mesma tentativa.
+  @@unique([cirurgiaId, tentativa])
+  @@index([clienteId, status])
+  @@index([criadoPorId])
+}
+
+enum StatusRecursoGlosa {
+  ABERTO
+  ACATADO
+  NEGADO
+  /// Desistiu, prescreveu, ou virou acordo por fora — encerrado sem desfecho da operadora.
+  ENCERRADO
+}
+
 enum StatusCirurgia {
   EXECUTADA
   /// Agendada e não realizada. Fica na lista, fora dos totais de produção.
@@ -2126,6 +2179,8 @@ model ProducaoCirurgia {
   cliente      Cliente       @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   operadora    Operadora?    @relation(fields: [operadoraId], references: [id], onDelete: SetNull)
   profissional Profissional? @relation(fields: [profissionalId], references: [id], onDelete: SetNull)
+
+  recursos RecursoDeGlosa[]
 
   @@unique([clienteId, numeroCirurgia])
   @@index([clienteId, competencia])
