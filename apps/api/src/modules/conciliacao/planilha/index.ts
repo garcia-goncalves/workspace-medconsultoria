@@ -41,10 +41,26 @@ export async function lerGrade(bytes: Buffer): Promise<Grade> {
     case "csv":
       return { formato, linhas: lerCsv(decodificarTexto(bytes)) };
     case "html":
-      return { formato, linhas: lerTabelaHtml(decodificarTexto(bytes)) };
+      return { formato, linhas: exigirLinhas(lerTabelaHtml(decodificarTexto(bytes)), formato) };
     case "xlsx":
       return { formato, linhas: lerXlsxOuExplicar(bytes) };
   }
+}
+
+/**
+ * Zero linha NÃO segue adiante calado.
+ *
+ * ⚠️ A grade vazia é o que sobra quando o LEITOR não entendeu o arquivo — e quem a recebe conclui
+ * "este não é o relatório que eu esperava", jogando a culpa no arquivo de quem enviou. Aconteceu
+ * de verdade com `.xlsx` de tag prefixada (ver `semPrefixoDeNamespace`): arquivo bom, mensagem
+ * acusando a pessoa. Aqui o arquivo que não rendeu linha nenhuma diz isso, com essas palavras.
+ */
+function exigirLinhas(linhas: string[][], formato: Formato): string[][] {
+  if (linhas.length > 0) return linhas;
+  throw new ErroDePlanilha(
+    "Abri este arquivo, mas não encontrei nenhuma linha de tabela dentro dele. Confira se é o relatório certo e envie de novo.",
+    formato,
+  );
 }
 
 /** Traduz a falha do leitor de zip/xlsx para um recado que a pessoa consegue agir em cima. */

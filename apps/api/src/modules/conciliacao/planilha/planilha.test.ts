@@ -235,6 +235,24 @@ describe("lerXlsx — casos que só aparecem em XML escrito por outro sistema", 
   it("recusa arquivo que não é zip, com recado em português", () => {
     expect(() => lerXlsx(Buffer.from("isto não é um zip"))).toThrow(/planilha/i);
   });
+
+  // ⚠️ Estes dois casos nasceram de DEZ arquivos `.xlsx` reais de repasse, todos recusados com a
+  // mensagem errada ("não reconheci este relatório"): o leitor devolvia zero linha porque o XML
+  // deles prefixa TODA tag com `x:`, que é livre no OOXML. O arquivo estava certo; o leitor não.
+  it("lê o XML com prefixo de espaço de nomes (`<x:row>`), que o Excel não usa e outros sistemas usam", () => {
+    const xml = montarXlsxDeTeste(
+      '<x:sheetData><x:row r="1"><x:c r="A1" t="str"><x:v>Atend</x:v></x:c><x:c r="B1" t="inlineStr"><x:is><x:t>Vl Repasse</x:t></x:is></x:c></x:row>' +
+        '<x:row r="2"><x:c r="A2" t="str"><x:v>19100842</x:v></x:c><x:c r="B2"><x:v>1500</x:v></x:c></x:row></x:sheetData>',
+    );
+    expect(lerXlsx(xml)).toEqual([
+      ["Atend", "Vl Repasse"],
+      ["19100842", "1500"],
+    ]);
+  });
+
+  it("planilha sem nenhuma linha RECLAMA, em vez de voltar vazia e a culpa cair no arquivo da pessoa", () => {
+    expect(() => lerXlsx(envelope(""))).toThrow(/nenhuma linha/i);
+  });
 });
 
 describe("localizarCabecalho", () => {
