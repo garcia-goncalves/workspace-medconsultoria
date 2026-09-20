@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useBuscaAdiada } from "../../lib/use-busca-adiada";
 import { AlertTriangle, FileSpreadsheet, Link2, Upload } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { PageHeader } from "../../components/ui/page-header";
@@ -43,14 +44,17 @@ export function ConciliacaoPage() {
   const [competencia, setCompetencia] = useState("");
   const [tipo, setTipo] = useState("");
   const [operadoraId, setOperadoraId] = useState("");
-  const [busca, setBusca] = useState("");
+  const [busca, setBusca, buscaAdiada] = useBuscaAdiada();
   const [pagina, setPagina] = useState(1);
   const [importando, setImportando] = useState(false);
   const [aba, setAba] = useState<"consultas" | "cirurgias">("consultas");
 
   const utils = trpc.useUtils();
   const disponivel = trpc.conciliacao.disponivel.useQuery();
-  const clientes = trpc.clientes.list.useQuery({});
+  // ⚠️ `conciliacao.clientes`, e não `clientes.list`: aquela devolve a base inteira a qualquer
+  // funcionário, e o seletor passaria a oferecer justamente os clientes que o servidor recusa
+  // dois cliques depois. A lista tem de ser a mesma que a trava do servidor aceita.
+  const clientes = trpc.conciliacao.clientes.useQuery();
 
   const habilitado = !!clienteId;
   // As consultas da aba Consultas só rodam com ela aberta; as pendências valem para as duas.
@@ -64,10 +68,15 @@ export function ConciliacaoPage() {
       competencia: competencia || undefined,
       tipoAtendimento: (tipo || undefined) as "CONSULTA" | "CORTESIA" | "SEM_VINCULO_AGENDA" | "OUTRO" | undefined,
       operadoraId: operadoraId || undefined,
-      busca: busca.trim() || undefined,
+      busca: buscaAdiada.trim() || undefined,
       pagina,
     },
-    { enabled: naAbaConsultas },
+    {
+      enabled: naAbaConsultas,
+      // ⚠️ Mesma razão do painel de cirurgias: sem o valor anterior, a tabela pisca "nenhum
+      // atendimento" no meio da digitação, e isso se lê como "não achei".
+      placeholderData: (anterior) => anterior,
+    },
   );
 
   const opcoesCliente = useMemo(() => (clientes.data ?? []).map((c) => ({ value: c.id, label: c.nome })), [clientes.data]);
@@ -89,16 +98,26 @@ export function ConciliacaoPage() {
 
   const totalPendencias = (pendencias.data?.convenios.length ?? 0) + (pendencias.data?.profissionais.length ?? 0);
 
+  /**
+   * ⚠️ O nome existe para o diálogo de importação dizer PARA QUEM está importando — importar o
+   * mapa de um médico na ficha de outra clínica não tem desfazer. Vazio (lista ainda não chegou,
+   * ou falhou) o diálogo abria dizendo "Cliente: —" e importava assim mesmo; hoje o botão de
+   * importar só aparece com o nome resolvido.
+   */
+  const nomeDoCliente = opcoesCliente.find((c) => c.value === clienteId)?.label ?? "";
+
   return (
     <div className="space-y-4">
       <PageHeader title="Conciliação" subtitle="A produção do cliente — consultas e cirurgias — que entra todo mês.">
-        {habilitado && disponivel.data?.ligado && (
+        {habilitado && !!nomeDoCliente && disponivel.data?.ligado && (
           <Button onClick={() => setImportando(true)}>
             <Upload className="mr-1.5 h-4 w-4" />
             {aba === "cirurgias" ? "Importar cirurgias" : "Importar produção"}
           </Button>
         )}
       </PageHeader>
+
+      {disponivel.error && <QueryError message={disponivel.error.message} onRetry={() => void disponivel.refetch()} />}
 
       {disponivel.data && !disponivel.data.ligado && (
         <div className="flex gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
@@ -110,17 +129,36 @@ export function ConciliacaoPage() {
         </div>
       )}
 
-      <div className="max-w-md space-y-1">
-        <Label htmlFor="cliente">Cliente</Label>
-        <Combobox id="cliente" value={clienteId} onChange={trocarCliente} options={opcoesCliente} placeholder="Escolha o cliente…" />
-      </div>
+      {/* ⚠️ TRÊS ESTADOS, e confundi-los é o defeito clássico desta casa. Combo vazio por FALHA
+          de rede fica idêntico a "você não tem cliente nenhum": a pessoa conclui que perdeu o
+          acesso e não tenta de novo. E o vazio LEGÍTIMO (funcionário sem cliente sob a sua
+          responsabilidade) precisa dizer isso, senão a tela manda "escolha um cliente acima"
+          para quem não tem nenhum para escolher. */}
+      {clientes.isPending ? (
+        <Skeleton className="h-16 max-w-md" />
+      ) : clientes.error ? (
+        <QueryError message={clientes.error.message} onRetry={() => void clientes.refetch()} />
+      ) : opcoesCliente.length === 0 ? (
+        <EmptyState
+          icon={FileSpreadsheet}
+          title="Nenhum cliente sob a sua responsabilidade"
+          description="A conciliação de um cliente só abre para quem responde por ele (ou para um administrador). Peça a um administrador que atribua o cliente a você."
+        />
+      ) : (
+        <div className="max-w-md space-y-1">
+          <Label htmlFor="cliente">Cliente</Label>
+          <Combobox id="cliente" value={clienteId} onChange={trocarCliente} options={opcoesCliente} placeholder="Escolha o cliente…" />
+        </div>
+      )}
 
-      {!habilitado ? (
+      {opcoesCliente.length === 0 ? null : !habilitado ? (
         // Sem cliente escolhido, a tela mostra todos — e escolher é clicar no nome.
         <VisaoGeralConciliacao
-          onEscolher={(id) => {
+          onEscolher={(id, temCirurgia) => {
             trocarCliente(id);
-            setAba("cirurgias");
+            // Cliente que só tem consultas importadas caía em "Nenhuma cirurgia importada" — e
+            // isso se lê como "esse cliente não tem nada". A linha clicada já sabe o que existe.
+            setAba(temCirurgia ? "cirurgias" : "consultas");
           }}
         />
       ) : (
@@ -137,11 +175,7 @@ export function ConciliacaoPage() {
             <TabsContent value="cirurgias">
               {/* `key`: trocar de cliente recria o painel e zera os filtros — filtro herdado de outra
                   clínica faria a tela dizer "nenhuma cirurgia" sem motivo visível. */}
-              <CirurgiasPainel
-                key={clienteId}
-                clienteId={clienteId}
-                clienteNome={opcoesCliente.find((c) => c.value === clienteId)?.label ?? ""}
-              />
+              <CirurgiasPainel key={clienteId} clienteId={clienteId} clienteNome={nomeDoCliente} />
             </TabsContent>
 
             <TabsContent value="consultas" className="space-y-4">
@@ -155,9 +189,17 @@ export function ConciliacaoPage() {
                   competencia={competencia}
                   setCompetencia={(c) => {
                     setCompetencia(c);
+                    // ⚠️ A lista de operadoras do filtro vem do RESUMO, que depende da
+                    // competência. Trocar de mês sem limpar a operadora escolhida deixava o
+                    // `<select>` mostrando "Todas" (a operadora sumiu das opções) enquanto o
+                    // estado continuava filtrando por ela — a tela dizia "sem filtro" e mostrava
+                    // uma operadora só. Números parciais lidos como o mês inteiro.
+                    setOperadoraId("");
                     setPagina(1);
                   }}
                   resumo={resumo.data ?? null}
+                  erroDoResumo={resumo.error ? resumo.error.message : null}
+                  recarregarResumo={() => void resumo.refetch()}
                 />
               )}
 
@@ -248,7 +290,7 @@ export function ConciliacaoPage() {
                   />
                 ) : (
                   <>
-                    <Table>
+                    <Table rotulo="Atendimentos do mês">
                       <THead>
                         <TR>
                           <TH>Agenda</TH>
@@ -343,11 +385,15 @@ function ResumoDoMes({
   competencia,
   setCompetencia,
   resumo,
+  erroDoResumo,
+  recarregarResumo,
 }: {
   lotes: Lote[];
   competencia: string;
   setCompetencia: (c: string) => void;
   resumo: Resumo | null;
+  erroDoResumo: string | null;
+  recarregarResumo: () => void;
 }) {
   if (lotes.length === 0) return null;
   const lote = lotes.find((l) => l.competencia === competencia);
@@ -373,6 +419,14 @@ function ResumoDoMes({
           </p>
         )}
       </div>
+
+      {competencia && erroDoResumo && (
+        // ⚠️ Falha de consulta NÃO pode virar "esse mês não tem nada importado" — é a leitura
+        // natural quando o painel de atendimentos/operadora/profissional simplesmente some.
+        <div className="mt-3">
+          <QueryError message={erroDoResumo} onRetry={recarregarResumo} />
+        </div>
+      )}
 
       {competencia && resumo && (
         <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -417,6 +471,32 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
     onError: (e) => toast(e.message),
   });
 
+  // ⚠️ Enquanto o de-para não é ligado, o resumo por operadora fica INCOMPLETO — é o que este
+  // próprio card diz mais abaixo. Sumir numa falha de consulta faz a pessoa ler um resumo
+  // incompleto como completo, e é esse resumo que vai para a clínica.
+  // ⚠️ Sem as listas auxiliares não há o que escolher no "Ligar a…" — e a pessoa fica olhando um
+  // `<select>` vazio sem saber que foi a consulta que falhou, não que o cadastro esteja vazio.
+  const erroDeApoio = operadoras.error ?? profissionais.error;
+  if (erroDeApoio) {
+    return (
+      <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
+        <QueryError
+          message={erroDeApoio.message}
+          onRetry={() => {
+            void operadoras.refetch();
+            void profissionais.refetch();
+          }}
+        />
+      </div>
+    );
+  }
+  if (pendencias.error) {
+    return (
+      <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
+        <QueryError message={pendencias.error.message} onRetry={() => void pendencias.refetch()} />
+      </div>
+    );
+  }
   if (!pendencias.data) return null;
   const { convenios, profissionais: profPendentes } = pendencias.data;
   if (convenios.length === 0 && profPendentes.length === 0) return null;

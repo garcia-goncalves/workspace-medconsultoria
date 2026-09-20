@@ -360,6 +360,8 @@ export interface FiltroCirurgias {
   profissionalId?: string;
   situacao?: SituacaoCirurgia;
   statusConciliacao?: StatusConciliacao;
+  /** Só o que já passou da defasagem normal de pagamento — a pergunta "o que travou?". */
+  soAtrasadas?: boolean;
   busca?: string;
   pagina?: number;
 }
@@ -372,6 +374,7 @@ function passaNoFiltro(l: LinhaConciliada, f: FiltroCirurgias): boolean {
   if (f.situacao === "AUTORIZACAO_PENDENTE" && l.autorizacao !== "PENDENTE") return false;
   if (f.situacao === "NAO_EXECUTADA" && l.status === "EXECUTADA") return false;
   if (f.statusConciliacao && l.statusConciliacao !== f.statusConciliacao) return false;
+  if (f.soAtrasadas && !l.atrasada) return false;
   if (f.busca && !normalizarTexto(l.pacienteNome).includes(normalizarTexto(f.busca))) return false;
   return true;
 }

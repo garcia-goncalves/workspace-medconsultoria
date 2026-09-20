@@ -183,7 +183,7 @@ export function ImportarProducaoDialog({
             {p.ignoradas.length > 0 && (
               <Aviso tom="erro">
                 {p.ignoradas.length} linha(s) não serão importadas:
-                <ul className="mt-1 max-h-24 list-disc overflow-y-auto pl-5">
+                <ul tabIndex={0} className="mt-1 max-h-24 list-disc overflow-y-auto pl-5">
                   {p.ignoradas.slice(0, 20).map((i) => (
                     <li key={i.linha}>
                       Linha {i.linha}: {i.motivo}
@@ -208,7 +208,7 @@ export function ImportarProducaoDialog({
             <div>
               <p className="mb-1.5 text-sm font-medium">Primeiras linhas, como o sistema entendeu</p>
               <div className="max-h-64 overflow-auto rounded-lg border">
-                <Table>
+                <Table rotulo="Prévia dos atendimentos lidos">
                   <THead>
                     <TR>
                       <TH>Linha</TH>

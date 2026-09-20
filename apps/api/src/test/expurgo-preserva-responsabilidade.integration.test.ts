@@ -23,7 +23,17 @@ const PFX = `expurgo-${randomBytes(4).toString("hex")}`;
 const ANTIGO = new Date("2020-01-01T12:00:00Z");
 
 /** Uma ação que é prova de responsabilidade e uma que é ruído de operação — as duas velhas. */
-const PRESERVAR = ["painel_cliente.entrou", "documento.link_de_assinatura_aberto", "arquivo.removido", "conta.criada"];
+const PRESERVAR = [
+  "painel_cliente.entrou",
+  "documento.link_de_assinatura_aberto",
+  "arquivo.removido",
+  "conta.criada",
+  // ⚠️ A Conciliação é preservada por PREFIXO, não por nome: são dezenas de rotas e uma lista
+  // fixa envelheceria calada, deixando a rota nova de fora sem ninguém perceber. Esta ação
+  // NÃO está na lista de nomes — se o prefixo sumir, este teste fica vermelho.
+  "conciliacao.salvarProcedimento",
+  "conciliacao.rota_que_ainda_nao_existe",
+];
 const APAGAR = ["login.bloqueado_no_navegador", "login.falhou"];
 
 beforeAll(async () => {

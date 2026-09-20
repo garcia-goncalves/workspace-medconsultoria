@@ -189,7 +189,7 @@ export function ImportarRecebidoDialog({
         {((pr && pr.ignoradas.length > 0) || (pp && pp.ignoradas.length > 0)) && (
           <Aviso tom="erro">
             Linhas que não serão importadas:
-            <ul className="mt-1 max-h-24 list-disc overflow-y-auto pl-5">
+            <ul tabIndex={0} className="mt-1 max-h-24 list-disc overflow-y-auto pl-5">
               {(pr?.ignoradas ?? pp?.ignoradas ?? []).slice(0, 20).map((i) => (
                 <li key={i.linha}>
                   Linha {i.linha}: {i.motivo}

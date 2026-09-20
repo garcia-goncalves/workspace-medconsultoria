@@ -76,6 +76,10 @@ beforeAll(async () => {
     data: { nome: `Func ${SUFIXO}`, email: `func-cir-${SUFIXO}@teste.local`, role: "FUNCIONARIO" },
   });
   usuarioId = usuario.id;
+  // ⚠️ A Conciliação exige que o funcionário seja o RESPONSÁVEL pelo cliente (a régua do Painel
+  // do Cliente, ADR-128). Sem esta linha o `caller` leva FORBIDDEN em toda rota — que é a trava
+  // funcionando, não defeito do teste.
+  await prisma.cliente.update({ where: { id: clienteId }, data: { responsavelId: usuarioId } });
   caller = appRouter.createCaller({
     user: { id: usuarioId, role: "FUNCIONARIO", nome: usuario.nome, email: usuario.email },
     req: {},

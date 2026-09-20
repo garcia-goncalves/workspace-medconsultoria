@@ -75,8 +75,14 @@ export async function expurgarDadosVencidos(agora = new Date()) {
     // tarefa nasceu pela Cora e não pela mão da Thaís — apagá-la deixaria as duas indistinguíveis.
     "agente.tarefa.criada",
   ];
+  // ⚠️ E TUDO o que mexe no dinheiro da Conciliação. São dezenas de rotas (importar produção,
+  // importar repasse, editar cirurgia, mudar o valor de um procedimento…) e a lista fixa
+  // envelheceria calada — rota nova ficaria de fora sem ninguém perceber. O prefixo cobre as que
+  // existem e as que vierem. É a mesma razão do `painel_cliente.*` acima: é a única prova de quem
+  // mudou quanto uma clínica cobrou e recebeu, e ela não pode evaporar em 180 dias.
+  const atividadeDeConciliacao = { acao: { startsWith: "conciliacao." } };
   const atividade = await prisma.activityLog.deleteMany({
-    where: { createdAt: { lt: limite }, acao: { notIn: ACOES_QUE_NAO_EXPIRAM } },
+    where: { createdAt: { lt: limite }, acao: { notIn: ACOES_QUE_NAO_EXPIRAM }, NOT: atividadeDeConciliacao },
   });
 
   // As reservas de idempotência da API do agente (CORA-003). O contrato declara 24 h; passado
@@ -106,8 +112,7 @@ let intervalo: NodeJS.Timeout | null = null;
  */
 export function iniciarExpurgoDeRetencao(): void {
   if (intervalo) return;
-  const rodar = () =>
-    void expurgarDadosVencidos().catch((e) => console.error("[retencao] expurgo falhou.", e));
+  const rodar = () => void expurgarDadosVencidos().catch((e) => console.error("[retencao] expurgo falhou.", e));
   rodar();
   intervalo = setInterval(rodar, 24 * 60 * 60 * 1000);
   intervalo.unref();

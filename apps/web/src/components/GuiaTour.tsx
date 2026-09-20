@@ -252,39 +252,63 @@ const GUIA_CREDENCIAMENTOS: Passo[] = [
 const GUIA_CONCILIACAO: Passo[] = [
   {
     icon: FileSpreadsheet,
-    titulo: "A produção do mês entra aqui",
+    titulo: "São duas abas, e elas respondem coisas diferentes",
     descricao:
-      "Todo mês chega o relatório de produção de consultas do cliente. Escolha o cliente, clique em “Importar produção” e envie a planilha — vale CSV, XLSX e o “.xls” que os sistemas exportam (que muitas vezes nem é Excel de verdade; o sistema descobre sozinho).",
+      "“Consultas” é a produção do consultório mês a mês: quantos atendimentos, de quais convênios, com quais médicos. “Cirurgias” é o mapa cirúrgico do hospital e é onde mora o DINHEIRO — quanto foi cobrado, quanto entrou e o que foi glosado. Escolha o cliente no alto; sem cliente escolhido a tela mostra a visão geral de todos.",
   },
   {
     icon: CheckCircle2,
-    titulo: "Confira ANTES de gravar",
+    titulo: "Confira ANTES de gravar — sempre",
     descricao:
-      "Depois de enviar, a tela mostra o que entendeu: a competência, quantos atendimentos, quais linhas serão ignoradas e por quê, e o que ainda falta ligar. Nada toca o banco até você clicar em “Importar”.",
+      "Toda importação tem três passos: enviar → conferir → gravar. Depois de enviar, a tela mostra o que entendeu (o período, quantas linhas, o que será ignorado e por quê) e nada toca o banco até você clicar em “Importar”. Vale CSV, XLSX e o “.xls” que os sistemas exportam e que muitas vezes nem é Excel de verdade — o sistema descobre pelo conteúdo do arquivo, não pelo nome.",
   },
   {
     icon: Link2,
-    titulo: "Ligue os convênios e os médicos",
+    titulo: "Ligue os convênios e os médicos uma vez só",
     descricao:
-      "O relatório escreve “PORTO SEGURO - BÁSICO” e “PORTO SEGURO - ESPECIAL I” para a mesma operadora. Em “Pendências de ligação” você diz quem é quem — e isso vale retroativamente, para o que já foi importado. O médico costuma ser reconhecido sozinho pelo nome.",
+      "O relatório escreve “PORTO SEGURO - BÁSICO” e “PORTO SEGURO - ESPECIAL I” para a mesma operadora. Em “Pendências de ligação” você diz quem é quem — e isso vale RETROATIVAMENTE, para o que já foi importado e para o que vier depois. O médico costuma ser reconhecido sozinho pelo nome.",
   },
   {
-    icon: Filter,
-    titulo: "Ler o mês",
+    icon: Wallet,
+    titulo: "O “cobrado” vem da tabela de procedimentos",
     descricao:
-      "Escolha a competência para ver o resumo: total de atendimentos, quanto é de convênio e quanto é cortesia ou particular (que não geram recebimento), além da divisão por operadora e por profissional. A tabela abaixo filtra por tipo, operadora e nome do paciente.",
+      "Em “Procedimentos e valores” você registra quanto vale cada procedimento daquele cliente — e, quando o preço muda de operadora para operadora, o valor daquela operadora ganha do valor padrão. É daí que sai o valor cobrado de cada cirurgia; sem essa tabela preenchida, a cirurgia aparece como “sem valor” e não há do que calcular glosa.",
+  },
+  {
+    icon: ArrowRightLeft,
+    titulo: "O “recebido” vem do relatório de repasse",
+    descricao:
+      "Importe o repasse e o sistema casa cada pagamento com a cirurgia pelo NÚMERO DO ATENDIMENTO — não pelo nome do paciente, que muda de grafia. Um atendimento com mais de uma cirurgia divide o valor na proporção do que foi cobrado. E o que não casa com cirurgia nenhuma (incremento, acordo) não some: aparece separado, como “repasse sem cirurgia correspondente”.",
   },
   {
     icon: AlertTriangle,
-    titulo: "Reimportar o mesmo mês",
+    titulo: "A glosa e o status são CALCULADOS, não digitados",
     descricao:
-      "Se o relatório for reextraído, importe de novo: o sistema reconhece o arquivo repetido e recusa. Se for um arquivo diferente para o mesmo mês, ele pergunta antes de substituir — e a substituição troca o mês inteiro, sem somar com o antigo.",
+      "Glosa é o que foi cobrado menos o que entrou; o status (a receber, pago, glosa parcial, glosa total, pago a mais) sai da comparação, a cada vez que a tela é aberta. Por isso nenhum deles é guardado no banco: se fossem, no dia em que o valor mudasse o rótulo continuaria dizendo “Pago” com a glosa nova do lado.",
+  },
+  {
+    icon: CalendarClock,
+    titulo: "Não espere o mês fechar batendo",
+    descricao:
+      "Entre o atendimento e o pagamento correspondente passam cerca de três meses e meio. Mês recém-importado aparecendo quase todo como “a receber” é o normal, não erro — o que se persegue é o que passou desse prazo. É exatamente isso que a marca vermelha “passou do prazo” aponta, e o filtro “Prazo” isola: sem ela, uma cirurgia de um ano atrás e uma do mês passado dizem a mesma coisa na tela.",
+  },
+  {
+    icon: FileText,
+    titulo: "A planilha vai e volta",
+    descricao:
+      "“Exportar planilhas” gera três arquivos: o MODELO de conciliação (uma linha por cirurgia), o resumo por convênio e o resumo por mês × médico. O MODELO pode ser preenchido fora do sistema e reimportado — e só entra o que você mudou de fato: reimportar sem mexer em nada não grava nada nem congela o que o sistema calcula sozinho.",
+  },
+  {
+    icon: LayoutDashboard,
+    titulo: "A visão geral, quando o cliente não importa",
+    descricao:
+      "Sem cliente escolhido, a tela lista todos os clientes de uma vez: cobrado, recebido, glosa, a receber, o que está sem valor e o que está sem atendimento, mais as pendências de ligação de cada um. É a tela para abrir de manhã e ver onde parou.",
   },
   {
     icon: Stethoscope,
     titulo: "O dado do paciente não aparece",
     descricao:
-      "CPF, telefone e e-mail vêm no arquivo e são guardados cifrados, mas não são exibidos em tela nenhuma — nem para quem é ADMIN. O nome fica, porque é o que identifica o atendimento.",
+      "CPF, telefone e e-mail vêm no arquivo e são guardados cifrados, mas não são exibidos em tela nenhuma — nem para quem é ADMIN. Prontuário e leito nem chegam a ser lidos. O nome fica, porque é o que identifica o atendimento na hora de conferir.",
   },
 ];
 

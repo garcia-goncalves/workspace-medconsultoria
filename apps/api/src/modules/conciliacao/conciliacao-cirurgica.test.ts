@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { glosaDe, repartirRecebido, statusDaConciliacao } from "./conciliacao-cirurgica.js";
+import { DIAS_ATE_O_PAGAMENTO_ESPERADO, estaAtrasada, glosaDe, repartirRecebido, statusDaConciliacao } from "./conciliacao-cirurgica.js";
 
 const base = { statusTasy: "EXECUTADA" as const, naoCobrar: false, atendimento: "19100842", cobrado: 1000, recebido: null };
 
@@ -73,5 +73,30 @@ describe("repartirRecebido — um atendimento, várias cirurgias", () => {
     );
     expect(r.get("a")).toBe(300);
     expect(r.has("b")).toBe(false);
+  });
+});
+
+describe("estaAtrasada — o que separa 'esperando' de 'travado'", () => {
+  const cirurgia = new Date("2026-01-01T00:00:00Z");
+  const dentroDoPrazo = new Date("2026-04-15T00:00:00Z"); // 104 dias
+  const fora = new Date("2026-04-17T00:00:00Z"); // 106 dias
+
+  it("conta a partir da data da cirurgia, e o limite é a defasagem medida", () => {
+    expect(estaAtrasada("A_RECEBER", cirurgia, dentroDoPrazo)).toBe(false);
+    expect(estaAtrasada("A_RECEBER", cirurgia, fora)).toBe(true);
+    expect(DIAS_ATE_O_PAGAMENTO_ESPERADO).toBe(105);
+  });
+
+  it("vale para tudo o que ESPERA dinheiro, inclusive o que nem sabe quanto cobrar", () => {
+    expect(estaAtrasada("SEM_VALOR", cirurgia, fora)).toBe(true);
+    expect(estaAtrasada("SEM_ATENDIMENTO", cirurgia, fora)).toBe(true);
+  });
+
+  // ⚠️ Alarme que toca sempre ninguém lê. O que já fechou não está atrasado, por mais antigo
+  // que seja — inclusive a glosa, que é um desfecho, não uma espera.
+  it("e NUNCA para o que já fechou, não se cobra ou não aconteceu", () => {
+    for (const s of ["PAGO", "GLOSA_PARCIAL", "GLOSA_TOTAL", "PAGO_A_MAIS", "NAO_COBRAR", "NAO_REALIZADA", "RECEBIDO_SEM_VALOR"] as const) {
+      expect(estaAtrasada(s, cirurgia, fora), `${s} não é espera`).toBe(false);
+    }
   });
 });

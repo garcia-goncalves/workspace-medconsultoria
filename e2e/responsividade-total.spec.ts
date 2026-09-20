@@ -70,6 +70,7 @@ const ROTAS_INTERNAS: RotaInterna[] = [
   { template: "/clientes" },
   { template: "/clientes/$id", idDe: "clientes.list" },
   { template: "/credenciamentos" },
+  { template: "/conciliacao" },
   { template: "/documentos" },
   { template: "/documentos/$id", idDe: "documentos.list" },
   { template: "/financeiro" },
@@ -86,14 +87,7 @@ const ROTAS_INTERNAS: RotaInterna[] = [
   { template: "/sistema" },
 ];
 
-const ROTAS_PORTAL = [
-  "/portal",
-  "/portal/documentos",
-  "/portal/credenciamento",
-  "/portal/servicos",
-  "/portal/suporte",
-  "/portal/equipe",
-];
+const ROTAS_PORTAL = ["/portal", "/portal/documentos", "/portal/credenciamento", "/portal/servicos", "/portal/suporte", "/portal/equipe"];
 
 // --------------------------------------------------------------------------------------------
 // Páginas PÚBLICAS (anônimas, fora do gate de login — ver `apps/web/src/App.tsx`). Antes desta
@@ -294,12 +288,8 @@ async function resolverRotasInternas(page: Page): Promise<RotaResolvida[]> {
 // --------------------------------------------------------------------------------------------
 
 async function verificarSemOverflowHorizontal(page: Page, url: string, vpNome: string) {
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  );
-  expect.soft(overflow, `overflow horizontal do documento em ${url} @ ${vpNome}`).toBeLessThanOrEqual(
-    TOLERANCIA_OVERFLOW_PX,
-  );
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect.soft(overflow, `overflow horizontal do documento em ${url} @ ${vpNome}`).toBeLessThanOrEqual(TOLERANCIA_OVERFLOW_PX);
 }
 
 async function verificarSemElementoEstourando(page: Page, url: string, vpNome: string) {
@@ -373,9 +363,7 @@ async function verificarSemElementoEstourando(page: Page, url: string, vpNome: s
     return achados.slice(0, 8);
   }, TOLERANCIA_ESTOURO_PX);
 
-  const mensagem = culpados
-    .map((c) => `${c.seletor} (right=${c.direita}px, excesso=${c.excesso}px, texto="${c.texto}")`)
-    .join(" | ");
+  const mensagem = culpados.map((c) => `${c.seletor} (right=${c.direita}px, excesso=${c.excesso}px, texto="${c.texto}")`).join(" | ");
   expect.soft(culpados.length, `elemento(s) estourando a janela em ${url} @ ${vpNome}: ${mensagem}`).toBe(0);
 }
 
@@ -440,10 +428,7 @@ async function verificarAlvosDeToque(page: Page, url: string, vpNome: string) {
       if (rect.width === 0 && rect.height === 0) continue; // nem renderizado
       if (rect.width < minimo || rect.height < minimo) {
         const rotulo =
-          el.getAttribute("aria-label")?.trim() ||
-          (el.textContent ?? "").trim() ||
-          el.getAttribute("title")?.trim() ||
-          "(sem rótulo)";
+          el.getAttribute("aria-label")?.trim() || (el.textContent ?? "").trim() || el.getAttribute("title")?.trim() || "(sem rótulo)";
         achados.push({ rotulo: rotulo.slice(0, 50), w: Math.round(rect.width), h: Math.round(rect.height) });
       }
     }
