@@ -296,7 +296,12 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
     // Glosa de 2.000 na cirurgia 1 (cobrado 10.000, recebido 8.000), e o incremento não sumiu.
     await expect(page.getByText("R$ 2.000,00").first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("button", { name: /glosa parcial/i }).first()).toBeVisible();
-    await expect(page.getByText(/R\$ 500,00 de repasse sem cirurgia/i)).toBeVisible();
+    // ⚠️ Sem "R$" no padrão: `formatBRL` usa ESPAÇO NÃO SEPARÁVEL depois do símbolo, e o
+    // Playwright normaliza espaço no texto simples mas NÃO na expressão regular — foi o que
+    // reprovou este teste na 1ª rodada da CI.
+    const semCirurgia = page.getByText(/de repasse sem cirurgia correspondente/i);
+    await expect(semCirurgia).toBeVisible();
+    await expect(semCirurgia).toContainText("500,00");
 
     // ── 3. Exportar: o MODELO e os dois resumos ───────────────────────────────────────────────
     const downloads: string[] = [];
