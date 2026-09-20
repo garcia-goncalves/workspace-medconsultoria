@@ -314,6 +314,8 @@ model Cliente {
   producaoCirurgias       ProducaoCirurgia[]
   mapeamentosConvenio     MapeamentoConvenio[]
   mapeamentosProfissional MapeamentoProfissional[]
+  mapeamentosProcedimento MapeamentoProcedimento[]
+  repasses                RepasseLinha[]
 
   @@index([responsavelId])
   @@index([deletedAt])
@@ -422,12 +424,14 @@ model Operadora {
   usoFaturamento    Boolean  @default(true)
   createdAt         DateTime @default(now())
 
-  credenciamentos     Credenciamento[]
+  credenciamentos         Credenciamento[]
   /// Convênios que o cliente atende, por serviço contratado (ADR-126).
-  clienteServicos     ClienteServico[]     @relation("ClienteServicoOperadoras")
-  producaoConsultas   ProducaoConsulta[]
-  producaoCirurgias   ProducaoCirurgia[]
-  mapeamentosConvenio MapeamentoConvenio[]
+  clienteServicos         ClienteServico[]         @relation("ClienteServicoOperadoras")
+  producaoConsultas       ProducaoConsulta[]
+  producaoCirurgias       ProducaoCirurgia[]
+  mapeamentosConvenio     MapeamentoConvenio[]
+  mapeamentosProcedimento MapeamentoProcedimento[]
+  repasses                RepasseLinha[]
 
   @@index([ordem])
 }
@@ -1879,6 +1883,10 @@ enum OrigemProducao {
   CONSULTAS_NUVENS
   /// Mapa cirúrgico do TASY — spec 2026-09-18-conciliacao-cirurgias-tasy-design.md.
   CIRURGIAS_TASY
+  /// "Repasses para Terceiros (Pagamentos Realizados)" do TASY — o RECEBIDO (Fase 2b).
+  REPASSE_TASY
+  /// A planilha de conciliação preenchida fora e devolvida ao sistema (Fase 2b).
+  PLANILHA_CONCILIACAO
 }
 
 enum StatusLote {
@@ -1949,6 +1957,7 @@ model ProducaoLote {
   substituiu     ProducaoLote[]     @relation("LoteSubstituicao")
   consultas      ProducaoConsulta[]
   cirurgias      ProducaoCirurgia[]
+  repasses       RepasseLinha[]
 
   /// Um lote VIGENTE por cliente/origem/competência. Os substituídos têm `competenciaVigente`
   /// nulo e ficam fora da trava.
@@ -2094,6 +2103,22 @@ model ProducaoCirurgia {
   opme              Boolean?
   tempoMinutos      Int?
 
+  // ── Fase 2b: o dinheiro (spec 2026-09-18-conciliacao-fase-2b-design.md) ──────────────────
+  // ⚠️ Reimportar o TASY NUNCA toca estas colunas: elas são trabalho da equipe, não do arquivo.
+  // O STATUS da conciliação não é gravado — é calculado a cada leitura (conciliacao-cirurgica.ts).
+
+  /// Código do procedimento (TUSS/SIGTAP/tabela da operadora), vindo do de-para ou digitado.
+  codigoProcedimento String?   @db.VarChar(40)
+  /// Cobrado DIGITADO para esta cirurgia. Nulo = vale o do de-para do procedimento, calculado na
+  /// leitura — assim mudar o preço do pacote vale na hora para todas, sem retroação a lembrar.
+  valorCobrado       Decimal?  @db.Decimal(12, 2)
+  /// Recebido informado à MÃO (tela ou planilha). Nulo = vale o que o repasse importado disser.
+  valorRecebido      Decimal?  @db.Decimal(12, 2)
+  dataPagamento      DateTime? @db.Date
+  /// Fora da conta de dinheiro de propósito: particular pago direto, cortesia, acordo.
+  naoCobrar          Boolean   @default(false)
+  observacao         String?   @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2144,6 +2169,66 @@ model MapeamentoConvenio {
 
   @@unique([clienteId, textoNormalizado])
   @@index([operadoraId])
+}
+
+/// De-para do PROCEDIMENTO do TASY para código + valor do pacote (Fase 2b). Por cliente, porque
+/// cada cliente negocia o próprio preço; e opcionalmente por operadora, porque a MESMA
+/// revascularização vale uma coisa na Unimed e outra no SUS (spec da Fase 1, §4b.4).
+///
+/// `operadoraId` nulo = valor padrão para qualquer convênio. A busca tenta a operadora da
+/// cirurgia primeiro e cai no padrão. ⚠️ No MySQL, nulos não colidem em índice único: a unicidade
+/// do padrão (operadora nula) é garantida pelo serviço, que procura antes de criar.
+model MapeamentoProcedimento {
+  id               String   @id @default(cuid())
+  clienteId        String
+  textoBruto       String   @db.VarChar(255)
+  textoNormalizado String   @db.VarChar(255)
+  operadoraId      String?
+  codigo           String?  @db.VarChar(40)
+  valor            Decimal? @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cliente   Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  operadora Operadora? @relation(fields: [operadoraId], references: [id], onDelete: Cascade)
+
+  @@unique([clienteId, textoNormalizado, operadoraId])
+  @@index([operadoraId])
+}
+
+/// Uma linha do relatório de repasse do TASY — o que foi PAGO (Fase 2b).
+///
+/// Casa com a cirurgia pelo `atendimento` (spec da Fase 1, §4b.2). ⚠️ Linha SEM atendimento é
+/// estado válido e importante: incrementos e acordos ("MC - JUNHO/26" = R$ 12.106,64) vêm assim,
+/// e descartá-los apagaria dinheiro recebido em silêncio. Eles aparecem como "recebido sem
+/// produção". O nome do paciente NÃO é gravado: a chave é o atendimento (minimização).
+model RepasseLinha {
+  id        String @id @default(cuid())
+  loteId    String
+  clienteId String
+  linha     Int
+
+  repasseNumero String?   @db.VarChar(30)
+  atendimento   String?   @db.VarChar(20)
+  convenioBruto String    @default("")
+  executor      String    @default("")
+  codigo        String?   @db.VarChar(40)
+  descricao     String?   @db.VarChar(255)
+  dataItem      DateTime? @db.Date
+  dataPagamento DateTime? @db.Date
+  valor         Decimal   @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  lote        ProducaoLote @relation(fields: [loteId], references: [id], onDelete: Cascade)
+  cliente     Cliente      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  operadora   Operadora?   @relation(fields: [operadoraId], references: [id])
+  operadoraId String?
+
+  @@index([clienteId, atendimento])
+  @@index([clienteId, dataPagamento])
+  @@index([loteId])
 }
 
 /// De-para do nome do profissional no relatório (`DR. LEONARDO GIGLIO DRAGONE`) para `Profissional`.

@@ -1,0 +1,86 @@
+import { FileSpreadsheet } from "lucide-react";
+import { trpc } from "../../lib/trpc";
+import { EmptyState } from "../../components/ui/empty-state";
+import { Table, THead, TH, TR, TD } from "../../components/ui/table";
+import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
+import { QueryError } from "../../components/ui/query-error";
+import { formatBRL } from "../../lib/masks";
+import { dataUTC } from "../../lib/format-date";
+
+/**
+ * Todos os clientes com produção, lado a lado — a pergunta da manhã é "onde está o dinheiro
+ * parado?", e ela é de N clientes, não de um. Ordena pelo que mais pede atenção: glosa + a receber.
+ */
+export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: string) => void }) {
+  const q = trpc.conciliacao.visaoGeral.useQuery();
+
+  if (q.isPending) return <Skeleton className="h-40 w-full" />;
+  if (q.error) return <QueryError message={q.error.message} onRetry={() => void q.refetch()} />;
+  if (q.data.length === 0) {
+    return (
+      <EmptyState
+        icon={FileSpreadsheet}
+        title="Nenhum cliente com produção importada"
+        description="Escolha um cliente acima e importe a produção de consultas ou o mapa cirúrgico do TASY."
+      />
+    );
+  }
+
+  const linhas = [...q.data].sort((a, b) => b.glosa + b.aReceber - (a.glosa + a.aReceber) || a.nome.localeCompare(b.nome));
+  const soma = (k: "cobrado" | "recebido" | "glosa" | "aReceber") => linhas.reduce((s, l) => Math.round((s + l[k]) * 100) / 100, 0);
+
+  return (
+    <div className="rounded-lg border">
+      <div className="border-b p-3">
+        <h2 className="text-sm font-semibold">Visão geral — todos os clientes</h2>
+        <p className="text-xs text-muted-foreground">
+          Cobrado {formatBRL(soma("cobrado"))} · recebido {formatBRL(soma("recebido"))} · glosa {formatBRL(soma("glosa"))} · a receber{" "}
+          {formatBRL(soma("aReceber"))}
+        </p>
+      </div>
+      <Table>
+        <THead>
+          <TR>
+            <TH>Cliente</TH>
+            <TH className="text-right">Consultas</TH>
+            <TH className="text-right">Cirurgias</TH>
+            <TH className="text-right">Cobrado</TH>
+            <TH className="text-right">Recebido</TH>
+            <TH className="text-right">Glosa</TH>
+            <TH className="text-right">A receber</TH>
+            <TH>Pendências</TH>
+            <TH>Última importação</TH>
+          </TR>
+        </THead>
+        <tbody>
+          {linhas.map((c) => {
+            const pendencias = [
+              c.semValor > 0 && `${c.semValor} sem valor`,
+              c.semAtendimento > 0 && `${c.semAtendimento} sem atendimento`,
+              c.pendenciasDePara > 0 && `${c.pendenciasDePara} a ligar`,
+              c.recebidoSemProducao !== 0 && `${formatBRL(c.recebidoSemProducao)} sem cirurgia`,
+            ].filter(Boolean);
+            return (
+              <TR key={c.clienteId}>
+                <TD>
+                  <Button variant="ghost" className="min-h-11 px-2 font-medium" onClick={() => onEscolher(c.clienteId)}>
+                    {c.nome}
+                  </Button>
+                </TD>
+                <TD className="text-right">{c.consultas}</TD>
+                <TD className="text-right">{c.cirurgias}</TD>
+                <TD className="whitespace-nowrap text-right">{formatBRL(c.cobrado)}</TD>
+                <TD className="whitespace-nowrap text-right">{formatBRL(c.recebido)}</TD>
+                <TD className={`whitespace-nowrap text-right ${c.glosa > 0 ? "text-destructive" : ""}`}>{formatBRL(c.glosa)}</TD>
+                <TD className="whitespace-nowrap text-right">{formatBRL(c.aReceber)}</TD>
+                <TD className="text-xs text-warning">{pendencias.join(" · ") || <span className="text-muted-foreground">—</span>}</TD>
+                <TD className="text-xs text-muted-foreground">{c.ultimaImportacao ? dataUTC(c.ultimaImportacao.em) : "—"}</TD>
+              </TR>
+            );
+          })}
+        </tbody>
+      </Table>
+    </div>
+  );
+}
