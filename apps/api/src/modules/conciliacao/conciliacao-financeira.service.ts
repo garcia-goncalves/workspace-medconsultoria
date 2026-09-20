@@ -379,7 +379,31 @@ export async function salvarProcedimento(e: {
 
 // ─── Visão geral: todos os clientes ─────────────────────────────────────────────────────────────
 
-export async function visaoGeral(soDestes: { responsavelId: string } | null = null) {
+export interface LinhaDaVisaoGeral {
+  clienteId: string;
+  nome: string;
+  consultas: number;
+  cirurgias: number;
+  executadas: number;
+  cobrado: number;
+  recebido: number;
+  glosa: number;
+  aReceber: number;
+  recebidoSemProducao: number;
+  semValor: number;
+  semAtendimento: number;
+  /** Cirurgias com convênio ou médico ainda sem de-para. */
+  pendenciasDePara: number;
+  ultimaImportacao: { em: Date; origem: string } | null;
+}
+
+/**
+ * ⚠️ `soDestes` é OBRIGATÓRIO de propósito — sem valor padrão. Com ` = null` (todos), o dia em que
+ * um segundo chamador esquecesse o argumento devolveria a base inteira, sem erro, sem log e sem
+ * CI vermelha. Exigir o parâmetro faz o COMPILADOR cobrar a decisão de quem escrever a próxima
+ * chamada, que é a mesma lição da ADR-144.
+ */
+export async function visaoGeral(soDestes: { responsavelId: string } | null) {
   const clientes = await prisma.cliente.findMany({
     // ⚠️ `soDestes` vem do papel de quem pediu (`filtroDeClientesVisiveis`), NUNCA do pedido:
     // funcionário vê os clientes dele, ADMIN+ vê todos. Sem isto, esta tela — que existe para
@@ -391,7 +415,7 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null = nu
 
   // UM cliente por vez: cada um já abre ~8 consultas em paralelo, e o pool é de 13 conexões
   // (esgotamento já visto em produção). Somar N clientes em paralelo derrubaria o pool.
-  const saida = [];
+  const saida: LinhaDaVisaoGeral[] = [];
   for (const cl of clientes) {
     const [{ linhas, semProducao }, consultas, ultima, convPend, profPend] = await Promise.all([
       montarConciliacao(cl.id),
@@ -423,5 +447,17 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null = nu
       ultimaImportacao: ultima ? { em: ultima.createdAt, origem: ultima.origem } : null,
     });
   }
-  return saida;
+  /**
+   * ⚠️ O TOTAL SAI DAQUI, não do navegador.
+   *
+   * Era somado na tela, e é o único número de dinheiro da feature que não vinha do servidor —
+   * justamente o cabeçalho que responde "onde está o dinheiro parado". No dia em que esta lista
+   * ganhasse paginação ou um teto, o cabeçalho viraria uma soma PARCIAL apresentada como total,
+   * sem sinal nenhum. Somando aqui, ele acompanha o que a consulta de fato devolveu.
+   */
+  const total = (k: "cobrado" | "recebido" | "glosa" | "aReceber") => saida.reduce((s, l) => somar(s, l[k]), 0);
+  return {
+    clientes: saida,
+    totais: { cobrado: total("cobrado"), recebido: total("recebido"), glosa: total("glosa"), aReceber: total("aReceber") },
+  };
 }

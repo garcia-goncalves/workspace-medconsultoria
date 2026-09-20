@@ -363,7 +363,7 @@ describe("edição, filtros, exportação e visão geral", () => {
 
   it("visão geral traz o cliente com o placar", async () => {
     const v = await caller.conciliacao.visaoGeral();
-    const deste = v.find((c) => c.clienteId === clienteId)!;
+    const deste = v.clientes.find((c) => c.clienteId === clienteId)!;
     expect(deste).toMatchObject({ cirurgias: 4, recebidoSemProducao: 12106.64 });
     expect(deste.cobrado).toBeGreaterThan(0);
   });

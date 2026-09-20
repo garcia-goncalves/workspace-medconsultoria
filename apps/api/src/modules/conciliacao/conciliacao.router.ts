@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
+import { SITUACOES_CLIENTE } from "@app/shared";
 import { router, funcionarioProcedure } from "../../trpc/trpc.js";
 import { assertClienteSobSuaResponsabilidade, filtroDeClientesVisiveis } from "../auth/painel-cliente.service.js";
 import { isConciliacaoEnabled } from "../../config.js";
@@ -40,9 +42,57 @@ import * as exportacao from "./exportacao.js";
  * rota que mudasse o próprio formato rodar sem trava, sem erro e sem log. Rota SEM `clienteId`
  * (a visão geral) passa por aqui e filtra por conta própria — ela lista vários clientes.
  */
-const conciliacaoProcedure = funcionarioProcedure.use(async ({ ctx, next, getRawInput }) => {
-  const bruto = z.object({ clienteId: z.string().min(1) }).safeParse(await getRawInput());
-  if (bruto.success) await assertClienteSobSuaResponsabilidade(ctx.user, bruto.data.clienteId, "abrir a conciliação");
+/**
+ * As rotas que legitimamente NÃO falam de um cliente só.
+ *
+ * ⚠️ Lista fechada, padrão NEGAR — o mesmo molde de `ACOES_LIBERADAS_PARA_EQUIPE` (ADR-131) e
+ * `MODELO_ACEITA_LEAD` (ADR-132). Rota nova que não traga `clienteId` é **recusada** até alguém
+ * decidir, por escrito, que ela pode existir sem cliente. O contrário — deixar passar — é o que
+ * transforma um esquecimento em vazamento silencioso.
+ */
+const ROTAS_SEM_CLIENTE = new Set(["disponivel", "clientes", "visaoGeral"]);
+
+/** O que fazer com um pedido, olhando só a rota e o input cru. Pura, para poder ser testada. */
+export function decidirConferenciaDeCliente(rota: string, inputCru: unknown): { conferir: string } | "liberado" | "recusado" {
+  const bruto = z.object({ clienteId: z.string().min(1) }).safeParse(inputCru);
+  if (bruto.success) return { conferir: bruto.data.clienteId };
+  return ROTAS_SEM_CLIENTE.has(rota) ? "liberado" : "recusado";
+}
+
+/**
+ * FUNCIONARIO+ e responsável por AQUELE cliente.
+ *
+ * ⚠️ Era `funcionarioProcedure` puro, e isso dava a qualquer pessoa da equipe o dinheiro de
+ * TODOS os clientes — quanto cada clínica cobrou, recebeu e teve glosado, com nome de paciente
+ * ao lado. A régua nova não é nova: é a mesma do Painel do Cliente (ADR-128), que já vale para
+ * o dado pessoal, chegando à tela que tem o dado financeiro.
+ *
+ * ⚠️ **Mora no PROCEDURE, não dentro de cada serviço.** Espalhada pelos serviços, ela exigiria
+ * ser lembrada em toda rota nova — e a esquecida seria justamente a que vaza.
+ *
+ * ⚠️ **E RECUSA em vez de deixar passar.** A 1ª versão só conferia quando achava `clienteId` no
+ * topo do input; qualquer outro formato — `{ filtro: { clienteId } }`, um LOTE de edições
+ * `[{ cirurgiaId, clienteId }]` (que a planilha reimportada pede cedo ou tarde), uma rota dentro
+ * de um sub-router — **pulava a conferência em silêncio**. Hoje não era explorável, porque o Zod
+ * de cada rota exige `clienteId` no topo; seria o próximo commit. A cura é em tempo de execução,
+ * não por leitura de texto: fora da lista fechada acima, sem `clienteId` legível, o pedido é
+ * recusado.
+ *
+ * A conferência lê o input CRU, antes do Zod da rota: depender do input já validado faria uma
+ * rota que mudasse o próprio formato rodar sem trava, sem erro e sem log.
+ */
+const conciliacaoProcedure = funcionarioProcedure.use(async ({ ctx, next, getRawInput, path }) => {
+  const rota = path.replace(/^conciliacao\./, "");
+  const decisao = decidirConferenciaDeCliente(rota, await getRawInput());
+  if (decisao === "recusado") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        `A rota "${rota}" da Conciliação não diz de qual cliente ela fala, então não há como conferir ` +
+        "quem pode abri-la. Ponha `clienteId` no topo do input, ou declare a rota em `ROTAS_SEM_CLIENTE`.",
+    });
+  }
+  if (decisao !== "liberado") await assertClienteSobSuaResponsabilidade(ctx.user, decisao.conferir, "abrir a conciliação");
   return next({ ctx });
 });
 
@@ -85,7 +135,11 @@ export const conciliacaoRouter = router({
    */
   clientes: conciliacaoProcedure.query(({ ctx }) =>
     prisma.cliente.findMany({
-      where: { deletedAt: null, ...(filtroDeClientesVisiveis(ctx.user) ?? {}) },
+      // ⚠️ `situacaoComercial` é o mesmo filtro do `clientes.list`, e tirá-lo NÃO é detalhe: todo
+      // lead do funil tem um `Cliente` PROSPECT por trás (ADR-128/132), então sem ele o seletor
+      // passaria a oferecer a base de leads inteira misturada com os clientes de verdade, sem
+      // nada que os distinga. Concilia-se a produção de quem é cliente.
+      where: { deletedAt: null, situacaoComercial: { in: [...SITUACOES_CLIENTE] }, ...(filtroDeClientesVisiveis(ctx.user) ?? {}) },
       select: { id: true, nome: true },
       orderBy: { nome: "asc" },
     }),

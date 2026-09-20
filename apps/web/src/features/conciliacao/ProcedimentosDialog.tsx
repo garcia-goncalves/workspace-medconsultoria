@@ -9,6 +9,7 @@ import { MoneyInput } from "../../components/ui/money-input";
 import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { toast } from "../../components/ui/toast";
+import { useConfirm } from "../../components/ui/confirm-dialog";
 import { formatBRL } from "../../lib/masks";
 
 /**
@@ -64,7 +65,13 @@ export function ProcedimentosDialog({ clienteId, onClose, onSalvo }: { clienteId
               <p className="text-sm font-medium">
                 {p.procedimento} <span className="font-normal text-muted-foreground">· {p.cirurgias} cirurgia(s)</span>
               </p>
+              {/* ⚠️ A `key` inclui o que está GRAVADO. O estado dos campos é inicializado da prop
+                  uma vez só; sem isto, quando a lista era rebuscada com um valor novo (outra
+                  pessoa salvou, ou o de-para mudou) o input continuava mostrando o valor ANTIGO
+                  com o "Salvar" aceso — e um clique regravava o velho por cima do novo, em
+                  silêncio, mudando o cobrado de todas as cirurgias do procedimento. */}
               <LinhaDeValor
+                key={`padrao:${p.padrao?.codigo ?? ""}:${p.padrao?.valor ?? ""}`}
                 rotulo="Padrão"
                 inicial={p.padrao}
                 pendente={salvar.isPending}
@@ -72,7 +79,7 @@ export function ProcedimentosDialog({ clienteId, onClose, onSalvo }: { clienteId
               />
               {p.porOperadora.map((o) => (
                 <LinhaDeValor
-                  key={o.operadoraId}
+                  key={`${o.operadoraId}:${o.codigo ?? ""}:${o.valor ?? ""}`}
                   rotulo={o.operadora}
                   inicial={{ codigo: o.codigo, valor: o.valor }}
                   pendente={salvar.isPending}
@@ -113,6 +120,7 @@ function LinhaDeValor({
   const [codigo, setCodigo] = useState(inicial?.codigo ?? "");
   const [valor, setValor] = useState<number | undefined>(inicial?.valor ?? undefined);
   const mudou = codigo !== (inicial?.codigo ?? "") || (valor ?? null) !== (inicial?.valor ?? null);
+  const confirm = useConfirm();
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -135,7 +143,19 @@ function LinhaDeValor({
           variant="ghost"
           aria-label={`Remover o valor de ${rotulo}`}
           disabled={pendente}
-          onClick={() => onSalvar(null, null)}
+          onClick={async () => {
+            // ⚠️ Não é "limpar um campo": sem valor de referência, o cobrado de TODAS as
+            // cirurgias desse procedimento vira "sem valor" e a glosa some junto. Alvo pequeno,
+            // ao lado do "Salvar", sem desfazer — confirma antes, como toda ação destrutiva
+            // desta casa.
+            const ok = await confirm({
+              title: "Remover o valor deste convênio",
+              description: `As cirurgias de “${rotulo}” voltam a ficar sem valor de referência, e a glosa delas deixa de ser calculada.`,
+              confirmText: "Remover",
+              variant: "destructive",
+            });
+            if (ok) onSalvar(null, null);
+          }}
         >
           <Trash2 className="h-4 w-4" />
         </Button>

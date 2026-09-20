@@ -69,8 +69,14 @@ export function ListaResumo({ titulo, itens }: { titulo: string; itens: { rotulo
     <div className="rounded-lg bg-muted/40 p-3">
       <p className="text-xs font-medium uppercase text-muted-foreground">{titulo}</p>
       <ul className="mt-1 max-h-28 space-y-0.5 overflow-y-auto text-sm">
-        {itens.map((i) => (
-          <li key={i.rotulo} className="flex justify-between gap-2">
+        {/* ⚠️ A chave NÃO pode ser só o rótulo. O servidor agrupa por id da operadora/profissional
+            OU pelo texto bruto normalizado de quem ainda não foi ligado, então dois grupos
+            distintos podem exibir o mesmo rótulo — "João Silva" já ligado ao lado do texto cru
+            "JOAO SILVA" a ligar. Com chave repetida o React reaproveita a linha errada e a marca
+            "(a ligar)" troca de lugar, além de sujar o console (e "zero erro de console" é o
+            padrão de prova desta casa). */}
+        {itens.map((i, ordem) => (
+          <li key={`${ordem}:${i.rotulo}`} className="flex justify-between gap-2">
             <span className={i.pendente ? "text-warning" : ""}>
               {i.rotulo}
               {i.pendente && <span className="text-xs"> (a ligar)</span>}

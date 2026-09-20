@@ -22,8 +22,12 @@ import { ImportarRecebidoDialog } from "./ImportarRecebidoDialog";
  * As cirurgias do TASY de um cliente, CONCILIADAS: cada uma com cobrado (do de-para do
  * procedimento), recebido (do repasse ou da planilha), glosa e status. Specs 2026-09-18.
  *
- * Os números do topo são do filtro inteiro, não da página — "quanto glosou a Unimed em maio" é
- * uma soma, e é ela que a Thaís leva para a clínica.
+ * ⚠️ SÃO DUAS SOMAS DIFERENTES NA MESMA TELA, e confundi-las é ler dinheiro errado. Os números
+ * GRANDES do topo são do MÊS escolhido (ou de todos os meses), e não enxergam os filtros de
+ * situação, status, operadora e busca — eles vêm de `resumoCirurgias`, que só recebe cliente e
+ * competência. A linha fina "No filtro: …", logo acima da tabela, é que respeita os filtros.
+ * Por isso os dois blocos dizem no rótulo de qual conjunto estão falando: sem isso a tela mostra
+ * "Glosa R$ A" em cima e "glosa R$ B" logo abaixo, sem nada explicando a diferença.
  */
 
 const CATEGORIA_LABEL: Record<string, string> = {
@@ -126,7 +130,20 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-52 space-y-1">
             <Label htmlFor="cir-mes">Mês</Label>
-            <Select id="cir-mes" value={competencia} onChange={(e) => filtrar(() => setCompetencia(e.target.value))}>
+            <Select
+              id="cir-mes"
+              value={competencia}
+              onChange={(e) =>
+                filtrar(() => {
+                  setCompetencia(e.target.value);
+                  // ⚠️ As opções de operadora vêm do RESUMO daquele mês. Trocar de mês sem
+                  // limpar a operadora deixava o `<select>` mostrando "Todas" (a operadora sumiu
+                  // das opções) enquanto o estado continuava filtrando por ela — a tela afirmava
+                  // não ter filtro e mostrava uma operadora só.
+                  setOperadoraId("");
+                })
+              }
+            >
               <option value="">Todo o período</option>
               {meses.data.meses.map((m) => (
                 <option key={m.competencia} value={m.competencia}>
@@ -143,13 +160,27 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           )}
         </div>
 
-        {d && (
-          <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Numero titulo="Cobrado" valor={d.cobrado} dica="Do de-para dos procedimentos, ou digitado" />
-            <Numero titulo="Recebido" valor={d.recebido} dica="Do repasse, ou digitado" tom="ok" />
-            <Numero titulo="Glosa" valor={d.glosa} dica="Cobrado − recebido do que já foi pago" tom={d.glosa > 0 ? "ruim" : undefined} />
-            <Numero titulo="A receber" valor={d.aReceber} dica="Cobrado do que ainda não foi pago" tom="atencao" />
+        {resumo.error && (
+          // ⚠️ Sem isto, uma falha aqui apaga os quatro números de dinheiro, o aviso de repasse
+          // não atribuído e o de repasse sem cirurgia — e a tabela abaixo carrega normalmente,
+          // porque é outra consulta. A tela fica com cara de completa e SEM glosa.
+          <div className="mt-3">
+            <QueryError message={resumo.error.message} onRetry={() => void resumo.refetch()} />
           </div>
+        )}
+
+        {d && (
+          <>
+            <p className="mt-3 text-xs text-muted-foreground">
+              {competencia ? `Totais de ${competencia}` : "Totais de todos os meses"} — não seguem os filtros abaixo.
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Numero titulo="Cobrado" valor={d.cobrado} dica="Do de-para dos procedimentos, ou digitado" />
+              <Numero titulo="Recebido" valor={d.recebido} dica="Do repasse, ou digitado" tom="ok" />
+              <Numero titulo="Glosa" valor={d.glosa} dica="Cobrado − recebido do que já foi pago" tom={d.glosa > 0 ? "ruim" : undefined} />
+              <Numero titulo="A receber" valor={d.aReceber} dica="Cobrado do que ainda não foi pago" tom="atencao" />
+            </div>
+          </>
         )}
         {r && r.recebidoSemProducao.naoAtribuido !== 0 && (
           <p className="mt-2 text-sm text-warning">
@@ -353,7 +384,13 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
       </div>
 
       {editando && (
-        <EditarCirurgiaDialog clienteId={clienteId} cirurgia={editando} onClose={() => setEditando(null)} onSalvo={recarregar} />
+        <EditarCirurgiaDialog
+          key={editando.id}
+          clienteId={clienteId}
+          cirurgia={editando}
+          onClose={() => setEditando(null)}
+          onSalvo={recarregar}
+        />
       )}
       {dialogo === "procedimentos" && <ProcedimentosDialog clienteId={clienteId} onClose={() => setDialogo(null)} onSalvo={recarregar} />}
       {(dialogo === "repasse" || dialogo === "planilha") && (

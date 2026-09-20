@@ -9,6 +9,7 @@ process.env.PACIENTE_CRYPTO_KEY ??= randomBytes(32).toString("base64");
 const { prisma } = await import("@app/db");
 const { appRouter } = await import("../trpc/router.js");
 const { importarCirurgias } = await import("../modules/conciliacao/cirurgias.service.js");
+const { decidirConferenciaDeCliente } = await import("../modules/conciliacao/conciliacao.router.js");
 
 /**
  * QUEM VÊ O DINHEIRO DE QUEM.
@@ -130,17 +131,17 @@ describe("a trava por cliente", () => {
 
 describe("a visão geral — a rota sem clienteId", () => {
   it("cada funcionário vê só os clientes dele", async () => {
-    const meus = (await caller.conciliacao.visaoGeral()).map((c) => c.clienteId);
+    const meus = (await caller.conciliacao.visaoGeral()).clientes.map((c) => c.clienteId);
     expect(meus).toContain(meuCliente);
     expect(meus).not.toContain(clienteAlheio);
 
-    const dele = (await callerEstranho.conciliacao.visaoGeral()).map((c) => c.clienteId);
+    const dele = (await callerEstranho.conciliacao.visaoGeral()).clientes.map((c) => c.clienteId);
     expect(dele).toContain(clienteAlheio);
     expect(dele).not.toContain(meuCliente);
   });
 
   it("e o ADMIN vê os dois", async () => {
-    const todos = (await callerChefe.conciliacao.visaoGeral()).map((c) => c.clienteId);
+    const todos = (await callerChefe.conciliacao.visaoGeral()).clientes.map((c) => c.clienteId);
     expect(todos).toEqual(expect.arrayContaining([meuCliente, clienteAlheio]));
   });
 });
@@ -162,6 +163,48 @@ describe("nenhuma rota da Conciliação escapa da trava", () => {
     expect(rotas.length).toBeGreaterThan(20); // se alguém reescrever o arquivo, a régua avisa
     const fora = rotas.filter((r) => r.procedure !== "conciliacaoProcedure");
     expect(fora, `rota(s) sem a trava por cliente: ${fora.map((f) => f.rota).join(", ")}`).toEqual([]);
+  });
+
+  /**
+   * ⚠️ A RÉGUA DE TEXTO ACIMA NÃO BASTA, E A REVISÃO PROVOU ISSO COM CINCO SABOTAGENS.
+   *
+   * Ela só enxerga rota com exatamente dois espaços de indentação, chave sem aspas e o procedure
+   * nomeado ali mesmo. Passavam VERDE: rota em sub-router aninhado (`repasse: router({...})`, o
+   * padrão que o `clientes.router.ts` já usa), chave entre aspas, `const alias =
+   * funcionarioProcedure`, e rota declarada fora e só referenciada. A mais provável delas é a
+   * primeira — é como a Fase 2c vai nascer.
+   *
+   * Por isso a trava de verdade é em TEMPO DE EXECUÇÃO e com padrão NEGAR: `decidirConferenciaDeCliente`
+   * recusa qualquer rota fora da lista fechada cujo input não traga `clienteId` legível. Estes
+   * testes exercem a decisão direto, com os formatos de input que a 1ª versão deixava passar em
+   * silêncio.
+   */
+  describe("e a decisão RECUSA por padrão, em vez de deixar passar", () => {
+    it("input normal manda conferir aquele cliente", () => {
+      expect(decidirConferenciaDeCliente("cirurgias", { clienteId: "abc" })).toEqual({ conferir: "abc" });
+    });
+
+    it("rota da lista fechada, sem cliente, é liberada", () => {
+      for (const rota of ["disponivel", "clientes", "visaoGeral"]) {
+        expect(decidirConferenciaDeCliente(rota, undefined)).toBe("liberado");
+      }
+    });
+
+    it("os formatos que a 1ª versão PULAVA agora são recusados", () => {
+      // Cada um destes rodava com zero autorização: o `safeParse` falhava e o middleware seguia.
+      expect(decidirConferenciaDeCliente("cirurgias", { filtro: { clienteId: "abc" } })).toBe("recusado");
+      expect(decidirConferenciaDeCliente("editarEmLote", [{ clienteId: "abc" }])).toBe("recusado");
+      expect(decidirConferenciaDeCliente("cirurgias", { clienteIds: ["a", "b"] })).toBe("recusado");
+      expect(decidirConferenciaDeCliente("cirurgias", { clienteId: "" })).toBe("recusado");
+      expect(decidirConferenciaDeCliente("cirurgias", undefined)).toBe("recusado");
+    });
+
+    it("rota dentro de sub-router é recusada — é assim que a próxima fase vai nascer", () => {
+      // `path` vem como `conciliacao.repasse.listar`; o que chega aqui é `repasse.listar`, que
+      // não está na lista fechada. Sem isto, a régua de texto acima nem a contaria.
+      expect(decidirConferenciaDeCliente("repasse.listar", { competencia: "2026-05" })).toBe("recusado");
+      expect(decidirConferenciaDeCliente("repasse.listar", { clienteId: "abc" })).toEqual({ conferir: "abc" });
+    });
   });
 
   it("e a única rota sem clienteId é a visão geral, que filtra sozinha", () => {

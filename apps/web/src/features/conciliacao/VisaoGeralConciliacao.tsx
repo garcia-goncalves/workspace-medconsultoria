@@ -12,12 +12,12 @@ import { dataUTC } from "../../lib/format-date";
  * Todos os clientes com produção, lado a lado — a pergunta da manhã é "onde está o dinheiro
  * parado?", e ela é de N clientes, não de um. Ordena pelo que mais pede atenção: glosa + a receber.
  */
-export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: string) => void }) {
+export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: string, temCirurgia: boolean) => void }) {
   const q = trpc.conciliacao.visaoGeral.useQuery();
 
   if (q.isPending) return <Skeleton className="h-40 w-full" />;
   if (q.error) return <QueryError message={q.error.message} onRetry={() => void q.refetch()} />;
-  if (q.data.length === 0) {
+  if (q.data.clientes.length === 0) {
     return (
       <EmptyState
         icon={FileSpreadsheet}
@@ -27,16 +27,18 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
     );
   }
 
-  const linhas = [...q.data].sort((a, b) => b.glosa + b.aReceber - (a.glosa + a.aReceber) || a.nome.localeCompare(b.nome));
-  const soma = (k: "cobrado" | "recebido" | "glosa" | "aReceber") => linhas.reduce((s, l) => Math.round((s + l[k]) * 100) / 100, 0);
+  const linhas = [...q.data.clientes].sort((a, b) => b.glosa + b.aReceber - (a.glosa + a.aReceber) || a.nome.localeCompare(b.nome));
+  // ⚠️ O total vem do SERVIDOR (`q.data.totais`), não somado aqui: era o único número de dinheiro
+  // da tela calculado no navegador, e no dia em que esta lista ganhasse paginação ele viraria uma
+  // soma parcial apresentada como total.
+  const t = q.data.totais;
 
   return (
     <div className="rounded-lg border">
       <div className="border-b p-3">
         <h2 className="text-sm font-semibold">Visão geral — todos os clientes</h2>
         <p className="text-xs text-muted-foreground">
-          Cobrado {formatBRL(soma("cobrado"))} · recebido {formatBRL(soma("recebido"))} · glosa {formatBRL(soma("glosa"))} · a receber{" "}
-          {formatBRL(soma("aReceber"))}
+          Cobrado {formatBRL(t.cobrado)} · recebido {formatBRL(t.recebido)} · glosa {formatBRL(t.glosa)} · a receber {formatBRL(t.aReceber)}
         </p>
       </div>
       <Table>
@@ -64,7 +66,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
             return (
               <TR key={c.clienteId}>
                 <TD>
-                  <Button variant="ghost" className="min-h-11 px-2 font-medium" onClick={() => onEscolher(c.clienteId)}>
+                  <Button variant="ghost" className="min-h-11 px-2 font-medium" onClick={() => onEscolher(c.clienteId, c.cirurgias > 0)}>
                     {c.nome}
                   </Button>
                 </TD>
