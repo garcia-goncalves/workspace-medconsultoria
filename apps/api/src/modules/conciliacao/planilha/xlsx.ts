@@ -12,9 +12,40 @@ export function lerXlsx(bytes: Buffer): string[][] {
   const arquivos = lerZip(bytes);
   const textos = lerStringsCompartilhadas(arquivos.get("xl/sharedStrings.xml"));
   const estilosDeData = lerQuaisEstilosSaoData(arquivos.get("xl/styles.xml"));
-  const base1904 = (arquivos.get("xl/workbook.xml")?.toString("utf8") ?? "").includes('date1904="1"');
+  const base1904 = (xmlDe(arquivos.get("xl/workbook.xml")) ?? "").includes('date1904="1"');
 
-  return lerLinhas(acharPrimeiraPlanilha(arquivos), textos, estilosDeData, base1904);
+  const linhas = lerLinhas(acharPrimeiraPlanilha(arquivos), textos, estilosDeData, base1904);
+
+  // ⚠️ Zero linhas NÃO pode voltar calado. Quando o leitor não entende o XML, o resultado é uma
+  // grade vazia — e quem recebe a grade vazia diz "não reconheci este relatório", jogando a culpa
+  // no arquivo da pessoa. Foi exatamente o que aconteceu com os `.xlsx` de prefixo `x:` (ver
+  // `semPrefixoDeNamespace`): dez arquivos bons recusados com a mensagem errada.
+  if (linhas.length === 0) {
+    throw new ErroDeZip(
+      "Esta planilha abriu, mas a primeira aba não tem nenhuma linha. Confira se o relatório " +
+        "está na PRIMEIRA aba do arquivo e envie de novo.",
+    );
+  }
+  return linhas;
+}
+
+/**
+ * Lê o XML de dentro do `.xlsx` **sem o prefixo de espaço de nomes nos nomes de tag**.
+ *
+ * ⚠️ `<row>`, `<x:row>` e `<ss:row>` são a MESMA coisa para o OOXML: o prefixo é livre, e quem
+ * escreve o arquivo escolhe. O Excel não usa prefixo; várias bibliotecas (e o sistema que exporta
+ * o repasse desta casa) usam `x:`. Um leitor que procura `"<row"` literal devolve **zero linha**
+ * para esses arquivos — sem erro, sem log, com a planilha inteira parecendo vazia.
+ *
+ * O `<` na frente é o que torna a troca segura: texto de célula com dois-pontos (`10:30`,
+ * `Convênio: Unimed`) não é tocado, e `<` dentro de texto vem escapado como `&lt;`.
+ */
+function semPrefixoDeNamespace(xml: string): string {
+  return xml.replace(/<(\/?)[A-Za-z_][\w.-]*:/g, "<$1");
+}
+
+function xmlDe(buf: Buffer | undefined): string | undefined {
+  return buf === undefined ? undefined : semPrefixoDeNamespace(buf.toString("utf8"));
 }
 
 /**
@@ -23,8 +54,8 @@ export function lerXlsx(bytes: Buffer): string[][] {
  * quando não funciona, importa a aba errada em silêncio.
  */
 function acharPrimeiraPlanilha(arquivos: Map<string, Buffer>): string {
-  const workbook = arquivos.get("xl/workbook.xml")?.toString("utf8");
-  const rels = arquivos.get("xl/_rels/workbook.xml.rels")?.toString("utf8");
+  const workbook = xmlDe(arquivos.get("xl/workbook.xml"));
+  const rels = xmlDe(arquivos.get("xl/_rels/workbook.xml.rels"));
 
   if (workbook && rels) {
     const primeira = acharAtributo(workbook, "<sheet ", "r:id");
@@ -32,17 +63,17 @@ function acharPrimeiraPlanilha(arquivos: Map<string, Buffer>): string {
       const alvo = acharAlvoDoRel(rels, primeira);
       if (alvo) {
         const caminho = alvo.startsWith("/") ? alvo.slice(1) : `xl/${alvo.replace(/^\.\//, "")}`;
-        const conteudo = arquivos.get(caminho);
-        if (conteudo) return conteudo.toString("utf8");
+        const conteudo = xmlDe(arquivos.get(caminho));
+        if (conteudo) return conteudo;
       }
     }
   }
 
   // Sem o mapa: a aba de menor número é o palpite menos ruim.
   const candidatas = [...arquivos.keys()].filter((k) => k.startsWith("xl/worksheets/sheet")).sort();
-  const escolhida = candidatas[0] ? arquivos.get(candidatas[0]) : undefined;
-  if (!escolhida) throw new ErroDeZip("A planilha não tem nenhuma aba com conteúdo.");
-  return escolhida.toString("utf8");
+  const escolhida = candidatas[0] ? xmlDe(arquivos.get(candidatas[0])) : undefined;
+  if (escolhida === undefined) throw new ErroDeZip("A planilha não tem nenhuma aba com conteúdo.");
+  return escolhida;
 }
 
 function acharAlvoDoRel(rels: string, id: string): string | null {
@@ -64,8 +95,8 @@ function acharAlvoDoRel(rels: string, id: string): string | null {
  * Ignorar isso faz a planilha inteira virar uma coluna de números.
  */
 function lerStringsCompartilhadas(xml: Buffer | undefined): string[] {
-  if (!xml) return [];
-  const texto = xml.toString("utf8");
+  const texto = xmlDe(xml);
+  if (texto === undefined) return [];
   const saida: string[] = [];
   let i = 0;
   while (i < texto.length) {
@@ -110,8 +141,8 @@ const EMBUTIDOS_DE_DATA = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 4
  */
 function lerQuaisEstilosSaoData(xml: Buffer | undefined): Set<number> {
   const eData = new Set<number>();
-  if (!xml) return eData;
-  const texto = xml.toString("utf8");
+  const texto = xmlDe(xml);
+  if (texto === undefined) return eData;
 
   const personalizadosDeData = new Set<number>();
   let i = 0;
