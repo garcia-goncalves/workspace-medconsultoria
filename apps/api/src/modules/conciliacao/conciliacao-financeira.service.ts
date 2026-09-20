@@ -2,7 +2,7 @@ import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 import { normalizarTexto } from "./planilha/index.js";
-import { glosaDe, repartirRecebido, statusDaConciliacao, type StatusConciliacao } from "./conciliacao-cirurgica.js";
+import { estaAtrasada, glosaDe, repartirRecebido, statusDaConciliacao, type StatusConciliacao } from "./conciliacao-cirurgica.js";
 
 /**
  * CONCILIAÇÃO — Fase 2b: o dinheiro de cada cirurgia, calculado na LEITURA.
@@ -50,6 +50,8 @@ export interface LinhaConciliada {
   dataPagamento: string | null;
   glosa: number | null;
   statusConciliacao: StatusConciliacao;
+  /** Passou da defasagem normal entre a cirurgia e o pagamento (`DIAS_ATE_O_PAGAMENTO_ESPERADO`). */
+  atrasada: boolean;
   naoCobrar: boolean;
   observacao: string | null;
 }
@@ -61,6 +63,10 @@ export interface TotaisConciliacao {
   glosa: number;
   /** Cobrado das que estão A_RECEBER — o que ainda deve entrar. */
   aReceber: number;
+  /** A parte de `aReceber` que já passou da defasagem normal — o dinheiro que TRAVOU. */
+  aReceberAtrasado: number;
+  /** Quantas esperas venceram, inclusive as que ainda não têm valor para somar. */
+  atrasadas: number;
   porStatus: Partial<Record<StatusConciliacao, number>>;
 }
 
@@ -81,6 +87,9 @@ export interface RecebidoSemProducao {
  * somar os totais do filtro, não só da página.
  */
 export async function montarConciliacao(clienteId: string): Promise<{ linhas: LinhaConciliada[]; semProducao: RecebidoSemProducao }> {
+  // UMA vez para a montagem inteira: com `new Date()` dentro do laço, duas linhas da mesma lista
+  // poderiam cair em lados diferentes do limite de atraso.
+  const agora = new Date();
   const [cirurgias, mapeamentos, repasses] = await Promise.all([
     prisma.producaoCirurgia.findMany({
       where: { clienteId },
@@ -210,6 +219,13 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
     const recebido = manual ?? doRepasse ?? null;
     const rep = c.atendimento ? repassePorAtend.get(c.atendimento) : undefined;
     const dataPagamento = c.dataPagamento ?? (doRepasse !== undefined ? (rep?.ultimaData ?? null) : null);
+    const status = statusDaConciliacao({
+      statusTasy: c.status,
+      naoCobrar: c.naoCobrar,
+      atendimento: c.atendimento,
+      cobrado,
+      recebido,
+    });
     return {
       id: c.id,
       numeroCirurgia: c.numeroCirurgia,
@@ -235,13 +251,13 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
       repasseCompartilhado: compartilhado.has(c.id),
       dataPagamento: dataPagamento ? dia(dataPagamento) : null,
       glosa: glosaDe(cobrado, recebido),
-      statusConciliacao: statusDaConciliacao({
-        statusTasy: c.status,
-        naoCobrar: c.naoCobrar,
-        atendimento: c.atendimento,
-        cobrado,
-        recebido,
-      }),
+      statusConciliacao: status,
+      // ⚠️ O que separa "esperando" de "travado". Sem isto, uma cirurgia de um ano atrás e uma do
+      // mês passado dizem a mesma coisa na tela ("a receber"), e a pergunta da manhã — "o que
+      // travou?" — não tem resposta. `agora` é calculado UMA vez para a montagem inteira: com
+      // `new Date()` dentro do laço, duas linhas da mesma lista poderiam cair em lados diferentes
+      // do limite.
+      atrasada: estaAtrasada(status, c.dataCirurgia, agora),
       naoCobrar: c.naoCobrar,
       observacao: c.observacao,
     };
@@ -254,7 +270,16 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
 const FORA_DA_CONTA: StatusConciliacao[] = ["NAO_REALIZADA", "NAO_COBRAR"];
 
 export function totalizar(linhas: LinhaConciliada[]): TotaisConciliacao {
-  const t: TotaisConciliacao = { cirurgias: linhas.length, cobrado: 0, recebido: 0, glosa: 0, aReceber: 0, porStatus: {} };
+  const t: TotaisConciliacao = {
+    cirurgias: linhas.length,
+    cobrado: 0,
+    recebido: 0,
+    glosa: 0,
+    aReceber: 0,
+    aReceberAtrasado: 0,
+    atrasadas: 0,
+    porStatus: {},
+  };
   for (const l of linhas) {
     t.porStatus[l.statusConciliacao] = (t.porStatus[l.statusConciliacao] ?? 0) + 1;
     if (FORA_DA_CONTA.includes(l.statusConciliacao)) continue;
@@ -262,6 +287,13 @@ export function totalizar(linhas: LinhaConciliada[]): TotaisConciliacao {
     if (l.recebido !== null) t.recebido = somar(t.recebido, l.recebido);
     if (l.glosa !== null) t.glosa = somar(t.glosa, l.glosa);
     if (l.statusConciliacao === "A_RECEBER" && l.cobrado !== null) t.aReceber = somar(t.aReceber, l.cobrado);
+    // ⚠️ `atrasadas` conta TODA espera vencida, inclusive a que nem tem valor para somar
+    // (sem de-para, sem atendimento) — senão o cliente que não registrou preço nenhum apareceria
+    // como se estivesse em dia. O dinheiro só entra em `aReceberAtrasado` quando existe.
+    if (l.atrasada) {
+      t.atrasadas += 1;
+      if (l.statusConciliacao === "A_RECEBER" && l.cobrado !== null) t.aReceberAtrasado = somar(t.aReceberAtrasado, l.cobrado);
+    }
   }
   return t;
 }
@@ -389,6 +421,9 @@ export interface LinhaDaVisaoGeral {
   recebido: number;
   glosa: number;
   aReceber: number;
+  /** A parte de `aReceber` que travou — passou da defasagem normal de pagamento. */
+  aReceberAtrasado: number;
+  atrasadas: number;
   recebidoSemProducao: number;
   semValor: number;
   semAtendimento: number;
@@ -439,6 +474,8 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null) {
       recebido: t.recebido,
       glosa: t.glosa,
       aReceber: t.aReceber,
+      aReceberAtrasado: t.aReceberAtrasado,
+      atrasadas: t.atrasadas,
       recebidoSemProducao: somar(semProducao.total, semProducao.naoAtribuido),
       semValor: t.porStatus.SEM_VALOR ?? 0,
       semAtendimento: t.porStatus.SEM_ATENDIMENTO ?? 0,
@@ -455,9 +492,15 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null) {
    * ganhasse paginação ou um teto, o cabeçalho viraria uma soma PARCIAL apresentada como total,
    * sem sinal nenhum. Somando aqui, ele acompanha o que a consulta de fato devolveu.
    */
-  const total = (k: "cobrado" | "recebido" | "glosa" | "aReceber") => saida.reduce((s, l) => somar(s, l[k]), 0);
+  const total = (k: "cobrado" | "recebido" | "glosa" | "aReceber" | "aReceberAtrasado") => saida.reduce((s, l) => somar(s, l[k]), 0);
   return {
     clientes: saida,
-    totais: { cobrado: total("cobrado"), recebido: total("recebido"), glosa: total("glosa"), aReceber: total("aReceber") },
+    totais: {
+      cobrado: total("cobrado"),
+      recebido: total("recebido"),
+      glosa: total("glosa"),
+      aReceber: total("aReceber"),
+      aReceberAtrasado: total("aReceberAtrasado"),
+    },
   };
 }

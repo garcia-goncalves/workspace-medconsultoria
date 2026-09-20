@@ -272,6 +272,7 @@ export const conciliacaoRouter = router({
         profissionalId: z.string().optional(),
         situacao: z.enum(["SEM_ATENDIMENTO", "AUTORIZACAO_PENDENTE", "NAO_EXECUTADA"]).optional(),
         statusConciliacao,
+        soAtrasadas: z.boolean().optional(),
         busca: z.string().trim().max(120).optional(),
         pagina: z.number().int().min(1).optional(),
       }),
@@ -368,7 +369,7 @@ export const conciliacaoRouter = router({
    * query ele sairia na URL (e no log) — a mesma razão das queries daqui irem por POST.
    */
   exportar: conciliacaoProcedure
-    .input(z.object({ clienteId, competencia: competencia.optional(), statusConciliacao }))
+    .input(z.object({ clienteId, competencia: competencia.optional(), statusConciliacao, soAtrasadas: z.boolean().optional() }))
     .mutation(async ({ input }) => {
       const linhas = await cirurgias.linhasParaExportar(input);
       return {

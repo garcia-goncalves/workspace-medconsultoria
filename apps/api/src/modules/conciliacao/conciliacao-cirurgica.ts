@@ -90,3 +90,36 @@ export function repartirRecebido(cirurgias: { id: string; cobrado: number | null
   });
   return saida;
 }
+
+// ─── O tempo, que é o que separa "a receber" de "travado" ──────────────────────────────────────
+
+/**
+ * ⚠️ A DEFASAGEM NORMAL ENTRE A CIRURGIA E O PAGAMENTO, EM DIAS.
+ *
+ * Medida nas amostras reais do cliente: cerca de **três meses e meio**. É o número que separa o
+ * que está apenas *esperando* do que está *travado* — sem ele, uma cirurgia de um ano atrás e uma
+ * do mês passado dizem exatamente a mesma coisa na tela ("a receber"), e a pergunta da manhã
+ * ("o que travou?") não tem resposta.
+ *
+ * Constante, e não campo em Ajustes, de propósito: é uma característica do ciclo das operadoras,
+ * não uma preferência da casa, e ninguém pediu para ajustá-la. Virar campo é uma migração no dia
+ * em que alguém quiser — e aí o número já estará escrito aqui, medido, para ser o padrão.
+ */
+export const DIAS_ATE_O_PAGAMENTO_ESPERADO = 105;
+
+/**
+ * Esta cirurgia já passou do prazo em que o dinheiro deveria ter entrado?
+ *
+ * ⚠️ Só vale para o que de fato está esperando dinheiro: `A_RECEBER`, `SEM_VALOR` (nem se sabe
+ * quanto cobrar) e `SEM_ATENDIMENTO` (não há como casar o repasse). O que já foi pago, o que não
+ * se cobra e o que não aconteceu **nunca** estão atrasados — marcar isso encheria a tela de
+ * alarme onde não há nada a fazer, e alarme que toca sempre ninguém lê.
+ *
+ * `hoje` entra como parâmetro para a função ser pura e testável: com `new Date()` por dentro, o
+ * teste do limite dependeria do dia em que rodasse.
+ */
+export function estaAtrasada(status: StatusConciliacao, dataCirurgia: Date, hoje: Date): boolean {
+  if (status !== "A_RECEBER" && status !== "SEM_VALOR" && status !== "SEM_ATENDIMENTO") return false;
+  const dias = Math.floor((hoje.getTime() - dataCirurgia.getTime()) / 86_400_000);
+  return dias > DIAS_ATE_O_PAGAMENTO_ESPERADO;
+}

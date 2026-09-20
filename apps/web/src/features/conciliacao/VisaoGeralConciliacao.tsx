@@ -27,7 +27,12 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
     );
   }
 
-  const linhas = [...q.data.clientes].sort((a, b) => b.glosa + b.aReceber - (a.glosa + a.aReceber) || a.nome.localeCompare(b.nome));
+  // ⚠️ Ordena pelo que TRAVOU primeiro (glosa + o a receber que passou do prazo), e só depois
+  // pelo que ainda está dentro da espera normal. "Onde está o dinheiro parado?" é a pergunta da
+  // manhã, e um a receber de três semanas não é dinheiro parado — é o ciclo funcionando.
+  const linhas = [...q.data.clientes].sort(
+    (a, b) => b.glosa + b.aReceberAtrasado - (a.glosa + a.aReceberAtrasado) || b.aReceber - a.aReceber || a.nome.localeCompare(b.nome),
+  );
   // ⚠️ O total vem do SERVIDOR (`q.data.totais`), não somado aqui: era o único número de dinheiro
   // da tela calculado no navegador, e no dia em que esta lista ganhasse paginação ele viraria uma
   // soma parcial apresentada como total.
@@ -39,6 +44,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
         <h2 className="text-sm font-semibold">Visão geral — todos os clientes</h2>
         <p className="text-xs text-muted-foreground">
           Cobrado {formatBRL(t.cobrado)} · recebido {formatBRL(t.recebido)} · glosa {formatBRL(t.glosa)} · a receber {formatBRL(t.aReceber)}
+          {t.aReceberAtrasado > 0 && <span className="text-destructive"> · {formatBRL(t.aReceberAtrasado)} passou do prazo</span>}
         </p>
       </div>
       <Table rotulo="Conciliação por cliente">
@@ -51,6 +57,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
             <TH className="text-right">Recebido</TH>
             <TH className="text-right">Glosa</TH>
             <TH className="text-right">A receber</TH>
+            <TH className="text-right">Passou do prazo</TH>
             <TH>Pendências</TH>
             <TH>Última importação</TH>
           </TR>
@@ -61,6 +68,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
               c.semValor > 0 && `${c.semValor} sem valor`,
               c.semAtendimento > 0 && `${c.semAtendimento} sem atendimento`,
               c.pendenciasDePara > 0 && `${c.pendenciasDePara} a ligar`,
+              c.atrasadas > 0 && `${c.atrasadas} passou do prazo`,
               c.recebidoSemProducao !== 0 && `${formatBRL(c.recebidoSemProducao)} sem cirurgia`,
             ].filter(Boolean);
             return (
@@ -76,6 +84,9 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
                 <TD className="whitespace-nowrap text-right">{formatBRL(c.recebido)}</TD>
                 <TD className={`whitespace-nowrap text-right ${c.glosa > 0 ? "text-destructive" : ""}`}>{formatBRL(c.glosa)}</TD>
                 <TD className="whitespace-nowrap text-right">{formatBRL(c.aReceber)}</TD>
+                <TD className={`whitespace-nowrap text-right ${c.aReceberAtrasado > 0 ? "text-destructive" : ""}`}>
+                  {c.aReceberAtrasado > 0 ? formatBRL(c.aReceberAtrasado) : "—"}
+                </TD>
                 <TD className="text-xs text-warning">{pendencias.join(" · ") || <span className="text-muted-foreground">—</span>}</TD>
                 <TD className="text-xs text-muted-foreground">{c.ultimaImportacao ? dataUTC(c.ultimaImportacao.em) : "—"}</TD>
               </TR>

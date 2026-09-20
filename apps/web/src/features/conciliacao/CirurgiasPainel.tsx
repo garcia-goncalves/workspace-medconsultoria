@@ -50,6 +50,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
   const [status, setStatus] = useState<StatusConciliacao | "">("");
   const [operadoraId, setOperadoraId] = useState("");
   const [busca, setBusca, buscaAdiada] = useBuscaAdiada();
+  const [soAtrasadas, setSoAtrasadas] = useState(false);
   const [pagina, setPagina] = useState(1);
   const [dialogo, setDialogo] = useState<Dialogo>(null);
   const [editando, setEditando] = useState<CirurgiaConciliada | null>(null);
@@ -64,6 +65,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
       situacao: situacao || undefined,
       statusConciliacao: status || undefined,
       operadoraId: operadoraId || undefined,
+      soAtrasadas: soAtrasadas || undefined,
       busca: buscaAdiada.trim() || undefined,
       pagina,
     },
@@ -92,7 +94,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
     setPagina(1);
   };
   const recarregar = () => void utils.conciliacao.invalidate();
-  const temFiltro = !!(situacao || status || operadoraId || busca);
+  const temFiltro = !!(situacao || status || operadoraId || busca || soAtrasadas);
 
   if (meses.isPending) return <Skeleton className="h-24 w-full" />;
   if (meses.error) return <QueryError message={meses.error.message} onRetry={() => void meses.refetch()} />;
@@ -128,7 +130,16 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
         <Button
           variant="outline"
           disabled={exportar.isPending}
-          onClick={() => exportar.mutate({ clienteId, competencia: competencia || undefined, statusConciliacao: status || undefined })}
+          onClick={() =>
+            exportar.mutate({
+              clienteId,
+              competencia: competencia || undefined,
+              statusConciliacao: status || undefined,
+              // A planilha leva o MESMO recorte que está na tela — exportar tudo quando a tela
+              // mostra só o atrasado seria entregar outro documento do que se conferiu.
+              soAtrasadas: soAtrasadas || undefined,
+            })
+          }
         >
           <Download className="mr-1.5 h-4 w-4" />
           {exportar.isPending ? "Exportando…" : "Exportar planilhas"}
@@ -275,6 +286,18 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
             </Select>
           </div>
           <div className="w-56 space-y-1">
+            <Label htmlFor="cir-atraso">Prazo</Label>
+            <Select
+              id="cir-atraso"
+              value={soAtrasadas ? "sim" : ""}
+              onChange={(e) => filtrar(() => setSoAtrasadas(e.target.value === "sim"))}
+            >
+              <option value="">Todos os prazos</option>
+              <option value="sim">Só o que passou do prazo</option>
+            </Select>
+          </div>
+
+          <div className="w-56 space-y-1">
             <Label htmlFor="cir-busca">Paciente</Label>
             <Input id="cir-busca" value={busca} placeholder="Buscar pelo nome…" onChange={(e) => filtrar(() => setBusca(e.target.value))} />
           </div>
@@ -286,6 +309,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
                   setSituacao("");
                   setStatus("");
                   setOperadoraId("");
+                  setSoAtrasadas(false);
                   setBusca("");
                 })
               }
@@ -335,6 +359,9 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
                       <TD>
                         {dataUTC(l.dataCirurgia)}
                         {l.status !== "EXECUTADA" && <span className="block text-xs text-warning">{l.statusBruto}</span>}
+                        {/* ⚠️ Sem esta marca, uma cirurgia de um ano atrás e uma do mês passado
+                            dizem a mesma coisa ("a receber") e ninguém sabe qual travou. */}
+                        {l.atrasada && <span className="block text-xs font-medium text-destructive">passou do prazo</span>}
                       </TD>
                       <TD>
                         {l.atendimento ?? <span className="text-warning">sem número</span>}

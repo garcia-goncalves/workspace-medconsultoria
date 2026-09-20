@@ -290,7 +290,7 @@ const GUIA_CONCILIACAO: Passo[] = [
     icon: CalendarClock,
     titulo: "Não espere o mês fechar batendo",
     descricao:
-      "Entre o atendimento e o pagamento correspondente passam cerca de três meses e meio. Mês recém-importado aparecendo quase todo como “a receber” é o normal, não erro — o que se persegue é o mês antigo que continua aberto.",
+      "Entre o atendimento e o pagamento correspondente passam cerca de três meses e meio. Mês recém-importado aparecendo quase todo como “a receber” é o normal, não erro — o que se persegue é o que passou desse prazo. É exatamente isso que a marca vermelha “passou do prazo” aponta, e o filtro “Prazo” isola: sem ela, uma cirurgia de um ano atrás e uma do mês passado dizem a mesma coisa na tela.",
   },
   {
     icon: FileText,

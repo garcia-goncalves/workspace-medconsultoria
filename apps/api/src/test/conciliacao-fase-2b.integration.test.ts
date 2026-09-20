@@ -379,3 +379,52 @@ describe("edição, filtros, exportação e visão geral", () => {
     expect(json).not.toMatch(/PRONTUARIO-SECRETO|"LEITO"|"PESSOA"|PACIENTE X/);
   });
 });
+
+/**
+ * O TEMPO — o que separa "esperando" de "travado".
+ *
+ * ⚠️ Roda no OUTRO cliente da fixture, que não tem cirurgia nenhuma: acrescentar linhas ao
+ * cliente principal mudaria as contagens que os testes acima afirmam.
+ */
+describe("o que passou do prazo de pagamento", () => {
+  const diasAtras = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+
+  beforeAll(async () => {
+    await importarCirurgias({
+      clienteId: outroClienteId,
+      bytes: buf(
+        CAB_TASY,
+        // Uma bem antiga (muito além da defasagem de ~3,5 meses) e uma de ontem.
+        cir("900").replace("2026-05-04", diasAtras(400)),
+        cir("901").replace("2026-05-04", diasAtras(1)),
+      ),
+      nomeArquivo: "prazo.csv",
+      usuarioId,
+    });
+  });
+
+  it("a antiga está atrasada; a de ontem está apenas esperando", async () => {
+    const r = await caller.conciliacao.cirurgias({ clienteId: outroClienteId });
+    const porNumero = new Map(r.linhas.map((l) => [l.numeroCirurgia, l]));
+    expect(porNumero.get("900")!.atrasada).toBe(true);
+    expect(porNumero.get("901")!.atrasada).toBe(false);
+    // ⚠️ As duas estão SEM_VALOR (sem de-para neste cliente) — e o atraso vale para elas também:
+    // não saber quanto cobrar há um ano é justamente o caso que ninguém percebe.
+    expect(porNumero.get("900")!.statusConciliacao).toBe("SEM_VALOR");
+    expect(r.totais.atrasadas).toBe(1);
+  });
+
+  it("o filtro devolve só o que travou, e a contagem acompanha", async () => {
+    const r = await caller.conciliacao.cirurgias({ clienteId: outroClienteId, soAtrasadas: true });
+    expect(r.linhas.map((l) => l.numeroCirurgia)).toEqual(["900"]);
+    expect(r.total).toBe(1);
+  });
+
+  it("a visão geral mostra o atraso do cliente", async () => {
+    const v = await caller.conciliacao.visaoGeral();
+    const deste = v.clientes.find((c) => c.clienteId === outroClienteId)!;
+    expect(deste.atrasadas).toBe(1);
+    // Sem de-para não há valor para somar — o dinheiro atrasado é zero, mas a CONTAGEM não.
+    expect(deste.aReceberAtrasado).toBe(0);
+  });
+});
