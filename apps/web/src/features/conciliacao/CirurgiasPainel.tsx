@@ -558,7 +558,9 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
 function Numero({ titulo, valor, dica, tom }: { titulo: string; valor: number; dica: string; tom?: "ok" | "ruim" | "atencao" }) {
   const cor = tom === "ok" ? "text-success" : tom === "ruim" ? "text-destructive" : tom === "atencao" ? "text-warning" : "";
   return (
-    <div className="rounded-lg bg-muted/40 p-3" title={dica}>
+    // Sem `title`: a dica já está escrita logo abaixo, e o atributo num elemento não interativo
+    // faz o leitor de tela ler o mesmo texto duas vezes.
+    <div className="rounded-lg bg-muted/40 p-3">
       <p className="text-xs font-medium uppercase text-muted-foreground">{titulo}</p>
       <p className={`text-xl font-semibold ${cor}`}>{formatBRL(valor)}</p>
       <p className="text-xs text-muted-foreground">{dica}</p>

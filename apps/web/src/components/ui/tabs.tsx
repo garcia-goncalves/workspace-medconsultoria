@@ -57,7 +57,15 @@ export function Tabs({
  * Home/End vão para a 1ª/última. Ativar é sempre com Enter/Espaço (o `<button>` nativo já faz
  * isso sozinho) — mover o foco com a seta NÃO troca a aba sozinho.
  */
-export function TabsList({ children, className, "aria-label": ariaLabel }: { children: ReactNode; className?: string; "aria-label"?: string }) {
+export function TabsList({
+  children,
+  className,
+  "aria-label": ariaLabel,
+}: {
+  children: ReactNode;
+  className?: string;
+  "aria-label"?: string;
+}) {
   const ref = useRef<HTMLDivElement>(null);
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -148,12 +156,39 @@ export function TabsTrigger({
 }
 
 /** O conteúdo de uma aba. Só o painel ativo é renderizado. */
-export function TabsContent({ value, children, className }: { value: string; children: ReactNode; className?: string }) {
+/**
+ * O painel de uma aba.
+ *
+ * `manterMontado` **não** monta tudo de saída: o painel só nasce quando a aba é visitada pela
+ * primeira vez, e a partir daí deixa de ser desmontado — fica escondido com `hidden`.
+ *
+ * ⚠️ Existe porque desmontar **apaga o estado de quem mora dentro**. Na Conciliação, ir a
+ * "Consultas" e voltar zerava competência, status, situação, operadora, busca e página: quem está
+ * conferindo mês a mês recomeçava do zero sem entender por quê. Montar tudo de saída resolveria
+ * isso e criaria outro problema — as consultas do painel escondido sairiam sem ninguém ter
+ * pedido —, daí a montagem ser preguiçosa.
+ */
+export function TabsContent({
+  value,
+  children,
+  className,
+  manterMontado,
+}: {
+  value: string;
+  children: ReactNode;
+  className?: string;
+  manterMontado?: boolean;
+}) {
   const { valorAtivo, idBase } = useTabsContext("TabsContent");
-  if (valorAtivo !== value) return null;
+  const ativo = valorAtivo === value;
+  const jaVisitado = useRef(false);
+  if (ativo) jaVisitado.current = true;
+
+  if (!ativo && !(manterMontado && jaVisitado.current)) return null;
 
   return (
     <div
+      hidden={!ativo}
       role="tabpanel"
       id={`${idBase}-panel-${value}`}
       aria-labelledby={`${idBase}-tab-${value}`}

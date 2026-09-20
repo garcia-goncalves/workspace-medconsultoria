@@ -141,6 +141,9 @@ function LinhaDeValor({
         <Button
           size="sm"
           variant="ghost"
+          // A própria feature já usa `min-h-11` nos alvos de toque (tabela, visão geral); este
+          // ícone tinha ficado de fora, com ~36px.
+          className="min-h-11"
           aria-label={`Remover o valor de ${rotulo}`}
           disabled={pendente}
           onClick={async () => {
