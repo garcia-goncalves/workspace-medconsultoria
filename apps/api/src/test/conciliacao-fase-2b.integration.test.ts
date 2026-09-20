@@ -428,3 +428,123 @@ describe("o que passou do prazo de pagamento", () => {
     expect(deste.aReceberAtrasado).toBe(0);
   });
 });
+
+/**
+ * FASE 2c — o recurso de glosa: o que se faz DEPOIS de achar o problema.
+ *
+ * ⚠️ A asserção que mais importa não é "o recurso foi criado": é que o recurso **não guarda
+ * dinheiro**. Quando a operadora acata, o valor entra por um repasse novo e a glosa se recalcula
+ * sozinha — se algum dia alguém puser um campo de valor aqui, os dois números vão divergir.
+ */
+describe("recurso de glosa", () => {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const diasAtras = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+  let glosada = "";
+
+  beforeAll(async () => {
+    const r = await caller.conciliacao.cirurgias({ clienteId, statusConciliacao: "GLOSA_PARCIAL" });
+    glosada = r.linhas[0]!.id;
+  });
+
+  it("não se recorre do que NÃO foi glosado — e a recusa vem do servidor", async () => {
+    const paga = (await caller.conciliacao.cirurgias({ clienteId, statusConciliacao: "PAGO" })).linhas[0];
+    if (paga) {
+      await expect(caller.conciliacao.abrirRecurso({ clienteId, cirurgiaId: paga.id, abertoEm: hoje })).rejects.toThrow(
+        /só dá para recorrer de cirurgia com glosa/i,
+      );
+    }
+  });
+
+  it("abre o recurso, e a linha passa a dizer que está em disputa", async () => {
+    await caller.conciliacao.abrirRecurso({
+      clienteId,
+      cirurgiaId: glosada,
+      abertoEm: diasAtras(45),
+      canal: "Portal da operadora",
+      protocolo: "PROT-123",
+      motivoDaGlosa: "OPME não autorizado",
+    });
+
+    const linha = (await caller.conciliacao.cirurgias({ clienteId })).linhas.find((l) => l.id === glosada)!;
+    expect(linha.recurso).toMatchObject({ status: "ABERTO", tentativa: 1, protocolo: "PROT-123" });
+    // 45 dias sem resposta, com prazo de 30: é o que precisa de telefonema.
+    expect(linha.recurso!.semResposta).toBe(true);
+  });
+
+  it("⚠️ dois recursos abertos para a mesma cirurgia seriam dois protocolos disputando a mesma glosa", async () => {
+    await expect(caller.conciliacao.abrirRecurso({ clienteId, cirurgiaId: glosada, abertoEm: hoje })).rejects.toThrow(
+      /já existe um recurso aberto/i,
+    );
+  });
+
+  it("os totais separam o que está em disputa do que ninguém cuidou", async () => {
+    const t = (await caller.conciliacao.cirurgias({ clienteId })).totais;
+    expect(t.emRecurso).toBeGreaterThan(0);
+    expect(t.recursosSemResposta).toBe(1);
+    // A glosa desta cirurgia saiu de "ninguém recorreu" e entrou em "em disputa" — nunca as duas.
+    const linha = (await caller.conciliacao.cirurgias({ clienteId })).linhas.find((l) => l.id === glosada)!;
+    expect(t.emRecurso).toBe(linha.glosa);
+  });
+
+  it("o filtro do que ninguém cuidou não devolve o que já tem recurso", async () => {
+    const semRecurso = await caller.conciliacao.cirurgias({ clienteId, recurso: "SEM_RECURSO" });
+    expect(semRecurso.linhas.map((l) => l.id)).not.toContain(glosada);
+    // E tudo o que ele devolve É glosa — senão a pergunta se afoga em cirurgia paga.
+    for (const l of semRecurso.linhas) expect(["GLOSA_PARCIAL", "GLOSA_TOTAL"]).toContain(l.statusConciliacao);
+
+    const semResposta = await caller.conciliacao.cirurgias({ clienteId, recurso: "SEM_RESPOSTA" });
+    expect(semResposta.linhas.map((l) => l.id)).toEqual([glosada]);
+  });
+
+  it("responder é IDEMPOTENTE no sentido certo: não reescreve o desfecho já registrado", async () => {
+    const recursos = await caller.conciliacao.recursosDaCirurgia({ clienteId, cirurgiaId: glosada });
+    const id = recursos[0]!.id;
+    await caller.conciliacao.responderRecurso({ clienteId, recursoId: id, status: "NEGADO", respondidoEm: hoje });
+
+    await expect(caller.conciliacao.responderRecurso({ clienteId, recursoId: id, status: "ACATADO", respondidoEm: hoje })).rejects.toThrow(
+      /já foi registrada/i,
+    );
+
+    const depois = await caller.conciliacao.recursosDaCirurgia({ clienteId, cirurgiaId: glosada });
+    expect(depois[0]!.status).toBe("NEGADO");
+  });
+
+  it("recorrer de novo é LINHA NOVA — a prova de que a primeira foi negada não some", async () => {
+    await caller.conciliacao.abrirRecurso({ clienteId, cirurgiaId: glosada, abertoEm: hoje, protocolo: "PROT-456" });
+
+    const historico = await caller.conciliacao.recursosDaCirurgia({ clienteId, cirurgiaId: glosada });
+    expect(historico).toHaveLength(2);
+    expect(historico.map((r) => [r.tentativa, r.status])).toEqual([
+      [2, "ABERTO"],
+      [1, "NEGADO"],
+    ]);
+
+    // A linha da tabela fala do estado de AGORA: a tentativa 2, aberta.
+    const linha = (await caller.conciliacao.cirurgias({ clienteId })).linhas.find((l) => l.id === glosada)!;
+    expect(linha.recurso).toMatchObject({ tentativa: 2, status: "ABERTO", protocolo: "PROT-456" });
+  });
+
+  it("⚠️ o recurso NÃO guarda dinheiro — quem paga é o repasse", async () => {
+    // A régua é sobre CAMPO DE VALOR, não sobre a palavra "glosa": `motivoDaGlosa` é texto do que
+    // a operadora alegou, e precisa existir. O que não pode existir é um número que concorra com
+    // o repasse pela verdade do dinheiro — no dia em que a operadora pagar diferente do que
+    // respondeu, os dois divergem e ninguém sabe qual está certo.
+    const recursos = await caller.conciliacao.recursosDaCirurgia({ clienteId, cirurgiaId: glosada });
+    const campos = new Set(recursos.flatMap((r) => Object.keys(r)));
+    for (const campo of campos) {
+      expect(campo, `${campo} parece guardar dinheiro no recurso`).not.toMatch(/valor|cobrado|recebido|montante/i);
+    }
+  });
+
+  it("e a posse é conferida: recurso de outro cliente não responde", async () => {
+    const recursos = await caller.conciliacao.recursosDaCirurgia({ clienteId, cirurgiaId: glosada });
+    await expect(
+      caller.conciliacao.responderRecurso({
+        clienteId: outroClienteId,
+        recursoId: recursos[0]!.id,
+        status: "ACATADO",
+        respondidoEm: hoje,
+      }),
+    ).rejects.toThrow(/não encontrado/i);
+  });
+});

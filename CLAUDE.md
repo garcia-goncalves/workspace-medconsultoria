@@ -50,6 +50,33 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - ⚠️ **NÃO ESTÁ NO AR.** A homologação segue com a Fase 2a; publicar a 2b depende dos segredos
   abaixo.
 
+### Fase 2c — o recurso de glosa: o que se faz DEPOIS de achar o problema
+
+> **Leia** `docs/superpowers/specs/2026-09-20-conciliacao-fase-2c-recurso-de-glosa-design.md`.
+
+- **A tela achava a glosa e parava ali.** O que vem depois — recorrer pelo portal da operadora, com
+  protocolo e prazo — vivia fora do sistema. Agora cada cirurgia glosada tem **recurso**: data do
+  protocolo, canal, número, o que a operadora alegou e o desfecho, com **histórico de tentativas**.
+- **🔴 O NÚMERO QUE NINGUÉM ESTAVA VENDO: `glosaSemRecurso`** — glosado e ninguém recorreu. É
+  dinheiro perdido por **omissão**, não por negativa; aparece em vermelho no alto da tela, é
+  clicável (filtra exatamente essas cirurgias), tem coluna própria na visão geral e **ordena** a
+  lista de clientes.
+- **⚠️ O RECURSO NÃO GUARDA DINHEIRO.** Quando a operadora acata, o valor entra num repasse futuro,
+  sobe o `recebido` e a glosa se recalcula sozinha. Um campo de valor aqui seria uma **segunda
+  fonte do mesmo número**, e as duas divergiriam no primeiro pagamento diferente do que foi
+  respondido. Há teste que reprova quem acrescentar campo com cara de dinheiro.
+- **⚠️ O status do recurso é GRAVADO — e não contradiz a Fase 2b.** O da conciliação é derivado de
+  números que o sistema conhece; este é um **fato do mundo** que só uma pessoa sabe.
+- **⚠️ Recorrer de novo é LINHA NOVA** (molde do Credenciamento, ADR-104): negado não vira acatado
+  por edição, senão a segunda tentativa apagaria a prova de que a primeira foi negada — que é
+  justamente o que se leva de volta à operadora. E responder duas vezes **não reescreve** o
+  desfecho já registrado.
+- **⏱️ Outro relógio:** `DIAS_ATE_A_RESPOSTA_DO_RECURSO = 30`, contado da abertura. Recurso sem
+  resposta além disso é o que precisa de telefonema.
+- **⚠️ MIGRAÇÃO `20260920120000`, ADITIVA E ISOLADA:** uma tabela nova (`RecursoDeGlosa`). Nenhuma
+  tabela existente muda, nenhum backfill. Reverter é `DROP TABLE`. Aplicada nos bancos local e de
+  teste; **não** na homologação.
+
 ### A madrugada de 20/09 — o que mudou depois das duas revisões
 
 - **⏳ O QUE TRAVOU DEIXOU DE PARECER IGUAL AO QUE ESTÁ SÓ ESPERANDO.** A pergunta da manhã é

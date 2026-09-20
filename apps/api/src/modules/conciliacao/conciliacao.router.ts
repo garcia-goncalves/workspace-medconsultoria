@@ -126,6 +126,7 @@ const conciliacaoProcedure = funcionarioProcedure.use(async ({ ctx, next, getRaw
   return resultado;
 });
 
+const recursoFiltro = z.enum(["SEM_RECURSO", "ABERTO", "SEM_RESPOSTA", "RESPONDIDO"]).optional();
 const clienteId = z.string().min(1);
 /** `AAAA-MM`. Validar aqui evita que um mês inventado crie um lote órfão que ninguém acha. */
 const competencia = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Competência deve ser no formato AAAA-MM (ex.: 2026-08).");
@@ -273,6 +274,7 @@ export const conciliacaoRouter = router({
         situacao: z.enum(["SEM_ATENDIMENTO", "AUTORIZACAO_PENDENTE", "NAO_EXECUTADA"]).optional(),
         statusConciliacao,
         soAtrasadas: z.boolean().optional(),
+        recurso: recursoFiltro,
         busca: z.string().trim().max(120).optional(),
         pagina: z.number().int().min(1).optional(),
       }),
@@ -368,8 +370,48 @@ export const conciliacaoRouter = router({
    * As três planilhas, como texto CSV. É MUTATION de propósito: leva nome de paciente, e por
    * query ele sairia na URL (e no log) — a mesma razão das queries daqui irem por POST.
    */
+  // ─── Fase 2c: o recurso de glosa ───────────────────────────────────────────────────────────
+
+  recursosDaCirurgia: conciliacaoProcedure
+    .input(z.object({ clienteId, cirurgiaId: z.string().min(1) }))
+    .query(({ input }) => financeira.recursosDaCirurgia(input.clienteId, input.cirurgiaId)),
+
+  abrirRecurso: conciliacaoProcedure
+    .input(
+      z.object({
+        clienteId,
+        cirurgiaId: z.string().min(1),
+        abertoEm: dataISO,
+        canal: z.string().trim().max(60).nullable().optional(),
+        protocolo: z.string().trim().max(60).nullable().optional(),
+        motivoDaGlosa: z.string().trim().max(2000).nullable().optional(),
+        observacao: z.string().trim().max(2000).nullable().optional(),
+      }),
+    )
+    .mutation(({ input, ctx }) => financeira.abrirRecurso(input.clienteId, ctx.user.id, input)),
+
+  responderRecurso: conciliacaoProcedure
+    .input(
+      z.object({
+        clienteId,
+        recursoId: z.string().min(1),
+        status: z.enum(["ACATADO", "NEGADO", "ENCERRADO"]),
+        respondidoEm: dataISO,
+        observacao: z.string().trim().max(2000).nullable().optional(),
+      }),
+    )
+    .mutation(({ input }) => financeira.responderRecurso(input.clienteId, input.recursoId, input)),
+
   exportar: conciliacaoProcedure
-    .input(z.object({ clienteId, competencia: competencia.optional(), statusConciliacao, soAtrasadas: z.boolean().optional() }))
+    .input(
+      z.object({
+        clienteId,
+        competencia: competencia.optional(),
+        statusConciliacao,
+        soAtrasadas: z.boolean().optional(),
+        recurso: recursoFiltro,
+      }),
+    )
     .mutation(async ({ input }) => {
       const linhas = await cirurgias.linhasParaExportar(input);
       return {

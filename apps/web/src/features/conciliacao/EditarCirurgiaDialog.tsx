@@ -9,7 +9,7 @@ import { MoneyInput } from "../../components/ui/money-input";
 import { toast } from "../../components/ui/toast";
 import { formatBRL } from "../../lib/masks";
 import { dataUTC } from "../../lib/format-date";
-import { STATUS_CONCILIACAO, type StatusConciliacao } from "./partes";
+import { STATUS_CONCILIACAO, type StatusConciliacao, type StatusRecurso } from "./partes";
 
 /** O que o diálogo precisa de uma linha conciliada (ver `LinhaConciliada` no servidor). */
 export interface CirurgiaConciliada {
@@ -31,6 +31,8 @@ export interface CirurgiaConciliada {
   dataPagamento: string | null;
   glosa: number | null;
   statusConciliacao: StatusConciliacao;
+  /** O recurso de glosa mais recente (Fase 2c). Nulo = nunca se recorreu desta cirurgia. */
+  recurso: { id: string; tentativa: number; status: StatusRecurso; protocolo: string | null; semResposta: boolean } | null;
   naoCobrar: boolean;
   observacao: string | null;
 }

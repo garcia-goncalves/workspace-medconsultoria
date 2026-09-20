@@ -9,8 +9,11 @@ import { Button } from "../../components/ui/button";
  * A ordem é a do filtro: primeiro o que pede ação.
  */
 export const STATUS_CONCILIACAO = {
-  GLOSA_PARCIAL: { rotulo: "Glosa parcial", cor: "text-destructive" },
-  GLOSA_TOTAL: { rotulo: "Glosa total", cor: "text-destructive" },
+  // `glosa`: de quais status dá para recorrer. ⚠️ Quem MANDA é o servidor, que recusa
+  // (`podeRecorrer`, no módulo puro da conciliação); esta marca só decide se a tela OFERECE o
+  // botão. Divergirem custa um botão a mais com recusa explicada — nunca um recurso indevido.
+  GLOSA_PARCIAL: { rotulo: "Glosa parcial", cor: "text-destructive", glosa: true },
+  GLOSA_TOTAL: { rotulo: "Glosa total", cor: "text-destructive", glosa: true },
   A_RECEBER: { rotulo: "A receber", cor: "text-warning" },
   SEM_VALOR: { rotulo: "Sem valor de referência", cor: "text-warning" },
   SEM_ATENDIMENTO: { rotulo: "Sem atendimento", cor: "text-warning" },
@@ -21,6 +24,21 @@ export const STATUS_CONCILIACAO = {
   NAO_REALIZADA: { rotulo: "Não realizada", cor: "text-muted-foreground" },
 } as const;
 export type StatusConciliacao = keyof typeof STATUS_CONCILIACAO;
+
+/**
+ * O desfecho de um recurso de glosa (Fase 2c).
+ *
+ * ⚠️ Este status é GRAVADO, ao contrário do de cima. Não é contradição: o da conciliação é
+ * derivado de números que o sistema conhece; este é um fato do mundo que só uma pessoa sabe — a
+ * operadora respondeu, e o quê.
+ */
+export const ROTULO_RECURSO = {
+  ABERTO: { rotulo: "Em recurso", cor: "text-primary" },
+  ACATADO: { rotulo: "Recurso acatado", cor: "text-success" },
+  NEGADO: { rotulo: "Recurso negado", cor: "text-destructive" },
+  ENCERRADO: { rotulo: "Recurso encerrado", cor: "text-muted-foreground" },
+} as const;
+export type StatusRecurso = keyof typeof ROTULO_RECURSO;
 
 /** Baixa um texto como arquivo. O CSV já vem com BOM do servidor, para o Excel ler acento. */
 export function baixarTexto(conteudo: string, nome: string, tipo = "text/csv;charset=utf-8") {

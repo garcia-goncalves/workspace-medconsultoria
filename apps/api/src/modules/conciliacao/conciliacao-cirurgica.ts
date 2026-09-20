@@ -91,6 +91,20 @@ export function repartirRecebido(cirurgias: { id: string; cobrado: number | null
   return saida;
 }
 
+/** O nome de cada status em português — um lugar só, lido pela tela, pela planilha e pelos erros. */
+export const ROTULO_STATUS: Record<StatusConciliacao, string> = {
+  NAO_REALIZADA: "Não realizada",
+  NAO_COBRAR: "Não cobrar",
+  SEM_ATENDIMENTO: "Sem atendimento",
+  SEM_VALOR: "Sem valor de referência",
+  A_RECEBER: "A receber",
+  PAGO: "Pago",
+  GLOSA_PARCIAL: "Glosa parcial",
+  GLOSA_TOTAL: "Glosa total",
+  PAGO_A_MAIS: "Pago a mais",
+  RECEBIDO_SEM_VALOR: "Recebido sem referência",
+};
+
 // ─── O tempo, que é o que separa "a receber" de "travado" ──────────────────────────────────────
 
 /**
@@ -120,6 +134,27 @@ export const DIAS_ATE_O_PAGAMENTO_ESPERADO = 105;
  */
 export function estaAtrasada(status: StatusConciliacao, dataCirurgia: Date, hoje: Date): boolean {
   if (status !== "A_RECEBER" && status !== "SEM_VALOR" && status !== "SEM_ATENDIMENTO") return false;
-  const dias = Math.floor((hoje.getTime() - dataCirurgia.getTime()) / 86_400_000);
-  return dias > DIAS_ATE_O_PAGAMENTO_ESPERADO;
+  return diasEntre(dataCirurgia, hoje) > DIAS_ATE_O_PAGAMENTO_ESPERADO;
+}
+
+/** Dias inteiros entre duas datas. Um lugar só, para os dois relógios contarem igual. */
+export function diasEntre(de: Date, ate: Date): number {
+  return Math.floor((ate.getTime() - de.getTime()) / 86_400_000);
+}
+
+/**
+ * ⚠️ O PRAZO DE RESPOSTA DE UM RECURSO DE GLOSA, EM DIAS.
+ *
+ * É outro relógio, e conta da ABERTURA do recurso, não da cirurgia. Recurso protocolado e sem
+ * resposta é dinheiro que se perde por decurso de prazo, **em silêncio** — e é o único jeito de a
+ * tela dizer "isto aqui precisa de telefonema".
+ *
+ * Constante pelo mesmo motivo de `DIAS_ATE_O_PAGAMENTO_ESPERADO`: é característica do ciclo das
+ * operadoras, não preferência da casa. Vira campo no dia em que alguém pedir.
+ */
+export const DIAS_ATE_A_RESPOSTA_DO_RECURSO = 30;
+
+/** Só se recorre do que foi glosado — e é o servidor que precisa recusar, não só a tela. */
+export function podeRecorrer(status: StatusConciliacao): boolean {
+  return status === "GLOSA_PARCIAL" || status === "GLOSA_TOTAL";
 }
