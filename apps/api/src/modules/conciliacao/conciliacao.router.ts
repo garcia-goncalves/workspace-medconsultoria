@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
-import { SITUACOES_CLIENTE } from "@app/shared";
+import { hasRoleLevel, SITUACOES_CLIENTE, type Role } from "@app/shared";
 import { registrarErro } from "../sistema/sistema.service.js";
 import { router, funcionarioProcedure } from "../../trpc/trpc.js";
 import { assertClienteSobSuaResponsabilidade, filtroDeClientesVisiveis } from "../auth/painel-cliente.service.js";
@@ -127,6 +127,16 @@ const conciliacaoProcedure = funcionarioProcedure.use(async ({ ctx, next, getRaw
 });
 
 const recursoFiltro = z.enum(["SEM_RECURSO", "ABERTO", "SEM_RESPOSTA", "RESPONDIDO"]).optional();
+/** Quem declara o mês conferido. Ver o comentário em `fecharCompetencia`. */
+function assertPodeFecharCompetencia(papel: Role) {
+  if (!hasRoleLevel(papel, "ADMIN")) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Fechar e reabrir uma competência é de quem responde pela conta (ADMIN). Você pode conciliar o mês normalmente.",
+    });
+  }
+}
+
 const clienteId = z.string().min(1);
 /** `AAAA-MM`. Validar aqui evita que um mês inventado crie um lote órfão que ninguém acha. */
 const competencia = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Competência deve ser no formato AAAA-MM (ex.: 2026-08).");
@@ -370,6 +380,34 @@ export const conciliacaoRouter = router({
    * As três planilhas, como texto CSV. É MUTATION de propósito: leva nome de paciente, e por
    * query ele sairia na URL (e no log) — a mesma razão das queries daqui irem por POST.
    */
+  // ─── Fechar a competência ──────────────────────────────────────────────────────────────────
+
+  competenciasFechadas: conciliacaoProcedure
+    .input(z.object({ clienteId }))
+    .query(({ input }) => financeira.competenciasFechadas(input.clienteId)),
+
+  /**
+   * ⚠️ Fechar e reabrir exigem ADMIN.
+   *
+   * O funcionário OPERA o mês — importa, concilia, recorre. **Declarar que ele está conferido** é
+   * outra coisa: é o ato de quem responde pela conta, e é o que passa a recusar a edição de todo
+   * mundo. Mesma régua do Financeiro, que é `adminProcedure` inteiro.
+   *
+   * A trava de papel é conferida AQUI e a de cliente continua vindo do `conciliacaoProcedure` —
+   * as duas valem, e nenhuma substitui a outra.
+   */
+  fecharCompetencia: conciliacaoProcedure
+    .input(z.object({ clienteId, competencia, observacao: z.string().trim().max(2000).nullable().optional() }))
+    .mutation(({ input, ctx }) => {
+      assertPodeFecharCompetencia(ctx.user.role);
+      return financeira.fecharCompetencia(input.clienteId, input.competencia, ctx.user.id, input.observacao);
+    }),
+
+  reabrirCompetencia: conciliacaoProcedure.input(z.object({ clienteId, competencia })).mutation(({ input, ctx }) => {
+    assertPodeFecharCompetencia(ctx.user.role);
+    return financeira.reabrirCompetencia(input.clienteId, input.competencia, ctx.user.id);
+  }),
+
   // ─── Fase 2c: o recurso de glosa ───────────────────────────────────────────────────────────
 
   recursosDaCirurgia: conciliacaoProcedure

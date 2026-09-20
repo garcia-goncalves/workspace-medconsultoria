@@ -50,6 +50,29 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 - ⚠️ **NÃO ESTÁ NO AR.** A homologação segue com a Fase 2a; publicar a 2b depende dos segredos
   abaixo.
 
+### Fechar a competência — "maio está conferido"
+
+> **Leia** `docs/superpowers/specs/2026-09-20-conciliacao-fechamento-de-competencia-design.md`.
+
+- **Nenhum mês nunca terminava.** Todo número é calculado a cada leitura (Fase 2b), então maio
+  conferido linha a linha tinha a mesma cara de setembro importado ontem. Agora ADMIN+ **fecha o
+  mês**, e o selo diz quem conferiu e quando.
+- **⚠️ A TENSÃO, E COMO ELA SE RESOLVE: fechar NÃO congela número nenhum.** Congelar exigiria
+  gravar os valores e passar a lê-los no lugar do cálculo — e aí o mês fechado deixaria de
+  refletir um repasse que chegasse depois. O fechamento guarda um **RETRATO**, que responde
+  **outra** pergunta ("mudou alguma coisa desde então?") e **não é exibido como valor corrente em
+  lugar nenhum**. A divergência vira aviso na tela: _"fechado com R$ X; hoje soma R$ Y"_.
+- **⚠️ Fechar trava a EDIÇÃO MANUAL, não a importação.** O mapa do TASY vem por PERÍODO, e recusar
+  o arquivo inteiro porque uma cirurgia cai em mês fechado faria a pessoa não importar nada.
+- **⚠️ E o mês fechado fala MAIS ALTO que "esta cirurgia não tem glosa"** — a conferência de
+  competência vem antes da de status no `abrirRecurso`, senão o recado mandaria a pessoa olhar o
+  status quando o que ela precisa é reabrir o mês.
+- **Reabrir não apaga** quem conferiu: `reabertoEm`/`reabertoPorId` ficam na mesma linha.
+- **⚠️ Fechar e reabrir são ADMIN+**, e a tela esconde enquanto o servidor recusa — o funcionário
+  opera o mês, **declarar que está conferido** é de quem responde pela conta.
+- **⚠️ MIGRAÇÃO `20260920160000`, ADITIVA E ISOLADA:** uma tabela nova (`CompetenciaFechada`).
+  Reverter é `DROP TABLE`. Aplicada nos bancos local e de teste; **não** na homologação.
+
 ### Fase 2c — o recurso de glosa: o que se faz DEPOIS de achar o problema
 
 > **Leia** `docs/superpowers/specs/2026-09-20-conciliacao-fase-2c-recurso-de-glosa-design.md`.

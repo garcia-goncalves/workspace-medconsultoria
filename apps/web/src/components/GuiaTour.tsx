@@ -305,6 +305,12 @@ const GUIA_CONCILIACAO: Passo[] = [
       "Entre o atendimento e o pagamento correspondente passam cerca de três meses e meio. Mês recém-importado aparecendo quase todo como “a receber” é o normal, não erro — o que se persegue é o que passou desse prazo. É exatamente isso que a marca vermelha “passou do prazo” aponta, e o filtro “Prazo” isola: sem ela, uma cirurgia de um ano atrás e uma do mês passado dizem a mesma coisa na tela.",
   },
   {
+    icon: ShieldCheck,
+    titulo: "Terminou de conferir um mês? Feche",
+    descricao:
+      "Com um mês escolhido, quem é administrador vê “Fechar o mês”. Fechado, ele passa a mostrar quem conferiu e quando, e o sistema recusa editar cirurgia ou recurso daquele mês até alguém reabrir — para ninguém mexer sem querer no que já foi conferido. ⚠️ Fechar NÃO congela os números: eles continuam sendo calculados. Se algo mudar depois (mexer no valor de um procedimento muda todas as cirurgias dele, inclusive as de meses antigos), o selo avisa a diferença — “fechado com X, hoje soma Y”. É justamente isso que você quer ver.",
+  },
+  {
     icon: FileText,
     titulo: "A planilha vai e volta",
     descricao:

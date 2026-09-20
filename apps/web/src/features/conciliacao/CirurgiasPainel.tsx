@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { hasRoleLevel } from "@app/shared";
+import { useAuth } from "../../lib/auth-context";
 import { useBuscaAdiada } from "../../lib/use-busca-adiada";
-import { Download, FileUp, ListChecks, Stethoscope, Upload } from "lucide-react";
+import { Download, FileUp, ListChecks, Lock, Stethoscope, Upload } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { EmptyState } from "../../components/ui/empty-state";
 import { Table, THead, TH, TR, TD } from "../../components/ui/table";
@@ -14,7 +16,15 @@ import { QueryError } from "../../components/ui/query-error";
 import { toast } from "../../components/ui/toast";
 import { dataUTC } from "../../lib/format-date";
 import { formatBRL } from "../../lib/masks";
-import { baixarTexto, ListaResumo, Paginacao, ROTULO_RECURSO, STATUS_CONCILIACAO, type StatusConciliacao } from "./partes";
+import {
+  baixarTexto,
+  ListaResumo,
+  Paginacao,
+  ROTULO_RECURSO,
+  STATUS_CONCILIACAO,
+  type CompetenciaFechada,
+  type StatusConciliacao,
+} from "./partes";
 import { EditarCirurgiaDialog, type CirurgiaConciliada } from "./EditarCirurgiaDialog";
 import { RecursoDeGlosaDialog } from "./RecursoDeGlosaDialog";
 import { ProcedimentosDialog } from "./ProcedimentosDialog";
@@ -59,7 +69,12 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
   const [recorrendo, setRecorrendo] = useState<CirurgiaConciliada | null>(null);
 
   const utils = trpc.useUtils();
+  const { user } = useAuth();
+  // ⚠️ A tela ESCONDE o botão para quem não pode; quem RECUSA é o servidor. Esconder é
+  // conveniência, recusar é a regra — e a mesma régua vale nos dois lados (`ADMIN`).
+  const podeFechar = hasRoleLevel(user?.role ?? "CLIENTE", "ADMIN");
   const meses = trpc.conciliacao.mesesCirurgias.useQuery({ clienteId });
+  const fechadas = trpc.conciliacao.competenciasFechadas.useQuery({ clienteId });
   const resumo = trpc.conciliacao.resumoCirurgias.useQuery({ clienteId, competencia: competencia || undefined });
   const lista = trpc.conciliacao.cirurgias.useQuery(
     {
@@ -80,6 +95,21 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
       placeholderData: (anterior) => anterior,
     },
   );
+
+  const fechar = trpc.conciliacao.fecharCompetencia.useMutation({
+    onSuccess: (r) => {
+      toast(`Competência ${r.competencia} conferida e fechada.`, "success");
+      recarregar();
+    },
+    onError: (e) => toast(e.message),
+  });
+  const reabrir = trpc.conciliacao.reabrirCompetencia.useMutation({
+    onSuccess: () => {
+      toast("Competência reaberta — dá para editar de novo.", "success");
+      recarregar();
+    },
+    onError: (e) => toast(e.message),
+  });
 
   const exportar = trpc.conciliacao.exportar.useMutation({
     onSuccess: (r) => {
@@ -150,6 +180,17 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           {exportar.isPending ? "Exportando…" : "Exportar planilhas"}
         </Button>
       </div>
+
+      {competencia && (
+        <FaixaDaCompetencia
+          competencia={competencia}
+          fechada={fechadas.data?.find((f) => f.competencia === competencia) ?? null}
+          podeFechar={podeFechar}
+          pendente={fechar.isPending || reabrir.isPending}
+          onFechar={(observacao) => fechar.mutate({ clienteId, competencia, observacao })}
+          onReabrir={() => reabrir.mutate({ clienteId, competencia })}
+        />
+      )}
 
       <div className="rounded-lg border p-3">
         <div className="flex flex-wrap items-end gap-3">
@@ -578,5 +619,78 @@ function RecebidoSemProducaoDialog({ clienteId, onClose }: { clienteId: string; 
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * O selo do mês conferido — e o aviso de que ele mudou depois.
+ *
+ * ⚠️ O retrato do fechamento NÃO é exibido como valor corrente em lugar nenhum: ele só aparece
+ * aqui, ao lado do valor de hoje, para mostrar a DIFERENÇA. Todo número da tela continua sendo
+ * calculado (Fase 2b) — fechar não congela nada, e é por isso que a divergência é possível e
+ * precisa ser dita em voz alta.
+ */
+function FaixaDaCompetencia({
+  competencia,
+  fechada,
+  podeFechar,
+  pendente,
+  onFechar,
+  onReabrir,
+}: {
+  competencia: string;
+  fechada: CompetenciaFechada | null;
+  podeFechar: boolean;
+  pendente: boolean;
+  onFechar: (observacao: string | null) => void;
+  onReabrir: () => void;
+}) {
+  const [observacao, setObservacao] = useState("");
+
+  if (!fechada) {
+    if (!podeFechar) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3 text-sm">
+        <span className="text-muted-foreground">Terminou de conferir {competencia}?</span>
+        <Input
+          aria-label={`Observação do fechamento de ${competencia}`}
+          className="h-9 w-56"
+          maxLength={2000}
+          placeholder="Observação (opcional)"
+          value={observacao}
+          onChange={(e) => setObservacao(e.target.value)}
+        />
+        <Button variant="outline" disabled={pendente} onClick={() => onFechar(observacao.trim() || null)}>
+          {pendente ? "Fechando…" : "Fechar o mês"}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-success/40 bg-success/5 p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <Lock className="h-4 w-4 shrink-0 text-success" />
+        <span className="font-medium">
+          {competencia} conferido em {dataUTC(fechada.fechadoEm)}
+          {fechada.fechadoPor && ` por ${fechada.fechadoPor}`}
+        </span>
+        <span className="text-muted-foreground">— editar cirurgia ou recurso deste mês está bloqueado.</span>
+        {podeFechar && (
+          <Button variant="ghost" className="min-h-11" disabled={pendente} onClick={onReabrir}>
+            Reabrir
+          </Button>
+        )}
+      </div>
+      {fechada.observacao && <p className="mt-1 text-xs text-muted-foreground">{fechada.observacao}</p>}
+      {fechada.divergiu && (
+        // ⚠️ O mês mudou DEPOIS de conferido — quase sempre porque alguém mexeu no valor de um
+        // procedimento, que vale para todas as cirurgias dele, inclusive as de meses antigos.
+        <p className="mt-2 text-warning">
+          Os números mudaram desde a conferência: fechado com {formatBRL(fechada.retrato.cobrado)} cobrado e{" "}
+          {formatBRL(fechada.retrato.glosa)} de glosa; hoje soma {formatBRL(fechada.agora.cobrado)} e {formatBRL(fechada.agora.glosa)}.
+        </p>
+      )}
+    </div>
   );
 }

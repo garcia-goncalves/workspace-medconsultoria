@@ -133,6 +133,7 @@ model User {
   idempotenciasDeAgente  AgentIdempotency[]     @relation("IdempotenciaDoAgente")
   producaoLotes          ProducaoLote[]         @relation("LoteImportadoPor")
   recursosDeGlosaCriados RecursoDeGlosa[]       @relation("RecursosDeGlosaCriados")
+  competenciasFechadas   CompetenciaFechada[]   @relation("CompetenciasFechadas")
 
   @@index([role])
   @@index([clienteId])
@@ -314,6 +315,7 @@ model Cliente {
   producaoConsultas       ProducaoConsulta[]
   producaoCirurgias       ProducaoCirurgia[]
   recursosDeGlosa         RecursoDeGlosa[]
+  competenciasFechadas    CompetenciaFechada[]
   mapeamentosConvenio     MapeamentoConvenio[]
   mapeamentosProfissional MapeamentoProfissional[]
   mapeamentosProcedimento MapeamentoProcedimento[]
@@ -2042,6 +2044,44 @@ enum CategoriaConvenio {
   SUS
   AUTOGESTAO
   OUTRO
+}
+
+/// "Este mês está conferido." — o fechamento de uma competência de cirurgias.
+///
+/// ⚠️ **Fechar NÃO congela número nenhum.** Todo valor desta tela é calculado a cada leitura
+/// (Fase 2b), e gravá-los para "congelar" faria o mês fechado deixar de refletir um repasse que
+/// chegasse depois — dois dinheiros diferentes para a mesma cirurgia. O que esta tabela guarda é
+/// um RETRATO do que foi conferido, que responde outra pergunta: *"mudou alguma coisa desde
+/// então?"*. Ele não é lido como valor corrente em lugar nenhum.
+model CompetenciaFechada {
+  id          String @id @default(cuid())
+  clienteId   String
+  /// `AAAA-MM`, como em `ProducaoLote` — competência é um MÊS, não um instante.
+  competencia String @db.Char(7)
+
+  fechadoEm     DateTime  @default(now())
+  fechadoPorId  String?
+  /// ⚠️ Reabrir NÃO apaga a linha: destruiria a resposta de "quem conferiu isto, e quando".
+  /// Fechar de novo grava um retrato novo por cima.
+  reabertoEm    DateTime?
+  reabertoPorId String?
+  observacao    String?   @db.Text
+
+  // O retrato. Ver o aviso no topo: comparação, nunca exibição.
+  cobrado   Decimal @db.Decimal(12, 2)
+  recebido  Decimal @db.Decimal(12, 2)
+  glosa     Decimal @db.Decimal(12, 2)
+  aReceber  Decimal @db.Decimal(12, 2)
+  cirurgias Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cliente    Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  fechadoPor User?   @relation("CompetenciasFechadas", fields: [fechadoPorId], references: [id], onDelete: SetNull)
+
+  @@unique([clienteId, competencia])
+  @@index([fechadoPorId])
 }
 
 /// Fase 2c: o que a clínica fez DEPOIS de descobrir a glosa.
