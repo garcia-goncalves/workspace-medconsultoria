@@ -13,7 +13,64 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-13 · VPS OVH NO AR como homologação, com os dados de produção · ADR-154)
+## Estado atual (2026-09-20 · Conciliação Fases 2a e 2b na `main` — o dinheiro da cirurgia, para N clientes)
+
+> **Leia** `docs/superpowers/specs/2026-09-18-conciliacao-cirurgias-tasy-design.md` (Fase 2a) e
+> `docs/superpowers/specs/2026-09-18-conciliacao-fase-2b-design.md` (Fase 2b).
+
+- **🔪 FASE 2a — O MAPA CIRÚRGICO DO TASY ENTRA NO SISTEMA (PR #201 → `1896f94`).** O relatório
+  que o cliente exporta do TASY é lido por **conteúdo**, não por extensão (CSV, XLSX ou tabela
+  HTML com nome `.xls`), e cada cirurgia vira uma linha `ProducaoCirurgia`, chaveada por
+  `@@unique([clienteId, numeroCirurgia])` — reimportar o mesmo período **atualiza**, não duplica.
+  ⚠️ **Prontuário, Cód. Pessoa e leito NÃO são lidos nem gravados** (minimização, ADR-141); o nome
+  do paciente fica em claro porque é ele que identifica a linha na conferência.
+- **💰 FASE 2b — O DINHEIRO DE CADA CIRURGIA (PR #203 → `29786b8`).** Cobrado, recebido, glosa e
+  **status**, por cirurgia, com de-para de procedimento por cliente (e por operadora quando o preço
+  muda), importação do **relatório de repasse**, e **visão geral de todos os clientes** numa tela só.
+  Exporta três planilhas: o MODELO de conciliação (que volta preenchido e é reimportado), resumo
+  por convênio e resumo por mês × médico.
+- **🧮 O STATUS NUNCA É GRAVADO — é calculado a cada leitura** (`conciliacao-cirurgica.ts`, função
+  pura). Gravar status cria o dia em que o número muda e o rótulo não: a cirurgia diria "Pago" com
+  a glosa nova ao lado.
+- **⚠️ O CASAMENTO DO REPASSE É PELO Nº DO ATENDIMENTO, não pelo CPF nem pelo nome.** Um
+  atendimento com várias cirurgias reparte o recebido **em proporção ao cobrado**; o que não casa
+  com cirurgia nenhuma vira `semProducao` e **aparece na tela** — dinheiro recebido não pode sumir
+  por não achar dono.
+- **🕳️ OS DOIS BLOQUEANTES DA REVISÃO NASCERAM DA PRÓPRIA CORREÇÃO:** (1) recebido digitado à mão
+  era contado **junto** com o repasse importado — o mesmo dinheiro duas vezes; hoje o manual é
+  subtraído antes de repartir o resto. (2) Exportar o MODELO e reimportá-lo **sem mudar nada**
+  gravava como "digitado à mão" todo valor que era **calculado** — congelando o cálculo; hoje a
+  reimportação compara com o que o sistema calcularia e só grava o que de fato mudou.
+- **⚠️ DUAS MIGRAÇÕES, as duas ADITIVAS e aplicadas no banco local:** `20260918120000`
+  (`ProducaoCirurgia`) e `20260918200000` (o dinheiro + `MapeamentoProcedimento` + `RepasseLinha`).
+  A primeira **já está na homologação**; a segunda **não**.
+- **📅 ⚠️ A DEFASAGEM ATENDIMENTO → PAGAMENTO É DE ~3,5 MESES.** A tela e os resumos precisam ser
+  lidos com isso em mente: mês fechado no TASY não é mês recebido.
+- ⚠️ **NÃO ESTÁ NO AR.** A homologação segue com a Fase 2a; publicar a 2b depende dos segredos
+  abaixo.
+
+### O que depende do dono (nada disto é código)
+
+1. **Os QUATRO segredos do `Deploy OVH`**, sem os quais publicar continua sendo `ssh` na mão:
+   `VPS_HOST`, `VPS_USER`, `VPS_PORT` e `VPS_SSH_KEY` (`gh secret set <nome>`). O workflow já
+   existe e a imagem já é construída e publicada no GHCR por ele.
+2. **Quem pode ver a Conciliação.** Hoje qualquer FUNCIONARIO vê a de **todos os clientes** —
+   é a tela com mais dinheiro de terceiro do sistema.
+3. **O de-para de procedimento com VALOR**, por cliente: sem ele o "cobrado" nasce vazio e a
+   glosa não tem de quê ser calculada.
+4. **Perguntar à Juliana** por que 199 de 226 cirurgias do arquivo do Sergio Almeida estão como
+   "Pendente de autorização" e por que 30 linhas vêm **sem número de atendimento** (sem ele a
+   cirurgia não casa com pagamento nenhum).
+5. **O `inkflow-app` continua PARADO e comprometido** na mesma VPS (minerador `redis-server r`
+   dentro do container, 394% de CPU por 11 h, parado em 18/09). Subir de novo sem **atualizar o
+   Next/React, reconstruir a imagem do zero e trocar os segredos** é reabrir a porta.
+6. **A planilha `executantes-repasse*.xlsx`** (dez arquivos, 2025) **não é o relatório do TASY** —
+   é o controle do **anestesista** (Data, Paciente, Cirurgião, ValorRecebido, ValorRepasse,
+   DataRepasse) e **não tem número de atendimento**. Importá-la exigiria casar por nome + data,
+   que erra para o lado de atribuir dinheiro à pessoa errada. **Não foi implementada de propósito**
+   — decida se esse relatório entra, e de qual cliente ele é.
+
+## Estado anterior (2026-09-13 · VPS OVH NO AR como homologação, com os dados de produção · ADR-154)
 
 - **🌐 https://homolog.workspace.medconsultoria.com.br** — VPS OVH na **Alemanha**, **compartilhada**
   com outros projetos do dono. ⚠️ **Acesso SSH (host, porta, usuário) NÃO vai neste arquivo: o
