@@ -15,7 +15,8 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ## Estado atual (2026-09-20 · Conciliação Fases 2a e 2b na `main` — o dinheiro da cirurgia, para N clientes)
 
-> **Leia** `docs/superpowers/specs/2026-09-18-conciliacao-cirurgias-tasy-design.md` (Fase 2a) e
+> **Leia a ADR-155 em `docs/DECISIONS.md`** — o porquê de cada escolha desta rodada. As specs:
+> `docs/superpowers/specs/2026-09-18-conciliacao-cirurgias-tasy-design.md` (Fase 2a) e
 > `docs/superpowers/specs/2026-09-18-conciliacao-fase-2b-design.md` (Fase 2b).
 
 - **🔪 FASE 2a — O MAPA CIRÚRGICO DO TASY ENTRA NO SISTEMA (PR #201 → `1896f94`).** O relatório
@@ -2128,7 +2129,7 @@ classifier`, recusa seca). O de 26/08 foi a exceção, não a regra: **conte com
 0. `docs/LINKS.md` — **todos os links e portas** (localhost 4310 web / 4319 API / 3307 MySQL, produção, páginas públicas), como ligar/desligar a app local e o que é de OUTROS projetos. Escrito para leigo.
 1. `docs/CLAUDE.md` — visão geral completa, papéis (RBAC), regras de negócio, índice de decisões.
 2. `docs/ARCHITECTURE.md` → `docs/DATABASE.md` → `docs/UI_GUIDELINES.md` → `docs/ROADMAP.md`.
-3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-153). Deploy: `docs/DEPLOY.md`.
+3. `docs/DECISIONS.md` — o **porquê** de cada escolha (ADR-1 … ADR-155). Deploy: `docs/DEPLOY.md`.
    API do agente (integração com a Cora): `docs/API_AGENTE.md`.
 4. **Memória** (carrega sozinha): `MEMORY.md` + arquivos em `…/memory/`. Diretriz de trabalho: sempre criticar/recomendar (memória `criticar-e-recomendar`), nunca piloto automático.
 
