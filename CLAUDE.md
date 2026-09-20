@@ -51,6 +51,17 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
 
 ### A madrugada de 20/09 — o que mudou depois das duas revisões
 
+- **⏳ O QUE TRAVOU DEIXOU DE PARECER IGUAL AO QUE ESTÁ SÓ ESPERANDO.** A pergunta da manhã é
+  "onde está o dinheiro parado?", e a tela não sabia responder: uma cirurgia de um ano atrás e uma
+  do mês passado diziam a mesma coisa, "a receber". A defasagem de **~3,5 meses** virou
+  `DIAS_ATE_O_PAGAMENTO_ESPERADO = 105` e a função pura `estaAtrasada` — marca **"passou do prazo"**
+  na linha, filtro próprio (que a exportação respeita), e coluna + total na visão geral, que passou
+  a ordenar por glosa + atraso. ⚠️ **Constante, não campo em Ajustes**: é característica do ciclo
+  das operadoras, não preferência da casa. ⚠️ **Só o que ESPERA dinheiro fica atrasado** — pago,
+  glosado, não cobrado e não realizado nunca; alarme que toca sempre ninguém lê. ⚠️ **A contagem
+  inclui o que ainda não tem valor** (sem de-para, sem atendimento), senão o cliente que nunca
+  registrou preço apareceria como se estivesse em dia.
+
 - **🔒 QUALQUER FUNCIONÁRIO VIA O DINHEIRO DE TODOS OS CLIENTES.** A Conciliação era
   `funcionarioProcedure` puro: bastava trocar o `clienteId` do pedido. Hoje vale a MESMA régua do
   Painel do Cliente (ADR-128) — ADMIN+ vê tudo, funcionário vê os clientes sob a responsabilidade
