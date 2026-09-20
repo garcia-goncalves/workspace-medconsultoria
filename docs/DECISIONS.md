@@ -6010,10 +6010,12 @@ para quem não tem nenhum para escolher. São três estados distintos, e confund
   dele vão paciente, atendimento, convênio, médico, procedimento — **e prontuário e Cód. Pessoa**,
   que o sistema deliberadamente não lê nem grava. O dado que a tela recusa mostrar sai inteiro pelo
   download. **Fechar isso muda a régua do sistema todo**, e é decisão do dono.
-- **A planilha `executantes-repasse*.xlsx` não foi importada.** Ela não é o relatório do TASY: é o
-  controle do **anestesista** (Data, Paciente, Cirurgião, ValorRecebido, ValorRepasse, DataRepasse) e
-  **não tem número de atendimento**. Casar por nome + data erra para o lado de **atribuir dinheiro à
-  pessoa errada**, que é o erro que não se pode cometer numa tela de conciliação.
+- **A planilha `executantes-repasse*.xlsx` não foi importada — e o assunto está ENCERRADO.** Ela
+  **é da NEXA**, outra empresa do dono (confirmado por ele em 20/09/2026), e não é o relatório do
+  TASY: é controle de **repasse de anestesia** — quem opera é o "Cirurgião", quem recebe é o
+  "Anestesista". Fora isso, **não tem número de atendimento**, e casar por nome + data erraria para
+  o lado de **atribuir dinheiro à pessoa errada**, que é o único erro que uma tela de conciliação
+  não pode cometer.
 - **Fechamento de competência** ("maio está conferido") não existe: o status é sempre calculado, então
   todo mês parece perpetuamente aberto. É desenho a decidir, não defeito a corrigir.
 
