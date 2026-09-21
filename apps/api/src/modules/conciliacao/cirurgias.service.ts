@@ -2,6 +2,7 @@ import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { hashBytes } from "../../lib/hash.js";
 import { ErroDePlanilha, lerGrade, normalizarTexto, type Formato } from "./planilha/index.js";
+import { dicaDeRota } from "./planilha/qual-relatorio.js";
 import type { StatusConciliacao } from "./conciliacao-cirurgica.js";
 import {
   montarConciliacao,
@@ -85,12 +86,21 @@ export interface ResultadoCirurgias {
 const dia = (d: Date) => d.toISOString().slice(0, 10);
 
 async function lerEInterpretar(bytes: Buffer) {
+  // A grade é lida antes do try de baixo de propósito — ver o comentário gêmeo em
+  // `conciliacao.service.ts`: sem ela, a recusa não sabe dizer de qual relatório o arquivo é.
+  let grade;
   try {
-    const grade = await lerGrade(bytes);
+    grade = await lerGrade(bytes);
+  } catch (e) {
+    if (e instanceof ErroDePlanilha) throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+    throw e;
+  }
+  try {
     return { grade, leitura: interpretarMapaCirurgico(grade) };
   } catch (e) {
-    if (e instanceof ErroDePlanilha || e instanceof ErroDeLeitura) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+    if (e instanceof ErroDeLeitura) {
+      const dica = dicaDeRota(grade, "cirurgias");
+      throw new TRPCError({ code: "BAD_REQUEST", message: dica ? `${e.message} ${dica}` : e.message });
     }
     throw e;
   }

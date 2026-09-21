@@ -4,6 +4,7 @@ import { isConciliacaoEnabled } from "../../config.js";
 import { hashBytes } from "../../lib/hash.js";
 import { apelidoCpf, cifrarDadoPaciente } from "../../lib/cripto-paciente.js";
 import { ErroDePlanilha, lerGrade, normalizarTexto, type Formato } from "./planilha/index.js";
+import { dicaDeRota } from "./planilha/qual-relatorio.js";
 import {
   chaveDoConvenio,
   chaveDoProfissional,
@@ -85,12 +86,21 @@ export function exigirModuloLigado(): void {
 
 /** Lê e interpreta, traduzindo as duas falhas conhecidas para recado de tela. */
 async function lerEInterpretar(bytes: Buffer) {
+  // A leitura da GRADE fica fora do try de baixo de propósito: se o conteúdo não for reconhecido,
+  // é a grade que diz de qual relatório se trata — e sem ela a recusa só saberia acusar o arquivo.
+  let grade;
   try {
-    const grade = await lerGrade(bytes);
+    grade = await lerGrade(bytes);
+  } catch (e) {
+    if (e instanceof ErroDePlanilha) throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+    throw e;
+  }
+  try {
     return { grade, leitura: interpretarProducaoConsultas(grade) };
   } catch (e) {
-    if (e instanceof ErroDePlanilha || e instanceof ErroDeLeitura) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+    if (e instanceof ErroDeLeitura) {
+      const dica = dicaDeRota(grade, "consultas");
+      throw new TRPCError({ code: "BAD_REQUEST", message: dica ? `${e.message} ${dica}` : e.message });
     }
     throw e;
   }
