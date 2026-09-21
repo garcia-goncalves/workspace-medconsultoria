@@ -47,8 +47,45 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   A primeira **já está na homologação**; a segunda **não**.
 - **📅 ⚠️ A DEFASAGEM ATENDIMENTO → PAGAMENTO É DE ~3,5 MESES.** A tela e os resumos precisam ser
   lidos com isso em mente: mês fechado no TASY não é mês recebido.
-- ⚠️ **NÃO ESTÁ NO AR.** A homologação segue com a Fase 2a; publicar a 2b depende dos segredos
-  abaixo.
+- **✅ NO AR NA HOMOLOGAÇÃO DESDE 21/09/2026 às 19:49** — https://homolog.workspace.medconsultoria.com.br
+  rodando `medconsultoria:50540f4`, `healthy`, com as **TRÊS migrações aplicadas**
+  (`20260918200000` · `20260920120000` · `20260920160000`) e as cinco tabelas existindo. Dados de
+  produção conferidos intactos (4 clientes, 6 usuários, 2 documentos), **zero erro** nos 10 min
+  seguintes. ⚠️ **A prova que o `/health` NÃO dá foi feita: a `PACIENTE_CRYPTO_KEY` chegou DENTRO
+  do processo** — sem ela a Conciliação sobe DESLIGADA e o botão de importar some, sem erro nenhum.
+- **⚠️ FOI DEPLOY MANUAL, e os quatro segredos continuam faltando.** O caminho automático
+  (`Deploy OVH` → `PUBLICAR`) segue inédito. O que se fez: `git archive HEAD | scp` (39 MB, 14 s),
+  `docker build` na própria VPS (~25 min), migração por `docker run` direto e `compose up -d
+  --no-deps app`. ⚠️ **O pacote no GHCR é PRIVADO e o repositório também ficou privado em 21/09** —
+  então nem `pull` anônimo nem `codeload` funcionam; por isso o código foi por `scp`.
+- **🐌 ⚠️ A VPS É COMPARTILHADA E O DISCO PODE INVIABILIZAR O DEPLOY INTEIRO.** Naquela noite,
+  `iowait` em 48–60% e carga **186** com a CPU em 1%: um `importar-receita.mjs` do projeto
+  `grimoire` rodava havia **3 dias e 11 horas**, com o `grimoire-postgres-1` em **1,61 TB
+  escritos**. Sintoma: **nenhum container nascia** — `docker run alpine echo ok` estourou 45 s, e a
+  imagem **que já estava rodando** também. ⚠️ **Antes de culpar a imagem, rode o `alpine`.** A cura
+  foi `docker pause grimoire-vigia-receita-1` numa janela curta, **com `trap` de `unpause`** para o
+  vizinho voltar mesmo se o deploy falhasse; carga caiu de 186 para 4 e o container subiu em 16 s.
+- **🕳️ DUAS RÉGUAS MINHAS MENTIRAM, e é a lição da rodada.** (1) O `docker pause` **funcionou** e eu
+  concluí que não: o comando estourou o tempo de resposta e minha conferência voltou vazia — o
+  vizinho ficou congelado ~15 min sem ninguém saber. (2) A trava do deploy reprovou por contar
+  **delta** (`88 ≠ 85+3`) quando o banco **já estava migrado** — um `docker run` anterior, que
+  voltou "sem saída" porque o SSH expirou, tinha completado. ⚠️ **A régua certa confere a CONDIÇÃO**
+  ("estas três migrações estão aplicadas e estas cinco tabelas existem?"), nunca o delta, e **nunca
+  lê ausência de resposta como resposta negativa**.
+- **⚠️ O `deploy-ovh.yml` RECRIARIA O BANCO DE PRODUÇÃO a cada deploy** — os dois serviços do
+  compose leem `env_file: .env` e o passo 3/5 sempre altera o `.env`, então o `compose run` (que
+  sobe dependências) decide recriar o `mysql`. Visto pendurar 4 min em `Container …mysql-1
+  Recreate`. Corrigido com `--no-deps` (PR #215). **A cura de fundo não foi feita:** o `mysql`
+  deveria ler um `env_file` só de `MYSQL_*`, e aí mexer no `.env` do app não tocaria no banco.
+- **⚠️ O compose da VPS tinha a imagem ESCRITA À MÃO** (`image: medconsultoria:atual`) e o `.env`
+  não tinha `APP_IMAGE`: o caminho `PUBLICAR` teria trocado o `.env` e **subido a imagem velha
+  dizendo que deu certo**. Hoje é `image: ${APP_IMAGE}`, e o rollback é um `up -d`.
+- **⚠️ O REPOSITÓRIO FICOU PRIVADO em 21/09/2026, revertendo a decisão de 04/09** (que está
+  registrada acima, com o motivo). O custo é a cota de Actions: privado passa a consumir os
+  **3.000 min/mês compartilhados** entre os 15 repositórios da conta — a mesma que este projeto
+  sozinho já estourou em 116% (ADR-121), com **2.313 min/mês medidos**. Quando ela acaba, **CI e
+  Deploy param juntos**. Decisão do dono, pendente de ajuste (voltar a público, cortar a CI, ou
+  aumentar o teto).
 
 ### O polimento que faltava na tela
 
