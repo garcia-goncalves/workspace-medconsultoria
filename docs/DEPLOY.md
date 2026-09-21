@@ -74,6 +74,32 @@ tempo de conexão e morrer em "Connection refused".
 ⚠️ **A chave tem de ser a PRIVADA, inteira** (com as linhas `BEGIN`/`END`), e a pública
 correspondente precisa estar no `authorized_keys` do VPS.
 
+### ⚠️ Publicar À MÃO nesta VPS — o que se aprendeu em 21/09/2026
+
+Tentativa de deploy manual da Conciliação. **Não concluiu, e o motivo não era o nosso código.**
+
+- **O disco da VPS é compartilhado, e pode estar estrangulado por outro projeto.** Naquela noite,
+  `iowait` em **48–60%** e carga **97** com a CPU em 1%: um `importar-receita.mjs` de outro
+  projeto do dono rodava havia **3 dias e 10 horas**, com um Postgres vizinho de 12 GB em INSERT
+  contínuo. Sintoma: **nenhum container nascia**. `docker run alpine echo ok` estourou 45 s, e a
+  imagem **que já estava rodando** também. ⚠️ **Antes de culpar a imagem, rode o `alpine`** — se
+  ele não sobe, o problema é a máquina, e insistir só piora a fila para os vizinhos.
+- **Construir na VPS funciona, mas é o último recurso.** `git archive HEAD | scp` (39 MB, 14 s)
+  evita o GHCR e o repositório inteiro; o build levou **~25 min** naquele disco. Com o registro
+  acessível, `pull` é minutos.
+- ⚠️ **`docker compose run` SEM `--no-deps` recria o banco** — ver o comentário no passo 4/5 do
+  `deploy-ovh.yml`. A cura de fundo, que ainda não foi feita, é o `mysql` **parar de ler o
+  `.env` inteiro** (`env_file`): com um arquivo só de `MYSQL_*`, mexer no `.env` do app deixa de
+  tocar no banco.
+- **O compose da VPS tinha a imagem escrita à mão** (`image: medconsultoria:atual`) e o `.env`
+  não tinha `APP_IMAGE`. O caminho `PUBLICAR` teria trocado o `.env` e subido **a imagem velha
+  dizendo que deu certo**. Hoje é `image: ${APP_IMAGE}`. ⚠️ Se este deploy for refeito noutra
+  máquina, **confira isto antes**: `docker compose config | grep image:` tem de resolver para a
+  tag nova.
+- **Deixar parado no meio é seguro se o `APP_IMAGE` apontar para o que está rodando.** Foi o que
+  se fez: a fiação nova ficou, apontando para a imagem antiga, para que um `up -d` acidental não
+  suba código novo contra um banco sem as migrações.
+
 ### O que o workflow faz sozinho, e que não precisa ser lembrado
 
 - **A credencial do GHCR é efêmera.** O pacote nasce **privado**, mesmo vindo de repositório
