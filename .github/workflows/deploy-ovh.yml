@@ -134,8 +134,19 @@ jobs:
       # Passo PRÓPRIO, antes de o tráfego trocar — e em container descartável. Encadear isto com
       # o resto foi o que, na esteira antiga, deixava o deploy dizer "concluído" com a migration
       # falhada e o app servindo o código anterior.
+      #
+      # ⚠️ `--no-deps` NÃO é detalhe: sem ele este passo RECRIA O BANCO DE PRODUÇÃO a cada deploy.
+      # Os dois serviços do compose declaram `env_file: .env`, e o passo 3/5 logo acima SEMPRE
+      # altera o `.env` (é ele que aponta a imagem nova). Isso muda o hash de configuração do
+      # serviço `mysql` junto, e o `compose run` — que sobe as dependências — decide recriá-lo.
+      # Visto em 21/09/2026: o comando ficou 4 minutos pendurado em "Container …mysql-1 Recreate"
+      # e não migrou nada. Com o disco saturado o container nem nasce; com o disco livre ele
+      # nasce, e aí o banco reinicia no meio da publicação sem ninguém ter pedido.
+      # ⚠️ `--no-deps` PRESSUPÕE o `mysql` no ar — e é assim que se quer: num deploy o banco já
+      # está servindo, e se não estiver o erro é de conexão, alto e claro, em vez de um restart
+      # silencioso do banco.
       - name: 4/5 · Migrations
-        run: ssh vps "cd '$ALVO' && docker compose run --rm app npm run prisma:deploy"
+        run: ssh vps "cd '$ALVO' && docker compose run --rm --no-deps app npm run prisma:deploy"
 
       # O `up -d` respeita o healthcheck da imagem: container que não responde /health não recebe
       # tráfego. É o ensaio de boot de antes, agora contínuo.
