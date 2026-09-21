@@ -1,4 +1,4 @@
-import { localizarCabecalho, normalizarTexto, type Grade } from "./planilha/index.js";
+import { acharColunaExata, localizarCabecalho, normalizarTexto, type Grade } from "./planilha/index.js";
 import { ErroDeLeitura, interpretarData, type ProblemaDeLinha } from "./producao-consultas.js";
 
 /**
@@ -203,16 +203,33 @@ export interface LeituraDaPlanilha {
 
 export function interpretarPlanilhaConciliacao(grade: Grade): LeituraDaPlanilha {
   const cab = localizarCabecalho(grade.linhas, ["Nº Cirurgia"], { opcionais: COLUNAS_DA_PLANILHA });
+  // ⚠️ As seis colunas de conciliação são casadas por IGUALDADE, não pelo `cab.colunas` — que usa
+  // prefixo BIDIRECIONAL e portanto dá `Data` por `Data pagamento` e `Status` por `Status
+  // conciliação`. Com o casamento permissivo, a guarda abaixo nunca disparava: em 21/09/2026 o
+  // mapa cirúrgico CRU passava por ela e gravava a DATA DA CIRURGIA como data de pagamento, em
+  // silêncio. Estas seis colunas o próprio sistema escreve (`planilhaModelo`), então o nome é
+  // exato por construção e exigir igualdade não custa nada.
+  const celulas = cab ? (grade.linhas[cab.indice] ?? []) : [];
+  const posicoes = new Map<string, number>();
+  for (const nome of COLUNAS_DA_PLANILHA) {
+    const i = acharColunaExata(celulas, nome);
+    if (i !== -1) posicoes.set(nome, i);
+  }
   // Sem nenhuma coluna de conciliação, é o mapa cirúrgico cru (que também tem "Nº Cirurgia") —
   // importá-lo aqui não mudaria nada e ainda diria "importado".
-  if (!cab || !COLUNAS_DA_PLANILHA.some((n) => cab.colunas.has(n))) {
+  if (!cab || posicoes.size === 0) {
     throw new ErroDeLeitura(
       "Não reconheci este arquivo como a planilha de conciliação. Use a planilha exportada pelo " +
         `sistema — ela tem "Nº Cirurgia" e as colunas ${COLUNAS_DA_PLANILHA.join(", ")}.`,
     );
   }
+  const deConciliacao = new Set<string>(COLUNAS_DA_PLANILHA);
   const col = (nome: string, c: string[]) => {
-    const i = cab.colunas.get(nome);
+    // ⚠️ Para as seis de conciliação NÃO HÁ recuo para o mapa tolerante: coluna ausente é coluna
+    // ausente. Recuar era a outra metade do defeito — com `Data pagamento` fora do arquivo, o
+    // prefixo entregava a coluna `Data`, e a data da cirurgia virava data de pagamento MESMO nos
+    // arquivos que passam pela guarda. `Nº Cirurgia` segue pelo tolerante: é ela que acha a linha.
+    const i = deConciliacao.has(nome) ? posicoes.get(nome) : cab.colunas.get(nome);
     return i === undefined ? "" : (c[i] ?? "").trim();
   };
 

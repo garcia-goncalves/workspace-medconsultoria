@@ -128,6 +128,23 @@ export function localizarCabecalho(
   return null;
 }
 
+/**
+ * Posição de uma coluna com casamento EXATO — sem a tolerância de prefixo do `localizarCabecalho`.
+ *
+ * ⚠️ Existe porque a tolerância de prefixo é BIDIRECIONAL (`c.startsWith(alvo) || alvo.startsWith(c)`),
+ * então uma célula CURTA casa com um alvo LONGO: `Data` casa com `Data pagamento`, `Status` com
+ * `Status conciliação`. Isso é desejável para achar a LINHA do cabeçalho (o arquivo do cliente
+ * varia), e é desastroso para decidir se uma coluna específica existe — em 21/09/2026 fez o mapa
+ * cirúrgico cru passar pela guarda do importador de planilha e gravar a DATA DA CIRURGIA como data
+ * de pagamento, em silêncio.
+ *
+ * Use esta para colunas que o PRÓPRIO SISTEMA escreve, onde o nome é exato por construção.
+ */
+export function acharColunaExata(celulas: string[], nome: string): number {
+  const alvo = normalizarTexto(nome);
+  return celulas.findIndex((c) => normalizarTexto(c) === alvo);
+}
+
 function acharColuna(celulas: string[], alvo: string): number {
   const exata = celulas.indexOf(alvo);
   if (exata !== -1) return exata;

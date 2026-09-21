@@ -91,6 +91,38 @@ describe("interpretarRepasse", () => {
   });
 });
 
+/**
+ * ⚠️ REGRESSÃO DE 21/09/2026 — a guarda existia e NÃO FUNCIONAVA.
+ *
+ * `localizarCabecalho` casa coluna por prefixo NOS DOIS SENTIDOS, então a célula curta `Data` do
+ * mapa cirúrgico casava com o alvo longo `Data pagamento`, e `Status` com `Status conciliação`.
+ * Como a guarda perguntava `cab.colunas.has(...)` — o mesmo casamento permissivo —, ela nunca
+ * podia disparar: o mapa cru era aceito e a DATA DA CIRURGIA entrava como data de pagamento, sem
+ * erro nenhum, no lugar exato onde o sistema decide o que está pago e o que passou do prazo.
+ *
+ * Visto acontecendo antes da correção: `{ numeroCirurgia: "C-900", dataPagamento: 2026-05-14 }`.
+ */
+describe("interpretarPlanilhaConciliacao — recusa o mapa cirúrgico cru", () => {
+  const CRU = ["Data", "Hora (UTC)", "Paciente", "Atendimento", "Nº Cirurgia", "Convênio", "Médico", "Procedimento", "Status"];
+  const LINHA = ["2026-05-14", "13:20", "Fulano", "555", "C-900", "Unimed", "Dra. Ana", "Artroscopia", "Realizada"];
+
+  it("recusa, em vez de gravar a data da cirurgia como data de pagamento", () => {
+    expect(() => interpretarPlanilhaConciliacao({ formato: "csv", linhas: [CRU, LINHA] })).toThrow(
+      /não reconheci este arquivo como a planilha de conciliação/i,
+    );
+  });
+
+  it("e continua aceitando a planilha de verdade, com UMA coluna de conciliação só", () => {
+    const cab = [...CRU, "Observação"];
+    const linha = [...LINHA, "conferido"];
+    const r = interpretarPlanilhaConciliacao({ formato: "csv", linhas: [cab, linha] });
+    expect(r.linhas).toHaveLength(1);
+    expect(r.linhas[0]!.numeroCirurgia).toBe("C-900");
+    // A data da cirurgia NÃO pode ter virado data de pagamento.
+    expect(r.linhas[0]!.dataPagamento).toBeUndefined();
+  });
+});
+
 describe("interpretarPlanilhaConciliacao — o MODELO preenchido de volta", () => {
   const CAB =
     '"Data";"Nº Cirurgia";"Atendimento";"Paciente";"Prontuário";"Convênio";"Médico";"Procedimento (Tasy)";"Status Tasy";"Autorização Tasy";"Cód. Procedimento (De-Para)";"Valor cobrado (R$)";"Valor recebido (R$)";"Glosa (R$)";"Data pagamento";"Status conciliação";"Observação"';

@@ -4,6 +4,7 @@ import { hashBytes } from "../../lib/hash.js";
 import { ErroDePlanilha, lerGrade, type Formato } from "./planilha/index.js";
 import { carregarDePara, exigirModuloLigado } from "./conciliacao.service.js";
 import { chaveDoConvenio, competenciaDe, ErroDeLeitura, type ProblemaDeLinha } from "./producao-consultas.js";
+import { dicaDeRota, type TipoDeRelatorio } from "./planilha/qual-relatorio.js";
 import { montarConciliacao } from "./conciliacao-financeira.service.js";
 import {
   interpretarPlanilhaConciliacao,
@@ -22,15 +23,32 @@ import {
 
 const soma = (valores: number[]) => Math.round(valores.reduce((s, v) => s + v * 100, 0)) / 100;
 
+/**
+ * ⚠️ `tipo` diz qual dos DOIS importadores deste arquivo está chamando — é o que permite a recusa
+ * apontar a porta certa em vez de só acusar o arquivo. Um `ler` genérico para os dois não tem como
+ * saber, e mandar a pessoa de volta para onde ela já está seria pior que calar.
+ */
 async function ler<T>(
   bytes: Buffer,
   interpretar: (g: Awaited<ReturnType<typeof lerGrade>>) => T,
+  tipo: TipoDeRelatorio,
 ): Promise<{ formato: Formato; leitura: T }> {
+  // A grade é lida antes do try de baixo de propósito — ver o comentário gêmeo em
+  // `conciliacao.service.ts`: sem ela, a recusa não sabe dizer de qual relatório o arquivo é.
+  let grade;
   try {
-    const grade = await lerGrade(bytes);
+    grade = await lerGrade(bytes);
+  } catch (e) {
+    if (e instanceof ErroDePlanilha) throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+    throw e;
+  }
+  try {
     return { formato: grade.formato, leitura: interpretar(grade) };
   } catch (e) {
-    if (e instanceof ErroDePlanilha || e instanceof ErroDeLeitura) throw new TRPCError({ code: "BAD_REQUEST", message: e.message });
+    if (e instanceof ErroDeLeitura) {
+      const dica = dicaDeRota(grade, tipo);
+      throw new TRPCError({ code: "BAD_REQUEST", message: dica ? `${e.message} ${dica}` : e.message });
+    }
     throw e;
   }
 }
@@ -147,7 +165,7 @@ async function analisarRepasse(clienteId: string, leitura: LeituraDoRepasse, byt
 
 export async function previsualizarRepasse(e: { clienteId: string; bytes: Buffer }): Promise<PreviaRepasse> {
   exigirModuloLigado();
-  const { formato, leitura } = await ler(e.bytes, interpretarRepasse);
+  const { formato, leitura } = await ler(e.bytes, interpretarRepasse, "repasse");
   const { repetidas: _ids, ...a } = await analisarRepasse(e.clienteId, leitura, e.bytes);
   return {
     formato,
@@ -170,7 +188,7 @@ export async function importarRepasse(e: {
 }) {
   exigirModuloLigado();
   const hashArquivo = hashBytes(e.bytes);
-  const { formato, leitura } = await ler(e.bytes, interpretarRepasse);
+  const { formato, leitura } = await ler(e.bytes, interpretarRepasse, "repasse");
   if (leitura.linhas.length === 0)
     throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhuma linha de repasse aproveitável neste arquivo." });
 
@@ -343,7 +361,7 @@ async function analisarPlanilha(clienteId: string, leitura: LeituraDaPlanilha) {
 
 export async function previsualizarPlanilha(e: { clienteId: string; bytes: Buffer }): Promise<PreviaPlanilha> {
   exigirModuloLigado();
-  const { formato, leitura } = await ler(e.bytes, interpretarPlanilhaConciliacao);
+  const { formato, leitura } = await ler(e.bytes, interpretarPlanilhaConciliacao, "planilha");
   const { aplicaveis, desconhecidas, semMudanca } = await analisarPlanilha(e.clienteId, leitura);
   return {
     formato,
@@ -364,7 +382,7 @@ export async function importarPlanilha(e: {
   usuarioId: string;
 }) {
   exigirModuloLigado();
-  const { formato, leitura } = await ler(e.bytes, interpretarPlanilhaConciliacao);
+  const { formato, leitura } = await ler(e.bytes, interpretarPlanilhaConciliacao, "planilha");
   const { aplicaveis, desconhecidas } = await analisarPlanilha(e.clienteId, leitura);
   if (aplicaveis.length === 0) {
     throw new TRPCError({
