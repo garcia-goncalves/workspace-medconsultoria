@@ -145,6 +145,33 @@ jobs:
       # ⚠️ `--no-deps` PRESSUPÕE o `mysql` no ar — e é assim que se quer: num deploy o banco já
       # está servindo, e se não estiver o erro é de conexão, alto e claro, em vez de um restart
       # silencioso do banco.
+      # ⚠️ NASCEU DO INCIDENTE DE 22/09/2026. O passo 5/5 subia com `docker compose up -d` SEM
+      # `--no-deps` e recriou o `mysql` no meio da publicação: parou o banco, falhou ao criar o
+      # substituto ("name is already in use") e deixou a homologação respondendo HTML com o
+      # banco FORA — e o `/health` dizendo "ok", porque ele NÃO toca o banco.
+      #
+      # ⚠️ `docker start` pelo NOME, nunca `docker compose start mysql`: o compose pode resolver
+      # o serviço para o container meio-criado que a recriação falhada deixou para trás.
+      # ⚠️ Iniciar NÃO é recriar — o volume de dados não é tocado.
+      # ⚠️ Esperar o banco ACEITAR CONEXÃO antes de migrar: container "Up" não é banco pronto,
+      # e o 4/5 morreria em "can't reach database server" por alguns segundos de diferença.
+      - name: 3b/5 · Garantir o banco no ar (sem recriá-lo)
+        run: |
+          set -euo pipefail
+          ssh vps 'docker ps -q -f name="^medconsultoria-mysql-1$" | grep -q . && echo "banco já no ar" || { echo "banco parado — iniciando o container existente"; docker start medconsultoria-mysql-1; }'
+          # ⚠️ `Access denied` CONTA COMO VIVO, e não é gambiarra: o servidor só responde isso
+          # depois de aceitar a conexão e processar o desafio de autenticação — é prova de que a
+          # porta está servindo. Sem a senha (que não deve viajar por aqui), `mysqladmin ping`
+          # sai com código de erro mesmo com o banco perfeito, e a espera nunca terminaria.
+          ssh vps 'for i in $(seq 1 30); do if docker exec medconsultoria-mysql-1 mysqladmin ping 2>&1 | grep -qE "mysqld is alive|Access denied"; then echo "banco respondendo (tentativa $i)"; exit 0; fi; sleep 2; done; echo "!! o banco nao respondeu em 60s"; exit 1'
+
+      # O órfão de uma recriação falhada fica em estado `created` com o nome prefixado pelo id
+      # antigo — e é ele que sequestra o nome no deploy seguinte. Só remove o que NUNCA rodou.
+      - name: 3c/5 · Limpar órfão de recriação anterior
+        run: |
+          set -euo pipefail
+          ssh vps 'for C in $(docker ps -aq -f status=created -f name=_medconsultoria-mysql-1); do echo "removendo orfao $C"; docker rm "$C" || true; done; echo ok'
+
       - name: 4/5 · Migrations
         run: ssh vps "cd '$ALVO' && docker compose run --rm --no-deps app npm run prisma:deploy"
 
@@ -153,7 +180,11 @@ jobs:
       - name: 5/5 · Subir e provar que subiu
         run: |
           set -euo pipefail
-          ssh vps "cd '$ALVO' && docker compose up -d"
+          # ⚠️ `--no-deps` TAMBÉM AQUI, pelo mesmo motivo do 4/5: o `mysql` declara
+          # `env_file: .env` e o passo 2/5 SEMPRE altera o `.env`. Sem isto o `up -d` recria o
+          # banco a cada publicação. O PR #215 pôs `--no-deps` na migração e deixou ESTE de
+          # fora — foi exatamente aqui que a homologação caiu em 22/09/2026.
+          ssh vps "cd '$ALVO' && docker compose up -d --no-deps app"
           sleep 20
           ssh vps "cd '$ALVO' && docker compose ps"
 
