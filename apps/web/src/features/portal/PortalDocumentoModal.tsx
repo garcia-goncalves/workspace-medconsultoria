@@ -34,7 +34,7 @@ export function PortalDocumentoModal({ id, onClose }: { id: string; onClose: () 
               <FileDown className="h-4 w-4" />
               PDF
             </Button>
-            <Button size="sm" className="min-h-11" variant="outline" onClick={() => baixarWordDocumento(props)}>
+            <Button size="sm" className="min-h-11" variant="outline" onClick={() => void baixarWordDocumento(props)}>
               <FileText className="h-4 w-4" />
               Word
             </Button>

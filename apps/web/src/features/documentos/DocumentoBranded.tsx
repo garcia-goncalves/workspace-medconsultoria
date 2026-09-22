@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { INSTITUCIONAL, rodapeInstitucional } from "@app/shared";
+import { toast } from "../../components/ui/toast";
 import { empacotarBlocos, type BlocoMedido, type LinhaMedida } from "./paginacao";
 
 /**
@@ -38,6 +39,38 @@ const C = {
   fundoLeve: "#f8fafc",
 };
 const FONTE = "'Montserrat', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif";
+
+/**
+ * Onde a moldura busca o logotipo — e são DOIS caminhos porque são dois destinos diferentes.
+ *
+ * - Tela, Portal e IMPRESSÃO: `/logo.png`, absoluto, resolvido contra a origem da aplicação
+ *   (a janela de impressão ainda declara um `<base>` para isso).
+ * - WORD: o nome da PARTE que viaja dentro do próprio `.doc` (ver `montarWordMhtml`).
+ *   ⚠️ Tem de ser RELATIVO: o Word resolve o `src` contra o `Content-Location` da parte HTML,
+ *   e `/logo.png` viraria `file:///logo.png`, que não casa com a parte irmã. Medido no Word 16:
+ *   o caminho absoluto desenha o quadradinho de imagem quebrada, de 14×16 px.
+ */
+const LOGO_SRC = "/logo.png";
+const LOGO_NO_WORD = "logo.png";
+
+/**
+ * Tamanho do logotipo escrito como ATRIBUTO da `<img>`, além do CSS.
+ *
+ * ⚠️ O Word ignora o `height` do CSS, e não deduz a largura de um atributo só. Medido no
+ * Word 16 com o logotipo de verdade: sem atributo nenhum ele desenha a imagem em tamanho
+ * natural, **481×328 pt** — mais largo que a página inteira, empurrando o documento para a
+ * folha seguinte; e só com `height="46"` ele mantém a largura natural, **963 pt**, esticando a
+ * marca. Os dois atributos juntos dão 50×34 pt, que é a altura de 46px do CSS.
+ *
+ * Na tela e na impressão nada muda: `.doc-head img` fixa `height:46px; width:auto`, e o CSS
+ * ganha do atributo. É o mesmo remendo que o e-mail branded já usa (`width` + `style`).
+ *
+ * ⚠️ A largura é a ALTURA vezes a proporção de `public/logo.png`. Trocar o arquivo por um de
+ * outra proporção espreme a marca **só no Word** — invisível daqui. Há teste que lê o PNG de
+ * verdade e reprova quem mudar um sem mudar o outro.
+ */
+const LOGO_ALTURA = 46;
+const LOGO_LARGURA = 67;
 
 /**
  * Geometria da folha em PIXELS DE A4 REAL (96dpi), não numa escala inventada: 210×297mm com
@@ -286,7 +319,7 @@ export function rotuloDoCampo(campo: string): string {
 }
 
 /** Cabeçalho da 1ª folha — marca, tipo, número, data e cliente. */
-function cabecalhoHtml(p: DocumentoBrandedProps): string {
+function cabecalhoHtml(p: DocumentoBrandedProps, logoSrc = LOGO_SRC): string {
   const meta = [
     p.numero != null ? `Nº <b>${esc(String(p.numero))}</b>` : "",
     p.data ? `Data: <b>${esc(p.data)}</b>` : "",
@@ -298,7 +331,7 @@ function cabecalhoHtml(p: DocumentoBrandedProps): string {
   return `
     <div class="doc-head">
       <div class="doc-brand">
-        <img src="/logo.png" alt="${esc(INSTITUCIONAL.nome)}">
+        <img src="${logoSrc}" alt="${esc(INSTITUCIONAL.nome)}" width="${LOGO_LARGURA}" height="${LOGO_ALTURA}">
         <small>${esc(INSTITUCIONAL.tagline)}</small>
       </div>
       <div class="doc-meta">
@@ -315,7 +348,7 @@ function cabecalhoCorridoHtml(p: DocumentoBrandedProps): string {
     .join(" ");
   return `
     <div class="doc-head-corrido">
-      <img src="/logo.png" alt="${esc(INSTITUCIONAL.nome)}">
+      <img src="${LOGO_SRC}" alt="${esc(INSTITUCIONAL.nome)}">
       <div class="ident"><b>${esc(p.titulo)}</b>${ident ? ` — ${ident}` : ""}</div>
     </div>`;
 }
@@ -340,8 +373,8 @@ function rodapeHtml(p: DocumentoBrandedProps, pagina?: { n: number; total: numbe
  * camada de medição mede. O Word tem a própria paginação; enfiar as nossas folhas lá dentro
  * produziria um arquivo impossível de editar.
  */
-export function documentoBrandedHtml(p: DocumentoBrandedProps): string {
-  return `${cabecalhoHtml(p)}
+export function documentoBrandedHtml(p: DocumentoBrandedProps, logoSrc = LOGO_SRC): string {
+  return `${cabecalhoHtml(p, logoSrc)}
     <h1 class="doc-titulo">${esc(p.titulo)}</h1>
     <div class="doc-body">${renderMarkdown(p.conteudoMarkdown)}</div>
     ${rodapeHtml(p)}`;
@@ -542,10 +575,44 @@ export function imprimirDocumento(props: DocumentoBrandedProps) {
 }
 
 /**
- * Baixa um .doc (HTML que o Word abre) com a mesma moldura, em FLUXO ÚNICO — o Word pagina
- * sozinho. As regras de quebra abaixo evitam título órfão e tabela partida lá também.
+ * Base64 de um bloco de bytes. Em PEDAÇOS de propósito: `String.fromCharCode(...bytes)` com o
+ * logotipo inteiro (76 KB) estoura o limite de argumentos de uma chamada de função.
  */
-export function baixarWordDocumento(props: DocumentoBrandedProps) {
+function paraBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+/** Quebra o base64 em linhas de 76 caracteres, como o MIME manda. */
+function emLinhasMime(b64: string): string {
+  return (b64.match(/.{1,76}/g) ?? []).join("\r\n");
+}
+
+/**
+ * Pasta imaginária onde as partes do arquivo "moram". Não existe em disco e nada é buscado
+ * dela: o Word a usa só para casar o `src` do HTML com a parte irmã que traz a imagem.
+ */
+const RAIZ_MHTML = "file:///C:/medconsultoria/";
+
+/**
+ * Monta o arquivo que o Word abre, com o logotipo DENTRO dele, em FLUXO ÚNICO — o Word pagina
+ * sozinho. As regras de quebra evitam título órfão e tabela partida lá também.
+ *
+ * ⚠️ É MHTML (o formato "Página da Web de arquivo único" do próprio Word), e não um HTML solto,
+ * porque o logotipo precisa VIAJAR no arquivo: o `.doc` é aberto fora do navegador, muitas vezes
+ * na máquina do cliente, onde `/logo.png` não resolve para nada. Foi assim que a proposta 0226
+ * (Dr. Rinaldi) saiu com um quadradinho de imagem quebrada no lugar da marca.
+ *
+ * ⚠️ E `data:image/png;base64,…` NÃO resolve — é o conserto que parece óbvio e não funciona.
+ * Medido no Word 16: com `data:` URI ele desenha o MESMO quadradinho de 14×16 px do caminho
+ * relativo. Só a parte MIME separada, referenciada por `Content-Location`, entra como imagem.
+ *
+ * Separada de `baixarWordDocumento` para poder ser exercida em teste, sem rede nem navegador.
+ */
+export function montarWordMhtml(props: DocumentoBrandedProps, logoBase64: string): string {
   const html = `<!doctype html><html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>
     <head><meta charset="utf-8"><title>${esc(props.titulo)}</title><style>${DOC_STYLES}
       @page { size: A4; margin: 18mm 16mm; }
@@ -553,8 +620,49 @@ export function baixarWordDocumento(props: DocumentoBrandedProps) {
       h1, h2, h3 { page-break-after: avoid; }
       p { orphans:3; widows:3; }
     </style></head>
-    <body><div class="doc-sheet">${documentoBrandedHtml(props)}</div></body></html>`;
-  const blob = new Blob(["﻿", html], { type: "application/msword" });
+    <body><div class="doc-sheet">${documentoBrandedHtml(props, LOGO_NO_WORD)}</div></body></html>`;
+
+  // O corpo vai em base64 — não por tamanho, mas porque ele carrega texto que a Thaís e o
+  // cliente escrevem: uma linha que por acaso começasse com o limite partiria o arquivo ao meio.
+  const limite = "----=_NextPart_MedConsultoria";
+  return [
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/related; boundary="${limite}"`,
+    "",
+    `--${limite}`,
+    `Content-Location: ${RAIZ_MHTML}documento.htm`,
+    'Content-Type: text/html; charset="utf-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    emLinhasMime(paraBase64(new TextEncoder().encode(html))),
+    "",
+    `--${limite}`,
+    `Content-Location: ${RAIZ_MHTML}${LOGO_NO_WORD}`,
+    "Content-Type: image/png",
+    "Content-Transfer-Encoding: base64",
+    "",
+    emLinhasMime(logoBase64),
+    "",
+    `--${limite}--`,
+    "",
+  ].join("\r\n");
+}
+
+/** Baixa o `.doc` com a moldura da marca — o logotipo vai dentro do arquivo. */
+export async function baixarWordDocumento(props: DocumentoBrandedProps) {
+  let logoBase64: string;
+  try {
+    const r = await fetch(LOGO_SRC);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    logoBase64 = paraBase64(new Uint8Array(await r.arrayBuffer()));
+  } catch {
+    // ⚠️ Sem o logotipo, NÃO baixa. Gerar o arquivo assim mesmo é exatamente o defeito que esta
+    // função veio consertar — e ele é invisível aqui: só aparece no papel que já foi ao cliente.
+    toast("Não consegui carregar o logotipo para montar o Word. Confira a conexão e tente de novo.");
+    return;
+  }
+
+  const blob = new Blob([montarWordMhtml(props, logoBase64)], { type: "application/msword" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
