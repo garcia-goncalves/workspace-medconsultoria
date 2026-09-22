@@ -159,7 +159,11 @@ jobs:
         run: |
           set -euo pipefail
           ssh vps 'docker ps -q -f name="^medconsultoria-mysql-1$" | grep -q . && echo "banco já no ar" || { echo "banco parado — iniciando o container existente"; docker start medconsultoria-mysql-1; }'
-          ssh vps 'for i in $(seq 1 30); do if docker exec medconsultoria-mysql-1 mysqladmin ping --silent 2>/dev/null; then echo "banco respondendo (tentativa $i)"; exit 0; fi; sleep 2; done; echo "!! o banco nao respondeu em 60s"; exit 1'
+          # ⚠️ `Access denied` CONTA COMO VIVO, e não é gambiarra: o servidor só responde isso
+          # depois de aceitar a conexão e processar o desafio de autenticação — é prova de que a
+          # porta está servindo. Sem a senha (que não deve viajar por aqui), `mysqladmin ping`
+          # sai com código de erro mesmo com o banco perfeito, e a espera nunca terminaria.
+          ssh vps 'for i in $(seq 1 30); do if docker exec medconsultoria-mysql-1 mysqladmin ping 2>&1 | grep -qE "mysqld is alive|Access denied"; then echo "banco respondendo (tentativa $i)"; exit 0; fi; sleep 2; done; echo "!! o banco nao respondeu em 60s"; exit 1'
 
       # O órfão de uma recriação falhada fica em estado `created` com o nome prefixado pelo id
       # antigo — e é ele que sequestra o nome no deploy seguinte. Só remove o que NUNCA rodou.
