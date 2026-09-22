@@ -13,7 +13,45 @@ Stack: monorepo pnpm+Turborepo · `apps/web` (Vite/React/TS/Tailwind + TanStack 
 `apps/api` (Fastify + **tRPC** + Prisma/MySQL) · `packages/{shared,db,ui}`. Um único processo Node
 serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argon2id.
 
-## Estado atual (2026-09-20 · Conciliação Fases 2a e 2b na `main` — o dinheiro da cirurgia, para N clientes)
+## Estado atual (2026-09-22 · MIGRAÇÃO PARA A OVH CONCLUÍDA — `workspace.medconsultoria.com.br` está no ar na VPS, não mais na TineHost)
+
+- **✅ O DNS DE `workspace.medconsultoria.com.br` FOI TROCADO PARA A OVH (57.129.81.137).**
+  Confirmado por HTTP real, de fora: `/health` → `{"status":"ok"}` · `/` → `200` ·
+  `/credenciamentos` → `200` · `/conciliacao` → `200`, todos em HTTPS válido (certificado emitido
+  na hora, via certbot). O `www.workspace` foi trocado junto. **Os registros de e-mail (MX, `mail`,
+  `imap`, `smtp`, `webmail`) NÃO foram tocados — continuam na TineHost**, por decisão dura desde a
+  ADR-154: e-mail nunca sai de lá.
+- **🚪 O CAMINHO AUTOMÁTICO DE PUBLICAÇÃO (`Deploy OVH` → `PUBLICAR`) FUNCIONOU DE PONTA A PONTA
+  PELA PRIMEIRA VEZ**, nesta sessão, rodando o commit `ca68907` (que já trazia o conserto do André
+  para o passo 5/5 recriar o banco — PR #219, mesclado às 14:28 do mesmo dia). Os **quatro
+  segredos** que faltavam (`VPS_HOST` · `VPS_USER` · `VPS_PORT` · `VPS_SSH_KEY`) foram criados: uma
+  chave SSH **nova, só deste projeto** (não a `tiba-ed25519.ppk` de uso geral do dono), autorizada
+  em `/home/andre/.ssh/authorized_keys` — é lá, não em `/home/tiba`, que mora o
+  `docker-compose.yml` do Workspace (pasta compartilhada com o resto da VPS, ADR-154).
+- **🌐 O SITE NASCEU EM `infra/ovh/nginx-medconsultoria.conf`, PRÓPRIO, AO LADO DO DE HOMOLOGAÇÃO
+  — nenhum dos dois foi apagado.** `homolog.workspace.medconsultoria.com.br` continua no ar, sem
+  ligação com este; são dois `server{}` do nginx do HOST, cada um com o próprio certificado,
+  falando com o MESMO `app` em `127.0.0.1:4319`. Servem para coisas diferentes: um é para ensaio,
+  o outro é o que a Thaís usa.
+- **🕳️ ACHADO NO MEIO DO CAMINHO, E FOI O ANDRÉ QUEM CORRIGIU EM PARALELO: o passo 5/5 do
+  `deploy-ovh.yml` (`docker compose up -d`, sem `--no-deps`) RECRIAVA O BANCO a cada publicação** —
+  o mesmo modo de falha do passo 4/5 que a ADR já tinha fechado, só que um passo adiante. O
+  `.env` muda no passo 2/5 (aponta a imagem nova), isso muda o hash de configuração do `mysql`
+  também, e o `up -d` sem `--no-deps` decide recriá-lo. **Aconteceu de verdade nesta sessão**: o
+  MySQL caiu (desligamento limpo, sem perda de dado — é volume nomeado, sobrevive à recriação do
+  container) bem no meio da minha primeira tentativa de publicar, e a correção (PR #219,
+  `fix/deploy-ovh-nao-recriar-o-banco`) chegou ao `main` enquanto o religava. **Duas sessões
+  mexendo na mesma VPS ao mesmo tempo, e o `concurrency: deploy-producao` do workflow segurou as
+  duas sem elas brigarem pelo banco** — a fila fez o trabalho para o qual foi desenhada.
+- **⚠️ TineHost NÃO foi desligada.** Por instrução da própria ADR-154/`MIGRACAO_OVH.md`: ela fica
+  **intacta e ligada por ao menos 14 dias** antes de qualquer desligamento, como rede de segurança
+  do rollback (rollback = apontar o DNS de volta). O site nela já não respondia (`HTTP 000`) antes
+  mesmo desta migração — não havia nada "ao vivo" para interromper.
+- **📄 `docs/LINKS.md` §8.5 atualizado**: o botão de publicar mudou de endereço
+  (`deploy-ovh.yml`, não mais `deploy.yml`) e ganhou a opção `SO_IMAGEM` (só testa que a imagem
+  constrói, sem tocar no site no ar).
+
+## Estado anterior (2026-09-20 · Conciliação Fases 2a e 2b na `main` — o dinheiro da cirurgia, para N clientes)
 
 > **Leia a ADR-155 em `docs/DECISIONS.md`** — o porquê de cada escolha desta rodada. As specs:
 > `docs/superpowers/specs/2026-09-18-conciliacao-cirurgias-tasy-design.md` (Fase 2a) e

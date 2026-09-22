@@ -329,13 +329,14 @@ comum é o banco desligado: rode `pnpm db:up` e tente de novo. Depois, confira c
 
 ---
 
-## 8.5. Como colocar no ar (mudou em 17/08/2026)
+## 8.5. Como colocar no ar (mudou em 22/09/2026 — agora é na VPS da OVH, não mais na TineHost)
 
 Publicar **não é mais um comando** — é um botão, e você mesmo consegue apertar.
 
-1. Abra: **https://github.com/garcia-goncalves/workspace-medconsultoria/actions/workflows/deploy.yml**
+1. Abra: **https://github.com/garcia-goncalves/workspace-medconsultoria/actions/workflows/deploy-ovh.yml**
 2. Botão **"Run workflow"**, no canto direito.
-3. No campo que aparece, digite **`PUBLICAR`** (em maiúsculas) e confirme.
+3. No campo que aparece, escolha **`PUBLICAR`** (constrói a imagem e sobe no servidor) — ou
+   **`SO_IMAGEM`** se quiser só testar que a imagem constrói, sem tocar no site no ar.
 
 **Deu certo quando** o último passo — *"Smoke test"* — ficar verde mostrando
 `{"status":"ok"}` e o endereço do site.
