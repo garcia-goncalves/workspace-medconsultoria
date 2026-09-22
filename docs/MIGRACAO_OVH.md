@@ -1,5 +1,11 @@
 # Migração para VPS próprio (OVHcloud)
 
+> **✅ CONCLUÍDA em 22/09/2026.** `workspace.medconsultoria.com.br` está no ar na VPS da OVH
+> (57.129.81.137), DNS trocado, HTTPS válido, publicação automática (`Deploy OVH` → `PUBLICAR`)
+> provada de ponta a ponta. Detalhe em `CLAUDE.md` (seção "Estado atual"). **A TineHost fica
+> ligada por 14 dias** (Fase 5 abaixo) antes de qualquer desligamento — nada foi apagado lá. O
+> texto abaixo é o roteiro histórico que guiou a migração; mantido como referência.
+>
 > **Runbook.** A decisão e o porquê estão na **ADR-154**. Aqui é o passo a passo.
 > Nada neste documento toca a produção antes da Fase 3 — e a TineHost só é desligada na Fase 5.
 
