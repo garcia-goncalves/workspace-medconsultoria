@@ -483,7 +483,7 @@ export function DocumentoDetailPage() {
             <FileDown className="h-4 w-4" />
             PDF
           </Button>
-          <Button size="sm" variant="outline" onClick={() => baixarWordDocumento(brandedView)}>
+          <Button size="sm" variant="outline" onClick={() => void baixarWordDocumento(brandedView)}>
             <FileText className="h-4 w-4" />
             Word
           </Button>
