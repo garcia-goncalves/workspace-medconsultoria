@@ -117,7 +117,6 @@ export function PropostaPublicaPage({ token }: { token: string }) {
   const documento = (
     <div className="overflow-hidden rounded-xl border bg-muted/30 p-4 sm:p-6">
       <DocumentoBranded
-        tipo="Proposta"
         titulo={d.documento.titulo}
         clienteNome={d.clienteNome}
         conteudoMarkdown={d.documento.conteudo}
