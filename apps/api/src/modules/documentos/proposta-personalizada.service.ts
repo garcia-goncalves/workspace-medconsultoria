@@ -118,7 +118,7 @@ export async function criarPropostaPersonalizada(input: CriarPropostaPersonaliza
   // abriu "Modelos" ainda não teria o Personalizado (o mesmo cuidado de `criarProposta`).
   await listModelos();
   const modelo = input.modeloId
-    ? await prisma.modeloDocumento.findFirst({ where: { id: input.modeloId, tipo: "PROPOSTA" } })
+    ? await prisma.modeloDocumento.findFirst({ where: { id: input.modeloId, tipo: "PROPOSTA", ativo: true, corpo: { contains: MARCADOR_PERSONALIZADO } } })
     : await prisma.modeloDocumento.findFirst({
         where: { tipo: "PROPOSTA", ativo: true, corpo: { contains: MARCADOR_PERSONALIZADO } },
         orderBy: { createdAt: "asc" },
@@ -241,8 +241,10 @@ function limparSaidaDaIA(texto: string): string {
 /** "## Título\n\ncorpo" → seções. Sem título nenhum, o texto inteiro vira uma seção só. */
 export function secoesDoMarkdown(texto: string): { titulo: string; corpo: string }[] {
   if (!/^##\s+/m.test(texto)) return texto.trim() ? [{ titulo: "Sugestão", corpo: texto.trim() }] : [];
+  // O que vem antes do primeiro "## " é preâmbulo da IA ("Segue a proposta:"), não seção.
   return texto
     .split(/^##\s+/m)
+    .slice(/^##\s+/.test(texto) ? 0 : 1)
     .map((p) => p.trim())
     .filter(Boolean)
     .map((p) => {

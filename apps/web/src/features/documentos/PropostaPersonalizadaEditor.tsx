@@ -35,12 +35,15 @@ function BotaoIA({
   onClick,
   children,
   disabled,
+  ocupado,
 }: {
   iaDisponivel: boolean | undefined;
   pendente: boolean;
   onClick: () => void;
   children: ReactNode;
   disabled?: boolean;
+  /** Outra chamada de IA em andamento: só uma por vez (a mutation é compartilhada). */
+  ocupado?: boolean;
 }) {
   const motivo = iaDisponivel === undefined ? "Verificando se a IA está ligada…" : iaDisponivel ? null : IA_DESLIGADA;
   return (
@@ -50,7 +53,7 @@ function BotaoIA({
         variant="outline"
         size="sm"
         className="min-h-11"
-        disabled={!iaDisponivel || pendente || disabled}
+        disabled={!iaDisponivel || pendente || disabled || ocupado}
         onClick={onClick}
         title={motivo ?? undefined}
       >
@@ -81,13 +84,36 @@ function AcoesDaLinha({
   const cls = "h-11 w-11";
   return (
     <div className="flex shrink-0 items-center">
-      <Button type="button" variant="ghost" size="icon" className={cls} disabled={primeiro} onClick={onSubir} aria-label={`Subir ${rotulo}`}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={cls}
+        disabled={primeiro}
+        onClick={onSubir}
+        aria-label={`Subir ${rotulo}`}
+      >
         <ArrowUp className="h-4 w-4" />
       </Button>
-      <Button type="button" variant="ghost" size="icon" className={cls} disabled={ultimo} onClick={onDescer} aria-label={`Descer ${rotulo}`}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={cls}
+        disabled={ultimo}
+        onClick={onDescer}
+        aria-label={`Descer ${rotulo}`}
+      >
         <ArrowDown className="h-4 w-4" />
       </Button>
-      <Button type="button" variant="ghost" size="icon" className={cn(cls, "text-destructive")} onClick={onRemover} aria-label={`Remover ${rotulo}`}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={cn(cls, "text-destructive")}
+        onClick={onRemover}
+        aria-label={`Remover ${rotulo}`}
+      >
         <Trash2 className="h-4 w-4" />
       </Button>
     </div>
@@ -95,7 +121,17 @@ function AcoesDaLinha({
 }
 
 /** Uma sugestão da IA esperando a pessoa decidir — nada entra no papel sem o clique dela. */
-function Sugestao({ texto, acao, onAceitar, onDescartar }: { texto: string; acao: string; onAceitar: () => void; onDescartar: () => void }) {
+function Sugestao({
+  texto,
+  acao,
+  onAceitar,
+  onDescartar,
+}: {
+  texto: string;
+  acao: string;
+  onAceitar: () => void;
+  onDescartar: () => void;
+}) {
   return (
     <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
       <p className="flex items-center gap-1.5 text-xs font-medium text-primary">
@@ -167,7 +203,16 @@ export function PropostaPersonalizadaEditor({
 
   /** Remover pede confirmação quando há texto — é o que a casa faz com toda ação destrutiva. */
   const removerComConfirmacao = async (temTexto: boolean, rotulo: string, remover: () => void) => {
-    if (temTexto && !(await confirm({ title: `Remover ${rotulo}?`, description: "O texto digitado será perdido.", confirmText: "Remover", variant: "destructive" }))) return;
+    if (
+      temTexto &&
+      !(await confirm({
+        title: `Remover ${rotulo}?`,
+        description: "O texto digitado será perdido.",
+        confirmText: "Remover",
+        variant: "destructive",
+      }))
+    )
+      return;
     remover();
   };
 
@@ -178,6 +223,12 @@ export function PropostaPersonalizadaEditor({
         <Label hint="Serviços do catálogo viram serviço contratado quando o cliente aceita. A linha avulsa é combinada só neste papel.">
           Itens do investimento
         </Label>
+        {form.itens.some((l) => l.servicoId === null) && (
+          <p role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            Linha avulsa vale só neste papel: ao aceitar, ela <strong>não vira serviço contratado nem conta a receber</strong>. Lance essa
+            cobrança à mão no Financeiro.
+          </p>
+        )}
         {form.itens.length === 0 && (
           <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
             Nenhum item ainda. Sem itens, a proposta sai só com as seções de texto.
@@ -255,7 +306,9 @@ export function PropostaPersonalizadaEditor({
                       disabled={c === "PERCENTUAL" && !podePercentual}
                       aria-pressed={l.cobranca === c}
                       onClick={() => setLinha(l.chave, { cobranca: c })}
-                      title={c === "PERCENTUAL" && !podePercentual ? "Só o serviço de faturamento médico é cobrado por percentual." : undefined}
+                      title={
+                        c === "PERCENTUAL" && !podePercentual ? "Só o serviço de faturamento médico é cobrado por percentual." : undefined
+                      }
                       className={cn(
                         "min-h-11 rounded px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
                         l.cobranca === c ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
@@ -267,7 +320,12 @@ export function PropostaPersonalizadaEditor({
                 </div>
                 {l.cobranca === "FIXO" ? (
                   <>
-                    <MoneyInput aria-label="Valor" value={l.valor} onChange={(v) => setLinha(l.chave, { valor: v ?? 0 })} className="h-11 w-32" />
+                    <MoneyInput
+                      aria-label="Valor"
+                      value={l.valor}
+                      onChange={(v) => setLinha(l.chave, { valor: v ?? 0 })}
+                      className="h-11 w-32"
+                    />
                     <span className="text-xs text-muted-foreground">×</span>
                     <Input
                       aria-label="Quantidade"
@@ -330,7 +388,13 @@ export function PropostaPersonalizadaEditor({
           >
             <Plus className="h-4 w-4" /> Serviço do catálogo
           </Button>
-          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setForm((f) => ({ ...f, itens: [...f.itens, novaLinha()] }))}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-11"
+            onClick={() => setForm((f) => ({ ...f, itens: [...f.itens, novaLinha()] }))}
+          >
             <Plus className="h-4 w-4" /> Linha avulsa
           </Button>
         </div>
@@ -360,6 +424,7 @@ export function PropostaPersonalizadaEditor({
           </div>
         )}
         <BotaoIA
+          ocupado={ia.isPending}
           iaDisponivel={iaDisponivel}
           pendente={pendente("investimento")}
           disabled={!payloadDaPersonalizada(form).itens.length}
@@ -377,7 +442,10 @@ export function PropostaPersonalizadaEditor({
             texto={resumoInvest}
             acao="Inserir como seção"
             onAceitar={() => {
-              setForm((f) => ({ ...f, secoes: [...f.secoes, { chave: novaChave(), titulo: "Resumo do investimento", corpo: resumoInvest }] }));
+              setForm((f) => ({
+                ...f,
+                secoes: [...f.secoes, { chave: novaChave(), titulo: "Resumo do investimento", corpo: resumoInvest }],
+              }));
               setResumoInvest(null);
             }}
             onDescartar={() => setResumoInvest(null)}
@@ -402,6 +470,7 @@ export function PropostaPersonalizadaEditor({
             placeholder="Ex.: clínica de 3 médicos quer organizar a agenda e treinar a recepção em 60 dias."
           />
           <BotaoIA
+            ocupado={ia.isPending}
             iaDisponivel={iaDisponivel}
             pendente={pendente("secoes")}
             disabled={!resumo.trim()}
@@ -416,7 +485,11 @@ export function PropostaPersonalizadaEditor({
           </BotaoIA>
           {sugestaoSecoes && (
             <Sugestao
-              texto={sugestaoSecoes.length ? sugestaoSecoes.map((s) => `${s.titulo}\n${s.corpo}`).join("\n\n") : "A IA não devolveu nenhuma seção. Tente descrever o pedido de outro jeito."}
+              texto={
+                sugestaoSecoes.length
+                  ? sugestaoSecoes.map((s) => `${s.titulo}\n${s.corpo}`).join("\n\n")
+                  : "A IA não devolveu nenhuma seção. Tente descrever o pedido de outro jeito."
+              }
               acao={`Adicionar ${sugestaoSecoes.length} ${sugestaoSecoes.length === 1 ? "seção" : "seções"}`}
               onAceitar={() => {
                 setForm((f) => ({ ...f, secoes: [...f.secoes, ...sugestaoSecoes.map((s) => ({ chave: novaChave(), ...s }))] }));
@@ -432,7 +505,9 @@ export function PropostaPersonalizadaEditor({
               <Input
                 aria-label={`Título da seção ${i + 1}`}
                 value={s.titulo}
-                onChange={(e) => setForm((f) => ({ ...f, secoes: f.secoes.map((x) => (x.chave === s.chave ? { ...x, titulo: e.target.value } : x)) }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, secoes: f.secoes.map((x) => (x.chave === s.chave ? { ...x, titulo: e.target.value } : x)) }))
+                }
                 placeholder="Título da seção"
                 className="min-w-0 flex-1"
               />
@@ -453,10 +528,13 @@ export function PropostaPersonalizadaEditor({
               aria-label={`Texto da seção ${i + 1}`}
               rows={3}
               value={s.corpo}
-              onChange={(e) => setForm((f) => ({ ...f, secoes: f.secoes.map((x) => (x.chave === s.chave ? { ...x, corpo: e.target.value } : x)) }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, secoes: f.secoes.map((x) => (x.chave === s.chave ? { ...x, corpo: e.target.value } : x)) }))
+              }
               placeholder="Texto da seção"
             />
             <BotaoIA
+              ocupado={ia.isPending}
               iaDisponivel={iaDisponivel}
               pendente={pendente(s.chave)}
               disabled={!s.corpo.trim()}
@@ -504,7 +582,9 @@ export function PropostaPersonalizadaEditor({
               aria-label={`Cláusula ${i + 1}`}
               rows={2}
               value={c.texto}
-              onChange={(e) => setForm((f) => ({ ...f, clausulas: f.clausulas.map((x) => (x.chave === c.chave ? { ...x, texto: e.target.value } : x)) }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, clausulas: f.clausulas.map((x) => (x.chave === c.chave ? { ...x, texto: e.target.value } : x)) }))
+              }
               className="min-w-0 flex-1"
             />
             <AcoesDaLinha
@@ -538,6 +618,7 @@ export function PropostaPersonalizadaEditor({
             placeholder="O que a cláusula deve garantir? (ex.: sigilo dos dados da clínica)"
           />
           <BotaoIA
+            ocupado={ia.isPending}
             iaDisponivel={iaDisponivel}
             pendente={pendente("clausula")}
             disabled={!pedidoClausula.trim()}
