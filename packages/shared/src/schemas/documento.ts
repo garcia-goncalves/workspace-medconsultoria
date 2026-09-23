@@ -443,3 +443,264 @@ export const gerarPautaSchema = z.object({
   titulo: z.string().trim().max(200).optional().or(z.literal("")),
 });
 export type GerarPautaInput = z.infer<typeof gerarPautaSchema>;
+
+// ── Proposta PERSONALIZADA — o coringa (ADR-156) ─────────
+//
+// Uma proposta com TUDO livre: serviços do catálogo e linhas avulsas, preço, seções e cláusulas
+// escritas à mão. É um modelo de tipo PROPOSTA como os outros (sem tipo novo, sem migração) — o
+// aceite, o funil e a ficha já sabem lidar com ele —, reconhecido pelo marcador
+// `{{personalizado}}` no corpo, do mesmo jeito que o credenciamento se reconhece por
+// `{{operadoras}}` e o faturamento por `{{convenios}}`.
+//
+// O gerador do texto mora AQUI, e não no servidor, pelo motivo de sempre nesta casa: a prévia da
+// tela e o documento gravado precisam ser o MESMO texto. Duas cópias divergiriam, e a Thaís
+// conferiria um papel e mandaria outro.
+
+/** O marcador que faz um modelo de proposta ser o Personalizado. */
+export const MARCADOR_PERSONALIZADO = "{{personalizado}}";
+
+const TEM_MARCADOR = /\{\{|\}\}/;
+
+/**
+ * Chave dupla em texto livre é recusada: é a sintaxe dos marcadores dos modelos, e o papel que vai
+ * ao cliente não pode sair com `{{algo}}` cru. Recusar com o motivo é melhor que apagar em silêncio
+ * o que a pessoa escreveu.
+ */
+export const TEXTO_COM_MARCADOR =
+  "Tire as chaves duplas ({{ }}) do texto — elas são reservadas aos modelos e sairiam cruas no papel.";
+
+const semMarcador = (s: string | undefined) => !s || !TEM_MARCADOR.test(s);
+
+/**
+ * Uma linha do investimento: OU um serviço do catálogo (`servicoId`), OU uma linha avulsa
+ * (`descricao`). Só a do catálogo vira serviço contratado no aceite — a avulsa é combinada
+ * naquele papel e não tem cadastro por trás (ver `criarPropostaPersonalizada`).
+ */
+export const itemPropostaPersonalizadaSchema = z
+  .object({
+    servicoId: z.string().min(1).optional(),
+    descricao: z.string().trim().max(300).optional(),
+    valor: z.number().nonnegative().max(100_000_000).default(0),
+    quantidade: z.number().int().min(1).max(10_000).default(1),
+    recorrencia: z.enum(["AVULSO", "MENSAL"]).default("AVULSO"),
+    percentual: z.number().min(0).max(100).nullable().optional(),
+  })
+  .refine((v) => !!v.servicoId || !!v.descricao, {
+    message: "Descreva a linha avulsa ou escolha um serviço do catálogo.",
+    path: ["descricao"],
+  })
+  // A mesma trava de todo lugar que grava preço (ADR-138): valor fixo E percentual na mesma linha
+  // faz o papel dizer duas coisas diferentes sobre quanto o cliente paga.
+  .refine((v) => !temValorEPercentual({ valor: v.valor, percentual: v.percentual }), {
+    message: PRECO_VALOR_E_PERCENTUAL,
+    path: ["percentual"],
+  })
+  .refine((v) => semMarcador(v.descricao), { message: TEXTO_COM_MARCADOR, path: ["descricao"] });
+export type ItemPropostaPersonalizada = z.infer<typeof itemPropostaPersonalizadaSchema>;
+
+export const secaoPropostaPersonalizadaSchema = z.object({
+  titulo: z
+    .string()
+    .trim()
+    .min(1, "Dê um título à seção.")
+    .max(200)
+    .refine(semMarcador, TEXTO_COM_MARCADOR),
+  corpo: z.string().trim().max(20_000).refine(semMarcador, TEXTO_COM_MARCADOR),
+});
+export type SecaoPropostaPersonalizada = z.infer<typeof secaoPropostaPersonalizadaSchema>;
+
+export const criarPropostaPersonalizadaSchema = z
+  .object({
+    /** Destino: um cliente OU um lead (o lead vira o `Cliente` PROSPECT por trás, ADR-132). */
+    clienteId: z.string().min(1).optional(),
+    leadId: z.string().min(1).optional(),
+    /** O modelo escolhido na tela; sem ele, o servidor usa o modelo com `{{personalizado}}`. */
+    modeloId: z.string().min(1).optional(),
+    titulo: z.string().trim().max(200).optional().refine(semMarcador, TEXTO_COM_MARCADOR),
+    itens: z.array(itemPropostaPersonalizadaSchema).max(60).default([]),
+    /** Seções livres, NA ORDEM em que saem no papel. */
+    secoes: z.array(secaoPropostaPersonalizadaSchema).max(30).default([]),
+    clausulas: z
+      .array(z.string().trim().min(1, "Cláusula vazia.").max(4000).refine(semMarcador, TEXTO_COM_MARCADOR))
+      .max(50)
+      .default([]),
+    validadeDias: z.number().int().min(1).max(365).default(15),
+    /** É sempre PIX (ADR-127): a MedConsultoria não recebe de outra forma. */
+    formaPagamento: z.literal("PIX").default("PIX"),
+    observacoes: z.string().trim().max(4000).optional().refine(semMarcador, TEXTO_COM_MARCADOR),
+  })
+  .refine((v) => !!v.clienteId !== !!v.leadId, {
+    message: "Escolha para quem é a proposta: um cliente ou um lead.",
+    path: ["clienteId"],
+  })
+  .refine((v) => v.itens.length > 0 || v.secoes.some((s) => s.corpo.trim()), {
+    message: "Inclua ao menos um item de investimento ou uma seção com texto.",
+    path: ["itens"],
+  });
+export type CriarPropostaPersonalizadaInput = z.infer<typeof criarPropostaPersonalizadaSchema>;
+
+/**
+ * O assistente de IA do Personalizado. Toda ação DEVOLVE uma sugestão — nenhuma grava nada: quem
+ * decide o que entra no papel é a pessoa (ADR-30).
+ */
+export const assistentePersonalizadoSchema = z.discriminatedUnion("acao", [
+  z.object({
+    acao: z.literal("sugerirSecoes"),
+    /** O que o cliente pediu / o contexto da negociação, nas palavras de quem atende. */
+    resumo: z.string().trim().min(1, "Conte em poucas linhas o que o cliente precisa.").max(4000),
+    clienteId: z.string().min(1).optional(),
+    leadId: z.string().min(1).optional(),
+  }),
+  z.object({
+    acao: z.literal("redigirClausula"),
+    pedido: z.string().trim().min(1, "Diga o que a cláusula deve garantir.").max(2000),
+  }),
+  z.object({
+    acao: z.literal("revisarTexto"),
+    texto: z.string().trim().min(1, "Não há texto para revisar.").max(20_000),
+  }),
+  z.object({
+    acao: z.literal("resumirInvestimento"),
+    itens: z.array(itemPropostaPersonalizadaSchema).min(1, "Inclua ao menos um item.").max(60),
+  }),
+]);
+export type AssistentePersonalizadoInput = z.infer<typeof assistentePersonalizadoSchema>;
+
+/** Uma linha do investimento já com o NOME resolvido (do catálogo ou a descrição avulsa). */
+export type ItemPersonalizadoResolvido = {
+  nome: string;
+  /** Linha de detalhe abaixo do nome (a descrição do serviço do catálogo). */
+  detalhe?: string | null;
+  valor: number;
+  quantidade: number;
+  recorrencia: "AVULSO" | "MENSAL";
+  percentual?: number | null;
+};
+
+const centavos = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const reais = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const pct = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+/** Texto que entra numa célula de tabela Markdown: barra vertical e quebra de linha a entortariam. */
+const celula = (s: string) => s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
+
+/** Totais do investimento — a conta é do código, nunca da IA. */
+export function resumoInvestimentoPersonalizado(itens: ItemPersonalizadoResolvido[]) {
+  let avulso = 0;
+  let mensal = 0;
+  const percentuais: { nome: string; percentual: number }[] = [];
+  for (const it of itens) {
+    const sub = (it.valor || 0) * (it.quantidade || 1);
+    if (it.recorrencia === "MENSAL") mensal += sub;
+    else avulso += sub;
+    if (it.percentual != null && it.percentual > 0) percentuais.push({ nome: it.nome, percentual: it.percentual });
+  }
+  return { avulso: centavos(avulso), mensal: centavos(mensal), percentuais };
+}
+
+function precoDaLinha(it: ItemPersonalizadoResolvido): string {
+  const qtd = it.quantidade || 1;
+  const sub = centavos((it.valor || 0) * qtd);
+  const partes: string[] = [];
+  if (sub > 0) {
+    const base = qtd > 1 ? `${qtd} × ${reais(it.valor)} = ${reais(sub)}` : reais(sub);
+    partes.push(base + (it.recorrencia === "MENSAL" ? "/mês" : ""));
+  }
+  if (it.percentual != null && it.percentual > 0) partes.push(`${pct(it.percentual)} do faturamento mensal`);
+  return partes.length ? partes.join(" + ") : "a combinar";
+}
+
+/**
+ * O MIOLO da proposta personalizada, em Markdown: seções, investimento (tabela + total),
+ * condições (validade, PIX), cláusulas, observações e dados para pagamento.
+ *
+ * Nunca escreve "(a preencher)" nem marcador: o que não foi informado não aparece — seção sem
+ * texto some, investimento sem valor diz "a combinar", dados bancários em branco somem inteiros
+ * (a mesma regra de `montarDadosPagamento`).
+ */
+export function montarBlocoPersonalizado(p: {
+  secoes: { titulo: string; corpo: string }[];
+  itens: ItemPersonalizadoResolvido[];
+  clausulas: string[];
+  validadeDias: number;
+  observacoes?: string | null;
+  /** A tabela de `montarDadosPagamento` (vazia quando nada foi cadastrado em Ajustes). */
+  dadosPagamento?: string | null;
+  /** Quando há linha cobrada só por percentual: QUANDO o repasse é pago (ADR-127). */
+  fraseRepasse?: string | null;
+}): string {
+  const partes: string[] = [];
+  for (const s of p.secoes) {
+    if (!s.corpo.trim()) continue;
+    partes.push(`## ${s.titulo.trim()}\n\n${s.corpo.trim()}`);
+  }
+
+  if (p.itens.length) {
+    const linhas = p.itens.map((it) => {
+      const detalhe = it.detalhe?.trim() ? `<br>${celula(it.detalhe)}` : "";
+      return `| **${celula(it.nome)}**${detalhe} | ${precoDaLinha(it)} |`;
+    });
+    const r = resumoInvestimentoPersonalizado(p.itens);
+    const total: string[] = [];
+    if (r.avulso > 0) total.push(`${reais(r.avulso)} (1x)`);
+    if (r.mensal > 0) total.push(`${reais(r.mensal)}/mês`);
+    if (r.percentuais.length) total.push("percentual sobre o faturamento");
+    const tabela = [
+      "| Item | Investimento |",
+      "| --- | --- |",
+      ...linhas,
+      `| **Total** | **${total.length ? total.join(" + ") : "a combinar"}** |`,
+    ].join("\n");
+    const bloco = [`## Investimento\n\n${tabela}`];
+    if (p.fraseRepasse?.trim()) bloco.push(p.fraseRepasse.trim());
+    partes.push(bloco.join("\n\n"));
+  }
+
+  partes.push(
+    [
+      "## Condições",
+      "",
+      `- **Validade:** esta proposta é válida por ${p.validadeDias} ${p.validadeDias === 1 ? "dia" : "dias"} a partir da data de emissão.`,
+      "- **Forma de pagamento:** PIX.",
+    ].join("\n"),
+  );
+
+  const clausulas = p.clausulas.map((c) => c.trim()).filter(Boolean);
+  if (clausulas.length) {
+    // Uma linha por cláusula: quebra de linha dentro dela quebraria a numeração da lista.
+    partes.push(`## Cláusulas\n\n${clausulas.map((c, i) => `${i + 1}. ${c.replace(/\s*\n\s*/g, " ")}`).join("\n")}`);
+  }
+  if (p.observacoes?.trim()) partes.push(`## Observações\n\n${p.observacoes.trim()}`);
+  if (p.dadosPagamento?.trim()) partes.push(`## Dados para pagamento\n\n${p.dadosPagamento.trim()}`);
+  return partes.join("\n\n");
+}
+
+/**
+ * Encaixa o miolo na MOLDURA do modelo (o corpo editável em Modelos): troca `{{numero}}`,
+ * `{{data}}`, `{{cliente.nome}}` e `{{consultora}}`, põe o miolo em `{{personalizado}}` — ou no
+ * fim, se alguém tirou o marcador do modelo — e APAGA qualquer outro marcador da moldura, que
+ * sairia cru no papel.
+ *
+ * ⚠️ Uma passada só, com função de troca: o valor inserido não é relido. Sem isso, um nome de
+ * clínica digitado no formulário público como "{{personalizado}}" duplicaria a proposta inteira.
+ */
+export function aplicarMolduraPersonalizada(
+  moldura: string,
+  v: { numero: string; data: string; clienteNome: string; consultora: string },
+  bloco: string,
+): string {
+  const valores: Record<string, string> = {
+    numero: v.numero,
+    data: v.data,
+    "cliente.nome": v.clienteNome,
+    consultora: v.consultora,
+  };
+  let temMarcador = false;
+  const texto = moldura.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, k: string) => {
+    if (k === "personalizado") {
+      temMarcador = true;
+      return bloco;
+    }
+    return valores[k] ?? "";
+  });
+  return temMarcador ? texto : `${texto}\n\n${bloco}`;
+}

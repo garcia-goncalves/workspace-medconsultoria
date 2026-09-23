@@ -213,6 +213,11 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
       const clienteId = doc.clienteId;
       const criadoPorId = doc.criadoPorId;
       // Itens estruturados congelados na proposta (serviços + valores aceitos).
+      //
+      // ⚠️ SÓ LINHA DO CATÁLOGO VIRA SERVIÇO CONTRATADO (ADR-156). A proposta personalizada tem
+      // linhas avulsas ("Treinamento da recepção"), combinadas naquele papel e sem cadastro por
+      // trás. Hoje ela grava em `itens` só as do catálogo; o filtro aqui é a segunda tranca, para
+      // uma linha sem `servicoId` que chegue por outro caminho nunca virar `ClienteServico`.
       const itensAceitos = Array.isArray(doc.itens)
         ? (doc.itens as {
             servicoId: string;
@@ -221,7 +226,7 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
             percentual?: number | null;
             /** Convênios atendidos naquele serviço (ADR-126) — viajam dentro do item aceito. */
             conveniosIds?: string[];
-          }[])
+          }[]).filter((i) => typeof i?.servicoId === "string" && i.servicoId.length > 0)
         : [];
       void (async () => {
         // Ator das automações: quem criou a proposta; se o criador foi removido (criadoPorId nulo),

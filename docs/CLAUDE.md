@@ -228,6 +228,16 @@ As decisões abaixo estão registradas com contexto completo em `DECISIONS.md`:
      que quem chama escolhe não é freio (ADR-148 de novo). Detalhe operacional em `docs/API_AGENTE.md` —
      ADR-149.
 
+101. **Uma proposta por serviço, e a Proposta Personalizada (ADR-156).** A Proposta comercial
+     passou a sair **uma por serviço** por padrão (N chamadas ao `criarProposta`, em série, cada
+     uma com o próprio número; dá para juntar). Nasceu o modelo **"Proposta personalizada"** —
+     tipo `PROPOSTA`, marcador `{{personalizado}}`, **zero migração** — com tudo livre: itens do
+     catálogo e linhas avulsas, seções e cláusulas reordenáveis, validade, PIX. ⚠️ O gerador de
+     texto mora em `@app/shared` e a prévia usa **o mesmo**. ⚠️ Só as linhas do **catálogo** vão
+     para `Documento.itens` e viram serviço contratado no aceite — a avulsa fica no papel. A IA
+     (sugerir seções, redigir cláusula, revisar, resumir investimento) passa por `gerarRascunho`,
+     **nunca grava**, e sem chave o botão aparece desabilitado com o motivo — ADR-156.
+
 ---
 
 ## 7. Regras de negócio (núcleo)
