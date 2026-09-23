@@ -25,6 +25,44 @@ export interface DocumentoBrandedProps {
   statusLabel?: string | null;
   /** Linha extra no rodapé (ex.: código de integridade / validade jurídica). */
   rodapeExtra?: string | null;
+  /**
+   * Saída para PDF/Word (o que vai ao cliente). Omite os selos de status e de tipo do cabeçalho:
+   * são rótulos de trabalho interno ("Rascunho", "Em revisão") que a tela de edição mostra e o
+   * papel nunca deve carregar. A tela continua mostrando — quem liga isto é `imprimirDocumento`
+   * e `montarWordMhtml`, nunca o componente.
+   */
+  exportacao?: boolean;
+}
+
+/**
+ * O que ainda está por preencher no texto: marcador `{{x}}` cru, "(a preencher)" ou "(a definir".
+ * Devolve o rótulo de cada tipo encontrado — vazio quando o documento está limpo. Usado para
+ * avisar ANTES de gerar PDF/Word, porque depois de enviado ao cliente não há como recolher.
+ */
+export function pendenciasDoDocumento(md: string): string[] {
+  const achados: string[] = [];
+  if (md.includes("{{")) achados.push("campos ainda não substituídos ({{ }})");
+  if (/\(a preencher\)/i.test(md)) achados.push('trechos "(a preencher)"');
+  if (/\(a definir/i.test(md)) achados.push('trechos "(a definir…)"');
+  return achados;
+}
+
+/**
+ * Pergunta antes de exportar quando o texto ainda tem pendência. Devolve `true` para seguir.
+ * Recebe o `confirm` do projeto (`useConfirm`) em vez de importá-lo: este arquivo não é hook.
+ */
+export async function confirmarExportacao(
+  confirm: (o: { title: string; description?: string; confirmText?: string; cancelText?: string }) => Promise<boolean>,
+  md: string,
+): Promise<boolean> {
+  const pendencias = pendenciasDoDocumento(md);
+  if (pendencias.length === 0) return true;
+  return confirm({
+    title: "Este documento ainda tem campos por preencher",
+    description: `Encontrei ${pendencias.join(" e ")}. Se gerar agora, isso vai aparecer no arquivo que segue para o cliente.`,
+    confirmText: "Gerar mesmo assim",
+    cancelText: "Voltar e revisar",
+  });
 }
 
 // Tokens espelhando o e-mail branded (email-template.ts) — mesma identidade.
@@ -335,7 +373,7 @@ function cabecalhoHtml(p: DocumentoBrandedProps, logoSrc = LOGO_SRC): string {
         <small>${esc(INSTITUCIONAL.tagline)}</small>
       </div>
       <div class="doc-meta">
-        ${p.tipo ? `<span class="tipo">${esc(p.tipo)}</span>` : ""}${p.statusLabel ? `<span class="status">${esc(p.statusLabel)}</span>` : ""}
+        ${!p.exportacao && p.tipo ? `<span class="tipo">${esc(p.tipo)}</span>` : ""}${!p.exportacao && p.statusLabel ? `<span class="status">${esc(p.statusLabel)}</span>` : ""}
         <div style="margin-top:6px">${meta}</div>
       </div>
     </div>`;
@@ -544,7 +582,8 @@ export function DocumentoBranded({
  * ao que a tela mostrou. Cada folha é uma caixa de altura A4 exata com quebra forçada depois;
  * as regras `break-inside` são cinto de segurança para o caso de uma medição sair 1px maior.
  */
-export function imprimirDocumento(props: DocumentoBrandedProps) {
+export function imprimirDocumento(entrada: DocumentoBrandedProps) {
+  const props = { ...entrada, exportacao: true };
   const folhas = paginarDocumento(props);
   const w = window.open("", "_blank", "width=900,height=1000");
   if (!w) return;
@@ -612,7 +651,8 @@ const RAIZ_MHTML = "file:///C:/medconsultoria/";
  *
  * Separada de `baixarWordDocumento` para poder ser exercida em teste, sem rede nem navegador.
  */
-export function montarWordMhtml(props: DocumentoBrandedProps, logoBase64: string): string {
+export function montarWordMhtml(entrada: DocumentoBrandedProps, logoBase64: string): string {
+  const props = { ...entrada, exportacao: true };
   const html = `<!doctype html><html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>
     <head><meta charset="utf-8"><title>${esc(props.titulo)}</title><style>${DOC_STYLES}
       @page { size: A4; margin: 18mm 16mm; }
