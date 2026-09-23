@@ -470,6 +470,26 @@ Para clareza, firmamos o presente recibo, dando plena quitação do valor acima.
 
 **MedConsultoria**`,
   },
+  {
+    // O CORINGA (ADR-156): serviços do catálogo e linhas avulsas, seções e cláusulas livres. O
+    // corpo é só a MOLDURA — o miolo inteiro (seções, investimento, condições, cláusulas, dados
+    // para pagamento) é montado por `montarBlocoPersonalizado` e entra em {{personalizado}}.
+    // ⚠️ É esse marcador que faz a tela abrir o editor do Personalizado; tirá-lo daqui faz o
+    // modelo virar uma proposta comercial comum.
+    nome: "Proposta personalizada",
+    tipo: "PROPOSTA",
+    corpo: `**Proposta {{numero}}** &nbsp;·&nbsp; **Data:** {{data}}
+
+Prezado(a) {{cliente.nome}},
+
+{{personalizado}}
+
+Ficamos à disposição para qualquer dúvida. Será um prazer cuidar disso por você.
+
+Atenciosamente,
+**{{consultora}}**
+**Equipe MedConsultoria**`,
+  },
 ];
 
 export async function listModelos() {

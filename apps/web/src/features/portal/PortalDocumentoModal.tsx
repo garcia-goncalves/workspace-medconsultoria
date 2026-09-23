@@ -2,10 +2,12 @@ import { FileDown, FileText, Loader2 } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { Button } from "../../components/ui/button";
 import { Modal } from "../../components/ui/modal";
+import { useConfirm } from "../../components/ui/confirm-dialog";
 import {
   DocumentoBranded,
   imprimirDocumento,
   baixarWordDocumento,
+  confirmarExportacao,
   type DocumentoBrandedProps,
 } from "../documentos/DocumentoBranded";
 
@@ -15,6 +17,7 @@ import {
  * responsividade). O `Modal` já traz Esc, clique fora, foco preso e devolução de foco.
  */
 export function PortalDocumentoModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const confirm = useConfirm();
   const doc = trpc.portal.documento.useQuery({ id });
   const carregando = doc.isLoading || !doc.data;
   const props: DocumentoBrandedProps | null = doc.data
@@ -30,11 +33,15 @@ export function PortalDocumentoModal({ id, onClose }: { id: string; onClose: () 
       footer={
         props && (
           <>
-            <Button size="sm" className="min-h-11" variant="outline" onClick={() => imprimirDocumento(props)}>
+            <Button size="sm" className="min-h-11" variant="outline" onClick={async () => {
+              if (await confirmarExportacao(confirm, props.conteudoMarkdown)) imprimirDocumento(props);
+            }}>
               <FileDown className="h-4 w-4" />
               PDF
             </Button>
-            <Button size="sm" className="min-h-11" variant="outline" onClick={() => void baixarWordDocumento(props)}>
+            <Button size="sm" className="min-h-11" variant="outline" onClick={async () => {
+              if (await confirmarExportacao(confirm, props.conteudoMarkdown)) await baixarWordDocumento(props);
+            }}>
               <FileText className="h-4 w-4" />
               Word
             </Button>

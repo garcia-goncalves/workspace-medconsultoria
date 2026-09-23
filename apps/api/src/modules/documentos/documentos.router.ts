@@ -14,11 +14,14 @@ import {
   resumirReuniaoSchema,
   gerarPautaSchema,
   usoOperadoraEnum,
+  criarPropostaPersonalizadaSchema,
+  assistentePersonalizadoSchema,
 } from "@app/shared";
 import { router, funcionarioProcedure, adminProcedure } from "../../trpc/trpc.js";
 import * as modelos from "./modelos.service.js";
 import * as documentos from "./documentos.service.js";
 import * as operadoras from "./operadoras.service.js";
+import * as personalizada from "./proposta-personalizada.service.js";
 
 const nomeOperadora = z.string().trim().min(1, "Informe o nome").max(80);
 
@@ -79,6 +82,23 @@ export const documentosRouter = router({
   criarProposta: funcionarioProcedure
     .input(criarPropostaSchema)
     .mutation(({ input, ctx }) => documentos.criarProposta(input, ctx.user.id)),
+
+  /**
+   * Proposta PERSONALIZADA (ADR-156): catálogo + linhas avulsas, seções e cláusulas livres.
+   * Mesma porta das outras propostas (`funcionarioProcedure`, cliente ou lead de qualquer um,
+   * como `criarProposta`); só as linhas do catálogo viram serviço contratado no aceite.
+   */
+  criarPropostaPersonalizada: funcionarioProcedure
+    .input(criarPropostaPersonalizadaSchema)
+    .mutation(({ input, ctx }) => personalizada.criarPropostaPersonalizada(input, ctx.user.id)),
+
+  /**
+   * Assistente de IA do Personalizado: devolve SUGESTÃO (seções, cláusula, texto revisado, resumo
+   * do investimento) — nunca grava. Tudo passa por `aiService.gerarRascunho` (peneira, ADR-141).
+   */
+  assistentePersonalizado: funcionarioProcedure
+    .input(assistentePersonalizadoSchema)
+    .mutation(({ input }) => personalizada.assistentePersonalizado(input)),
 
   /** Contrato inteligente: monta o contrato a partir dos serviços contratados + vigência. */
   criarContrato: funcionarioProcedure

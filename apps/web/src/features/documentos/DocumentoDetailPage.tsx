@@ -34,6 +34,7 @@ import {
   DocumentoBranded,
   imprimirDocumento,
   baixarWordDocumento,
+  confirmarExportacao,
   type DocumentoBrandedProps,
 } from "./DocumentoBranded";
 import { dataHora, data } from "../../lib/format-date";
@@ -479,11 +480,15 @@ export function DocumentoDetailPage() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => imprimirDocumento(brandedView)}>
+          <Button size="sm" variant="outline" onClick={async () => {
+              if (await confirmarExportacao(confirm, brandedView.conteudoMarkdown)) imprimirDocumento(brandedView);
+            }}>
             <FileDown className="h-4 w-4" />
             PDF
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void baixarWordDocumento(brandedView)}>
+          <Button size="sm" variant="outline" onClick={async () => {
+              if (await confirmarExportacao(confirm, brandedView.conteudoMarkdown)) await baixarWordDocumento(brandedView);
+            }}>
             <FileText className="h-4 w-4" />
             Word
           </Button>
