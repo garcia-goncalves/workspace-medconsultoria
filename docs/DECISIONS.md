@@ -6024,3 +6024,84 @@ para quem não tem nenhum para escolher. São três estados distintos, e confund
 Zero migração em todo o lote de fecho (#205, #206, #207). O leitor de planilha passou a entender
 `.xlsx` de tag prefixada — **dez arquivos reais eram recusados com a mensagem acusando quem enviou**,
 e arquivo que não rende linha nenhuma passou a dizer exatamente isso.
+
+## ADR-156 — Uma proposta por serviço, e a Proposta Personalizada como coringa
+
+**Data:** 2026-09-23 · **Contexto:** esteira `docs/esteira/propostas-por-servico-e-personalizado/`
+
+### O problema
+
+A proposta comercial juntava todos os serviços num papel só — um aceite para tudo, sem jeito de o
+cliente aceitar a Gestão e recusar o Marketing. E não havia saída para o caso atípico: dois ou mais
+serviços com preço combinado, uma linha que não existe no catálogo, uma seção escrita para aquele
+cliente.
+
+### A decisão 1 — uma proposta por serviço, sem mexer no servidor
+
+No **Novo documento**, a Proposta comercial passou a emitir **uma proposta por serviço marcado**,
+por padrão, com a opção de juntar tudo como antes. São N chamadas ao `criarProposta` de sempre, com
+**um item cada**, **em série** — cada uma pega o próximo número da contagem da Thaís, na ordem da
+lista. Se uma falha, o lote **para** e a tela mostra o que já foi criado: refazer tudo duplicaria as
+que deram certo. Credenciamento e faturamento não mudaram (já eram uma proposta por
+operadora/serviço, ADR-126/127).
+
+⚠️ A emissão em lote usa um gancho de mutação **sem `onSuccess`**: o gancho normal navega para o
+documento e fecha a janela — no meio do lote, isso abandonaria as N−1 restantes.
+
+### A decisão 2 — o Personalizado é um MODELO, não um tipo novo
+
+Nasceu o modelo-semente **"Proposta personalizada"**, tipo `PROPOSTA`, reconhecido pelo marcador
+`{{personalizado}}` no corpo (como o credenciamento por `{{operadoras}}` e o faturamento por
+`{{convenios}}`). **Zero migração, zero enum novo**: o aceite, o funil, a ficha e a numeração já
+tratam tipo `PROPOSTA`, e um tipo novo precisaria ser ensinado a cada um deles. O caminho de
+gravação é próprio (`criarPropostaPersonalizada`, em `proposta-personalizada.service.ts`) porque
+`criarProposta` já tem três formatos, e um quarto com regras opostas pioraria a leitura dos três.
+
+Tudo é livre: itens do **catálogo** ou **linhas avulsas** (valor fixo avulso/mensal **ou**
+percentual, nunca os dois — ADR-138), seções e cláusulas **reordenáveis**, validade, observações.
+Forma de pagamento: **só PIX** (ADR-127), e os dados bancários saem de `montarDadosPagamento`.
+
+⚠️ **O gerador de texto mora em `@app/shared`** (`montarBlocoPersonalizado` +
+`aplicarMolduraPersonalizada`), e a prévia da tela chama **a mesma função** que o servidor. Duas
+cópias divergiriam, e a Thaís conferiria um papel e mandaria outro. A moldura é trocada numa
+**passada só**: valor inserido não é relido, senão um nome de clínica digitado como
+`{{personalizado}}` no formulário público duplicaria a proposta.
+
+⚠️ **Nunca sai marcador cru nem "(a preencher)".** Seção sem texto some, investimento sem valor diz
+"a combinar", marcador desconhecido da moldura é apagado, e texto livre com chave dupla é
+**recusado pelo schema com o motivo** — apagar em silêncio o que a pessoa escreveu seria pior.
+
+### A decisão 3 — só a linha do catálogo vira serviço contratado
+
+`Documento.itens` recebe **só as linhas do catálogo**, no formato de sempre
+(`documentoServicoItemSchema`). ⚠️ Não é economia: o contrato do funil relê esse campo com
+`safeParse` do **array inteiro** (`gerarParaLead`), e uma linha sem `servicoId` reprovaria a lista
+toda — o contrato sairia sem serviço nenhum, em silêncio. A linha avulsa existe no texto do papel,
+que é onde foi combinada; ela não tem cadastro para virar `ClienteServico`. O aceite
+(`propostas.service.ts`) ganhou a segunda tranca: ignora item sem `servicoId`.
+
+⚠️ A regra do percentual (ADR-145) é conferida **na emissão**, não no aceite: deixar para depois
+faria a proposta ser aceita e a automação recusar em segundo plano.
+
+### A decisão 4 — a IA sugere, a pessoa aprova, e o botão nunca some
+
+`documentos.assistentePersonalizado` tem quatro ações — sugerir seções a partir do pedido do
+cliente, redigir cláusula, revisar texto, resumir o investimento — e **nenhuma grava nada**: a
+sugestão aparece com "Usar"/"Descartar". Todas passam por `aiService.gerarRascunho`, a porta única
+onde mora a peneira de dado pessoal (ADR-141). No resumo do investimento **a conta é do código**
+(`resumoInvestimentoPersonalizado`); a IA recebe os números prontos e só escreve a frase — número
+calculado por modelo de linguagem é número que ninguém conferiu.
+
+Sem chave, os botões aparecem **desabilitados, com "IA desligada: falta configurar a chave" ao
+lado** — sumir em silêncio foi exatamente o relato do dono.
+
+### O que ficou de fora
+
+- **A linha avulsa não entra no contrato automático** nem vira conta a receber: o contrato nasce
+  dos serviços contratados (`ClienteServico`), e a avulsa não tem um. Se o caso for comum, a saída
+  é cadastrar o serviço no catálogo.
+- **Na emissão por serviço sem título digitado**, os N documentos se distinguem pelo número (o
+  título padrão do servidor não leva o nome do serviço); com título digitado, o nome do serviço
+  entra junto.
+- Editar uma proposta personalizada já gerada é pelo editor de texto de sempre — o formulário
+  estruturado serve para criar.

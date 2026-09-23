@@ -10,9 +10,20 @@ import {
   fraseDoRepasse,
   montarDadosPagamento,
   modeloAceitaLead,
+  aplicarMolduraPersonalizada,
+  montarBlocoPersonalizado,
+  MARCADOR_PERSONALIZADO,
   type CelulaGrade,
   type TipoModelo,
 } from "@app/shared";
+import { PropostaPersonalizadaEditor } from "./PropostaPersonalizadaEditor";
+import {
+  novaPersonalizada,
+  payloadDaPersonalizada,
+  personalizadaTemConteudo,
+  resolverParaPrevia,
+  type PersonalizadaForm,
+} from "./proposta-personalizada";
 import { trpc } from "../../lib/trpc";
 import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
@@ -155,9 +166,24 @@ export function NovoDocumentoDialog({
   const [postPeriodo, setPostPeriodo] = useState("");
   const [postagens, setPostagens] = useState<PostLinha[]>([novoPost()]);
   const [postObs, setPostObs] = useState("");
+  // Proposta PERSONALIZADA (ADR-156): o coringa, com editor próprio.
+  const [personalizada, setPersonalizada] = useState<PersonalizadaForm>(novaPersonalizada);
+  // Proposta comercial: UMA POR SERVIÇO por padrão (ADR-156) — cada serviço com o próprio papel,
+  // o próprio número e o próprio aceite. Desmarcar junta tudo numa proposta só, como antes.
+  const [umaPorServico, setUmaPorServico] = useState(true);
+  // O resultado da emissão em lote: as propostas criadas, com link para cada uma.
+  const [lote, setLote] = useState<{
+    criadas: { id: string; titulo: string; servico: string }[];
+    total: number;
+    emAndamento: boolean;
+    erro: string | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    setPersonalizada(novaPersonalizada());
+    setUmaPorServico(true);
+    setLote(null);
     setModeloId("");
     setDestino(clienteFixo ? `c:${clienteFixo}` : "");
     setTitulo("");
@@ -358,6 +384,13 @@ export function NovoDocumentoDialog({
   // ⚠️ Mesma ressalva acima: não é `Servico.ehFaturamento` (marca do banco), é "este DOCUMENTO é
   // uma proposta de faturamento".
   const ePropostaDeFaturamento = modo === "PROPOSTA" && !!modelo?.corpo.includes("{{convenios}}");
+  // Proposta PERSONALIZADA = modelo cujo corpo declara {{personalizado}} (ADR-156). Mesma régua:
+  // quem manda é o MODELO.
+  const ePropostaPersonalizada = modo === "PROPOSTA" && !!modelo?.corpo.includes(MARCADOR_PERSONALIZADO);
+  // Proposta comercial comum — a única que se divide em "uma por serviço".
+  const ePropostaComercial = modo === "PROPOSTA" && !ePropostaDeCredenciamento && !ePropostaDeFaturamento && !ePropostaPersonalizada;
+  const nServicos = Object.keys(sel).length;
+  const emLote = ePropostaComercial && umaPorServico && nServicos > 1;
   // O percentual somado dos serviços escolhidos — é o que a proposta cobra por mês.
   const percentualDaProposta = Object.values(sel).reduce((t, i) => t + (i.percentual ?? 0), 0);
   const valorEstimadoDoFaturamento =
@@ -382,6 +415,33 @@ export function NovoDocumentoDialog({
   // Preview ao vivo: injeta os valores já preenchidos no corpo antes de exibir.
   const conteudoPreview = () => {
     if (!modelo) return "";
+    // PROPOSTA PERSONALIZADA: o MESMO gerador do servidor (`@app/shared`), para a prévia e o
+    // papel gravado serem o mesmo texto (ADR-156).
+    if (ePropostaPersonalizada) {
+      const { itens, fraseRepasse: frase } = resolverParaPrevia(personalizada, servicosAtivos.data ?? []);
+      const p = payloadDaPersonalizada(personalizada);
+      const bloco = montarBlocoPersonalizado({
+        secoes: p.secoes,
+        itens,
+        clausulas: p.clausulas,
+        validadeDias: p.validadeDias,
+        observacoes: p.observacoes ?? null,
+        dadosPagamento: tabelaPagamento,
+        fraseRepasse: frase,
+      });
+      const c = contexto.data?.cliente ?? null;
+      return aplicarMolduraPersonalizada(
+        modelo.corpo,
+        {
+          // O número é reservado ao gerar — mostrar um aqui prometeria o que outra emissão pode levar.
+          numero: "(gerado ao criar)",
+          data: fmtData(new Date()),
+          clienteNome: c?.nome ?? nomeDoDestino ?? "[nome do cliente]",
+          consultora: usuario?.nome || "MedConsultoria",
+        },
+        bloco,
+      );
+    }
     let corpo = modelo.corpo;
     // PROPOSTA DE CREDENCIAMENTO: preenche {{operadoras}}, {{profissionais}} e {{servicos}},
     // espelhando o servidor — a prévia tem de mostrar a proposta que vai sair, não um esboço.
@@ -601,13 +661,17 @@ export function NovoDocumentoDialog({
   const gerarIA = trpc.documentos.gerarComIA.useMutation({ onSuccess });
   const criarProposta = trpc.documentos.criarProposta.useMutation({ onSuccess });
   const criarContrato = trpc.documentos.criarContrato.useMutation({ onSuccess });
+  const criarPersonalizada = trpc.documentos.criarPropostaPersonalizada.useMutation({ onSuccess });
+  // A emissão em LOTE (uma proposta por serviço) usa um gancho SEM `onSuccess`: o de cima
+  // navegaria para o primeiro documento e fecharia a janela no meio do lote.
+  const criarPropostaDoLote = trpc.documentos.criarProposta.useMutation();
   // Traduz o lead escolhido no cliente PROSPECT por trás dele (idempotente).
   const clienteDoLead = trpc.documentos.clienteDoLead.useMutation();
   const resumir = trpc.documentos.resumirReuniao.useMutation({ onSuccess });
   const gerarPauta = trpc.documentos.gerarPauta.useMutation({ onSuccess });
   const pending =
     create.isPending || gerarIA.isPending || criarProposta.isPending || criarContrato.isPending || resumir.isPending || gerarPauta.isPending ||
-    clienteDoLead.isPending;
+    clienteDoLead.isPending || criarPersonalizada.isPending || !!lote?.emAndamento;
   const erro =
     create.error?.message ??
     gerarIA.error?.message ??
@@ -615,9 +679,47 @@ export function NovoDocumentoDialog({
     criarContrato.error?.message ??
     resumir.error?.message ??
     gerarPauta.error?.message ??
-    clienteDoLead.error?.message;
+    clienteDoLead.error?.message ??
+    criarPersonalizada.error?.message;
 
   const tituloArg = titulo.trim() || undefined;
+
+  /**
+   * UMA PROPOSTA POR SERVIÇO (ADR-156): uma chamada a `criarProposta` por serviço marcado, em
+   * sequência — cada uma recebe o próprio número da contagem da Thaís. Em série, e não em
+   * paralelo, para os números saírem na ordem da lista (o servidor aguentaria a corrida, mas a
+   * ordem seria sorteio). Se uma falha, o lote PARA e a tela mostra o que já foi criado — refazer
+   * tudo duplicaria as que deram certo.
+   */
+  const gerarUmaPorServico = async (clienteArg: string | undefined) => {
+    const entradas = Object.entries(sel);
+    const nomeDe = (id: string) => servicosAtivos.data?.find((s) => s.id === id)?.nome ?? "Serviço";
+    const criadas: { id: string; titulo: string; servico: string }[] = [];
+    setLote({ criadas, total: entradas.length, emAndamento: true, erro: null });
+    for (const [servicoId, i] of entradas) {
+      try {
+        const doc = await criarPropostaDoLote.mutateAsync({
+          clienteId: clienteArg,
+          modeloId,
+          // Com título digitado, cada proposta leva o nome do serviço junto — senão seriam N
+          // documentos com o mesmo título. Sem título, o servidor já põe o número no título.
+          titulo: tituloArg ? `${tituloArg} — ${nomeDe(servicoId)}` : undefined,
+          itens: [{ servicoId, valor: i.valor, quantidade: i.qtd, recorrencia: i.recorrencia, percentual: i.percentual }],
+          prazo: prazo || undefined,
+          observacoes: observacoes || undefined,
+          usarIA,
+        });
+        criadas.push({ id: doc.id, titulo: doc.titulo, servico: nomeDe(servicoId) });
+        setLote({ criadas: [...criadas], total: entradas.length, emAndamento: true, erro: null });
+      } catch (e) {
+        setLote({ criadas: [...criadas], total: entradas.length, emAndamento: false, erro: (e as Error).message });
+        break;
+      }
+    }
+    setLote((l) => (l ? { ...l, emAndamento: false } : l));
+    utils.documentos.list.invalidate();
+    utils.clientes.relacionados.invalidate();
+  };
 
   /**
    * Gera o documento. Quando o destino é um LEAD, primeiro traduz o lead no `Cliente`
@@ -625,6 +727,16 @@ export function NovoDocumentoDialog({
    * das seis formas de gerar precisou saber que leads existem.
    */
   const executar = async () => {
+    // O Personalizado aceita o lead direto (o servidor acha o PROSPECT por trás dele).
+    if (ePropostaPersonalizada) {
+      criarPersonalizada.mutate({
+        ...(leadId ? { leadId } : { clienteId }),
+        modeloId,
+        titulo: tituloArg,
+        ...payloadDaPersonalizada(personalizada),
+      });
+      return;
+    }
     let clienteArg = clienteId || undefined;
     if (leadId) {
       try {
@@ -637,7 +749,9 @@ export function NovoDocumentoDialog({
   };
 
   const executarCom = (clienteArg: string | undefined) => {
-    if (modo === "PROPOSTA") {
+    if (emLote) {
+      void gerarUmaPorServico(clienteArg);
+    } else if (modo === "PROPOSTA") {
       criarProposta.mutate({
         clienteId: clienteArg,
         modeloId,
@@ -723,7 +837,9 @@ export function NovoDocumentoDialog({
   };
 
   const acaoLabel =
-    modo === "PROPOSTA"
+    emLote
+      ? `Gerar ${nServicos} propostas`
+      : modo === "PROPOSTA"
       ? "Gerar proposta"
       : modo === "CONTRATO"
       ? "Gerar contrato"
@@ -752,7 +868,9 @@ export function NovoDocumentoDialog({
     !modelo ||
     pending ||
     (modo === "PROPOSTA"
-      ? ePropostaDeCredenciamento
+      ? ePropostaPersonalizada
+        ? !destino || !personalizadaTemConteudo(personalizada)
+        : ePropostaDeCredenciamento
         ? !operadoraProposta || (modoGrade && celulasGrade.length === 0)
         : Object.keys(sel).length === 0
       : modo === "CONTRATO"
@@ -778,6 +896,12 @@ export function NovoDocumentoDialog({
       title="Novo documento"
       size={modelo ? "2xl" : "md"}
       footer={
+        lote ? (
+          <Button onClick={onClose} disabled={lote.emAndamento}>
+            {lote.emAndamento ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Fechar
+          </Button>
+        ) : (
         <>
           <Button variant="outline" onClick={onClose} disabled={pending}>
             Cancelar
@@ -791,8 +915,42 @@ export function NovoDocumentoDialog({
             {acaoLabel}
           </Button>
         </>
+        )
       }
     >
+      {lote ? (
+        <div className="space-y-3" aria-live="polite">
+          <p className="text-sm text-muted-foreground">
+            {lote.emAndamento
+              ? `Gerando as propostas… ${lote.criadas.length} de ${lote.total}.`
+              : lote.erro
+                ? `${lote.criadas.length} de ${lote.total} propostas foram criadas. A seguinte falhou e o lote parou:`
+                : `${lote.criadas.length} propostas criadas — uma por serviço, cada uma com o próprio número.`}
+          </p>
+          {lote.erro && <p className="text-sm text-destructive">{lote.erro}</p>}
+          <ul className="space-y-2">
+            {lote.criadas.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{c.titulo}</p>
+                  <p className="text-xs text-muted-foreground">{c.servico}</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="min-h-11"
+                  onClick={() => {
+                    onClose();
+                    navigate({ to: "/documentos/$documentoId", params: { documentoId: c.id } });
+                  }}
+                >
+                  Abrir
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
       <div className="space-y-4">
         <div className={cn("grid grid-cols-1 gap-3", !clienteFixo && "sm:grid-cols-2")}>
           <div className="space-y-1.5">
@@ -833,7 +991,15 @@ export function NovoDocumentoDialog({
         ) : (
           <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
             <div className="space-y-4">
-              {modo === "PROPOSTA" ? (
+              {modo === "PROPOSTA" && ePropostaPersonalizada ? (
+          <PropostaPersonalizadaEditor
+            form={personalizada}
+            setForm={setPersonalizada}
+            clienteId={clienteId || undefined}
+            leadId={leadId || undefined}
+            iaDisponivel={ia.data?.disponivel}
+          />
+        ) : modo === "PROPOSTA" ? (
           <>
             {ePropostaDeCredenciamento ? (
               <CredenciamentoPicker
@@ -854,6 +1020,24 @@ export function NovoDocumentoDialog({
                   escopo={ePropostaDeFaturamento ? "FATURAMENTO" : "COMERCIAL"}
                   titulo={ePropostaDeFaturamento ? "Serviço e percentual" : "Serviços da proposta"}
                 />
+                {ePropostaComercial && nServicos > 1 && (
+                  <label className="flex min-h-11 cursor-pointer items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={umaPorServico}
+                      onChange={(e) => setUmaPorServico(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
+                    />
+                    <span>
+                      <span className="font-medium text-foreground">Uma proposta por serviço</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {umaPorServico
+                          ? `Saem ${nServicos} propostas, cada uma com o próprio número e o próprio aceite. A prévia mostra os serviços juntos. Desmarque para juntar tudo numa proposta só.`
+                          : "Todos os serviços marcados saem numa proposta só."}
+                      </span>
+                    </span>
+                  </label>
+                )}
                 {ePropostaDeFaturamento && (
                   <>
                     <ConveniosPicker selecionados={conveniosSel} setSelecionados={setConveniosSel} />
@@ -1136,6 +1320,7 @@ export function NovoDocumentoDialog({
           </div>
         )}
       </div>
+      )}
     </Modal>
   );
 }
