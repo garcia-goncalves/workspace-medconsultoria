@@ -51,6 +51,16 @@ serve API (`/trpc`) + SPA + tempo real. Auth por cookie httpOnly assinado + argo
   (`deploy-ovh.yml`, não mais `deploy.yml`) e ganhou a opção `SO_IMAGEM` (só testa que a imagem
   constrói, sem tocar no site no ar).
 
+## Estado atual (2026-09-23 · propostas por serviço, Proposta Personalizada e documentos sem selo interno — PR aberto, NÃO publicado)
+
+> **Leia a ADR-156 em `docs/DECISIONS.md`** e `docs/esteira/propostas-por-servico-e-personalizado/` (briefing e spec).
+
+- **Uma proposta por serviço:** na Proposta comercial, com 2+ serviços marcados, o padrão é emitir UMA proposta por serviço (opção de juntar). Credenciamento e faturamento já eram separados.
+- **Proposta personalizada (o coringa):** modelo PROPOSTA novo, **sem migração e sem enum novo**. Itens do catálogo OU linhas avulsas, seções e cláusulas livres, validade, PIX, observações; IA (via `ai.ts`, com peneira de dado pessoal) sugere seções, redige cláusula, revisa texto e resume o investimento — sempre como sugestão que a pessoa aprova. ⚠️ Linha avulsa NÃO vira `ClienteServico` no aceite (só as do catálogo), então não entra no contrato automático nem gera conta a receber.
+- **PDF e Word saem sem selo de status nem de tipo** (a tela de edição continua mostrando). Antes de exportar, se sobrar `{{`, "(a preencher)" ou "(a definir", a tela pede confirmação. Varredura automatizada dos modelos-semente (`modelos-marcadores.test.ts`).
+- **A IA NÃO foi removida.** O código e os 15 pontos de tela existem; todo botão só aparece com `GEMINI_API_KEY` no servidor (`config.ts:90`). Local: `ia.disponivel = true`. ⚠️ **Em produção (OVH) a chave nunca foi posta no `.env`** — ação do dono. ⚠️ Em 23/09 o Gemini estava estourando 30 s **inclusive no resumo do dia, que já existia**: o erro chega tratado (412 "O Gemini não respondeu a tempo"), mas a geração com IA não foi provada de ponta a ponta neste dia.
+- **Pendente:** botões de IA das telas antigas ainda somem em silêncio quando a IA está indisponível (só o editor do Personalizado mostra desabilitado com explicação).
+
 ## Estado anterior (2026-09-20 · Conciliação Fases 2a e 2b na `main` — o dinheiro da cirurgia, para N clientes)
 
 > **Leia a ADR-155 em `docs/DECISIONS.md`** — o porquê de cada escolha desta rodada. As specs:
