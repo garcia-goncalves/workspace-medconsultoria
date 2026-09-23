@@ -11,13 +11,14 @@ import { DEFAULTS } from "./modelos.service.js";
  * aqui, junto com a explicação de onde o valor nasce).
  *
  * Origem dos valores:
+ *  - `personalizado`: preenchido só por criarPropostaPersonalizada (proposta-personalizada.service.ts);
  *  - `cliente.*` e `data`: `render()` os deriva do cliente e do relógio;
  *  - o restante vem de `variaveis` (campos do formulário "Novo documento" de cada tipo, ou do
  *    construtor de proposta/contrato), então o marcador vazio vira "(a preencher)" de propósito
  *    — a tela avisa antes de exportar (`confirmarExportacao`).
  */
 export const MARCADORES_CONHECIDOS = new Set([
-  "acoes", "alcance", "apresentacao", "atencao", "atividades", "clausulas_servicos",
+  "acoes", "alcance", "apresentacao", "personalizado", "atencao", "atividades", "clausulas_servicos",
   "cliente.cnpj", "cliente.email", "cliente.nome", "consultora", "contratada", "convenios",
   "dadosPagamento", "data", "data_hora", "data_reuniao", "decisoes", "decisoes_necessarias",
   "destaques", "engajamento", "entregaveis", "fora_escopo", "forma_pagamento", "foro",
