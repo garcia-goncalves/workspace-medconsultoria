@@ -52,6 +52,27 @@ export async function assertPodeVerOPainel(ator: SessionUser, clienteId: string)
 }
 
 /**
+ * "Este cliente é seu?" — a pergunta booleana por trás da régua, para telas que precisam
+ * de uma resposta sim/não em vez de uma exceção que interrompe a consulta inteira.
+ *
+ * ADMIN e acima sempre podem; o funcionário só nos clientes sob a responsabilidade dele. É a
+ * MESMA consulta que `assertClienteSobSuaResponsabilidade` usa — ela é escrita EM CIMA desta,
+ * nunca ao lado, para as duas nunca poderem divergir.
+ *
+ * Usada quando negar não significa "pare tudo": os metadados de arquivo (ADR-128 outra vez, a
+ * "segunda porta") somem do retorno, mas o resto da tela (status, progresso, contagem) continua
+ * — porque isso é regra de negócio, não dado pessoal de terceiro.
+ */
+export async function podeVerClienteSobSuaResponsabilidade(ator: SessionUser, clienteId: string): Promise<boolean> {
+  if (hasRoleLevel(ator.role, "ADMIN")) return true;
+  const meu = await prisma.cliente.findFirst({
+    where: { id: clienteId, responsavelId: ator.id, deletedAt: null },
+    select: { id: true },
+  });
+  return !!meu;
+}
+
+/**
  * "Este cliente é seu?" — a metade da régua acima que outras telas também precisam.
  *
  * ADMIN e acima passam sempre; o funcionário só nos clientes sob a responsabilidade dele. Existe
@@ -65,17 +86,11 @@ export async function assertPodeVerOPainel(ator: SessionUser, clienteId: string)
  * ⚠️ Não confere papel: quem chama já passou por `funcionarioProcedure` (ou pela linha acima).
  */
 export async function assertClienteSobSuaResponsabilidade(ator: SessionUser, clienteId: string, oQue: string) {
-  if (hasRoleLevel(ator.role, "ADMIN")) return;
-  const meu = await prisma.cliente.findFirst({
-    where: { id: clienteId, responsavelId: ator.id, deletedAt: null },
-    select: { id: true },
+  if (await podeVerClienteSobSuaResponsabilidade(ator, clienteId)) return;
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: `Você só pode ${oQue} dos clientes sob a sua responsabilidade.`,
   });
-  if (!meu) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: `Você só pode ${oQue} dos clientes sob a sua responsabilidade.`,
-    });
-  }
 }
 
 /**

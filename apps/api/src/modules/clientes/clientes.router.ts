@@ -21,7 +21,11 @@ import * as arquivos from "../arquivos/arquivos.service.js";
 import { listChamadosDoCliente } from "../mensagens/mensagens.service.js";
 import * as pessoas from "../portal/pessoas.service.js";
 // A MESMA régua do Painel do Cliente (ADR-128): ADMIN+ sempre, funcionário só nos clientes dele.
-import { assertPodeVerOPainel, assertClienteSobSuaResponsabilidade } from "../auth/painel-cliente.service.js";
+import {
+  assertPodeVerOPainel,
+  assertClienteSobSuaResponsabilidade,
+  podeVerClienteSobSuaResponsabilidade,
+} from "../auth/painel-cliente.service.js";
 
 export const clientesRouter = router({
   // Chamados de suporte do cliente (lista na ficha; a conversa fica em Mensagens).
@@ -154,9 +158,18 @@ export const clientesRouter = router({
     .mutation(({ input, ctx }) => service.arquivarNota(input.notaId, ctx.user.id, input.arquivar)),
 
   // ── Serviços contratados do cliente (ficha) ──
+  //
+  // ⚠️ OS METADADOS DE ARQUIVO SEGUEM A MESMA RÉGUA DA LISTA (`arquivos`, abaixo) — a "segunda
+  // porta" achada depois da ADR-128: o funcionário que não é responsável não vê nome/tamanho/id
+  // de documento, mas continua vendo status e progresso do serviço (contagem, não conteúdo), que
+  // é o que ele precisa para operar. A query não é bloqueada por inteiro, ao contrário de
+  // `arquivos`: aqui o resto da ficha (preço, contratação, pendências) tem que continuar de pé.
   servicos: funcionarioProcedure
     .input(z.object({ id: z.string() }))
-    .query(({ input }) => servicosCliente.servicosDoCliente(input.id)),
+    .query(async ({ input, ctx }) => {
+      const podeVerArquivos = await podeVerClienteSobSuaResponsabilidade(ctx.user, input.id);
+      return servicosCliente.servicosDoCliente(input.id, { ocultarArquivos: !podeVerArquivos });
+    }),
   ativarServico: funcionarioProcedure
     .input(ativarServicoClienteSchema)
     .mutation(({ input, ctx }) =>
