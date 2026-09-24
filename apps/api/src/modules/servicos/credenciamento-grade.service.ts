@@ -4,10 +4,13 @@ import { notificar } from "../notificacoes/notificacoes.service.js";
 import { equipeDoCliente } from "../arquivos/arquivos.service.js";
 import { garantirCategoriaHonorarios } from "./credenciamento.service.js";
 import {
+  APROVACAO_CREDENCIAMENTO_SO_ADMIN,
   motivoDaTransicaoRecusada,
+  podeAprovarCredenciamento,
   proximaTentativa,
   totalDaGrade,
   type CelulaGrade,
+  type Role,
   type StatusCredenciamento,
 } from "@app/shared";
 
@@ -149,7 +152,7 @@ export async function salvarGrade(
     documentoId?: string | null;
     somenteOperadorasDaGrade?: boolean;
   },
-  ator: { id: string },
+  ator: { id: string; role: Role },
 ) {
   const profissionaisDoCliente = new Set(
     (await prisma.profissional.findMany({ where: { clienteId: input.clienteId }, select: { id: true } })).map((p) => p.id),
@@ -169,6 +172,22 @@ export async function salvarGrade(
     const par = `${e.profissionalId}|${e.operadoraId}`;
     const atual = vigentePorPar.get(par);
     if (!atual || e.tentativa > atual.tentativa) vigentePorPar.set(par, e);
+  }
+
+  // A ÚNICA correção de valor que esta carga pode fazer sozinha (sem passar por
+  // `mudarStatusCredenciamento`) é justamente a que LANÇA a cobrança: o honorário "a
+  // combinar" de um cruzamento já APROVADO (M15, ver `honorarioPendente` abaixo). Por isso a
+  // mesma trava de ADMIN+ da aprovação vale aqui — checada ANTES de qualquer gravação, para
+  // um funcionário sem permissão nunca deixar meio da carga salva e meio recusada.
+  if (!podeAprovarCredenciamento(ator.role)) {
+    for (const c of input.celulas) {
+      const vigente = vigentePorPar.get(`${c.profissionalId}|${c.operadoraId}`);
+      const honorarioPendente =
+        vigente?.status === "APROVADO" && !vigente.contaId && Number(vigente.valor) <= 0 && c.valor > 0;
+      if (honorarioPendente) {
+        throw new TRPCError({ code: "FORBIDDEN", message: APROVACAO_CREDENCIAMENTO_SO_ADMIN });
+      }
+    }
   }
 
   const marcados = new Set(input.celulas.map((c) => `${c.profissionalId}|${c.operadoraId}`));
@@ -293,7 +312,7 @@ function semAvisoDeHonorario(observacoes: string | null): string | null {
  */
 export async function mudarStatusCredenciamento(
   input: { id: string; status: StatusCredenciamento; motivoNegativa?: string | null; observacoes?: string | null },
-  ator: { id: string },
+  ator: { id: string; role: Role },
 ) {
   const atual = await prisma.credenciamento.findUnique({ where: { id: input.id } });
   if (!atual) throw new TRPCError({ code: "NOT_FOUND", message: "Credenciamento não encontrado." });
@@ -301,6 +320,13 @@ export async function mudarStatusCredenciamento(
   const de = atual.status as StatusCredenciamento;
   const recusa = motivoDaTransicaoRecusada(de, input.status);
   if (recusa) throw new TRPCError({ code: "BAD_REQUEST", message: recusa });
+
+  // A TRANSIÇÃO PARA APROVADO É O QUE LANÇA A COBRANÇA (abaixo) — decisão do dono: só ADMIN+
+  // aprova. Funcionário continua podendo protocolar, pôr em análise, negar e abrir nova
+  // tentativa; é só este gesto, o que cria dinheiro, que fica reservado.
+  if (input.status === "APROVADO" && !podeAprovarCredenciamento(ator.role)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: APROVACAO_CREDENCIAMENTO_SO_ADMIN });
+  }
 
   const motivoNegativa = input.motivoNegativa?.trim() ?? "";
   if (input.status === "NEGADO" && !motivoNegativa) {

@@ -522,9 +522,15 @@ ${tabelaPagamento}` : "";
     // ⚠️ `somenteOperadorasDaGrade`: a proposta é de UMA operadora (ADR-126). Sem esta marca,
     // emitir a 2ª proposta apagaria os cruzamentos `A_PROTOCOLAR` da 1ª — eles simplesmente não
     // vêm nesta carga, e a grade os leria como "desmarcados".
+    //
+    // O papel de quem gera é lido aqui porque `salvarGrade` pode lançar cobrança (o acerto do
+    // honorário "a combinar" de um cruzamento já aprovado, M15) e essa transição exige ADMIN+ —
+    // a mesma trava da aprovação. Sem role no lookup (não deveria acontecer), o padrão é o mais
+    // restrito, nunca o mais permissivo.
+    const autor = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
     await salvarGrade(
       { clienteId, celulas: grade, documentoId: doc.id, somenteOperadorasDaGrade: true },
-      { id: userId },
+      { id: userId, role: autor?.role ?? "FUNCIONARIO" },
     );
   }
 

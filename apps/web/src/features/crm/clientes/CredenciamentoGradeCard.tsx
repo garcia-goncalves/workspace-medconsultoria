@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { AlertTriangle, Building2, Loader2, RotateCcw } from "lucide-react";
 import {
+  APROVACAO_CREDENCIAMENTO_SO_ADMIN,
+  podeAprovarCredenciamento,
   STATUS_CREDENCIAMENTO,
   STATUS_CREDENCIAMENTO_AJUDA,
   STATUS_CREDENCIAMENTO_LABEL,
@@ -8,6 +10,7 @@ import {
   type StatusCredenciamento,
 } from "@app/shared";
 import { trpc } from "../../../lib/trpc";
+import { useAuth } from "../../../lib/auth-context";
 import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Modal } from "../../../components/ui/modal";
@@ -199,10 +202,20 @@ export function MudarStatusDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { user } = useAuth();
+  // Aprovar é o que lança a cobrança (§3.3/§6.3) — decisão do dono: só ADMIN+. A opção continua
+  // na lista, desabilitada com a explicação ao lado, em vez de sumir em silêncio (padrão da
+  // casa) — o servidor recusa a mesma coisa, então esconder sem dizer por que só confundiria.
+  const podeAprovar = podeAprovarCredenciamento(user.role);
   // Só os destinos que a regra permite entram na lista — o que não pode não aparece, em vez
   // de aparecer e dar erro depois de a pessoa escolher.
   const destinos = STATUS_CREDENCIAMENTO.filter((s) => transicaoCredenciamentoPermitida(celula.status, s));
-  const [status, setStatus] = useState<StatusCredenciamento>(destinos[0] ?? celula.status);
+  // O padrão evita pré-selecionar "Aprovado" para quem não pode escolhê-lo — sem isso o campo
+  // nasceria numa opção desabilitada e o botão Salvar já apareceria bloqueado sem ninguém ter
+  // tocado em nada.
+  const [status, setStatus] = useState<StatusCredenciamento>(
+    destinos.find((s) => s !== "APROVADO" || podeAprovar) ?? destinos[0] ?? celula.status,
+  );
   const [motivo, setMotivo] = useState("");
   const [observacoes, setObservacoes] = useState(celula.observacoes ?? "");
 
@@ -237,7 +250,12 @@ export function MudarStatusDialog({
             Cancelar
           </Button>
           <Button
-            disabled={mutar.isPending || destinos.length === 0 || (status === "NEGADO" && !motivo.trim())}
+            disabled={
+              mutar.isPending ||
+              destinos.length === 0 ||
+              (status === "NEGADO" && !motivo.trim()) ||
+              (status === "APROVADO" && !podeAprovar)
+            }
             onClick={() =>
               mutar.mutate({
                 id: celula.id,
@@ -259,12 +277,16 @@ export function MudarStatusDialog({
           <Label htmlFor="cred-status">Como está agora? *</Label>
           <Select id="cred-status" value={status} onChange={(e) => setStatus(e.target.value as StatusCredenciamento)}>
             {destinos.map((s) => (
-              <option key={s} value={s}>
+              <option key={s} value={s} disabled={s === "APROVADO" && !podeAprovar}>
                 {STATUS_CREDENCIAMENTO_LABEL[s]}
+                {s === "APROVADO" && !podeAprovar ? " (só administrador)" : ""}
               </option>
             ))}
           </Select>
           <p className="text-xs text-muted-foreground">{STATUS_CREDENCIAMENTO_AJUDA[status]}</p>
+          {!podeAprovar && destinos.includes("APROVADO") && (
+            <p className="text-xs text-muted-foreground">{APROVACAO_CREDENCIAMENTO_SO_ADMIN}</p>
+          )}
         </div>
 
         {status === "NEGADO" && (

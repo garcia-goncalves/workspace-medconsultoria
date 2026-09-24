@@ -44,13 +44,17 @@ export const credenciamentoRouter = router({
     .input(z.object({ clienteId: z.string().min(1) }))
     .query(({ input }) => grade.gradeDoCliente(input.clienteId)),
 
+  // ⚠️ `salvarGrade` e `mudarStatus` continuam `funcionarioProcedure` — a rota atende também
+  // quem só protocola/pede análise/nega. A trava de ADMIN+ da APROVAÇÃO (§ decisão do dono:
+  // aprovar é o que lança a cobrança) mora DENTRO do serviço, condicionada ao status pedido —
+  // travar a rota inteira tiraria do funcionário as ações que ele continua podendo fazer.
   salvarGrade: funcionarioProcedure
     .input(salvarGradeSchema)
-    .mutation(({ input, ctx }) => grade.salvarGrade(input, { id: ctx.user.id })),
+    .mutation(({ input, ctx }) => grade.salvarGrade(input, { id: ctx.user.id, role: ctx.user.role })),
 
   mudarStatus: funcionarioProcedure
     .input(mudarStatusCredenciamentoSchema)
-    .mutation(({ input, ctx }) => grade.mudarStatusCredenciamento(input, { id: ctx.user.id })),
+    .mutation(({ input, ctx }) => grade.mudarStatusCredenciamento(input, { id: ctx.user.id, role: ctx.user.role })),
 
   novaTentativa: funcionarioProcedure
     .input(novaTentativaCredenciamentoSchema)
