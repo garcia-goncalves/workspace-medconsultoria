@@ -373,6 +373,23 @@ export const EMAIL_TEMPLATES = {
       ctaTexto: "Ver tarefa",
     },
   },
+  tarefa_vencida: {
+    label: "Tarefa individual venceu",
+    descricao: "Quando uma tarefa (não um cartão do Kanban) passa do prazo sem ser concluída.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "tarefa", rotulo: "Tarefa", descricao: "O que precisa ser feito", exemplo: "Ligar para o contador da clínica" },
+      { chave: "prazo", rotulo: "Prazo", descricao: "A data combinada, que já passou", exemplo: "20/09/2026" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "Uma tarefa passou do prazo",
+      titulo: "Tarefa vencida: {{tarefa}}",
+      corpo: "A tarefa \"{{tarefa}}\" venceu em {{prazo}} e ainda não foi concluída.",
+      ctaTexto: "Ver tarefa",
+    },
+  },
   projeto_participante: {
     label: "Adicionado a um projeto",
     descricao: "Quando você é incluído na equipe de um projeto.",
@@ -461,6 +478,33 @@ export const EMAIL_TEMPLATES = {
       corpo:
         "A {{operadora}} negou o credenciamento de {{profissional}} ({{cliente}}). Motivo: \"{{motivo}}\". Uma nova tentativa só com acordo expresso do cliente.",
       ctaTexto: "Ver o cliente",
+    },
+  },
+  // ── LEMBRETE DO HONORÁRIO "A COMBINAR" APROVADO (Onda 1, item B) ──────────────────────
+  //
+  // Complementa `credenciamento_aprovado`: quando o honorário do cruzamento aprovado ainda é
+  // "a combinar" (R$ 0,00), nenhuma conta a receber nasce (M15) — só um aviso nas observações
+  // do cruzamento, que a página Credenciamentos já desenha. Este e-mail/notificação é o que
+  // avisa QUEM cuida do cliente, para a pendência não depender de alguém abrir aquela ficha
+  // por acaso.
+  credenciamento_a_combinar: {
+    label: "Credenciamento aprovado com honorário a combinar",
+    descricao:
+      "Quando uma operadora aprova um credenciamento cujo honorário ainda está \"a combinar\" (R$ 0,00) — nenhuma conta nasce até o valor ser preenchido. Vai para o responsável e a gestão.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "cliente", rotulo: "Nome do cliente", descricao: "A clínica ou PJ", exemplo: "Clínica Bem-Estar" },
+      { chave: "profissional", rotulo: "Médico", descricao: "Quem foi credenciado", exemplo: "Dra. Helena Martins Prado" },
+      { chave: "operadora", rotulo: "Operadora", descricao: "Quem aprovou", exemplo: "Omint" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "{{operadora}} aprovou {{profissional}} — falta o valor do honorário",
+      titulo: "Credenciamento aprovado com honorário a combinar",
+      corpo:
+        "A {{operadora}} aprovou {{profissional}} ({{cliente}}) com honorário \"a combinar\" — sem valor, nenhuma conta nasceu. Informe o valor na grade da ficha.",
+      ctaTexto: "Preencher o valor",
     },
   },
   proposta_recusada: {
@@ -800,6 +844,34 @@ export const EMAIL_TEMPLATES = {
       titulo: "Lead parado há +14 dias",
       corpo: "O lead {{contato}} está parado há mais de 14 dias no funil. Um retorno agora pode reaquecer a conversa.",
       ctaTexto: "Ver no funil",
+    },
+  },
+
+  // ── MENSAGEM INTERNA (W5, Onda 1) ─────────────────────────────────────────────────────
+  //
+  // Conversa INDIVIDUAL/GRUPO/PROJETO só emitia socket (que em produção nem existe — tempo
+  // real é polling). Anti-spam de 1 e-mail por conversa/destinatário a cada 30 min mora em
+  // `mensagens.service.ts`, não aqui: este template só descreve o texto.
+  mensagem_interna: {
+    label: "Mensagem em conversa interna",
+    descricao: "Nova mensagem numa conversa individual, de grupo ou de projeto. Vai para os outros participantes (nunca para quem escreveu).",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "remetente", rotulo: "Quem escreveu", descricao: "Nome de quem mandou a mensagem", exemplo: "Thaís Garcia" },
+      { chave: "conversa", rotulo: "Conversa", descricao: "Nome do grupo/projeto, ou o nome de quem escreveu numa conversa individual", exemplo: "Equipe comercial" },
+      // ⚠️ SEM variável de TRECHO, de propósito. A conversa interna fala de cliente e de paciente
+      // (Conciliação), e o e-mail sai da casa e fica guardado na caixa de cada um, fora do nosso
+      // controle e do nosso expurgo. O trecho aparece só no sininho, dentro do sistema e já
+      // passado pela peneira de dado pessoal (`mensagens.service.ts`); o e-mail só chama para ler.
+      { chave: "link", rotulo: "Link das mensagens", descricao: "Página de Mensagens", exemplo: "(link de Mensagens)" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "{{remetente}} mandou uma mensagem — {{conversa}}",
+      titulo: "Nova mensagem: {{conversa}}",
+      corpo: '{{remetente}} te escreveu em "{{conversa}}". Abra as Mensagens para ler.',
+      ctaTexto: "Abrir Mensagens",
     },
   },
 

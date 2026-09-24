@@ -32,6 +32,7 @@ type Form = {
   credenciamentoPrazoDias: string;
   retencaoCorpoEmailDias: string;
   retencaoAcervoAnos: string;
+  retencaoPacienteAnos: string;
   encarregadoNome: string;
   encarregadoEmail: string;
 };
@@ -41,7 +42,7 @@ const VAZIO: Form = {
   instagram: "", instagramUrl: "", razaoSocial: "", cnpj: "", enderecoCompleto: "", foro: "",
   bancoNome: "", bancoAgencia: "", bancoConta: "", bancoTitular: "", pixChave: "",
   credenciamentoPrazoDias: "60",
-  retencaoCorpoEmailDias: "180", retencaoAcervoAnos: "5", encarregadoNome: "", encarregadoEmail: "",
+  retencaoCorpoEmailDias: "180", retencaoAcervoAnos: "5", retencaoPacienteAnos: "5", encarregadoNome: "", encarregadoEmail: "",
 };
 
 /**
@@ -67,6 +68,9 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
   const guardaEmailValida = Number.isInteger(guardaEmail) && guardaEmail >= 30 && guardaEmail <= 3650;
   const guardaAcervo = Number(form.retencaoAcervoAnos);
   const guardaAcervoValida = Number.isInteger(guardaAcervo) && guardaAcervo >= 1 && guardaAcervo <= 10;
+  // Dado de paciente da Conciliação — a mesma faixa que o servidor aceita (1 a 20 anos).
+  const guardaPaciente = Number(form.retencaoPacienteAnos);
+  const guardaPacienteValida = Number.isInteger(guardaPaciente) && guardaPaciente >= 1 && guardaPaciente <= 20;
 
   useEffect(() => {
     if (open && dados.data) {
@@ -82,6 +86,7 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
         credenciamentoPrazoDias: String(d.credenciamentoPrazoDias ?? 60),
         retencaoCorpoEmailDias: String(d.retencaoCorpoEmailDias ?? 180),
         retencaoAcervoAnos: String(d.retencaoAcervoAnos ?? 5),
+        retencaoPacienteAnos: String(d.retencaoPacienteAnos ?? 5),
         encarregadoNome: d.encarregadoNome ?? "", encarregadoEmail: d.encarregadoEmail ?? "",
       });
     }
@@ -106,13 +111,14 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
             Cancelar
           </Button>
           <Button
-            disabled={!form.nome.trim() || !prazoValido || !guardaEmailValida || !guardaAcervoValida || salvar.isPending || dados.isLoading}
+            disabled={!form.nome.trim() || !prazoValido || !guardaEmailValida || !guardaAcervoValida || !guardaPacienteValida || salvar.isPending || dados.isLoading}
             onClick={() =>
               salvar.mutate({
                 ...form,
                 credenciamentoPrazoDias: Number(form.credenciamentoPrazoDias),
                 retencaoCorpoEmailDias: Number(form.retencaoCorpoEmailDias),
                 retencaoAcervoAnos: Number(form.retencaoAcervoAnos),
+                retencaoPacienteAnos: Number(form.retencaoPacienteAnos),
               })
             }
           >
@@ -327,6 +333,26 @@ export function IdentidadeDialog({ open, onClose }: { open: boolean; onClose: ()
                   <p className="text-xs text-muted-foreground">Hoje: {guardaAcervo} anos (padrão 5, alinhado à guarda fiscal).</p>
                 ) : (
                   <p className="text-xs text-destructive">Informe um número de 1 a 10.</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="id-guarda-paciente"
+                  hint="Conta da data do atendimento ou da cirurgia. Passado o prazo, o nome e os contatos do paciente saem da Conciliação e a planilha importada é apagada. Os valores cobrados e recebidos continuam."
+                >
+                  Guardar dados de pacientes da Conciliação por (anos)
+                </Label>
+                <Input
+                  id="id-guarda-paciente"
+                  inputMode="numeric"
+                  value={form.retencaoPacienteAnos}
+                  onChange={(e) => set("retencaoPacienteAnos", e.target.value.replace(/\D/g, ""))}
+                  placeholder="5"
+                />
+                {guardaPacienteValida ? (
+                  <p className="text-xs text-muted-foreground">Hoje: {guardaPaciente} anos (padrão 5).</p>
+                ) : (
+                  <p className="text-xs text-destructive">Informe um número de 1 a 20.</p>
                 )}
               </div>
             </div>

@@ -1,8 +1,9 @@
-import { useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { ArrowDown, ArrowUp, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { useState, type Dispatch, type SetStateAction } from "react";
+import { ArrowDown, ArrowUp, Plus, Sparkles, Trash2 } from "lucide-react";
 import { ehServicoDeFaturamento, resumoInvestimentoPersonalizado } from "@app/shared";
 import { cn } from "@app/ui";
 import { trpc } from "../../lib/trpc";
+import { BotaoIA } from "../../components/ia/BotaoIA";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -21,49 +22,6 @@ import {
   type LinhaForm,
   type PersonalizadaForm,
 } from "./proposta-personalizada";
-
-/** Frase do botão de IA desligado — ele fica À VISTA, desabilitado, e diz o porquê (ADR-156). */
-const IA_DESLIGADA = "IA desligada: falta configurar a chave";
-
-/**
- * Botão de IA. NUNCA some: sem IA ele aparece desabilitado com a explicação ao lado. Sumir em
- * silêncio foi exatamente o relato do dono ("a IA sumiu do Workspace").
- */
-function BotaoIA({
-  iaDisponivel,
-  pendente,
-  onClick,
-  children,
-  disabled,
-  ocupado,
-}: {
-  iaDisponivel: boolean | undefined;
-  pendente: boolean;
-  onClick: () => void;
-  children: ReactNode;
-  disabled?: boolean;
-  /** Outra chamada de IA em andamento: só uma por vez (a mutation é compartilhada). */
-  ocupado?: boolean;
-}) {
-  const motivo = iaDisponivel === undefined ? "Verificando se a IA está ligada…" : iaDisponivel ? null : IA_DESLIGADA;
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="min-h-11"
-        disabled={!iaDisponivel || pendente || disabled || ocupado}
-        onClick={onClick}
-        title={motivo ?? undefined}
-      >
-        {pendente ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4 text-primary" />}
-        {children}
-      </Button>
-      {motivo && <span className="text-xs text-muted-foreground">{motivo}</span>}
-    </div>
-  );
-}
 
 /** Botões ↑ ↓ 🗑 de uma linha — alvo de toque de 44px, com nome para leitor de tela. */
 function AcoesDaLinha({

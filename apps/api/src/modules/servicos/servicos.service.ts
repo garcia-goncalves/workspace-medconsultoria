@@ -623,12 +623,18 @@ export async function garantirCatalogoDeServicos() {
   await seedIfEmpty();
 }
 
-/** Todos os serviços (gestão) — inclui inativos + contagens de exigências e passos. */
+/**
+ * Todos os serviços (gestão) — inclui inativos + contagens de exigências, passos e
+ * CONTRATAÇÕES. Esta última é o que a tela usa para decidir, ANTES de qualquer clique, se
+ * "Remover" pode ficar disponível — ver `removerServico`, que aplica a mesma régua no
+ * servidor. `@@unique([clienteId, servicoId])` garante que a contagem já é por cliente
+ * distinto (um cliente não tem duas linhas para o mesmo serviço).
+ */
 export async function listServicos() {
   await seedIfEmpty();
   const servicos = await prisma.servico.findMany({
     orderBy: [{ ativo: "desc" }, { ordem: "asc" }],
-    include: { _count: { select: { requisitos: true, passos: true } } },
+    include: { _count: { select: { requisitos: true, passos: true, contratacoes: true } } },
   });
   return servicos.map(mapServico);
 }
@@ -1077,8 +1083,59 @@ export async function setRoteiro(servicoId: string, roteiro: { titulo: string; i
   return { ok: true };
 }
 
+/**
+ * ⚠️ NÃO É REMOÇÃO LIVRE. `ClienteServico.servico` é `onDelete: Cascade` (schema.prisma) — cada
+ * linha carrega o preço REALMENTE combinado com o cliente, os convênios atendidos e o histórico
+ * da contratação (mesmo cancelada: cancelar é `update`, nunca `delete` — ver
+ * `cancelarServicoCliente`). Excluir o serviço apagaria tudo isso em silêncio, para todo cliente
+ * que já contratou, e o diálogo da tela só avisava sobre leads. Aqui a régua confere o USO antes
+ * de deixar o `delete` acontecer.
+ *
+ * ⚠️ A trava é DA APLICAÇÃO, não do schema: trocar o Cascade por Restrict quebraria fixtures de
+ * teste que dependem dele e ainda deixaria passar o caso "sem contratação nenhuma" sem checar —
+ * a régua certa é sobre uso, não sobre o tipo de relação (mesma lição da ADR-152 sobre não mexer
+ * em constraint de banco "para consertar" sem medir o custo nos testes existentes).
+ *
+ * `Conta.origemServicoId` NÃO é uma FK (é `String?` solto, de propósito — ver o comentário no
+ * schema): apagar o serviço não apagaria a conta, mas deixaria a origem apontando para um id que
+ * não existe mais, quebrando silenciosamente a conferência anti-cobrança-dupla
+ * (`servicos-cliente.service.ts`, que compara por `origemServicoId` OU pela descrição). Por isso
+ * ela também bloqueia, mesmo sem `ClienteServico` (não deveria acontecer, já que os dois nascem
+ * na mesma operação — mas é rede de segurança barata).
+ *
+ * `Credenciamento` não tem `servicoId` (liga por profissional/operadora, não por Servico) — fora
+ * do escopo. `Documento.itens` é JSON solto sem FK — documento já emitido guarda o texto de
+ * quando foi gerado e não se corrige nem quebra ao excluir o serviço do catálogo (mesmo
+ * princípio de outros documentos já emitidos nesta casa). `Lead.servicos` (N–N) segue liberado —
+ * o próprio diálogo da tela já avisa "leads deixam de exibi-lo", e lead é intenção, não dinheiro
+ * contratado.
+ */
 export async function removerServico(id: string) {
-  // Remoção física; a relação N–N com leads e os passos são removidos em cascata.
+  const [clientesComEsteServico, contasComEstaOrigem] = await Promise.all([
+    prisma.clienteServico.count({ where: { servicoId: id } }),
+    prisma.conta.count({ where: { origemServicoId: id } }),
+  ]);
+  if (clientesComEsteServico > 0) {
+    const n = clientesComEsteServico;
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        (n === 1 ? "1 cliente tem" : `${n} clientes têm`) +
+        " este serviço contratado (ativo ou já encerrado) — excluir apagaria o preço combinado, " +
+        "os convênios e o histórico deles. Desative o serviço para tirá-lo das vendas sem perder " +
+        "esse histórico.",
+    });
+  }
+  if (contasComEstaOrigem > 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Este serviço tem cobrança vinculada no Financeiro — excluir apagaria essa origem do " +
+        "histórico. Desative o serviço em vez de excluir.",
+    });
+  }
+  // Remoção física; a relação N–N com leads e os passos/exigências do catálogo são removidos
+  // em cascata — sem cliente vinculado, é seguro.
   await prisma.servico.delete({ where: { id } }).catch(() => {
     throw new TRPCError({ code: "NOT_FOUND", message: "Serviço não encontrado." });
   });

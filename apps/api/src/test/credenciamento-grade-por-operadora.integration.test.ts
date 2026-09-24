@@ -20,7 +20,7 @@ import { salvarGrade } from "../modules/servicos/credenciamento-grade.service.js
  */
 
 const PFX = `gradeop-${randomBytes(4).toString("hex")}`;
-const ATOR = { id: "" };
+const ATOR: { id: string; role: "ADMIN" } = { id: "", role: "ADMIN" };
 let clienteId: string;
 let medicoId: string;
 let opAId: string;

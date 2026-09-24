@@ -9,7 +9,6 @@ import {
   ListChecks,
   X,
   ClipboardCheck,
-  Sparkles,
   Loader2,
   Settings2,
   FileText,
@@ -31,6 +30,7 @@ import {
 import { useForm, Controller, useWatch, type Control, type UseFormSetValue, type UseFormRegister } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { BotaoIA } from "../../../components/ia/BotaoIA";
 import { PageHeader } from "../../../components/ui/page-header";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
@@ -434,6 +434,8 @@ function DetalhesPanel({
   const invalidate = () => utils.servicos.list.invalidate();
   const atualizar = trpc.servicos.atualizar.useMutation({ onSuccess: invalidate });
   const remover = trpc.servicos.remover.useMutation({ onSuccess: () => (invalidate(), onClose()) });
+  // Mostra o uso ANTES do clique — a mesma régua que o servidor aplica em `removerServico`.
+  const emUso = servico._count.contratacoes > 0;
 
   return (
     <form
@@ -494,11 +496,26 @@ function DetalhesPanel({
         />
       </div>
       {atualizar.error && <p className="text-sm text-destructive">{atualizar.error.message}</p>}
+      {remover.error && <p className="text-sm text-destructive">{remover.error.message}</p>}
+
+      {/* Contagem já veio junto com a lista (`_count.contratacoes`) — sem round-trip extra. Zero
+          significa "ninguém nunca contratou" (é contagem de linhas `ClienteServico`, ativas OU
+          canceladas: cancelar é `update`, nunca `delete` — a linha nunca some). */}
+      {emUso && (
+        <p className="text-xs text-muted-foreground">
+          {servico._count.contratacoes === 1
+            ? "1 cliente tem"
+            : `${servico._count.contratacoes} clientes têm`}{" "}
+          este serviço contratado (ativo ou já encerrado) — a exclusão fica indisponível para não
+          apagar esse histórico. Desative para tirá-lo das vendas sem perder o que já foi
+          contratado.
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-4">
         <Button
           type="button"
-          variant="outline"
+          variant={emUso ? "default" : "outline"}
           onClick={async () => {
             if (
               servico.ativo &&
@@ -521,7 +538,14 @@ function DetalhesPanel({
           type="button"
           variant="outline"
           className="text-destructive hover:bg-destructive/10"
+          disabled={emUso}
+          title={
+            emUso
+              ? "Indisponível: há cliente(s) com este serviço contratado — desative em vez de excluir."
+              : undefined
+          }
           onClick={async () => {
+            if (emUso) return;
             if (
               await confirm({
                 title: "Remover serviço",
@@ -607,18 +631,14 @@ function ExigenciasPanel({ servico }: { servico: ServicoRow }) {
         <p className="text-sm text-muted-foreground">
 <strong>O cliente envia:</strong> o que o cliente precisa entregar para este serviço. Tudo aparece no Portal do Cliente e chega na ficha.
         </p>
-        {ia.data?.disponivel && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 text-primary"
-            disabled={sugerir.isPending}
-            onClick={() => sugerir.mutate({ servicoId: servico.id })}
-          >
-            {sugerir.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            Sugerir com IA
-          </Button>
-        )}
+        <BotaoIA
+          iaDisponivel={ia.data?.disponivel}
+          pendente={sugerir.isPending}
+          className="shrink-0 text-primary"
+          onClick={() => sugerir.mutate({ servicoId: servico.id })}
+        >
+          Sugerir com IA
+        </BotaoIA>
       </div>
 
       {sugestoes.length > 0 && (

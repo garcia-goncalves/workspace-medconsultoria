@@ -69,6 +69,13 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   { tipo: "proposta_recusada", label: "Proposta recusada pelo cliente", descricao: "Quando um cliente recusa a proposta pelo link/Portal.", grupo: "Vendas e funil" },
   { tipo: "credenciamento_aprovado", label: "Operadora aprovou um credenciamento", descricao: "Quando uma operadora aprova o credenciamento de um médico — é quando o honorário passa a ser devido.", grupo: "Credenciamento" },
   { tipo: "credenciamento_negado", label: "Operadora negou um credenciamento", descricao: "Quando uma operadora nega o credenciamento de um médico, com o motivo.", grupo: "Credenciamento" },
+  // ── LEMBRETE DO HONORÁRIO "A COMBINAR" APROVADO (Onda 1, item B) ──────────────────────
+  //
+  // Aprovar com honorário zerado não cria conta (M15) e só grava aviso nas observações do
+  // cruzamento — que só quem abrir aquela ficha por acaso vê. Nasce LIGADA, como as outras duas
+  // desta seção: aqui o risco é o dinheiro nunca ser cobrado porque ninguém lembrou de voltar e
+  // preencher o valor, não o oposto.
+  { tipo: "credenciamento_a_combinar", label: "Credenciamento aprovado com honorário a combinar", descricao: "Quando uma operadora aprova um credenciamento cujo honorário ainda está \"a combinar\" (R$ 0,00) — falta preencher o valor para a cobrança nascer.", grupo: "Credenciamento" },
   { tipo: "servico_solicitado", label: "Cliente pediu serviços pelo Portal", descricao: "Quando um cliente escolhe serviços no Portal do Cliente.", grupo: "Clientes e Portal" },
   { tipo: "documento_cliente_enviado", label: "Cliente enviou um documento", descricao: "Quando um cliente anexa um documento pelo Portal.", grupo: "Clientes e Portal" },
   { tipo: "servico_cancelado", label: "Cliente cancelou um serviço", descricao: "Quando um cliente cancela um serviço pelo Portal.", grupo: "Clientes e Portal" },
@@ -118,6 +125,29 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   },
   { tipo: "incidente", label: "Alertas do sistema", descricao: "Incidentes técnicos detectados na aplicação.", grupo: "Sistema", minRole: "ROOT" },
   { tipo: "erro", label: "Erros do sistema", descricao: "Novos erros registrados na aplicação.", grupo: "Sistema", minRole: "ROOT" },
+  // ── MENSAGEM INTERNA NÃO AVISAVA NINGUÉM FORA DO SISTEMA (W5, Onda 1) ────────────────
+  //
+  // Conversa INDIVIDUAL/GRUPO/PROJETO só emitia socket — e em produção o tempo real é polling
+  // (Socket.IO desligado), então nem isso chegava. Nasce LIGADA (nenhum papel desligado por
+  // padrão): quem manda uma mensagem interna espera que o destinatário saiba, mesmo longe da tela.
+  {
+    tipo: "mensagem_interna",
+    label: "Mensagem em conversa interna",
+    descricao: "Nova mensagem numa conversa individual, de grupo ou de projeto da qual você participa.",
+    grupo: "Agenda e tarefas",
+  },
+  // ── TAREFA (não Card/Kanban) QUE VENCEU SOZINHA, SEM NINGUÉM PERCEBER ────────────────
+  //
+  // Nasce da varredura proativa, com `unico: true` por entidade — o aviso não se repete a
+  // cada rodada do scan. Uma tarefa delegada com prazo vencido não gritava sozinha: só
+  // aparecia se alguém abrisse a página e olhasse a coluna "Prazo". Por isso nasce LIGADA
+  // (mesmo padrão dos outros avisos do scan, acima): o risco aqui é avisar de MENOS.
+  {
+    tipo: "tarefa_vencida",
+    label: "Tarefa individual venceu",
+    descricao: "Uma tarefa sua (ou que você delegou) passou do prazo sem ser concluída.",
+    grupo: "Agenda e tarefas",
+  },
 ];
 
 /** Conjunto de tipos que disparam e-mail (usado no back para filtrar). */

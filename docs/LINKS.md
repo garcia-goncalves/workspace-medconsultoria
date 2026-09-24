@@ -338,12 +338,20 @@ Publicar **não é mais um comando** — é um botão, e você mesmo consegue ap
 3. No campo que aparece, escolha **`PUBLICAR`** (constrói a imagem e sobe no servidor) — ou
    **`SO_IMAGEM`** se quiser só testar que a imagem constrói, sem tocar no site no ar.
 
-**Deu certo quando** o último passo — *"Smoke test"* — ficar verde mostrando
-`{"status":"ok"}` e o endereço do site.
+**Deu certo quando** o passo *"Smoke test"* ficar verde mostrando
+`{"status":"pronto",...}` e `NO AR:` com o endereço do site.
 
-**Deu errado?** O passo que falhou fica vermelho e diz o motivo. Se falhou no
-passo *"Ensaio de boot"*, **o site não foi tocado**: ele continua no ar na versão
-anterior, e não há nada urgente a fazer.
+**Deu errado?** O passo que falhou fica vermelho e diz o motivo. Se a falha veio
+depois de o servidor ser tocado, o workflow **volta sozinho para a versão anterior**
+e termina vermelho dizendo isso — o site segue no ar na versão de antes.
+
+⚠️ Desde 24/09/2026 o botão exige o segredo **`VPS_KNOWN_HOSTS`** (a chave pública
+do servidor). Sem ele, para no primeiro passo e diz o que fazer — passo a passo em
+[`OPERACAO_OVH.md`](./OPERACAO_OVH.md) §2.1.
+
+⚠️ O botão antigo, **`Deploy`** (`deploy.yml`), publica na **TineHost**, que não é
+mais a produção. Ele só aceita a palavra `PUBLICAR-TINEHOST` — não use para publicar
+o site.
 
 **Pode apertar duas vezes sem medo.** A segunda execução espera a primeira
 terminar — antigamente, rodar dois deploys ao mesmo tempo estragava os dois.

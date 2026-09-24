@@ -11,6 +11,8 @@ import { router, funcionarioProcedure } from "../../trpc/trpc.js";
 import * as service from "./credenciamento.service.js";
 import * as grade from "./credenciamento-grade.service.js";
 import * as painel from "./credenciamento-painel.service.js";
+// A MESMA régua do Painel do Cliente (ADR-128): ADMIN+ sempre, funcionário só nos clientes dele.
+import { podeVerClienteSobSuaResponsabilidade } from "../auth/painel-cliente.service.js";
 
 /**
  * Credenciamento visto pela EQUIPE: os profissionais do cliente, a triagem de
@@ -18,9 +20,16 @@ import * as painel from "./credenciamento-painel.service.js";
  * `portalRouter` (`credenciamento`), sem o veredito comercial.
  */
 export const credenciamentoRouter = router({
+  // ⚠️ OS METADADOS DE ARQUIVO SEGUEM A RÉGUA DO PAINEL DO CLIENTE — a "segunda porta" achada
+  // depois da ADR-128 (a primeira foi `clientes.arquivos`/`/arquivos/:id`, ADR-128 de novo). O
+  // funcionário que não é responsável continua vendo triagem e progresso (é veredito e contagem,
+  // não conteúdo), mas o nome/tamanho/id de cada documento some do retorno.
   porCliente: funcionarioProcedure
     .input(z.object({ clienteId: z.string().min(1) }))
-    .query(({ input }) => service.credenciamentoDoCliente(input.clienteId)),
+    .query(async ({ input, ctx }) => {
+      const podeVerArquivos = await podeVerClienteSobSuaResponsabilidade(ctx.user, input.clienteId);
+      return service.credenciamentoDoCliente(input.clienteId, { ocultarArquivos: !podeVerArquivos });
+    }),
 
   profissionais: funcionarioProcedure
     .input(z.object({ clienteId: z.string().min(1) }))
@@ -44,13 +53,17 @@ export const credenciamentoRouter = router({
     .input(z.object({ clienteId: z.string().min(1) }))
     .query(({ input }) => grade.gradeDoCliente(input.clienteId)),
 
+  // ⚠️ `salvarGrade` e `mudarStatus` continuam `funcionarioProcedure` — a rota atende também
+  // quem só protocola/pede análise/nega. A trava de ADMIN+ da APROVAÇÃO (§ decisão do dono:
+  // aprovar é o que lança a cobrança) mora DENTRO do serviço, condicionada ao status pedido —
+  // travar a rota inteira tiraria do funcionário as ações que ele continua podendo fazer.
   salvarGrade: funcionarioProcedure
     .input(salvarGradeSchema)
-    .mutation(({ input, ctx }) => grade.salvarGrade(input, { id: ctx.user.id })),
+    .mutation(({ input, ctx }) => grade.salvarGrade(input, { id: ctx.user.id, role: ctx.user.role })),
 
   mudarStatus: funcionarioProcedure
     .input(mudarStatusCredenciamentoSchema)
-    .mutation(({ input, ctx }) => grade.mudarStatusCredenciamento(input, { id: ctx.user.id })),
+    .mutation(({ input, ctx }) => grade.mudarStatusCredenciamento(input, { id: ctx.user.id, role: ctx.user.role })),
 
   novaTentativa: funcionarioProcedure
     .input(novaTentativaCredenciamentoSchema)

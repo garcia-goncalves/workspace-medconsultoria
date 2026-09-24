@@ -27,6 +27,7 @@ import { cn } from "@app/ui";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { formatEstimativaDoFunil } from "../../../lib/masks";
 import { haQuanto } from "../../../lib/format-date";
+import { BotaoIA } from "../../../components/ia/BotaoIA";
 import { Button } from "../../../components/ui/button";
 import { toast } from "../../../components/ui/toast";
 import { Badge } from "../../../components/ui/badge";
@@ -505,16 +506,12 @@ export function LeadDetailPanel({
             <Button variant="outline" size="sm" className="text-success" onClick={() => acoes.onConverter({ id: d.id, nome: d.nome })}>
               <UserCheck className="h-4 w-4" /> Converter
             </Button>
-            {ia.data?.disponivel && (
-              <>
-                <Button variant="outline" size="sm" className="text-primary" onClick={() => setIaAberto("passo")} title="Sugerir o próximo passo com IA">
-                  <Sparkles className="h-4 w-4" /> Próximo passo
-                </Button>
-                <Button variant="outline" size="sm" className="text-primary" onClick={() => setIaAberto("email")} title="Escrever um e-mail para o lead com IA">
-                  <Sparkles className="h-4 w-4" /> Escrever e-mail
-                </Button>
-              </>
-            )}
+            <BotaoIA iaDisponivel={ia.data?.disponivel} pendente={false} className="text-primary" onClick={() => setIaAberto("passo")}>
+              Próximo passo
+            </BotaoIA>
+            <BotaoIA iaDisponivel={ia.data?.disponivel} pendente={false} className="text-primary" onClick={() => setIaAberto("email")}>
+              Escrever e-mail
+            </BotaoIA>
             <Button
               variant="ghost"
               size="sm"

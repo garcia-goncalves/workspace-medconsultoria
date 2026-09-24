@@ -6,6 +6,7 @@ import { useAuth } from "../../../lib/auth-context";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { useConfirm, useConfirmar } from "../../../components/ui/confirm-dialog";
+import { toast } from "../../../components/ui/toast";
 import { UploadArquivo, ArquivoLink } from "../../../components/ui/upload-arquivo";
 import { Modal } from "../../../components/ui/modal";
 import { Button } from "../../../components/ui/button";
@@ -201,8 +202,22 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
     invalidate();
     utils.clientes.list.invalidate();
   };
-  const ativar = trpc.clientes.ativarServico.useMutation({ onSuccess: invalidateComLista });
-  const cancelar = trpc.clientes.cancelarServico.useMutation({ onSuccess: invalidateComLista });
+  // ⚠️ `avisoFinanceiro` só vem quando a provisão/o encerramento da conta tropeçou — a
+  // contratação/cancelamento em si não falha por isso (best-effort), mas ficar calado faria a
+  // Thaís achar que o Financeiro já está certo. O erro também fica em SISTEMA → Erros; aqui é
+  // só o aviso imediato de quem clicou.
+  const ativar = trpc.clientes.ativarServico.useMutation({
+    onSuccess: (r) => {
+      invalidateComLista();
+      if (r.avisoFinanceiro) toast(r.avisoFinanceiro, "error");
+    },
+  });
+  const cancelar = trpc.clientes.cancelarServico.useMutation({
+    onSuccess: (r) => {
+      invalidateComLista();
+      if (r.avisoFinanceiro) toast(r.avisoFinanceiro, "error");
+    },
+  });
   const removerArquivo = trpc.clientes.removerArquivo.useMutation({ onSuccess: invalidate });
   const { user } = useAuth();
   // Excluir arquivo é ADMIN+ (RBAC). FUNCIONARIO envia/atualiza, mas não exclui.
@@ -354,6 +369,16 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
 
               {item.contratado && (
                 <div className="mt-3 space-y-2 border-t pt-3">
+                  {/* ⚠️ Segunda porta da régua do Painel do Cliente (ADR-128): funcionário que
+                      não é responsável por este cliente não vê nome/tamanho/link de documento
+                      nenhum aqui — só quem responde pela conta ou um administrador. Status e
+                      progresso (badges "Obrigatório", "atendido") continuam, porque são
+                      contagem/veredito, não conteúdo. */}
+                  {item.arquivosRestritos && (
+                    <p className="text-xs text-muted-foreground">
+                      Só o responsável pelo cliente ou um administrador vê os documentos.
+                    </p>
+                  )}
                   {item.requisitos.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
                       Nenhuma exigência configurada.{" "}
@@ -390,7 +415,7 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                               )}
                             </div>
                             {r.descricao && <p className="text-xs text-muted-foreground">{r.descricao}</p>}
-                            {r.arquivos.length > 0 && (
+                            {!item.arquivosRestritos && r.arquivos.length > 0 && (
                               <ul className="mt-1 space-y-0.5">
                                 {r.arquivos.map((a) => (
                                   <li key={a.id} className="flex items-center gap-1.5 text-xs">
@@ -412,14 +437,16 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                               </ul>
                             )}
                             {r.tipo === "DOCUMENTO" ? (
-                              <div className="mt-1.5">
-                                <UploadArquivo
-                                  size="xs"
-                                  label={r.atendido ? "Enviar outro" : "Anexar"}
-                                  campos={{ clienteId, servicoId: item.servico.id, requisitoId: r.id }}
-                                  onDone={aposUpload}
-                                />
-                              </div>
+                              item.arquivosRestritos ? null : (
+                                <div className="mt-1.5">
+                                  <UploadArquivo
+                                    size="xs"
+                                    label={r.atendido ? "Enviar outro" : "Anexar"}
+                                    campos={{ clienteId, servicoId: item.servico.id, requisitoId: r.id }}
+                                    onDone={aposUpload}
+                                  />
+                                </div>
+                              )
                             ) : r.respostaId ? (
                               <button
                                 onClick={() => setRespostaAberta(r.respostaId!)}
@@ -438,7 +465,7 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                   )}
 
                   {/* Documentos avulsos deste serviço */}
-                  {item.arquivosAvulsos.length > 0 && (
+                  {!item.arquivosRestritos && item.arquivosAvulsos.length > 0 && (
                     <ul className="space-y-0.5 pt-1">
                       {item.arquivosAvulsos.map((a) => (
                         <li key={a.id} className="flex items-center gap-1.5 text-xs">
@@ -459,12 +486,14 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                       ))}
                     </ul>
                   )}
-                  <UploadArquivo
-                    size="xs"
-                    label="Anexar outro documento"
-                    campos={{ clienteId, servicoId: item.servico.id }}
-                    onDone={aposUpload}
-                  />
+                  {!item.arquivosRestritos && (
+                    <UploadArquivo
+                      size="xs"
+                      label="Anexar outro documento"
+                      campos={{ clienteId, servicoId: item.servico.id }}
+                      onDone={aposUpload}
+                    />
+                  )}
                 </div>
               )}
             </div>

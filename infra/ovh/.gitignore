@@ -1,0 +1,6 @@
+# Arquivos preenchidos com segredo que alguém pode acabar criando AQUI, ao lado do modelo, antes
+# de copiá-los para a VPS. O `.gitignore` da raiz só pega `.env` e `.env.*` — `mysql.env` e
+# `backup.env` escapariam dele e iriam para o git com a senha do root do banco e a chave do bucket.
+mysql.env
+backup/backup.env
+backup/chave*

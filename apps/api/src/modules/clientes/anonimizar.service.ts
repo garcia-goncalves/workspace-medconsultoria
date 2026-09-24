@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import { MARCADOR_ANONIMIZADO, emailAnonimizado } from "@app/shared";
+import { anonimizarPacientesDaConciliacao, apagarArquivosOriginais } from "../conciliacao/retencao-paciente.service.js";
 
 /**
  * ELIMINAÇÃO PELO TITULAR (LGPD art. 18, V) — ADR-141.
@@ -46,6 +47,32 @@ export async function anonimizarCliente(id: string, userId: string) {
 
   const usuarios = await prisma.user.findMany({ where: { clienteId: id }, select: { id: true } });
   const idsUsuarios = usuarios.map((u) => u.id);
+
+  // OS PACIENTES DA CLÍNICA, na Conciliação. Pedido de eliminação que deixasse o nome, o CPF e a
+  // planilha do TASY de milhares de pacientes para trás não seria eliminação — e o cliente
+  // arquivado some de toda tela, então ninguém mais acharia esse dado para apagar à mão. Mesma
+  // regra do expurgo por prazo (anonimiza a linha, mantém o dinheiro; apaga o arquivo original),
+  // só que SEM corte de data: é tudo daquele cliente.
+  // ⚠️ ANTES da ficha, e fora da transação (apagar do disco não é transacional): se falhar aqui,
+  // o cliente ainda não está marcado como anonimizado e o botão pode ser apertado de novo. Na
+  // ordem inversa, a trava "já foi anonimizado" acima impediria para sempre de terminar o
+  // serviço. As duas funções são idempotentes, então repetir não estraga nada.
+  const pacientes = await anonimizarPacientesDaConciliacao({ clienteId: id, marcador: MARCADOR_ANONIMIZADO });
+  const { apagados: arquivosDaConciliacao, falhas } = await apagarArquivosOriginais({ clienteId: id });
+  // ⚠️ Planilha que o disco recusou apagar continua lá, com o paciente em claro. Marcar o
+  // cliente como anonimizado agora trancaria o botão para sempre (a trava "já foi anonimizado"
+  // acima) e a eliminação ficaria pela metade SEM ninguém saber. Então para aqui, antes da
+  // ficha: o erro já foi para SISTEMA → Erros, e apertar de novo depois de resolver termina o
+  // serviço (tudo acima é idempotente). PRECONDITION_FAILED e não INTERNAL para não registrar
+  // o mesmo erro duas vezes (o onError do tRPC só grava INTERNAL_SERVER_ERROR).
+  if (falhas > 0) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        `Não foi possível apagar do disco ${falhas} planilha(s) da Conciliação deste cliente. ` +
+        "O erro foi registrado em SISTEMA → Erros. A ficha ainda NÃO foi anonimizada: resolva e tente de novo.",
+    });
+  }
 
   await prisma.$transaction([
     // A ficha
@@ -103,7 +130,7 @@ export async function anonimizarCliente(id: string, userId: string) {
       entidadeId: id,
       // O nome anterior fica no registro de auditoria de propósito: é a prova de QUAL
       // pedido foi atendido, e a auditoria tem base legal própria.
-      dados: { nomeAnterior: cliente.nome, contas: usuarios.length },
+      dados: { nomeAnterior: cliente.nome, contas: usuarios.length, conciliacao: { ...pacientes, arquivos: arquivosDaConciliacao } },
     },
   });
 

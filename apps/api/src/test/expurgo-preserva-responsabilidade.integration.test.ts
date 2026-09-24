@@ -27,6 +27,7 @@ const PRESERVAR = [
   "painel_cliente.entrou",
   "documento.link_de_assinatura_aberto",
   "arquivo.removido",
+  "arquivo.baixado",
   "conta.criada",
   // ⚠️ A Conciliação é preservada por PREFIXO, não por nome: são dezenas de rotas e uma lista
   // fixa envelheceria calada, deixando a rota nova de fora sem ninguém perceber. Esta ação

@@ -19,6 +19,7 @@ import { registrarRotaCorpoEmail } from "./http/email-corpo.js";
 import { registrarRotaLinkDeAssinatura } from "./http/link-de-assinatura.js";
 import { registrarRotaAnexoEmail, iniciarLimpezaAnexosTemp } from "./http/email-anexo.js";
 import { registrarRotasDoAgente } from "./http/agent-v1.js";
+import { registrarRotasDeSaude } from "./http/saude.js";
 import { iniciarExpurgoDeRetencao } from "./modules/sistema/retencao.service.js";
 import { aquecerDefesaDeTempo } from "./modules/auth/auth.service.js";
 import { validarPastaUploads } from "./lib/storage.js";
@@ -130,7 +131,9 @@ await app.register(fastifyTRPCPlugin, {
   },
 });
 
-app.get("/health", async () => ({ status: "ok", ts: new Date().toISOString() }));
+// `/health` (processo vivo) e `/health/pronto` (banco respondendo) — ver `http/saude.ts` para
+// o porquê de serem duas, e de o HEALTHCHECK da imagem continuar no primeiro.
+registrarRotasDeSaude(app);
 
 // Upload/download de arquivos (multipart + stream, fora do tRPC).
 // Valida a pasta de uploads no boot — em produção, impede subir se UPLOADS_DIR for relativo

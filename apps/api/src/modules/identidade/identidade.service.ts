@@ -55,6 +55,8 @@ export type IdentidadeInput = {
   /** LGPD (ADR-141) — prazos de guarda e encarregado de dados. */
   retencaoCorpoEmailDias: number;
   retencaoAcervoAnos: number;
+  /** Anos de guarda do dado de paciente da Conciliação, contados do atendimento (padrão 5). */
+  retencaoPacienteAnos: number;
   encarregadoNome: string | null;
   encarregadoEmail: string | null;
 };
@@ -85,6 +87,7 @@ export async function atualizarIdentidade(input: IdentidadeInput) {
     bancoConta: ouNull(input.bancoConta),
     retencaoCorpoEmailDias: input.retencaoCorpoEmailDias,
     retencaoAcervoAnos: input.retencaoAcervoAnos,
+    retencaoPacienteAnos: input.retencaoPacienteAnos,
     encarregadoNome: ouNull(input.encarregadoNome),
     encarregadoEmail: ouNull(input.encarregadoEmail),
     bancoTitular: ouNull(input.bancoTitular),
@@ -116,6 +119,9 @@ export async function getPrivacidadePublica() {
     siteUrl: i.siteUrl,
     retencaoCorpoEmailDias: i.retencaoCorpoEmailDias,
     retencaoAcervoAnos: i.retencaoAcervoAnos,
+    // O prazo do dado de PACIENTE da Conciliação: a página promete, a rotina diária cumpre
+    // (`expurgarDadoDePacienteVencido`) — o mesmo número, lido do mesmo lugar.
+    retencaoPacienteAnos: i.retencaoPacienteAnos,
     // Sem encarregado indicado, o canal é o e-mail institucional — e a página diz isso,
     // em vez de inventar um nome. Mesma regra do "[A PREENCHER]" do foro.
     encarregadoNome: i.encarregadoNome,

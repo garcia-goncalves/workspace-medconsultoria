@@ -28,6 +28,7 @@ import { cn } from "@app/ui";
 import { trpc } from "../../lib/trpc";
 import { POLL, useEventoRealtime } from "../../lib/socket";
 import { haQuanto } from "../../lib/format-date";
+import { decidirRotaDaNotificacao } from "./notificacao-rota";
 
 interface Notif {
   id: string;
@@ -46,6 +47,7 @@ const META: Record<string, { icon: LucideIcon; tom: string }> = {
   tarefa_atribuida: { icon: ClipboardList, tom: "bg-brand-blueLight/10 text-brand-blueLight" },
   projeto_participante: { icon: UserPlus, tom: "bg-brand-blueLight/10 text-brand-blueLight" },
   tarefa_atrasada: { icon: AlertTriangle, tom: "bg-destructive/10 text-destructive" },
+  tarefa_vencida: { icon: AlertTriangle, tom: "bg-destructive/10 text-destructive" },
   projeto_parado: { icon: FolderKanban, tom: "bg-warning/10 text-warning" },
   projeto_sem_responsavel: { icon: FolderKanban, tom: "bg-warning/10 text-warning" },
   conta_vencida: { icon: Wallet, tom: "bg-warning/10 text-warning" },
@@ -98,15 +100,34 @@ export function NotificationBell() {
   const abrirNotif = (n: Notif) => {
     if (!n.lida) markRead.mutate({ id: n.id });
     setAberto(false);
-    const { entidadeTipo: t, entidadeId: id } = n;
-    if (t === "projeto" && id) navigate({ to: "/projetos/$projetoId", params: { projetoId: id } });
-    else if (t === "documento" && id)
-      navigate({ to: "/documentos/$documentoId", params: { documentoId: id } });
-    else if (t === "cliente" && id) navigate({ to: "/clientes/$clienteId", params: { clienteId: id } });
-    else if (t === "evento") navigate({ to: "/agenda" });
-    else if (t === "conta") navigate({ to: "/financeiro" });
-    else if (t === "lead") navigate({ to: "/funil-de-vendas" });
-    else if (t === "incidente" || t === "erro") navigate({ to: "/sistema" });
+    const decisao = decidirRotaDaNotificacao(n);
+    if (!decisao) return;
+    switch (decisao.destino) {
+      case "projeto":
+        navigate({ to: "/projetos/$projetoId", params: { projetoId: decisao.id } });
+        break;
+      case "documento":
+        navigate({ to: "/documentos/$documentoId", params: { documentoId: decisao.id } });
+        break;
+      case "cliente":
+        navigate({ to: "/clientes/$clienteId", params: { clienteId: decisao.id } });
+        break;
+      case "evento":
+        navigate({ to: "/agenda" });
+        break;
+      case "tarefa":
+        navigate({ to: "/tarefas", search: { aba: decisao.aba, abrir: decisao.id } });
+        break;
+      case "conta":
+        navigate({ to: "/financeiro" });
+        break;
+      case "lead":
+        navigate({ to: "/funil-de-vendas" });
+        break;
+      case "sistema":
+        navigate({ to: "/sistema" });
+        break;
+    }
   };
 
   return (

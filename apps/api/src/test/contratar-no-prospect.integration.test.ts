@@ -5,6 +5,7 @@ import { convertLead } from "../modules/leads/leads.service.js";
 import { ativarServicoCliente } from "../modules/servicos/servicos-cliente.service.js";
 import { hashPassword } from "../lib/password.js";
 
+import { listStages } from "../modules/pipeline/pipeline.service.js";
 /**
  * M1 — CONTRATAR NA FICHA DO PROSPECT E DEPOIS CONVERTER COBRAVA DUAS VEZES.
  *
@@ -38,6 +39,7 @@ beforeAll(async () => {
     data: { nome: `${PFX}-admin`, email: `${PFX}@example.test`, passwordHash: await hashPassword("x"), role: "ADMIN" },
   });
   userId = u.id;
+  await listStages(); // num banco novo (CI, job build-test) não há etapa: semeia as padrão.
   stageId = (await prisma.pipelineStage.findFirstOrThrow({ orderBy: { ordem: "asc" } })).id;
 });
 

@@ -21,7 +21,11 @@ import * as arquivos from "../arquivos/arquivos.service.js";
 import { listChamadosDoCliente } from "../mensagens/mensagens.service.js";
 import * as pessoas from "../portal/pessoas.service.js";
 // A MESMA régua do Painel do Cliente (ADR-128): ADMIN+ sempre, funcionário só nos clientes dele.
-import { assertPodeVerOPainel } from "../auth/painel-cliente.service.js";
+import {
+  assertPodeVerOPainel,
+  assertClienteSobSuaResponsabilidade,
+  podeVerClienteSobSuaResponsabilidade,
+} from "../auth/painel-cliente.service.js";
 
 export const clientesRouter = router({
   // Chamados de suporte do cliente (lista na ficha; a conversa fica em Mensagens).
@@ -154,9 +158,18 @@ export const clientesRouter = router({
     .mutation(({ input, ctx }) => service.arquivarNota(input.notaId, ctx.user.id, input.arquivar)),
 
   // ── Serviços contratados do cliente (ficha) ──
+  //
+  // ⚠️ OS METADADOS DE ARQUIVO SEGUEM A MESMA RÉGUA DA LISTA (`arquivos`, abaixo) — a "segunda
+  // porta" achada depois da ADR-128: o funcionário que não é responsável não vê nome/tamanho/id
+  // de documento, mas continua vendo status e progresso do serviço (contagem, não conteúdo), que
+  // é o que ele precisa para operar. A query não é bloqueada por inteiro, ao contrário de
+  // `arquivos`: aqui o resto da ficha (preço, contratação, pendências) tem que continuar de pé.
   servicos: funcionarioProcedure
     .input(z.object({ id: z.string() }))
-    .query(({ input }) => servicosCliente.servicosDoCliente(input.id)),
+    .query(async ({ input, ctx }) => {
+      const podeVerArquivos = await podeVerClienteSobSuaResponsabilidade(ctx.user, input.id);
+      return servicosCliente.servicosDoCliente(input.id, { ocultarArquivos: !podeVerArquivos });
+    }),
   ativarServico: funcionarioProcedure
     .input(ativarServicoClienteSchema)
     .mutation(({ input, ctx }) =>
@@ -188,9 +201,16 @@ export const clientesRouter = router({
     }),
 
   // ── Arquivos do cliente (upload chega pelo endpoint /upload) ──
+  //
+  // ⚠️ A lista obedece à régua do Painel do Cliente (ADR-128): ADMIN+ vê tudo, funcionário só os
+  // clientes dele. É a mesma do download (`/arquivos/:id`) e do envio (`/upload`) — a lista
+  // aberta com o download fechado mostraria um acervo que a pessoa não consegue abrir.
   arquivos: funcionarioProcedure
     .input(z.object({ id: z.string(), servicoId: z.string().optional() }))
-    .query(({ input }) => arquivos.listarArquivos(input.id, input.servicoId)),
+    .query(async ({ input, ctx }) => {
+      await assertClienteSobSuaResponsabilidade(ctx.user, input.id, "ver os documentos");
+      return arquivos.listarArquivos(input.id, input.servicoId);
+    }),
   // Remover arquivo (lixeira/soft-delete) — só ADMIN+ (FUNCIONARIO envia/atualiza, não exclui).
   removerArquivo: adminProcedure
     .input(z.object({ id: z.string() }))

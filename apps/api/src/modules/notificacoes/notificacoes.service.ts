@@ -16,6 +16,8 @@ function rotaEntidade(tipo?: string | null, id?: string | null): string {
       return id ? `/documentos/${id}` : "/documentos";
     case "cliente":
       return id ? `/clientes/${id}` : "/clientes";
+    case "conversa":
+      return "/mensagens";
     case "evento":
       return "/agenda";
     case "tarefa":
