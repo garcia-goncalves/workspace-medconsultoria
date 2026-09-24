@@ -463,6 +463,33 @@ export const EMAIL_TEMPLATES = {
       ctaTexto: "Ver o cliente",
     },
   },
+  // ── LEMBRETE DO HONORÁRIO "A COMBINAR" APROVADO (Onda 1, item B) ──────────────────────
+  //
+  // Complementa `credenciamento_aprovado`: quando o honorário do cruzamento aprovado ainda é
+  // "a combinar" (R$ 0,00), nenhuma conta a receber nasce (M15) — só um aviso nas observações
+  // do cruzamento, que a página Credenciamentos já desenha. Este e-mail/notificação é o que
+  // avisa QUEM cuida do cliente, para a pendência não depender de alguém abrir aquela ficha
+  // por acaso.
+  credenciamento_a_combinar: {
+    label: "Credenciamento aprovado com honorário a combinar",
+    descricao:
+      "Quando uma operadora aprova um credenciamento cujo honorário ainda está \"a combinar\" (R$ 0,00) — nenhuma conta nasce até o valor ser preenchido. Vai para o responsável e a gestão.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "cliente", rotulo: "Nome do cliente", descricao: "A clínica ou PJ", exemplo: "Clínica Bem-Estar" },
+      { chave: "profissional", rotulo: "Médico", descricao: "Quem foi credenciado", exemplo: "Dra. Helena Martins Prado" },
+      { chave: "operadora", rotulo: "Operadora", descricao: "Quem aprovou", exemplo: "Omint" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "{{operadora}} aprovou {{profissional}} — falta o valor do honorário",
+      titulo: "Credenciamento aprovado com honorário a combinar",
+      corpo:
+        "A {{operadora}} aprovou {{profissional}} ({{cliente}}) com honorário \"a combinar\" — sem valor, nenhuma conta nasceu. Informe o valor na grade da ficha.",
+      ctaTexto: "Preencher o valor",
+    },
+  },
   proposta_recusada: {
     label: "Proposta recusada pelo cliente",
     descricao: "Quando um cliente recusa a proposta pelo link/Portal (com o motivo). Vai para o responsável e a gestão.",
