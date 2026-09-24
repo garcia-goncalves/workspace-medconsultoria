@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
 import { listLeads } from "../modules/leads/leads.service.js";
 
+import { listStages } from "../modules/pipeline/pipeline.service.js";
 /**
  * F8 — a régua já é pura e testada (`valor-do-funil.test.ts`); o que se prova AQUI é a ligação:
  * o board recebe os dois números separados, e recebe como **número**.
@@ -19,6 +20,7 @@ let stageId: string;
 
 beforeAll(async () => {
   expect(process.env.DATABASE_URL).toContain("_test");
+  await listStages(); // num banco novo (CI, job build-test) não há etapa: semeia as padrão.
   stageId = (await prisma.pipelineStage.findFirstOrThrow({ orderBy: { ordem: "asc" } })).id;
 
   const mensal = await prisma.servico.create({

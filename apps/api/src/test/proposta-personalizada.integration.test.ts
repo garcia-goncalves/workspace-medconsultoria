@@ -8,6 +8,7 @@ import { criarPropostaPersonalizada } from "../modules/documentos/proposta-perso
 import { habilitarAceite, responder } from "../modules/propostas/propostas.service.js";
 import { listStages } from "../modules/pipeline/pipeline.service.js";
 
+import { listStages } from "../modules/pipeline/pipeline.service.js";
 /**
  * A proposta PERSONALIZADA contra o MySQL de verdade (ADR-156).
  *
@@ -35,6 +36,7 @@ beforeAll(async () => {
   ).id;
   clienteId = (await prisma.cliente.create({ data: { nome: `${PFX}-clinica` } })).id;
   await listStages(); // semeia as etapas padrão do funil no banco de teste
+  await listStages(); // num banco novo (CI, job build-test) não há etapa: semeia as padrão.
   const etapa = await prisma.pipelineStage.findFirstOrThrow({ orderBy: { ordem: "asc" } });
   leadId = (
     await prisma.lead.create({
