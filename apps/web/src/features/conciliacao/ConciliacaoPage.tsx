@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useBuscaAdiada } from "../../lib/use-busca-adiada";
 import { AlertTriangle, FileSpreadsheet, Link2, Upload } from "lucide-react";
 import { trpc } from "../../lib/trpc";
@@ -19,7 +20,7 @@ import { ImportarProducaoDialog } from "./ImportarProducaoDialog";
 import { ImportarCirurgiasDialog } from "./ImportarCirurgiasDialog";
 import { CirurgiasPainel } from "./CirurgiasPainel";
 import { VisaoGeralConciliacao } from "./VisaoGeralConciliacao";
-import { ListaResumo, Paginacao } from "./partes";
+import { ConvenioDaLinha, ListaResumo, Paginacao } from "./partes";
 
 /**
  * CONCILIAÇÃO — a produção de consultas do cliente, mês a mês.
@@ -241,13 +242,11 @@ export function ConciliacaoPage() {
                       }}
                     >
                       <option value="">Todas</option>
-                      {(resumo.data?.porOperadora ?? [])
-                        .filter((o) => o.operadoraId)
-                        .map((o) => (
-                          <option key={o.operadoraId!} value={o.operadoraId!}>
-                            {o.rotulo}
-                          </option>
-                        ))}
+                      {(resumo.data?.operadorasDoMes ?? []).map((o) => (
+                        <option key={o.operadoraId} value={o.operadoraId}>
+                          {o.rotulo}
+                        </option>
+                      ))}
                     </Select>
                     {!competencia && <p className="text-xs text-muted-foreground">Escolha uma competência para filtrar por operadora.</p>}
                   </div>
@@ -317,16 +316,12 @@ export function ConciliacaoPage() {
                             <TD className="font-medium">{l.pacienteNome}</TD>
                             <TD>{TIPO_LABEL[l.tipoAtendimento] ?? l.tipoAtendimentoBruto}</TD>
                             <TD>
-                              {l.operadora ? (
-                                <>
-                                  {l.operadora.nome}
-                                  {l.plano && <span className="text-muted-foreground"> · {l.plano}</span>}
-                                </>
-                              ) : (
-                                <span className="text-warning">
-                                  {l.convenioBruto} <span className="text-xs">(a ligar)</span>
-                                </span>
-                              )}
+                              <ConvenioDaLinha
+                                operadora={l.operadora}
+                                plano={l.plano}
+                                convenioBruto={l.convenioBruto}
+                                convenioParticular={l.convenioParticular}
+                              />
                             </TD>
                             <TD>
                               {l.profissional?.nome ?? (
@@ -383,6 +378,7 @@ type Lote = {
 type Resumo = {
   total: number;
   faturavel: number;
+  separacao: { convenio: number; particular: number; cortesia: number; semVinculo: number };
   porTipo: { CONSULTA: number; CORTESIA: number; SEM_VINCULO_AGENDA: number; OUTRO: number };
   porOperadora: { rotulo: string; atendimentos: number; pendente: boolean }[];
   porProfissional: { rotulo: string; atendimentos: number; pendente: boolean }[];
@@ -441,13 +437,34 @@ function ResumoDoMes({
           <div className="rounded-lg bg-muted/40 p-3">
             <p className="text-xs font-medium uppercase text-muted-foreground">Atendimentos</p>
             <p className="text-2xl font-semibold">{resumo.total}</p>
-            {/* Cortesia e particular não geram recebimento — separá-los evita inflar a
-                expectativa de receita, que é o número que este módulo existe para acertar. */}
+            {/* Só o de convênio gera recebimento — separar o resto evita inflar a expectativa de
+                receita, que é o número que este módulo existe para acertar. As quatro partes
+                somam o total (o servidor garante), e a de valor zero some para não virar ruído. */}
             <p className="mt-1 text-xs text-muted-foreground">
-              {resumo.faturavel} de convênio · {resumo.porTipo.CORTESIA} cortesia(s)
+              {[
+                `${resumo.separacao.convenio} de convênio`,
+                resumo.separacao.particular > 0 && `${resumo.separacao.particular} particular`,
+                resumo.separacao.cortesia > 0 && `${resumo.separacao.cortesia} cortesia(s)`,
+                resumo.separacao.semVinculo > 0 && `${resumo.separacao.semVinculo} sem vínculo com agenda`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           </div>
-          <ListaResumo titulo="Por operadora" itens={resumo.porOperadora} />
+          <ListaResumo
+            titulo="Por operadora"
+            itens={resumo.porOperadora}
+            rodape={
+              resumo.separacao.cortesia + resumo.separacao.semVinculo > 0
+                ? `Fora desta lista, por não gerarem recebimento: ${[
+                    resumo.separacao.cortesia > 0 && `${resumo.separacao.cortesia} cortesia(s)`,
+                    resumo.separacao.semVinculo > 0 && `${resumo.separacao.semVinculo} sem vínculo com agenda`,
+                  ]
+                    .filter(Boolean)
+                    .join(" e ")}.`
+                : undefined
+            }
+          />
           <ListaResumo titulo="Por profissional" itens={resumo.porProfissional} />
         </div>
       )}
@@ -508,6 +525,8 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
   if (!pendencias.data) return null;
   const { convenios, profissionais: profPendentes } = pendencias.data;
   if (convenios.length === 0 && profPendentes.length === 0) return null;
+  // Só depois de a consulta RESPONDER: carregando não é "sem cadastro" (erro já saiu acima).
+  const semCadastro = profissionais.data !== undefined && profissionais.data.length === 0;
 
   return (
     <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
@@ -557,7 +576,32 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
           </div>
         )}
 
-        {profPendentes.length > 0 && (
+        {profPendentes.length > 0 && semCadastro && (
+          // ⚠️ A lista do "Ligar a…" é o cadastro de médicos do CLIENTE (o mesmo do credenciamento),
+          // não um catálogo da Med. Cliente que nunca teve médico cadastrado dava um `<select>`
+          // vazio, sem dizer por quê — lido como defeito da tela. Aqui a falta ganha nome e endereço.
+          // ⚠️ Não cadastramos o médico daqui de propósito: `Profissional.conselho` é obrigatório e o
+          // relatório não traz, e médico cadastrado liga a papelada de credenciamento no Portal
+          // (`emCurso` em credenciamento.service.ts) — decisão que cabe à ficha, não a um atalho.
+          <div>
+            <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Profissionais</p>
+            <p className="text-sm">
+              {profPendentes.length} nome(s) de profissional no relatório, e este cliente ainda não tem nenhum médico cadastrado para ligar.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Cadastre em{" "}
+              <Link to="/clientes/$clienteId" params={{ clienteId }} className="font-medium text-primary hover:underline">
+                ficha do cliente → Credenciamento → Novo profissional
+              </Link>{" "}
+              e volte aqui. O médico cadastrado também passa a aparecer na papelada de credenciamento do cliente.
+            </p>
+            <Button size="sm" variant="outline" className="mt-2" onClick={() => void profissionais.refetch()}>
+              Já cadastrei — atualizar
+            </Button>
+          </div>
+        )}
+
+        {profPendentes.length > 0 && !semCadastro && (
           <div>
             <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Profissionais</p>
             <ul className="space-y-2">
@@ -578,12 +622,20 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
                     {(profissionais.data ?? []).map((pr) => (
                       <option key={pr.id} value={pr.id}>
                         {pr.nome}
+                        {!pr.ativo && " (inativo)"}
                       </option>
                     ))}
                   </Select>
                 </li>
               ))}
             </ul>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Não está na lista? Cadastre na{" "}
+              <Link to="/clientes/$clienteId" params={{ clienteId }} className="font-medium text-primary hover:underline">
+                ficha do cliente
+              </Link>{" "}
+              (card Credenciamento).
+            </p>
           </div>
         )}
       </div>
