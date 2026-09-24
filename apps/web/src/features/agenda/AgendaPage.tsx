@@ -388,12 +388,24 @@ export function AgendaPage() {
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-        {iaOk.data?.disponivel && (
-          <Button variant="outline" onClick={() => setResumoIA(true)} title={`Resumo ${rotuloIA} com IA`}>
+        {/* O botão NUNCA some: sem IA fica desabilitado com o porquê ao lado, em vez de
+            desaparecer em silêncio (mesmo defeito já corrigido na Proposta Personalizada). */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setResumoIA(true)}
+            disabled={!iaOk.data?.disponivel}
+            title={iaOk.data?.disponivel ? `Resumo ${rotuloIA} com IA` : "IA indisponível no momento"}
+          >
             <Sparkles className="h-4 w-4" />
             Resumo IA
           </Button>
-        )}
+          {!iaOk.data?.disponivel && (
+            <span className="text-xs text-muted-foreground">
+              {iaOk.data === undefined ? "Verificando se a IA está ligada…" : "IA indisponível: falta configurar a chave"}
+            </span>
+          )}
+        </div>
         <Button onClick={() => criarEm(new Date())}>
           <Plus className="h-4 w-4" />
           Novo evento
