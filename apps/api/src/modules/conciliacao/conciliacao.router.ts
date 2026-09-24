@@ -280,6 +280,7 @@ export const conciliacaoRouter = router({
         clienteId,
         competencia: competencia.optional(),
         operadoraId: z.string().optional(),
+        particular: z.boolean().optional(),
         profissionalId: z.string().optional(),
         situacao: z.enum(["SEM_ATENDIMENTO", "AUTORIZACAO_PENDENTE", "NAO_EXECUTADA"]).optional(),
         statusConciliacao,
@@ -454,6 +455,8 @@ export const conciliacaoRouter = router({
       z.object({
         clienteId,
         competencia: competencia.optional(),
+        operadoraId: z.string().optional(),
+        particular: z.boolean().optional(),
         statusConciliacao,
         soAtrasadas: z.boolean().optional(),
         recurso: recursoFiltro,

@@ -373,6 +373,13 @@ export interface FiltroCirurgias {
   clienteId: string;
   competencia?: string;
   operadoraId?: string;
+  /**
+   * Só o convênio que foi ligado como PARTICULAR no de-para. ⚠️ Não dá para filtrar pelo
+   * `operadoraId` nulo: convênio que ninguém ligou também tem operadora nula, e o filtro
+   * misturaria "particular" com "pendente de ligação". A régua é `convenioParticular`, a mesma
+   * que o resumo usa para escrever "Particular" na lista de operadoras.
+   */
+  particular?: boolean;
   profissionalId?: string;
   situacao?: SituacaoCirurgia;
   statusConciliacao?: StatusConciliacao;
@@ -391,6 +398,7 @@ export interface FiltroCirurgias {
 function passaNoFiltro(l: LinhaConciliada, f: FiltroCirurgias): boolean {
   if (f.competencia && l.competencia !== f.competencia) return false;
   if (f.operadoraId && l.operadora?.id !== f.operadoraId) return false;
+  if (f.particular && !l.convenioParticular) return false;
   if (f.profissionalId && l.profissional?.id !== f.profissionalId) return false;
   if (f.situacao === "SEM_ATENDIMENTO" && l.atendimento) return false;
   if (f.situacao === "AUTORIZACAO_PENDENTE" && l.autorizacao !== "PENDENTE") return false;

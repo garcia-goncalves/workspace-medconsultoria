@@ -57,6 +57,19 @@ type Dialogo = null | "procedimentos" | "repasse" | "planilha" | "semProducao";
 
 const brl = (v: number | null) => (v === null ? "—" : formatBRL(v));
 
+/**
+ * O valor do `<select>` de operadora que quer dizer "Particular". ⚠️ Não é um id de operadora
+ * e NUNCA vai ao servidor como `operadoraId`: particular ligado tem operadora NULA, igual ao
+ * convênio que ninguém ligou — por isso vira o campo próprio `particular: true`.
+ */
+const OPCAO_PARTICULAR = "__particular__";
+
+/** Traduz o valor do `<select>` de operadora para o que o servidor entende. */
+function filtroDeOperadora(valor: string): { operadoraId?: string; particular?: true } {
+  if (!valor) return {};
+  return valor === OPCAO_PARTICULAR ? { particular: true } : { operadoraId: valor };
+}
+
 export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string; clienteNome: string }) {
   const [competencia, setCompetencia] = useState("");
   const [situacao, setSituacao] = useState<Situacao>("");
@@ -84,7 +97,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
       competencia: competencia || undefined,
       situacao: situacao || undefined,
       statusConciliacao: status || undefined,
-      operadoraId: operadoraId || undefined,
+      ...filtroDeOperadora(operadoraId),
       soAtrasadas: soAtrasadas || undefined,
       recurso: recurso || undefined,
       busca: buscaAdiada.trim() || undefined,
@@ -170,6 +183,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
             exportar.mutate({
               clienteId,
               competencia: competencia || undefined,
+              ...filtroDeOperadora(operadoraId),
               statusConciliacao: status || undefined,
               // A planilha leva o MESMO recorte que está na tela — exportar tudo quando a tela
               // mostra só o atrasado seria entregar outro documento do que se conferiu.
@@ -353,6 +367,9 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
             <Label htmlFor="cir-operadora">Operadora</Label>
             <Select id="cir-operadora" value={operadoraId} onChange={(e) => filtrar(() => setOperadoraId(e.target.value))}>
               <option value="">Todas</option>
+              {/* Particular não tem operadora (é nula, como o convênio pendente de ligação), então
+                  a lista de ids abaixo nunca o incluiria. Só aparece se o recorte tiver particular. */}
+              {r?.porOperadora.some((o) => o.particular) && <option value={OPCAO_PARTICULAR}>Particular</option>}
               {(r?.porOperadora ?? [])
                 .filter((o) => o.operadoraId)
                 .map((o) => (
