@@ -242,6 +242,19 @@ export async function criarProposta(input: CriarPropostaInput, userId: string) {
     throw new TRPCError({ code: "BAD_REQUEST", message: UMA_OPERADORA_POR_PROPOSTA });
   }
 
+  // ⚠️ A GRADE É CONFERIDA ANTES DE O DOCUMENTO NASCER. `salvarGrade`, lá embaixo, pode recusar
+  // (médico de outro cliente; funcionário acertando o honorário "a combinar" de um cruzamento já
+  // APROVADO, que lança cobrança e é ADMIN+). Recusando DEPOIS do `documento.create`, ficava a
+  // proposta criada, com número queimado, e sem as linhas de acompanhamento — documento órfão.
+  // Escolha: RECUSAR, e não "preservar a célula em silêncio": a proposta imprimiria um valor
+  // para aquele cruzamento que a grade não registrou nem cobrou, e o papel mentiria. A mesma
+  // função que `salvarGrade` usa, para as duas portas não divergirem.
+  if (ehGrade && clienteId) {
+    const { validarCargaDaGrade } = await import("../servicos/credenciamento-grade.service.js");
+    const autor = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    await validarCargaDaGrade({ clienteId, celulas: grade }, { role: autor?.role ?? "FUNCIONARIO" });
+  }
+
   // O faturamento mensal informado (proposta de faturamento) e o percentual somado dos itens.
   // `0` é um número informado tão válido quanto outro, então o que separa "não informou" de
   // "informou zero" é `undefined`, não a falsidade do valor.
