@@ -29,6 +29,7 @@ import { EditarCirurgiaDialog, type CirurgiaConciliada } from "./EditarCirurgiaD
 import { RecursoDeGlosaDialog } from "./RecursoDeGlosaDialog";
 import { ProcedimentosDialog } from "./ProcedimentosDialog";
 import { ImportarRecebidoDialog } from "./ImportarRecebidoDialog";
+import { HistoricoFechamento } from "./HistoricoFechamentoDialog";
 
 /**
  * As cirurgias do TASY de um cliente, CONCILIADAS: cada uma com cobrado (do de-para do
@@ -191,6 +192,9 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           onReabrir={() => reabrir.mutate({ clienteId, competencia })}
         />
       )}
+      {/* Fora da faixa de propósito: a faixa some quando o mês é reaberto, e o histórico é
+          justamente o que responde "quem tinha fechado?" depois disso. */}
+      {competencia && <HistoricoFechamento clienteId={clienteId} competencia={competencia} />}
 
       <div className="rounded-lg border p-3">
         <div className="flex flex-wrap items-end gap-3">

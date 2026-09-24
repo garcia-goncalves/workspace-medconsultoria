@@ -134,6 +134,7 @@ model User {
   producaoLotes          ProducaoLote[]         @relation("LoteImportadoPor")
   recursosDeGlosaCriados RecursoDeGlosa[]       @relation("RecursosDeGlosaCriados")
   competenciasFechadas   CompetenciaFechada[]   @relation("CompetenciasFechadas")
+  eventosDeFechamento    CompetenciaFechamentoEvento[] @relation("EventosDeFechamento")
 
   @@index([role])
   @@index([clienteId])
@@ -316,6 +317,7 @@ model Cliente {
   producaoCirurgias       ProducaoCirurgia[]
   recursosDeGlosa         RecursoDeGlosa[]
   competenciasFechadas    CompetenciaFechada[]
+  eventosDeFechamento     CompetenciaFechamentoEvento[]
   mapeamentosConvenio     MapeamentoConvenio[]
   mapeamentosProfissional MapeamentoProfissional[]
   mapeamentosProcedimento MapeamentoProcedimento[]
@@ -2082,6 +2084,50 @@ model CompetenciaFechada {
 
   @@unique([clienteId, competencia])
   @@index([fechadoPorId])
+}
+
+enum TipoEventoFechamento {
+  FECHOU
+  REABRIU
+}
+
+/// O HISTÓRICO do fechamento de uma competência: uma linha a CADA fechar e a CADA reabrir.
+///
+/// ⚠️ `CompetenciaFechada` é o ESTADO de agora (é dela que a trava de edição lê) e, por ser uma
+/// linha só, fechar de novo escreve por cima — "quem conferiu da primeira vez?" deixava de ter
+/// resposta, e depois de reabrir não sobrava nada na tela dizendo quem tinha fechado. Esta tabela
+/// responde a outra pergunta: *o que aconteceu com este mês, e quem fez*.
+///
+/// ⚠️ **APPEND-ONLY.** Não existe rota que edite ou apague evento, e não deve existir: um histórico
+/// que se corrige deixa de ser prova. Estado e evento são gravados na MESMA transação.
+///
+/// `id` é autoincremento de propósito: é a ORDEM de gravação, que decide a ordem do histórico
+/// mesmo quando dois eventos caem no mesmo milissegundo.
+model CompetenciaFechamentoEvento {
+  id          Int                  @id @default(autoincrement())
+  clienteId   String
+  competencia String               @db.Char(7)
+  tipo        TipoEventoFechamento
+  em          DateTime             @default(now())
+  porId       String?
+  /// O nome de quem agiu NO MOMENTO do evento. Se a conta for excluída o `porId` vira nulo
+  /// (`SetNull`), e sem esta cópia o histórico passaria a dizer "alguém".
+  porNome     String?
+  observacao  String?              @db.Text
+
+  // O retrato conferido — só no FECHOU. Mesmo aviso de `CompetenciaFechada`: comparação, nunca
+  // valor corrente.
+  cobrado   Decimal? @db.Decimal(12, 2)
+  recebido  Decimal? @db.Decimal(12, 2)
+  glosa     Decimal? @db.Decimal(12, 2)
+  aReceber  Decimal? @db.Decimal(12, 2)
+  cirurgias Int?
+
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  por     User?   @relation("EventosDeFechamento", fields: [porId], references: [id], onDelete: SetNull)
+
+  @@index([clienteId, competencia])
+  @@index([porId])
 }
 
 /// Fase 2c: o que a clínica fez DEPOIS de descobrir a glosa.

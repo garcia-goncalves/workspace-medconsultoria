@@ -387,6 +387,15 @@ export const conciliacaoRouter = router({
     .query(({ input }) => financeira.competenciasFechadas(input.clienteId)),
 
   /**
+   * Quem fechou e quem reabriu aquele mês, e quando — inclusive depois de reaberto, que é quando
+   * `competenciasFechadas` já não o mostra. Leitura para quem concilia (o funcionário também
+   * precisa saber quem conferiu); ⚠️ não existe rota que edite ou apague evento, de propósito.
+   */
+  historicoFechamento: conciliacaoProcedure
+    .input(z.object({ clienteId, competencia }))
+    .query(({ input }) => financeira.historicoFechamento(input.clienteId, input.competencia)),
+
+  /**
    * ⚠️ Fechar e reabrir exigem ADMIN.
    *
    * O funcionário OPERA o mês — importa, concilia, recorre. **Declarar que ele está conferido** é
