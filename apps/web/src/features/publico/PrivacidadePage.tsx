@@ -52,11 +52,8 @@ export function PrivacidadePage() {
   }
 
   const d = q.data;
-  // TODO(W7): trocar por `d.retencaoPacienteAnos` quando o campo existir em
-  // IdentidadeInstitucional (editável em Ajustes → Dados da empresa) e sair em
-  // `identidade.privacidade`. Até lá, 5 é o prazo decidido pelo dono — mas a regra desta página
-  // é ler do banco, igual aos outros prazos, para o que ela promete ser o que o expurgo cumpre.
-  const prazoPacienteAnos: number = 5;
+  // Lido do banco, igual aos outros prazos: o que esta página promete é o que o expurgo cumpre.
+  const prazoPacienteAnos = d.retencaoPacienteAnos;
 
   return (
     <Casca>
@@ -131,7 +128,9 @@ export function PrivacidadePage() {
               recebido, com o mesmo acesso restrito, e cada download fica registrado.
             </li>
             <li>
-              <strong>Por quanto tempo:</strong> {prazoPacienteAnos} anos, e depois são apagados.
+              <strong>Por quanto tempo:</strong> {prazoPacienteAnos} anos, contados da data do atendimento.
+              Depois disso, o nome e os contatos do paciente são apagados, e a planilha original sai do
+              acervo; ficam só os números da conferência, sem ninguém identificado.
             </li>
           </ul>
         </Bloco>
