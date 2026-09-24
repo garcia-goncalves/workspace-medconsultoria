@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useBuscaAdiada } from "../../lib/use-busca-adiada";
 import { AlertTriangle, FileSpreadsheet, Link2, Upload } from "lucide-react";
@@ -21,6 +21,8 @@ import { ImportarCirurgiasDialog } from "./ImportarCirurgiasDialog";
 import { CirurgiasPainel } from "./CirurgiasPainel";
 import { VisaoGeralConciliacao } from "./VisaoGeralConciliacao";
 import { ConvenioDaLinha, ListaResumo, Paginacao } from "./partes";
+import type { AbaConciliacao, BuscaConciliacao } from "./busca-na-url";
+import { useBuscaConciliacao } from "./use-busca-conciliacao";
 
 /**
  * CONCILIAÇÃO — a produção de consultas do cliente, mês a mês.
@@ -41,14 +43,16 @@ const TIPO_LABEL: Record<string, string> = {
 };
 
 export function ConciliacaoPage() {
-  const [clienteId, setClienteId] = useState("");
-  const [competencia, setCompetencia] = useState("");
-  const [tipo, setTipo] = useState("");
-  const [operadoraId, setOperadoraId] = useState("");
-  const [busca, setBusca, buscaAdiada] = useBuscaAdiada();
+  // Cliente, aba e filtros das consultas moram na URL (ver `busca-na-url.ts`); a página fica em
+  // memória, porque todo filtro a devolve para 1 de qualquer jeito.
+  const [url, atualizar] = useBuscaConciliacao();
+  const competencia = url.mes ?? "";
+  const tipo = url.tipo ?? "";
+  const operadoraNaUrl = url.operadora ?? "";
+  const aba: AbaConciliacao = url.aba ?? "consultas";
+  const [busca, setBusca, buscaAdiada] = useBuscaAdiada(350, url.paciente ?? "");
   const [pagina, setPagina] = useState(1);
   const [importando, setImportando] = useState(false);
-  const [aba, setAba] = useState<"consultas" | "cirurgias">("consultas");
 
   const utils = trpc.useUtils();
   const disponivel = trpc.conciliacao.disponivel.useQuery();
@@ -57,12 +61,33 @@ export function ConciliacaoPage() {
   // dois cliques depois. A lista tem de ser a mesma que a trava do servidor aceita.
   const clientes = trpc.conciliacao.clientes.useQuery();
 
+  // ⚠️ O cliente da URL só vale DEPOIS de conferido contra a lista que o servidor aceita. Link
+  // velho, cliente que saiu da responsabilidade da pessoa, id digitado à mão: nenhuma consulta
+  // daquele cliente sai, e a tela cai no seletor em vez de mostrar erro de acesso.
+  const clienteDaUrlValido = !!url.cliente && !!clientes.data?.some((c) => c.id === url.cliente);
+  const clienteId = clienteDaUrlValido ? url.cliente! : "";
+  useEffect(() => {
+    if (url.cliente && clientes.data && !clienteDaUrlValido) atualizar({}, { substituirTudo: true });
+  }, [url.cliente, clientes.data, clienteDaUrlValido, atualizar]);
+
+  // A busca vai à URL só depois da pausa (uma navegação por tecla seria desperdício), e é a
+  // única chave escrita por aqui: quem limpa, limpa o CAMPO.
+  const buscaNaUrl = url.paciente ?? "";
+  useEffect(() => {
+    if (buscaAdiada !== buscaNaUrl) atualizar({ paciente: buscaAdiada || undefined });
+  }, [buscaAdiada, buscaNaUrl, atualizar]);
+
   const habilitado = !!clienteId;
   // As consultas da aba Consultas só rodam com ela aberta; as pendências valem para as duas.
   const naAbaConsultas = habilitado && aba === "consultas";
   const competencias = trpc.conciliacao.competencias.useQuery({ clienteId }, { enabled: naAbaConsultas });
   const pendencias = trpc.conciliacao.pendencias.useQuery({ clienteId }, { enabled: habilitado });
   const resumo = trpc.conciliacao.resumo.useQuery({ clienteId, competencia }, { enabled: naAbaConsultas && !!competencia });
+  // ⚠️ Operadora da URL só filtra com competência escolhida (é quando o campo fica habilitado) e
+  // se estiver entre as opções do mês. Fora disso o `<select>` mostraria "Todas" enquanto a lista
+  // filtraria por ela — o mesmo defeito que a troca de competência já limpa.
+  const operadoraId =
+    competencia && (!resumo.data || resumo.data.operadorasDoMes.some((o) => o.operadoraId === operadoraNaUrl)) ? operadoraNaUrl : "";
   const producao = trpc.conciliacao.producao.useQuery(
     {
       clienteId,
@@ -82,14 +107,18 @@ export function ConciliacaoPage() {
 
   const opcoesCliente = useMemo(() => (clientes.data ?? []).map((c) => ({ value: c.id, label: c.nome })), [clientes.data]);
 
-  function trocarCliente(id: string) {
-    setClienteId(id);
+  function trocarCliente(id: string, novaAba: AbaConciliacao = aba) {
     // Filtros de um cliente não fazem sentido no outro — zerar evita a tela dizer "nenhum
-    // resultado" por causa de um filtro invisível herdado.
-    setCompetencia("");
-    setTipo("");
-    setOperadoraId("");
+    // resultado" por causa de um filtro invisível herdado. Por isso `substituirTudo`: só cliente
+    // e aba sobrevivem. Entrada NOVA no histórico: "voltar" devolve a visão geral.
+    atualizar({ cliente: id || undefined, aba: novaAba }, { substituirTudo: true, novaEntrada: true });
     setBusca("");
+    setPagina(1);
+  }
+
+  /** Um filtro das consultas mudou: grava na URL e volta para a página 1. */
+  function filtrar(mudancas: BuscaConciliacao) {
+    atualizar(mudancas);
     setPagina(1);
   }
 
@@ -156,10 +185,10 @@ export function ConciliacaoPage() {
         // Sem cliente escolhido, a tela mostra todos — e escolher é clicar no nome.
         <VisaoGeralConciliacao
           onEscolher={(id, temCirurgia) => {
-            trocarCliente(id);
             // Cliente que só tem consultas importadas caía em "Nenhuma cirurgia importada" — e
             // isso se lê como "esse cliente não tem nada". A linha clicada já sabe o que existe.
-            setAba(temCirurgia ? "cirurgias" : "consultas");
+            // Cliente e aba na MESMA gravação da URL (duas seguidas podem se desfazer).
+            trocarCliente(id, temCirurgia ? "cirurgias" : "consultas");
           }}
         />
       ) : (
@@ -167,7 +196,7 @@ export function ConciliacaoPage() {
           {/* As pendências ficam FORA das abas: o de-para é o mesmo para consultas e cirurgias. */}
           {totalPendencias > 0 && <CardPendencias clienteId={clienteId} aoLigar={recarregar} />}
 
-          <Tabs value={aba} onValueChange={(v) => setAba(v as "consultas" | "cirurgias")} className="space-y-4">
+          <Tabs value={aba} onValueChange={(v) => atualizar({ aba: v as AbaConciliacao })} className="space-y-4">
             <TabsList aria-label="Tipo de produção">
               <TabsTrigger value="consultas">Consultas</TabsTrigger>
               <TabsTrigger value="cirurgias">Cirurgias (TASY)</TabsTrigger>
@@ -191,16 +220,14 @@ export function ConciliacaoPage() {
                 <ResumoDoMes
                   lotes={competencias.data}
                   competencia={competencia}
-                  setCompetencia={(c) => {
-                    setCompetencia(c);
+                  setCompetencia={(c) =>
                     // ⚠️ A lista de operadoras do filtro vem do RESUMO, que depende da
                     // competência. Trocar de mês sem limpar a operadora escolhida deixava o
                     // `<select>` mostrando "Todas" (a operadora sumiu das opções) enquanto o
                     // estado continuava filtrando por ela — a tela dizia "sem filtro" e mostrava
                     // uma operadora só. Números parciais lidos como o mês inteiro.
-                    setOperadoraId("");
-                    setPagina(1);
-                  }}
+                    filtrar({ mes: c || undefined, operadora: undefined })
+                  }
                   resumo={resumo.data ?? null}
                   erroDoResumo={resumo.error ? resumo.error.message : null}
                   recarregarResumo={() => void resumo.refetch()}
@@ -214,10 +241,7 @@ export function ConciliacaoPage() {
                     <Select
                       id="f-tipo"
                       value={tipo}
-                      onChange={(e) => {
-                        setTipo(e.target.value);
-                        setPagina(1);
-                      }}
+                      onChange={(e) => filtrar({ tipo: (e.target.value || undefined) as BuscaConciliacao["tipo"] })}
                     >
                       <option value="">Todos</option>
                       {Object.entries(TIPO_LABEL).map(([v, l]) => (
@@ -236,10 +260,7 @@ export function ConciliacaoPage() {
                       // escolhida. Sem ela o campo ficava com uma opção só ("Todas"), parecendo
                       // que a clínica não tem operadora nenhuma — em vez de dizer o que falta.
                       disabled={!competencia}
-                      onChange={(e) => {
-                        setOperadoraId(e.target.value);
-                        setPagina(1);
-                      }}
+                      onChange={(e) => filtrar({ operadora: e.target.value || undefined })}
                     >
                       <option value="">Todas</option>
                       {(resumo.data?.operadorasDoMes ?? []).map((o) => (
@@ -266,10 +287,9 @@ export function ConciliacaoPage() {
                     <Button
                       variant="ghost"
                       onClick={() => {
-                        setTipo("");
-                        setOperadoraId("");
+                        // A busca sai pelo CAMPO; o efeito da busca leva o vazio à URL.
                         setBusca("");
-                        setPagina(1);
+                        filtrar({ tipo: undefined, operadora: undefined });
                       }}
                     >
                       Limpar

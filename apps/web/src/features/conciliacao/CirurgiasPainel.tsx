@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { hasRoleLevel } from "@app/shared";
 import { useAuth } from "../../lib/auth-context";
 import { useBuscaAdiada } from "../../lib/use-busca-adiada";
@@ -31,6 +31,8 @@ import { RecursoDeGlosaDialog } from "./RecursoDeGlosaDialog";
 import { ProcedimentosDialog } from "./ProcedimentosDialog";
 import { ImportarRecebidoDialog } from "./ImportarRecebidoDialog";
 import { HistoricoFechamento } from "./HistoricoFechamentoDialog";
+import type { BuscaConciliacao } from "./busca-na-url";
+import { useBuscaConciliacao } from "./use-busca-conciliacao";
 
 /**
  * As cirurgias do TASY de um cliente, CONCILIADAS: cada uma com cobrado (do de-para do
@@ -76,14 +78,25 @@ function filtroDeOperadora(valor: string): { operadoraId?: string; particular?: 
 }
 
 export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string; clienteNome: string }) {
-  const [competencia, setCompetencia] = useState("");
-  const [situacao, setSituacao] = useState<Situacao>("");
-  const [status, setStatus] = useState<StatusConciliacao | "">("");
-  const [operadoraId, setOperadoraId] = useState("");
-  const [busca, setBusca, buscaAdiada] = useBuscaAdiada();
-  const [soAtrasadas, setSoAtrasadas] = useState(false);
-  const [recurso, setRecurso] = useState<"" | "SEM_RECURSO" | "ABERTO" | "SEM_RESPOSTA" | "RESPONDIDO">("");
+  // Os filtros moram na URL (chaves `cir…`, ver `busca-na-url.ts`): recarregar volta no mesmo
+  // recorte, e trocar para "Consultas" e voltar não apaga nada. A página fica em memória — ela
+  // volta para 1 a cada filtro de qualquer jeito.
+  const [url, atualizar] = useBuscaConciliacao();
+  const competencia = url.cirMes ?? "";
+  const situacao: Situacao = url.cirSituacao ?? "";
+  const status: StatusConciliacao | "" = url.cirStatus ?? "";
+  const operadoraNaUrl = url.cirOperadora ?? "";
+  const soAtrasadas = url.cirPrazo === "atrasadas";
+  const recurso = url.cirRecurso ?? "";
+  const [busca, setBusca, buscaAdiada] = useBuscaAdiada(350, url.cirPaciente ?? "");
   const [pagina, setPagina] = useState(1);
+
+  // ⚠️ A busca é a ÚNICA chave escrita por aqui, e só depois da pausa: gravar a cada tecla faria
+  // uma navegação por letra. Quem limpa a busca limpa o CAMPO, e este efeito leva à URL.
+  const buscaNaUrl = url.cirPaciente ?? "";
+  useEffect(() => {
+    if (buscaAdiada !== buscaNaUrl) atualizar({ cirPaciente: buscaAdiada || undefined });
+  }, [buscaAdiada, buscaNaUrl, atualizar]);
   const [dialogo, setDialogo] = useState<Dialogo>(null);
   const [editando, setEditando] = useState<CirurgiaConciliada | null>(null);
   const [recorrendo, setRecorrendo] = useState<CirurgiaConciliada | null>(null);
@@ -96,6 +109,16 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
   const meses = trpc.conciliacao.mesesCirurgias.useQuery({ clienteId });
   const fechadas = trpc.conciliacao.competenciasFechadas.useQuery({ clienteId });
   const resumo = trpc.conciliacao.resumoCirurgias.useQuery({ clienteId, competencia: competencia || undefined });
+  // ⚠️ Operadora da URL que não está entre as opções do recorte (link antigo, mês trocado à mão
+  // no endereço) vira "sem filtro". Senão o `<select>` mostraria "Todas" enquanto a lista
+  // filtraria por ela — o mesmo defeito que a troca de mês já limpa.
+  const opcoesDeOperadora = resumo.data
+    ? new Set([
+        ...(resumo.data.porOperadora.some((o) => o.particular) ? [OPCAO_PARTICULAR] : []),
+        ...resumo.data.porOperadora.flatMap((o) => (o.operadoraId ? [o.operadoraId] : [])),
+      ])
+    : null;
+  const operadoraId = !opcoesDeOperadora || opcoesDeOperadora.has(operadoraNaUrl) ? operadoraNaUrl : "";
   const lista = trpc.conciliacao.cirurgias.useQuery(
     {
       clienteId,
@@ -169,8 +192,8 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
     });
 
   /** Todo filtro volta para a página 1 — senão a pessoa fica numa página que não existe mais. */
-  const filtrar = (f: () => void) => {
-    f();
+  const filtrar = (mudancas: BuscaConciliacao) => {
+    atualizar(mudancas);
     setPagina(1);
   };
   const recarregar = () => void utils.conciliacao.invalidate();
@@ -253,13 +276,14 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
               id="cir-mes"
               value={competencia}
               onChange={(e) =>
-                filtrar(() => {
-                  setCompetencia(e.target.value);
+                filtrar({
+                  cirMes: e.target.value || undefined,
                   // ⚠️ As opções de operadora vêm do RESUMO daquele mês. Trocar de mês sem
                   // limpar a operadora deixava o `<select>` mostrando "Todas" (a operadora sumiu
                   // das opções) enquanto o estado continuava filtrando por ela — a tela afirmava
-                  // não ter filtro e mostrava uma operadora só.
-                  setOperadoraId("");
+                  // não ter filtro e mostrava uma operadora só. Na MESMA chamada: duas seguidas
+                  // podem ler o mesmo endereço de partida e uma desfazer a outra.
+                  cirOperadora: undefined,
                 })
               }
             >
@@ -309,7 +333,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
               <button
                 type="button"
                 className="min-h-11 text-left font-medium text-destructive underline-offset-2 hover:underline"
-                onClick={() => filtrar(() => setRecurso("SEM_RECURSO"))}
+                onClick={() => filtrar({ cirRecurso: "SEM_RECURSO" })}
               >
                 {formatBRL(r.dinheiro.glosaSemRecurso)} de glosa sem recurso
               </button>
@@ -318,7 +342,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
               <button
                 type="button"
                 className="min-h-11 text-left text-primary underline-offset-2 hover:underline"
-                onClick={() => filtrar(() => setRecurso("ABERTO"))}
+                onClick={() => filtrar({ cirRecurso: "ABERTO" })}
               >
                 {formatBRL(r.dinheiro.emRecurso)} em recurso
                 {r.dinheiro.recursosSemResposta > 0 && ` · ${r.dinheiro.recursosSemResposta} sem resposta no prazo`}
@@ -378,7 +402,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
         <div className="flex flex-wrap items-end gap-3 border-b p-3">
           <div className="w-56 space-y-1">
             <Label htmlFor="cir-status">Conciliação</Label>
-            <Select id="cir-status" value={status} onChange={(e) => filtrar(() => setStatus(e.target.value as StatusConciliacao | ""))}>
+            <Select id="cir-status" value={status} onChange={(e) => filtrar({ cirStatus: (e.target.value || undefined) as BuscaConciliacao["cirStatus"] })}>
               <option value="">Todas</option>
               {(Object.keys(STATUS_CONCILIACAO) as StatusConciliacao[]).map((s) => (
                 <option key={s} value={s}>
@@ -390,7 +414,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           </div>
           <div className="w-56 space-y-1">
             <Label htmlFor="cir-situacao">Situação no TASY</Label>
-            <Select id="cir-situacao" value={situacao} onChange={(e) => filtrar(() => setSituacao(e.target.value as Situacao))}>
+            <Select id="cir-situacao" value={situacao} onChange={(e) => filtrar({ cirSituacao: (e.target.value || undefined) as BuscaConciliacao["cirSituacao"] })}>
               <option value="">Todas</option>
               <option value="SEM_ATENDIMENTO">Sem número de atendimento</option>
               <option value="AUTORIZACAO_PENDENTE">Autorização pendente</option>
@@ -399,7 +423,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           </div>
           <div className="w-56 space-y-1">
             <Label htmlFor="cir-operadora">Operadora</Label>
-            <Select id="cir-operadora" value={operadoraId} onChange={(e) => filtrar(() => setOperadoraId(e.target.value))}>
+            <Select id="cir-operadora" value={operadoraId} onChange={(e) => filtrar({ cirOperadora: e.target.value || undefined })}>
               <option value="">Todas</option>
               {/* Particular não tem operadora (é nula, como o convênio pendente de ligação), então
                   a lista de ids abaixo nunca o incluiria. Só aparece se o recorte tiver particular. */}
@@ -415,7 +439,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           </div>
           <div className="w-56 space-y-1">
             <Label htmlFor="cir-recurso">Recurso de glosa</Label>
-            <Select id="cir-recurso" value={recurso} onChange={(e) => filtrar(() => setRecurso(e.target.value as typeof recurso))}>
+            <Select id="cir-recurso" value={recurso} onChange={(e) => filtrar({ cirRecurso: (e.target.value || undefined) as BuscaConciliacao["cirRecurso"] })}>
               <option value="">Todos</option>
               {/* Primeiro da lista de propósito: é a pergunta que custa dinheiro. */}
               <option value="SEM_RECURSO">Glosa sem recurso (ninguém cuidou)</option>
@@ -430,7 +454,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
             <Select
               id="cir-atraso"
               value={soAtrasadas ? "sim" : ""}
-              onChange={(e) => filtrar(() => setSoAtrasadas(e.target.value === "sim"))}
+              onChange={(e) => filtrar({ cirPrazo: e.target.value === "sim" ? "atrasadas" : undefined })}
             >
               <option value="">Todos os prazos</option>
               <option value="sim">Só o que passou do prazo</option>
@@ -439,21 +463,26 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
 
           <div className="w-56 space-y-1">
             <Label htmlFor="cir-busca">Paciente</Label>
-            <Input id="cir-busca" value={busca} placeholder="Buscar pelo nome…" onChange={(e) => filtrar(() => setBusca(e.target.value))} />
+            <Input id="cir-busca" value={busca} placeholder="Buscar pelo nome…" onChange={(e) => {
+                setBusca(e.target.value);
+                setPagina(1);
+              }}
+            />
           </div>
           {temFiltro && (
             <Button
               variant="ghost"
-              onClick={() =>
-                filtrar(() => {
-                  setSituacao("");
-                  setStatus("");
-                  setOperadoraId("");
-                  setSoAtrasadas(false);
-                  setRecurso("");
-                  setBusca("");
-                })
-              }
+              onClick={() => {
+                // A busca sai pelo CAMPO; o efeito da busca leva o vazio à URL.
+                setBusca("");
+                filtrar({
+                  cirSituacao: undefined,
+                  cirStatus: undefined,
+                  cirOperadora: undefined,
+                  cirPrazo: undefined,
+                  cirRecurso: undefined,
+                });
+              }}
             >
               Limpar
             </Button>

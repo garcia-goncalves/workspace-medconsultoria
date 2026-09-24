@@ -6,6 +6,7 @@ import { buttonVariants } from "../components/ui/button";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { RoleGuard } from "../components/RoleGuard";
 import { JaConectadoPage } from "../features/auth/JaConectadoPage";
+import { lerBuscaDaConciliacao } from "../features/conciliacao/busca-na-url";
 
 // Páginas carregadas sob demanda (um chunk por rota) — só o Dashboard (landing) é eager.
 const ClientesListPage = lazyRouteComponent(() => import("../features/crm/clientes/ClientesListPage"), "ClientesListPage");
@@ -70,6 +71,8 @@ const conciliacaoRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/conciliacao",
   component: ConciliacaoPage,
+  // Cliente, aba e filtros moram na URL: recarregar ou mandar o link volta no mesmo lugar.
+  validateSearch: lerBuscaDaConciliacao,
 });
 
 const clienteDetailRoute = createRoute({
