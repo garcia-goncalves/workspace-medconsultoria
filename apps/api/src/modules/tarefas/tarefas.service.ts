@@ -45,14 +45,26 @@ export async function listTarefas(input: ListTarefasInput, ctx: Ctx) {
   });
 }
 
-/** Contadores para os selos das abas (o que está aberto em cada visão). */
+/**
+ * Contadores para os selos das abas (o que está aberto em cada visão).
+ *
+ * ⚠️ "Da equipe" só é calculado para quem pode VER a aba (ADMIN+, mesma régua de
+ * `listTarefas`) — sem isso o número apareceria para quem nunca abre essa visão, e um
+ * funcionário veria uma contagem sobre tarefas que a própria lista recusa mostrar.
+ */
 export async function contarTarefas(ctx: Ctx) {
   const aberta = { deletedAt: null, status: { not: "CONCLUIDA" as TarefaStatus } };
   const [comigo, deleguei] = await Promise.all([
     prisma.tarefa.count({ where: { ...aberta, responsaveis: { some: { userId: ctx.userId } } } }),
     prisma.tarefa.count({ where: { ...aberta, criadoPorId: ctx.userId } }),
   ]);
-  return { comigo, deleguei };
+  if (!hasRoleLevel(ctx.role as never, "ADMIN")) return { comigo, deleguei, equipe: 0, equipeAtrasadas: 0 };
+
+  const [equipe, equipeAtrasadas] = await Promise.all([
+    prisma.tarefa.count({ where: aberta }),
+    prisma.tarefa.count({ where: { ...aberta, prazo: { lt: new Date() } } }),
+  ]);
+  return { comigo, deleguei, equipe, equipeAtrasadas };
 }
 
 /** Normaliza a lista de responsáveis: sem vazios/duplicados; vazio = só eu. */

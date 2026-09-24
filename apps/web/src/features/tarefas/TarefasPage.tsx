@@ -103,10 +103,20 @@ export function TarefasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busca.abrir, tarefas.data]);
 
-  const ABAS: { chave: Aba; label: string; badge?: number }[] = [
+  const ABAS: { chave: Aba; label: string; badge?: number; destaque?: boolean }[] = [
     { chave: "COMIGO", label: "Comigo", badge: contagem.data?.comigo },
     { chave: "DELEGUEI", label: "Deleguei", badge: contagem.data?.deleguei },
-    ...(podeVerEquipe ? [{ chave: "EQUIPE" as Aba, label: "Da equipe" }] : []),
+    ...(podeVerEquipe
+      ? [
+          {
+            chave: "EQUIPE" as Aba,
+            label: "Da equipe",
+            badge: contagem.data?.equipe,
+            // Alguma tarefa da equipe passou do prazo: o selo chama mais atenção.
+            destaque: !!contagem.data?.equipeAtrasadas,
+          },
+        ]
+      : []),
   ];
   const FILTROS: { chave: Filtro; label: string }[] = [
     { chave: "ABERTAS", label: "Abertas" },
@@ -268,7 +278,14 @@ export function TarefasPage() {
               >
                 {t.label}
                 {t.badge ? (
-                  <span className={cn("rounded-full px-1.5 text-xs", on ? "bg-primary-foreground/20" : "bg-muted")}>{t.badge}</span>
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 text-xs",
+                      on ? "bg-primary-foreground/20" : t.destaque ? "bg-destructive/10 text-destructive" : "bg-muted",
+                    )}
+                  >
+                    {t.badge}
+                  </span>
                 ) : null}
               </button>
             );
