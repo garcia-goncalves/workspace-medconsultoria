@@ -8,6 +8,7 @@ import { RoleGuard } from "../components/RoleGuard";
 import { JaConectadoPage } from "../features/auth/JaConectadoPage";
 import { lerBuscaDaConciliacao } from "../features/conciliacao/busca-na-url";
 import { lerBuscaDeTarefas } from "../features/tarefas/busca-na-url";
+import { lerBuscaDoFinanceiro } from "../features/financeiro/busca-na-url";
 
 // Páginas carregadas sob demanda (um chunk por rota) — só o Dashboard (landing) é eager.
 const ClientesListPage = lazyRouteComponent(() => import("../features/crm/clientes/ClientesListPage"), "ClientesListPage");
@@ -150,6 +151,9 @@ const financeiroRoute = createRoute({
       <FinanceiroPage />
     </RoleGuard>
   ),
+  // Carteira, aba e filtros moram na URL: recarregar volta no mesmo recorte, e a lista de
+  // inadimplência abre as contas do cliente já filtradas.
+  validateSearch: lerBuscaDoFinanceiro,
 });
 
 const configuracoesRoute = createRoute({

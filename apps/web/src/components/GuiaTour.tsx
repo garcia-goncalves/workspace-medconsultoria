@@ -481,6 +481,18 @@ const GUIA_FINANCEIRO: Passo[] = [
     descricao:
       "Organize entradas e saídas por categoria, separadas por carteira (Empresa × Pessoal). Edite-as em “Categorias” aqui ou em Ajustes → Catálogos.",
   },
+  {
+    icon: ListChecks,
+    titulo: "Filtrar e exportar para o contador",
+    descricao:
+      "Na lista, filtre por cliente, categoria (inclusive “Sem categoria”), período de vencimento e texto da descrição. O botão “Exportar” baixa uma planilha com exatamente as contas do filtro — e diz quantas saem.",
+  },
+  {
+    icon: ArrowRightLeft,
+    titulo: "Relatórios",
+    descricao:
+      "A aba Relatórios mostra os últimos 12 meses pelo mês em que o dinheiro entrou ou saiu (regime de caixa), a projeção dos próximos 3 meses (com as parcelas recorrentes que ainda vão nascer) e quem está devendo, com atalho para as contas de cada cliente.",
+  },
 ];
 
 const GUIA_DOCUMENTOS: Passo[] = [

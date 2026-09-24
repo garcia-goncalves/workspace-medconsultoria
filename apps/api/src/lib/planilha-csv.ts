@@ -37,5 +37,5 @@ export function celulaReais(v: number | null): string {
 
 /** Junta as linhas no CSV final (BOM + `;` + `\r\n`). As células já vêm formatadas. */
 export function montarCsv(linhas: string[][]): string {
-  return "﻿" + linhas.map((l) => l.join(";")).join("\r\n") + "\r\n";
+  return "\uFEFF" + linhas.map((l) => l.join(";")).join("\r\n") + "\r\n";
 }

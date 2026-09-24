@@ -3,6 +3,15 @@ import { test, expect } from "@playwright/test";
 // CENÁRIO 8 — Financeiro (UI real). Cria contas únicas; RBAC por perfil.
 const RUN = `FIN${Date.now().toString().slice(-6)}`;
 
+/**
+ * A lista é paginada no servidor (50 por página) e o banco local acumula contas de rodadas
+ * anteriores: sem a busca, a conta deste teste pode cair na página 2 e o teste "não a achar".
+ * A busca vai para a URL, então sobrevive ao `reload()` e à troca de carteira.
+ */
+async function buscarRun(page) {
+  await page.getByLabel("Buscar na descrição").fill(RUN);
+}
+
 test.describe.serial("Cenário 8 — financeiro (ADMIN)", () => {
   test.use({ storageState: "e2e/.auth/admin.json" });
 
@@ -23,6 +32,7 @@ test.describe.serial("Cenário 8 — financeiro (ADMIN)", () => {
     await criarConta(page, "A pagar", `${RUN} pagar`, "R$ 800,00");
     await page.goto("/financeiro");
     await page.getByRole("button", { name: "Tudo" }).click();
+    await buscarRun(page);
     // Confere na TABELA. `getByText` solto casava também com o card "Precisa de você" (a conta
     // vence em breve), dando strict-mode violation num banco sem outras contas — o painel só
     // ficava vazio porque, na prática, algum spec anterior já havia enchido o mês.
@@ -37,6 +47,7 @@ test.describe.serial("Cenário 8 — financeiro (ADMIN)", () => {
 
     await page.goto("/financeiro");
     await page.getByRole("button", { name: "Tudo" }).click();
+    await buscarRun(page);
     await page.getByRole("button", { name: "A pagar", exact: true }).first().click();
     await expect(page.getByRole("row").filter({ hasText: desc })).toBeVisible();
 
@@ -49,6 +60,7 @@ test.describe.serial("Cenário 8 — financeiro (ADMIN)", () => {
     await expect(d).toHaveCount(0);
     await page.reload();
     await page.getByRole("button", { name: "Tudo" }).click();
+    await buscarRun(page);
     await page.getByRole("button", { name: "A pagar", exact: true }).first().click();
     await expect(page.getByRole("row").filter({ hasText: desc })).toContainText("250,00");
 
@@ -65,6 +77,7 @@ test.describe.serial("Cenário 8 — financeiro (ADMIN)", () => {
     await page.getByRole("dialog").filter({ hasText: "Remover conta" }).getByRole("button", { name: "Remover" }).click();
     await page.reload();
     await page.getByRole("button", { name: "Tudo" }).click();
+    await buscarRun(page);
     await page.getByRole("button", { name: "Todas", exact: true }).click();
     await expect(page.getByRole("row").filter({ hasText: desc })).toHaveCount(0);
   });
@@ -84,6 +97,7 @@ test.describe.serial("Cenário 8 — financeiro (ADMIN)", () => {
 
     // Aparece na carteira Pessoal
     await page.getByRole("button", { name: "Pessoal", exact: true }).click();
+    await buscarRun(page);
     await page.getByRole("button", { name: "A pagar", exact: true }).first().click();
     await expect(page.getByRole("row").filter({ hasText: desc })).toBeVisible();
     // NÃO aparece na carteira Empresa (isolamento por carteira)

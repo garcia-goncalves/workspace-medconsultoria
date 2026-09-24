@@ -111,7 +111,9 @@ test("grade médico × operadora: monta o preço, gera a proposta numerada e cob
       const r = await consultar<{ id: string; descricao: string }[] | { itens: { id: string; descricao: string }[] }>(
         root,
         "financeiro.contas.list",
-        {},
+        // A lista é paginada no servidor: sem a busca, num banco cheio a conta deste teste
+        // poderia cair fora da 1ª página.
+        { busca: RUN, porPagina: 200 },
       );
       const lista = Array.isArray(r) ? r : (r.itens ?? []);
       return lista.filter((c) => c.descricao.includes(RUN));

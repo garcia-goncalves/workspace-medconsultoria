@@ -158,7 +158,7 @@ describe("planilha do contador", () => {
       [conta(), conta({ tipo: "PAGAR", pago: true, pagoEm: new Date("2026-09-01T01:00:00Z"), categoria: null, cliente: null })],
       utc(2026, 9, 24),
     );
-    expect(csv.startsWith("﻿")).toBe(true);
+    expect(csv.startsWith("\uFEFF")).toBe(true);
     const linhas = csv.slice(1).trim().split("\r\n");
     expect(linhas[0]).toBe(
       '"Vencimento";"Pagamento";"Descrição";"Cliente/Fornecedor";"Categoria";"Carteira";"Tipo";"Valor (R$)";"Status"',

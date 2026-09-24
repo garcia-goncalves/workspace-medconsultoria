@@ -234,7 +234,7 @@ describe("exportação para o contador", () => {
   it("respeita o filtro, protege contra fórmula e não leva a carteira pessoal de outro", async () => {
     await conta(null, { tipo: "PAGAR", valor: 42.5, vencimento: noMes(0, 7), descricao: "=cmd|' /C calc'!A0" });
     const r = await callers.outro!.financeiro.contas.exportar({ carteira: "TUDO", busca: PFX, tipo: "PAGAR" });
-    const linhas = r.csv.replace(/^﻿/, "").trim().split("\r\n");
+    const linhas = r.csv.replace(/^\uFEFF/, "").trim().split("\r\n");
     expect(r.linhas).toBe(linhas.length - 1);
     expect(r.csv).toContain(`"${PFX} =cmd|' /C calc'!A0"`);
     expect(r.csv).toContain("42,50");
