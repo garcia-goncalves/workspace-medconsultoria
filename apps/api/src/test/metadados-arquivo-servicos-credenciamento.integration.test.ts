@@ -38,6 +38,11 @@ let arquivoServicoId: string;
 let profissionalId: string;
 let requisitoCredenciamentoId: string;
 let arquivoCredenciamentoId: string;
+// A marca `ehCredenciamento` é ÚNICA no sistema inteiro: este arquivo a liga no serviço canônico e
+// precisa devolvê-la como achou. Sem isso, o arquivo seguinte da suíte (que roda no mesmo banco,
+// em sequência) encontra a marca ocupada — foi o que reprovou `marca-credenciamento-na-criacao`.
+let servicoCredId: string;
+let marcaAntes: boolean;
 
 const como = (id: string, role: "FUNCIONARIO" | "ADMIN") =>
   appRouter.createCaller({ user: { id, role, nome: id, email: `${id}@x` }, req: {}, res: {} } as never);
@@ -79,10 +84,16 @@ beforeAll(async () => {
   ).id;
 
   // ── o credenciamento: profissional cadastrado + um documento dele enviado ──
-  const servicoCred = await prisma.servico.findFirst({ where: { nome: NOME_SERVICO_CREDENCIAMENTO }, select: { id: true } });
+  const servicoCred = await prisma.servico.findFirst({
+    where: { nome: NOME_SERVICO_CREDENCIAMENTO },
+    select: { id: true, ehCredenciamento: true },
+  });
   if (!servicoCred) {
-    await prisma.servico.create({ data: { nome: NOME_SERVICO_CREDENCIAMENTO, ehCredenciamento: true } });
+    marcaAntes = false;
+    servicoCredId = (await prisma.servico.create({ data: { nome: NOME_SERVICO_CREDENCIAMENTO, ehCredenciamento: true } })).id;
   } else {
+    marcaAntes = servicoCred.ehCredenciamento;
+    servicoCredId = servicoCred.id;
     await prisma.servico.update({ where: { id: servicoCred.id }, data: { ehCredenciamento: true } });
   }
   await sincronizarRequisitosCredenciamento(true);
@@ -121,6 +132,7 @@ afterAll(async () => {
   await prisma.servico.deleteMany({ where: { id: servicoNormalId } });
   await prisma.cliente.deleteMany({ where: { id: clienteId } });
   await prisma.user.deleteMany({ where: { email: { startsWith: PFX } } });
+  if (servicoCredId) await prisma.servico.update({ where: { id: servicoCredId }, data: { ehCredenciamento: marcaAntes } });
   await prisma.$disconnect();
 });
 
