@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -149,13 +149,25 @@ describe("download /arquivos/:id", () => {
   });
 
   it("se o registro do download falhar, o download segue — e a falha vai para SISTEMA → Erros", async () => {
-    // ⚠️ `mockImplementationOnce` e SEM `mockRestore`: restaurar um spy num delegate do Prisma
-    // não devolve o original (visto quebrando testes seguintes, ADR-149). Depois da 1ª chamada o
-    // spy volta a chamar o original sozinho.
-    vi.spyOn(prisma.activityLog, "create").mockImplementationOnce((() =>
-      Promise.reject(new Error(`${PFX} banco recusou o registro`))) as never);
-
-    const r = await baixar("chefe", arquivoId);
+    // ⚠️ Salvar/repor À MÃO, nunca `vi.spyOn`: nem `mockRestore` nem deixar o spy de pé
+    // devolvem o delegate do Prisma — visto quebrando `activityLog.create` nos ARQUIVOS SEGUINTES
+    // do mesmo fork (ADR-149).
+    const original = prisma.activityLog.create;
+    let recusou = false;
+    (prisma.activityLog as { create: unknown }).create = (...args: unknown[]) => {
+      if (!recusou) {
+        recusou = true;
+        return Promise.reject(new Error(`${PFX} banco recusou o registro`));
+      }
+      return (original as (...a: unknown[]) => unknown)(...args);
+    };
+    let r;
+    try {
+      r = await baixar("chefe", arquivoId);
+    } finally {
+      (prisma.activityLog as { create: unknown }).create = original;
+    }
+    expect(recusou).toBe(true);
     expect(r.statusCode, "o download não pode cair por causa do registro").toBe(200);
 
     const erro = await prisma.errorLog.findFirst({
