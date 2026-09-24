@@ -1,0 +1,81 @@
+name: Abrir SSH com a VPS OVH
+description: >
+  Monta ~/.ssh/config com o apelido `vps`, CONFERINDO a chave do servidor contra o segredo
+  VPS_KNOWN_HOSTS. Usada por todos os workflows que falam com a VPS OVH.
+
+# POR QUE UMA AÇÃO SÓ, e não o bloco colado em cada workflow: é o trecho de segurança que mais
+# muda de lugar para lugar quando é copiado. Com quatro cópias (deploy, backup, credencial,
+# diagnóstico), a primeira que alguém "simplificar" de volta para `accept-new` reabre o buraco
+# sem ninguém notar. Mora em `infra/ovh/` porque é infraestrutura da VPS, não da CI.
+#
+# ⚠️ POR QUE NÃO `StrictHostKeyChecking accept-new` (o que havia até 24/09/2026): o runner do
+# GitHub nasce SEM known_hosts a cada execução, então `accept-new` aceitava QUALQUER chave de
+# servidor que respondesse naquele IP — na prática, verificação nenhuma. Um DNS/rota sequestrado
+# receberia a chave de deploy (que roda `docker` na VPS) e o token do GHCR. Com a chave do
+# servidor fixada no segredo, um impostor derruba o workflow em vez de receber a credencial.
+#
+# ⚠️ A ação exige `actions/checkout` ANTES (é uma ação local: `uses: ./infra/ovh/acoes/...`).
+
+inputs:
+  host: { description: "VPS_HOST", required: true }
+  user: { description: "VPS_USER", required: true }
+  port: { description: "VPS_PORT", required: true }
+  key: { description: "VPS_SSH_KEY (chave privada)", required: true }
+  known_hosts: { description: "VPS_KNOWN_HOSTS (saída do ssh-keyscan)", required: true }
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        VPS_HOST: ${{ inputs.host }}
+        VPS_USER: ${{ inputs.user }}
+        VPS_PORT: ${{ inputs.port }}
+        VPS_SSH_KEY: ${{ inputs.key }}
+        VPS_KNOWN_HOSTS: ${{ inputs.known_hosts }}
+      run: |
+        set -euo pipefail
+        # ⚠️ Os dados de acesso NÃO estão no repositório (ele já foi público, ADR-154) — daí
+        # cada falta dizer exatamente qual segredo criar, em vez de um "Connection refused"
+        # trinta segundos depois.
+        for NOME in VPS_HOST VPS_USER VPS_PORT VPS_SSH_KEY; do
+          [ -n "${!NOME:-}" ] || { echo "::error::falta o segredo $NOME (gh secret set $NOME)"; exit 1; }
+        done
+        if [ -z "${VPS_KNOWN_HOSTS:-}" ]; then
+          echo "::error::falta o segredo VPS_KNOWN_HOSTS — a chave PÚBLICA do servidor, para o SSH conferir com quem está falando."
+          echo "Gere assim, numa máquina de confiança (troque HOST e PORTA pelos mesmos valores de VPS_HOST e VPS_PORT):"
+          echo "  ssh-keyscan -p PORTA -t ed25519,ecdsa,rsa HOST > known_hosts_vps"
+          echo "  gh secret set VPS_KNOWN_HOSTS < known_hosts_vps"
+          echo "Antes de gravar, confira a impressão digital contra a do próprio servidor (passo a passo em docs/OPERACAO_OVH.md)."
+          exit 1
+        fi
+
+        mkdir -p ~/.ssh && chmod 700 ~/.ssh
+        (umask 077; printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_key)
+        (umask 077; printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts_vps)
+
+        # O ssh-keyscan em porta que não é a 22 grava o servidor como `[host]:porta`. Se o
+        # segredo foi gerado com outro nome (IP num, domínio no outro) ou outra porta, o ssh
+        # recusaria com "Host key verification failed" — que se lê como servidor comprometido.
+        # Conferir aqui dá a mensagem certa.
+        ALVO_KH="$VPS_HOST"; [ "$VPS_PORT" = "22" ] || ALVO_KH="[$VPS_HOST]:$VPS_PORT"
+        if ! ssh-keygen -F "$ALVO_KH" -f ~/.ssh/known_hosts_vps >/dev/null; then
+          echo "::error::VPS_KNOWN_HOSTS não tem chave para o servidor na forma que o SSH procura (host exatamente igual ao VPS_HOST, e a porta de VPS_PORT). Gere de novo com 'ssh-keyscan -p PORTA HOST' usando os MESMOS valores dos segredos."
+          exit 1
+        fi
+
+        cat > ~/.ssh/config <<CFG
+        Host vps
+          HostName $VPS_HOST
+          User $VPS_USER
+          Port $VPS_PORT
+          IdentityFile ~/.ssh/vps_key
+          IdentitiesOnly yes
+          UserKnownHostsFile ~/.ssh/known_hosts_vps
+          StrictHostKeyChecking yes
+          ServerAliveInterval 30
+          ServerAliveCountMax 6
+          ConnectTimeout 30
+        CFG
+        chmod 600 ~/.ssh/config
+        ssh vps "echo conectado: \$(hostname)"
