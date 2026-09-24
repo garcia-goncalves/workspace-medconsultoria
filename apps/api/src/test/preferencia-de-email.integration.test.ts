@@ -98,9 +98,18 @@ describe("lead novo — quem nasce recebendo o e-mail", () => {
 describe("os outros avisos não mudaram", () => {
   it("o ROOT continua nascendo com os demais avisos ligados", async () => {
     const lista = await listarPreferenciasEmail(rootNominal.id, "ROOT");
-    const outros = lista.filter((c) => c.tipo !== "lead_novo");
+    // A lista é EXPLÍCITA de propósito: aviso que passe a nascer desligado para o ROOT precisa
+    // entrar aqui por decisão escrita, não por consequência calada. O `honorario_a_lancar` (Onda 2)
+    // segue o desenho do `lead_novo`: quem lança conta no Financeiro é ADMIN.
+    const desligadosDePropositoParaRoot = new Set(["lead_novo", "honorario_a_lancar"]);
+    const outros = lista.filter((c) => !desligadosDePropositoParaRoot.has(c.tipo));
     expect(outros.length).toBeGreaterThan(10);
     expect(outros.every((c) => c.ativo)).toBe(true);
+  });
+
+  it("o honorário a lançar nasce ligado para ADMIN e desligado para ROOT", async () => {
+    expect((await listarPreferenciasEmail(admin.id, "ADMIN")).find((c) => c.tipo === "honorario_a_lancar")?.ativo).toBe(true);
+    expect((await listarPreferenciasEmail(rootNominal.id, "ROOT")).find((c) => c.tipo === "honorario_a_lancar")?.ativo).toBe(false);
   });
 
   it("toda categoria devolvida traz o grupo, que a tela usa para as seções", async () => {
