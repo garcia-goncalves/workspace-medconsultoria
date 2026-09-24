@@ -8,6 +8,7 @@ import { enviarEmailTemplate, registrarEmailEnviado } from "../emails/enviados.s
 import { enviarEmail } from "../../lib/email.js";
 import { destinatariosDaRespostaAoCliente } from "./aviso-de-resposta.js";
 import { config } from "../../config.js";
+import { registrarErro } from "../sistema/sistema.service.js";
 
 async function ensureParticipant(conversaId: string, userId: string) {
   const p = await prisma.conversaParticipante.findUnique({ where: { conversaId_userId: { conversaId, userId } } });
@@ -476,6 +477,41 @@ async function notificarMensagemInterna(conversaId: string, autorId: string, msg
   }
 }
 
+/**
+ * Fila de avisos POR CONVERSA. O aviso saiu da requisição (não bloqueia quem escreveu), mas
+ * não pode virar vários avisos correndo em paralelo: a agregação do sino ("reaproveita a não
+ * lida") e a janela de 30 min do e-mail são "lê e depois grava" — duas mensagens seguidas, com
+ * os avisos disputando, criariam DOIS sininhos e mandariam DOIS e-mails, exatamente a rajada que
+ * essas travas existem para impedir. Encadear por conversa mantém a ordem e a regra; conversas
+ * diferentes seguem em paralelo.
+ */
+const filaDeAvisos = new Map<string, Promise<void>>();
+
+function enfileirarAvisoDeMensagem(conversaId: string, autorId: string, msg: { conteudo: string; createdAt: Date }) {
+  const anterior = filaDeAvisos.get(conversaId) ?? Promise.resolve();
+  const proximo = anterior
+    .then(() => notificarMensagemInterna(conversaId, autorId, msg))
+    .catch((e: unknown) => {
+      const err = e instanceof Error ? e : new Error(String(e));
+      return registrarErro({ rota: "mensagens.aviso_interno", mensagem: err.message, stack: err.stack ?? null, userId: autorId })
+        .then(() => undefined)
+        .catch(() => undefined);
+    })
+    .finally(() => {
+      // Só limpa se ninguém entrou na fila depois — senão apagaria o elo do aviso seguinte.
+      if (filaDeAvisos.get(conversaId) === proximo) filaDeAvisos.delete(conversaId);
+    });
+  filaDeAvisos.set(conversaId, proximo);
+}
+
+/**
+ * Espera os avisos de mensagem que ainda estão na fila. Existe para os TESTES (e para um
+ * desligamento limpo): o caminho real nunca espera por isto.
+ */
+export async function aguardarAvisosDeMensagem(): Promise<void> {
+  while (filaDeAvisos.size > 0) await Promise.all([...filaDeAvisos.values()]);
+}
+
 export async function sendMensagem(conversaId: string, conteudo: string, userId: string) {
   await ensureParticipant(conversaId, userId);
   const conv = await prisma.conversa.findUnique({ where: { id: conversaId }, select: { tipo: true, clienteId: true } });
@@ -532,8 +568,11 @@ export async function sendMensagem(conversaId: string, conteudo: string, userId:
 
   // Conversa interna (INDIVIDUAL/GRUPO/PROJETO): avisa os outros participantes — sino + e-mail.
   // CLIENTE fica de fora, os dois blocos acima já cobrem os dois lados dela.
+  // ⚠️ FORA DO CAMINHO DA REQUISIÇÃO: a mensagem já está gravada, e quem a escreveu não pode
+  // esperar (nem receber erro) por causa de sininho e SMTP de outra pessoa. Vai para a fila da
+  // conversa (`enfileirarAvisoDeMensagem`), que falha sozinha para SISTEMA → Erros.
   if (conv?.tipo && conv.tipo !== "CLIENTE") {
-    await notificarMensagemInterna(conversaId, userId, { conteudo: msg.conteudo, createdAt: msg.createdAt });
+    enfileirarAvisoDeMensagem(conversaId, userId, { conteudo: msg.conteudo, createdAt: msg.createdAt });
   }
 
   return msg;

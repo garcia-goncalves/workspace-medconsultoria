@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
 import { exigirBancoDeTeste } from "./guarda-banco-de-teste.js";
-import { sendMensagem, silenciar } from "../modules/mensagens/mensagens.service.js";
+import { aguardarAvisosDeMensagem, sendMensagem, silenciar } from "../modules/mensagens/mensagens.service.js";
 
 /**
  * MENSAGEM INTERNA NÃO AVISAVA NINGUÉM FORA DO SISTEMA (W5, Onda 1).
@@ -46,6 +46,7 @@ afterAll(async () => {
 describe("mensagem em conversa interna notifica os outros, nunca o autor", () => {
   it("cria notificação de sino para os dois colegas e nenhuma para o autor", async () => {
     await sendMensagem(conversaId, "Bom dia! Vamos alinhar a proposta hoje?", autorId);
+    await aguardarAvisosDeMensagem();
 
     const doAutor = await prisma.notificacao.count({ where: { userId: autorId, tipo: "mensagem_interna", entidadeId: conversaId } });
     expect(doAutor).toBe(0);
@@ -74,6 +75,9 @@ describe("rajada de mensagens na mesma conversa", () => {
     for (let i = 0; i < 5; i++) {
       await sendMensagem(conversaId, `Mensagem ${i} da rajada`, autorId);
     }
+    // Os avisos saem FORA da requisição, mas em fila por conversa — a rajada inteira já está
+    // enfileirada aqui, e a agregação tem de valer mesmo sem ninguém esperar entre uma e outra.
+    await aguardarAvisosDeMensagem();
 
     const notificacoes = await prisma.notificacao.findMany({ where: { userId: colegaAId, tipo: "mensagem_interna", entidadeId: conversaId } });
     expect(notificacoes).toHaveLength(1);
@@ -91,6 +95,7 @@ describe("quem silenciou a conversa não recebe nem sino nem e-mail", () => {
     await prisma.emailEnviado.deleteMany({ where: { template: "mensagem_interna", para: `${PFX}-colega-b@teste.local` } });
 
     await sendMensagem(conversaId, "Mensagem depois de silenciar", autorId);
+    await aguardarAvisosDeMensagem();
 
     const notif = await prisma.notificacao.count({ where: { userId: colegaBId, tipo: "mensagem_interna", entidadeId: conversaId } });
     expect(notif).toBe(0);
