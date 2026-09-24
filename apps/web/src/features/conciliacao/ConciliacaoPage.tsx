@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useBuscaAdiada } from "../../lib/use-busca-adiada";
 import { AlertTriangle, FileSpreadsheet, Link2, Upload } from "lucide-react";
 import { trpc } from "../../lib/trpc";
@@ -508,6 +509,8 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
   if (!pendencias.data) return null;
   const { convenios, profissionais: profPendentes } = pendencias.data;
   if (convenios.length === 0 && profPendentes.length === 0) return null;
+  // Só depois de a consulta RESPONDER: carregando não é "sem cadastro" (erro já saiu acima).
+  const semCadastro = profissionais.data !== undefined && profissionais.data.length === 0;
 
   return (
     <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
@@ -557,7 +560,32 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
           </div>
         )}
 
-        {profPendentes.length > 0 && (
+        {profPendentes.length > 0 && semCadastro && (
+          // ⚠️ A lista do "Ligar a…" é o cadastro de médicos do CLIENTE (o mesmo do credenciamento),
+          // não um catálogo da Med. Cliente que nunca teve médico cadastrado dava um `<select>`
+          // vazio, sem dizer por quê — lido como defeito da tela. Aqui a falta ganha nome e endereço.
+          // ⚠️ Não cadastramos o médico daqui de propósito: `Profissional.conselho` é obrigatório e o
+          // relatório não traz, e médico cadastrado liga a papelada de credenciamento no Portal
+          // (`emCurso` em credenciamento.service.ts) — decisão que cabe à ficha, não a um atalho.
+          <div>
+            <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Profissionais</p>
+            <p className="text-sm">
+              {profPendentes.length} nome(s) de profissional no relatório, e este cliente ainda não tem nenhum médico cadastrado para ligar.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Cadastre em{" "}
+              <Link to="/clientes/$clienteId" params={{ clienteId }} className="font-medium text-primary hover:underline">
+                ficha do cliente → Credenciamento → Novo profissional
+              </Link>{" "}
+              e volte aqui. O médico cadastrado também passa a aparecer na papelada de credenciamento do cliente.
+            </p>
+            <Button size="sm" variant="outline" className="mt-2" onClick={() => void profissionais.refetch()}>
+              Já cadastrei — atualizar
+            </Button>
+          </div>
+        )}
+
+        {profPendentes.length > 0 && !semCadastro && (
           <div>
             <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Profissionais</p>
             <ul className="space-y-2">
@@ -578,12 +606,20 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
                     {(profissionais.data ?? []).map((pr) => (
                       <option key={pr.id} value={pr.id}>
                         {pr.nome}
+                        {!pr.ativo && " (inativo)"}
                       </option>
                     ))}
                   </Select>
                 </li>
               ))}
             </ul>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Não está na lista? Cadastre na{" "}
+              <Link to="/clientes/$clienteId" params={{ clienteId }} className="font-medium text-primary hover:underline">
+                ficha do cliente
+              </Link>{" "}
+              (card Credenciamento).
+            </p>
           </div>
         )}
       </div>
