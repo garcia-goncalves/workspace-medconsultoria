@@ -34,3 +34,20 @@ export function inicioDoProximoMesBRT(): Date {
 export function somarDiasUTC(d: Date, n: number): Date {
   return new Date(d.getTime() + n * 24 * 60 * 60 * 1000);
 }
+
+const fmtDataBRT = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  timeZone: "America/Sao_Paulo",
+});
+
+/**
+ * Um INSTANTE (importado em, fechado em) como "dd/mm/aaaa" no dia de Brasília — para frases que o
+ * servidor escreve. ⚠️ `toLocaleDateString("pt-BR")` sem fuso usa o do SO: no container da VPS é
+ * UTC, e depois das 21h de Brasília a frase diria amanhã enquanto a tela diz hoje. Não serve para
+ * campo "date-only" (meia-noite UTC): esse recuaria um dia.
+ */
+export function dataBRT(instante: Date): string {
+  return fmtDataBRT.format(instante);
+}

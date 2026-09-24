@@ -1,5 +1,6 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
+import { dataBRT } from "../../lib/datas.js";
 import { hashBytes } from "../../lib/hash.js";
 import { ErroDePlanilha, lerGrade, type Formato } from "./planilha/index.js";
 import { carregarDePara, exigirModuloLigado } from "./conciliacao.service.js";
@@ -196,7 +197,7 @@ export async function importarRepasse(e: {
   if (a.jaImportado) {
     throw new TRPCError({
       code: "CONFLICT",
-      message: `Este repasse já foi importado em ${a.jaImportado.em.toLocaleDateString("pt-BR")}. Nada foi alterado.`,
+      message: `Este repasse já foi importado em ${dataBRT(a.jaImportado.em)}. Nada foi alterado.`,
     });
   }
   // O mesmo pagamento em dois arquivos contaria duas vezes — e "recebeu o dobro" é o erro que
