@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Plus, X, Sparkles, Loader2 } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { CAMPO_TIPO_LABEL, type CampoTipo } from "@app/shared";
 import { trpc, type RouterOutputs } from "../../lib/trpc";
+import { BotaoIA } from "../../components/ia/BotaoIA";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -128,18 +129,14 @@ export function CamposDialog({ form, onClose }: { form: FormRow | null; onClose:
           <p className="text-sm text-muted-foreground">
             As perguntas que o cliente responde na tela. Arraste pela alça para ordenar.
           </p>
-          {ia.data?.disponivel && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0 text-primary"
-              disabled={sugerir.isPending}
-              onClick={() => sugerir.mutate({ titulo: form.titulo, descricao: form.descricao ?? undefined })}
-            >
-              {sugerir.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              Sugerir perguntas
-            </Button>
-          )}
+          <BotaoIA
+            iaDisponivel={ia.data?.disponivel}
+            pendente={sugerir.isPending}
+            className="shrink-0 text-primary"
+            onClick={() => sugerir.mutate({ titulo: form.titulo, descricao: form.descricao ?? undefined })}
+          >
+            Sugerir perguntas
+          </BotaoIA>
         </div>
 
         {sugestoes.length > 0 && (

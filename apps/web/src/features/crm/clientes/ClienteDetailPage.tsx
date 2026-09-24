@@ -20,7 +20,6 @@ import {
   ListTodo,
   Briefcase,
   KeyRound,
-  Sparkles,
 } from "lucide-react";
 import {
   situacaoDocumento,
@@ -34,6 +33,7 @@ import {
 import { useAuth } from "../../../lib/auth-context";
 import { isNotFoundError } from "../../../lib/trpc-error";
 import { trpc } from "../../../lib/trpc";
+import { BotaoIA } from "../../../components/ia/BotaoIA";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { MaskedInput } from "../../../components/ui/masked-input";
@@ -237,12 +237,9 @@ export function ClienteDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 md:justify-end">
-          {ia.data?.disponivel && (
-            <Button variant="outline" size="sm" title="Resumo do cliente + próximos passos, com IA" onClick={() => setResumoIA(true)}>
-              <Sparkles className="h-4 w-4" />
-              Resumir com IA
-            </Button>
-          )}
+          <BotaoIA iaDisponivel={ia.data?.disponivel} pendente={false} onClick={() => setResumoIA(true)}>
+            Resumir com IA
+          </BotaoIA>
           <Button variant="outline" size="sm" title="Abrir um novo negócio no funil para este cliente" onClick={() => setNovaOport(true)}>
             <Target className="h-4 w-4" />
             Nova oportunidade
