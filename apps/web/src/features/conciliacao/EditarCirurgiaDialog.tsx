@@ -9,7 +9,7 @@ import { MoneyInput } from "../../components/ui/money-input";
 import { toast } from "../../components/ui/toast";
 import { formatBRL } from "../../lib/masks";
 import { dataUTC } from "../../lib/format-date";
-import { STATUS_CONCILIACAO, type StatusConciliacao, type StatusRecurso } from "./partes";
+import { Aviso, STATUS_CONCILIACAO, type StatusConciliacao, type StatusRecurso } from "./partes";
 
 /** O que o diálogo precisa de uma linha conciliada (ver `LinhaConciliada` no servidor). */
 export interface CirurgiaConciliada {
@@ -17,6 +17,8 @@ export interface CirurgiaConciliada {
   numeroCirurgia: string;
   atendimento: string | null;
   dataCirurgia: string;
+  /** Precisa saber se o MÊS está fechado (não só a cirurgia) — ver `fechada` abaixo. */
+  competencia: string;
   pacienteNome: string;
   procedimento: string;
   convenioBruto: string;
@@ -41,6 +43,12 @@ export interface CirurgiaConciliada {
  * Conciliar UMA cirurgia à mão. Os valores automáticos (do de-para e do repasse) aparecem como
  * referência; digitar aqui SOBREPÕE, e apagar o campo devolve ao automático — o servidor grava
  * só o que alguém digitou (`valorCobrado`/`valorRecebido` nulos = vale o calculado).
+ *
+ * ⚠️ COM O MÊS FECHADO, o diálogo abre SÓ LEITURA — campos desabilitados, Salvar desabilitado, e
+ * uma explicação no topo. Antes disso ele abria editável e só reclamava no Salvar (o servidor já
+ * recusa, `assertCompetenciaAberta`); isso fazia a pessoa preencher tudo de novo para descobrir
+ * no fim que o mês está fechado. A trava do servidor CONTINUA sendo a que vale — esta é só a
+ * tela chegando na mesma conclusão mais cedo.
  */
 export function EditarCirurgiaDialog({
   clienteId,
@@ -60,6 +68,13 @@ export function EditarCirurgiaDialog({
   const [naoCobrar, setNaoCobrar] = useState(c.naoCobrar);
   const [observacao, setObservacao] = useState(c.observacao ?? "");
 
+  // ⚠️ O diálogo BUSCA SOZINHO se o mês está fechado — não recebe isso do painel que o abriu.
+  // A tela já mostra o selo do mês em outro lugar; aqui é a mesma pergunta, feita de novo, para
+  // este componente não depender de uma prop que alguém esqueceria de passar no próximo lugar
+  // que abrir este diálogo.
+  const fechadas = trpc.conciliacao.competenciasFechadas.useQuery({ clienteId });
+  const fechada = fechadas.data?.find((f) => f.competencia === c.competencia) ?? null;
+
   const salvar = trpc.conciliacao.editarCirurgia.useMutation({
     onSuccess: () => {
       toast("Cirurgia atualizada.", "success");
@@ -70,6 +85,7 @@ export function EditarCirurgiaDialog({
   });
 
   const status = STATUS_CONCILIACAO[c.statusConciliacao];
+  const somenteLeitura = !!fechada;
 
   return (
     <Modal
@@ -80,10 +96,10 @@ export function EditarCirurgiaDialog({
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
-            Cancelar
+            {somenteLeitura ? "Fechar" : "Cancelar"}
           </Button>
           <Button
-            disabled={salvar.isPending}
+            disabled={somenteLeitura || salvar.isPending}
             onClick={() =>
               salvar.mutate({
                 clienteId,
@@ -103,6 +119,16 @@ export function EditarCirurgiaDialog({
       }
     >
       <div className="space-y-3">
+        {fechada && (
+          <Aviso tom="atencao">
+            <strong>
+              {c.competencia} está fechado
+              {fechada.fechadoPor && ` — conferido por ${fechada.fechadoPor}`}
+            </strong>{" "}
+            em {dataUTC(fechada.fechadoEm)}. Só um administrador pode reabrir o mês para editar esta cirurgia; os campos abaixo são só
+            para conferência.
+          </Aviso>
+        )}
         <div className="rounded-lg bg-muted/40 p-3 text-sm">
           <p className="font-medium">{c.pacienteNome}</p>
           <p className="text-muted-foreground">
@@ -121,13 +147,21 @@ export function EditarCirurgiaDialog({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="ec-codigo">Código do procedimento</Label>
-            <Input id="ec-codigo" value={codigo} maxLength={40} onChange={(e) => setCodigo(e.target.value)} placeholder="Ex.: 30917042" />
+            <Input
+              id="ec-codigo"
+              value={codigo}
+              maxLength={40}
+              disabled={somenteLeitura}
+              onChange={(e) => setCodigo(e.target.value)}
+              placeholder="Ex.: 30917042"
+            />
           </div>
           <div className="space-y-1">
             <Label htmlFor="ec-cobrado">Valor cobrado</Label>
             <MoneyInput
               id="ec-cobrado"
               value={cobrado}
+              disabled={somenteLeitura}
               onChange={setCobrado}
               placeholder={c.cobradoOrigem === "DE_PARA" ? `${formatBRL(c.cobrado)} (do de-para)` : "Sem valor de referência"}
             />
@@ -137,6 +171,7 @@ export function EditarCirurgiaDialog({
             <MoneyInput
               id="ec-recebido"
               value={recebido}
+              disabled={somenteLeitura}
               onChange={setRecebido}
               placeholder={c.recebidoOrigem === "REPASSE" ? `${formatBRL(c.recebido)} (do repasse)` : "Nada recebido ainda"}
             />
@@ -146,18 +181,39 @@ export function EditarCirurgiaDialog({
           </div>
           <div className="space-y-1">
             <Label htmlFor="ec-data">Data do pagamento</Label>
-            <Input id="ec-data" type="date" value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} />
+            <Input
+              id="ec-data"
+              type="date"
+              value={dataPagamento}
+              disabled={somenteLeitura}
+              onChange={(e) => setDataPagamento(e.target.value)}
+            />
           </div>
         </div>
 
-        <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
-          <input type="checkbox" className="h-4 w-4" checked={naoCobrar} onChange={(e) => setNaoCobrar(e.target.checked)} />
+        <label
+          className={`flex min-h-11 items-center gap-2 text-sm ${somenteLeitura ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+        >
+          <input
+            type="checkbox"
+            className="h-4 w-4"
+            checked={naoCobrar}
+            disabled={somenteLeitura}
+            onChange={(e) => setNaoCobrar(e.target.checked)}
+          />
           Não cobrar (particular pago direto, cortesia, acordo) — sai das somas de dinheiro
         </label>
 
         <div className="space-y-1">
           <Label htmlFor="ec-obs">Observação</Label>
-          <Textarea id="ec-obs" rows={2} maxLength={2000} value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+          <Textarea
+            id="ec-obs"
+            rows={2}
+            maxLength={2000}
+            value={observacao}
+            disabled={somenteLeitura}
+            onChange={(e) => setObservacao(e.target.value)}
+          />
         </div>
         <p className="text-xs text-muted-foreground">Deixe um valor em branco para voltar ao automático (de-para e repasse).</p>
       </div>
