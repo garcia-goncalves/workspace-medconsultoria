@@ -61,6 +61,20 @@ export function dataUTC(d: DateInput): string {
   return dt ? fmtDataUTC.format(dt) : "";
 }
 
+// Partes do dia em Brasília, para montar "AAAA-MM-DD" sem depender do fuso do navegador.
+const fmtPartesDia = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: TZ });
+
+/**
+ * O dia de HOJE em Brasília como "AAAA-MM-DD" — o valor de um `<input type="date">`.
+ *
+ * ⚠️ Nunca `new Date().toISOString().slice(0, 10)`: isso é o dia em UTC, e depois das 21h de
+ * Brasília (UTC−3) já é amanhã. O `agora` é parâmetro só para o teste poder fixar o relógio.
+ */
+export function hojeEmBrasiliaISO(agora: Date = new Date()): string {
+  const partes = Object.fromEntries(fmtPartesDia.formatToParts(agora).map((p) => [p.type, p.value]));
+  return `${partes.year}-${partes.month}-${partes.day}`;
+}
+
 /** Tempo relativo curto: "agora", "há 5 min", "há 3 h", "há 2 d"; acima de ~1 semana cai para a data. */
 export function haQuanto(d: DateInput): string {
   const dt = toDate(d);

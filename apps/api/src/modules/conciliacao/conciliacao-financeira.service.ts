@@ -1,5 +1,6 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
+import { dataBRT } from "../../lib/datas.js";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 import { normalizarTexto } from "./planilha/index.js";
 import { convenioEhParticular } from "./conciliacao-painel.service.js";
@@ -647,7 +648,7 @@ async function assertCompetenciaAberta(clienteId: string, competencia: string) {
   throw new TRPCError({
     code: "PRECONDITION_FAILED",
     message:
-      `A competência ${competencia} foi conferida e fechada${quem} em ${f.fechadoEm.toLocaleDateString("pt-BR")}. ` +
+      `A competência ${competencia} foi conferida e fechada${quem} em ${dataBRT(f.fechadoEm)}. ` +
       "Reabra o mês para poder alterá-lo.",
   });
 }

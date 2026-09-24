@@ -8,7 +8,7 @@ import { Select } from "../../components/ui/select";
 import { Table, THead, TH, TR, TD } from "../../components/ui/table";
 import { UploadArquivo, type ArquivoEnviado } from "../../components/ui/upload-arquivo";
 import { toast } from "../../components/ui/toast";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia, dataUTC } from "../../lib/format-date";
 import { Aviso } from "./partes";
 
 /**
@@ -143,7 +143,7 @@ export function ImportarProducaoDialog({
           <>
             {jaImportado && (
               <Aviso tom="atencao">
-                Este arquivo já foi importado em {dataUTC(jaImportado.em)} (competência {jaImportado.competencia}). Importar de novo será
+                Este arquivo já foi importado em {dataBrasilia(jaImportado.em)} (competência {jaImportado.competencia}). Importar de novo será
                 recusado.
               </Aviso>
             )}

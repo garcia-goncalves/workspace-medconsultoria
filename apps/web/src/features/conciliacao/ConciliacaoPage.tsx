@@ -14,7 +14,7 @@ import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { toast } from "../../components/ui/toast";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia, dataUTC } from "../../lib/format-date";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { ImportarProducaoDialog } from "./ImportarProducaoDialog";
 import { ImportarCirurgiasDialog } from "./ImportarCirurgiasDialog";
@@ -418,7 +418,7 @@ function ResumoDoMes({
         </div>
         {lote && (
           <p className="pb-2 text-xs text-muted-foreground">
-            Importado em {dataUTC(lote.createdAt)} por {lote.importadoPor?.nome ?? "—"} · {lote.nomeArquivo} ({lote.formato})
+            Importado em {dataBrasilia(lote.createdAt)} por {lote.importadoPor?.nome ?? "—"} · {lote.nomeArquivo} ({lote.formato})
             {lote.linhasIgnoradas > 0 && ` · ${lote.linhasIgnoradas} linha(s) ignorada(s)`}
           </p>
         )}

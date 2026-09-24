@@ -9,7 +9,7 @@ import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { formatBRL } from "../../lib/masks";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia } from "../../lib/format-date";
 import { ordenarPor, type DirecaoOrdenacao, type OrdenacaoAtual } from "../../components/ui/data-table-ordenacao";
 import { proximaOrdenacaoVisaoGeral, type ChaveOrdenacaoVisaoGeral } from "./visao-geral-ordenacao";
 import { Label } from "../../components/ui/label";
@@ -202,7 +202,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
                   {c.glosaSemRecurso > 0 ? formatBRL(c.glosaSemRecurso) : "—"}
                 </TD>
                 <TD className="text-xs text-warning">{pendencias.join(" · ") || <span className="text-muted-foreground">—</span>}</TD>
-                <TD className="text-xs text-muted-foreground">{c.ultimaImportacao ? dataUTC(c.ultimaImportacao.em) : "—"}</TD>
+                <TD className="text-xs text-muted-foreground">{c.ultimaImportacao ? dataBrasilia(c.ultimaImportacao.em) : "—"}</TD>
               </TR>
             );
           })}

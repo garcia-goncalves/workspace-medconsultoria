@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import { UploadArquivo, type ArquivoEnviado } from "../../components/ui/upload-arquivo";
 import { toast } from "../../components/ui/toast";
 import { formatBRL } from "../../lib/masks";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia, dataUTC } from "../../lib/format-date";
 import { Aviso } from "./partes";
 
 /**
@@ -135,7 +135,7 @@ export function ImportarRecebidoDialog({
 
         {tipo === "repasse" && pr && (
           <>
-            {pr.jaImportado && <Aviso tom="erro">Este repasse já foi importado em {dataUTC(pr.jaImportado.em)}. Nada mudaria.</Aviso>}
+            {pr.jaImportado && <Aviso tom="erro">Este repasse já foi importado em {dataBrasilia(pr.jaImportado.em)}. Nada mudaria.</Aviso>}
             <p className="text-sm">
               <strong>{pr.linhas}</strong> linha(s) · <strong>{formatBRL(pr.total)}</strong>
               {pr.periodoPagamento && (

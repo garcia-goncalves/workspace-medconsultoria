@@ -10,11 +10,12 @@ import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { toast } from "../../components/ui/toast";
 import { formatBRL } from "../../lib/masks";
-import { dataUTC } from "../../lib/format-date";
+import { dataUTC, hojeEmBrasiliaISO } from "../../lib/format-date";
 import { ROTULO_RECURSO } from "./partes";
 import type { CirurgiaConciliada } from "./EditarCirurgiaDialog";
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+// Dia de hoje em Brasília: o `toISOString` daria amanhã depois das 21h.
+const hojeISO = () => hojeEmBrasiliaISO();
 
 /**
  * O RECURSO DE GLOSA de uma cirurgia — abrir, registrar a resposta da operadora, e o histórico

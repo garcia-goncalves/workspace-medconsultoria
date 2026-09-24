@@ -14,7 +14,7 @@ import { Modal } from "../../components/ui/modal";
 import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { toast } from "../../components/ui/toast";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia, dataUTC } from "../../lib/format-date";
 import { formatBRL } from "../../lib/masks";
 import {
   baixarTexto,
@@ -225,7 +225,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           </div>
           {ultima && (
             <p className="pb-2 text-xs text-muted-foreground">
-              Última importação do TASY em {dataUTC(ultima.em)} por {ultima.por ?? "—"} · {ultima.nomeArquivo}
+              Última importação do TASY em {dataBrasilia(ultima.em)} por {ultima.por ?? "—"} · {ultima.nomeArquivo}
               {ultima.periodoInicio && ultima.periodoFim && ` (${dataUTC(ultima.periodoInicio)} a ${dataUTC(ultima.periodoFim)})`}
             </p>
           )}
@@ -673,7 +673,7 @@ function FaixaDaCompetencia({
       <div className="flex flex-wrap items-center gap-2">
         <Lock className="h-4 w-4 shrink-0 text-success" />
         <span className="font-medium">
-          {competencia} conferido em {dataUTC(fechada.fechadoEm)}
+          {competencia} conferido em {dataBrasilia(fechada.fechadoEm)}
           {fechada.fechadoPor && ` por ${fechada.fechadoPor}`}
         </span>
         <span className="text-muted-foreground">— editar cirurgia ou recurso deste mês está bloqueado.</span>

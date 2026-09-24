@@ -1,5 +1,6 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
+import { dataBRT } from "../../lib/datas.js";
 import { hashBytes } from "../../lib/hash.js";
 import { ErroDePlanilha, lerGrade, normalizarTexto, type Formato } from "./planilha/index.js";
 import { dicaDeRota } from "./planilha/qual-relatorio.js";
@@ -236,7 +237,7 @@ export async function importarCirurgias(entrada: {
   if (mesmoArquivo) {
     throw new TRPCError({
       code: "CONFLICT",
-      message: `Este arquivo já foi importado em ${mesmoArquivo.createdAt.toLocaleDateString("pt-BR")}. Nada foi alterado.`,
+      message: `Este arquivo já foi importado em ${dataBRT(mesmoArquivo.createdAt)}. Nada foi alterado.`,
     });
   }
   if (!leitura.periodo || leitura.linhas.length === 0) {
