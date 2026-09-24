@@ -107,7 +107,12 @@ beforeAll(async () => {
     });
     contas[chave] = c.id;
   };
-  await conta("aberta-futura", { descricao: `Gestão Operacional — ${PFX}-Clínica A`, valor: 3500, vencimento: somarDiasUTC(hoje, 10), recorrencia: "MENSAL" });
+  await conta("aberta-futura", {
+    descricao: `Gestão Operacional — ${PFX}-Clínica A`,
+    valor: 3500,
+    vencimento: somarDiasUTC(hoje, 10),
+    recorrencia: "MENSAL",
+  });
   await conta("vence-hoje", { valor: 50.1, vencimento: hoje });
   await conta("vencida", { valor: 200.2, vencimento: somarDiasUTC(hoje, -5) });
   await conta("paga-recente", { pago: true, pagoEm: somarDiasUTC(hoje, -20), vencimento: somarDiasUTC(hoje, -20) });
@@ -177,7 +182,14 @@ describe("portal.pagamentos — quanto eu devo e quando vence", () => {
   it("a clínica B não enxerga nada da A, e a sessão de suporte da Med lê (é leitura)", async () => {
     const senha = await hashPassword("x");
     const u = await prisma.user.create({
-      data: { nome: `${PFX}-dono-b`, email: `${PFX}-dono-b@example.test`, passwordHash: senha, role: "CLIENTE", clienteId: clinicaB, papelPortal: "RESPONSAVEL" },
+      data: {
+        nome: `${PFX}-dono-b`,
+        email: `${PFX}-dono-b@example.test`,
+        passwordHash: senha,
+        role: "CLIENTE",
+        clienteId: clinicaB,
+        papelPortal: "RESPONSAVEL",
+      },
     });
     const b = await caller({ id: u.id, nome: u.nome, email: u.email, role: "CLIENTE", clienteId: clinicaB }).portal.pagamentos();
     expect(b.emAberto.map((c) => c.id)).toEqual([contas["outra-clinica"]]);

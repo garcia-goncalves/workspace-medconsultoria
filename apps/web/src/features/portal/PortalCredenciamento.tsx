@@ -1,5 +1,6 @@
-import { Check, Circle, Stethoscope, Trash2 } from "lucide-react";
-import { LADO_ARQUIVO_LABEL } from "@app/shared";
+import { Check, Circle, Stethoscope, Trash2, Building2 } from "lucide-react";
+import { LADO_ARQUIVO_LABEL, andamentoParaOCliente, type TomDoAndamento } from "@app/shared";
+import { data } from "../../lib/format-date";
 import { trpc } from "../../lib/trpc";
 import { Card, CardHeader, CardTitle } from "../../components/ui/card";
 import { useConfirm } from "../../components/ui/confirm-dialog";
@@ -12,6 +13,15 @@ type Vaga = {
   profissionalId: string | null;
   arquivo: { id: string; nome: string } | null;
 };
+/** A cor da etiqueta sai do TOM que o `@app/shared` decide — a tela não reinterpreta a situação. */
+const COR_DO_TOM: Record<TomDoAndamento, string> = {
+  preparando: "bg-muted text-muted-foreground",
+  andamento: "bg-primary/10 text-primary",
+  sucesso: "bg-success/10 text-success",
+  atencao: "bg-warning/10 text-warning",
+  encerrado: "bg-muted text-muted-foreground",
+};
+
 type Requisito = {
   id: string;
   titulo: string;
@@ -135,64 +145,101 @@ export function PortalCredenciamento() {
   const { atendidas, total, faltam, percentual } = dados.progresso;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          <Stethoscope className="h-4 w-4 text-muted-foreground" /> Documentos do credenciamento
-        </CardTitle>
-      </CardHeader>
-      <div className="space-y-3 p-5 pt-0">
-        {/* A barra conta PARES (documento × médico): dois médicos com metade da papelada
-            mostram 50%, e não 100%. */}
-        <div>
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-medium text-foreground">
-              {faltam === 0 ? "Tudo enviado" : `Faltam ${faltam} de ${total}`}
-            </span>
-            <span className="text-muted-foreground">
-              {atendidas}/{total}
-            </span>
-          </div>
-          <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
-            <div
-              className={`h-full rounded-full transition-all ${faltam === 0 ? "bg-success" : "bg-primary"}`}
-              style={{ width: `${percentual}%` }}
-            />
-          </div>
-        </div>
-
-        {dados.pendencias.length > 0 && (
-          <div className="rounded-lg border border-warning/40 bg-warning/5 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-warning">Precisamos disto para seguir</p>
-            <ul className="mt-1 space-y-0.5">
-              {dados.pendencias.map((p) => (
-                <li key={p.regra} className="text-sm text-foreground">
-                  {p.pedido}
+    <div className="space-y-6">
+      {/* "EM QUE PÉ ESTÁ NA OPERADORA X?" (Onda 3B). Vem ANTES da papelada porque é a pergunta
+          que o médico faz — e separado dela porque são duas coisas: "tudo enviado" é a nossa
+          parte (os documentos), a resposta da operadora é outra, e chega depois. */}
+      {dados.andamento.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <Building2 className="h-4 w-4 text-muted-foreground" /> Andamento nas operadoras
+            </CardTitle>
+          </CardHeader>
+          <ul className="divide-y">
+            {dados.andamento.map((a) => {
+              const { frase, tom } = andamentoParaOCliente(a.status, a.desde ? data(a.desde) : null);
+              return (
+                <li
+                  key={`${a.profissionalId}-${a.operadora}`}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm sm:px-5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words font-medium text-foreground">{a.operadora}</p>
+                    <p className="break-words text-xs text-muted-foreground">{a.profissional}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${COR_DO_TOM[tom]}`}>{frase}</span>
                 </li>
-              ))}
-            </ul>
-          </div>
-        )}
+              );
+            })}
+          </ul>
+        </Card>
+      )}
 
-        {dados.grupos.map((g) => (
-          <div key={g.escopo}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{g.titulo}</p>
-            <div className="mt-1.5 space-y-2">{g.requisitos.map(blocoRequisito)}</div>
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <Stethoscope className="h-4 w-4 text-muted-foreground" /> Documentos do credenciamento
+          </CardTitle>
+        </CardHeader>
+        <div className="space-y-3 p-5 pt-0">
+          {/* A barra conta PARES (documento × médico): dois médicos com metade da papelada
+              mostram 50%, e não 100%. */}
+          <div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-foreground">
+                {faltam === 0 ? "Tudo enviado" : `Faltam ${faltam} de ${total}`}
+              </span>
+              <span className="text-muted-foreground">
+                {atendidas}/{total}
+              </span>
+            </div>
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className={`h-full rounded-full transition-all ${faltam === 0 ? "bg-success" : "bg-primary"}`}
+                style={{ width: `${percentual}%` }}
+              />
+            </div>
           </div>
-        ))}
 
-        {dados.porProfissional.map(({ profissional, requisitos }) => (
-          <div key={profissional.id} className="rounded-lg border p-3">
-            <p className="text-sm font-semibold text-foreground">
-              {profissional.nome}
-              {profissional.especialidade && (
-                <span className="font-normal text-muted-foreground"> · {profissional.especialidade}</span>
-              )}
-            </p>
-            <div className="mt-2 space-y-2">{requisitos.map(blocoRequisito)}</div>
-          </div>
-        ))}
-      </div>
-    </Card>
+          <p className="text-xs text-muted-foreground">
+            Esta barra é a papelada que você nos envia. O resultado em cada operadora aparece em
+            {dados.andamento.length > 0 ? " “Andamento nas operadoras”, acima." : " andamento, assim que protocolarmos."}
+          </p>
+
+          {dados.pendencias.length > 0 && (
+            <div className="rounded-lg border border-warning/40 bg-warning/5 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-warning">Precisamos disto para seguir</p>
+              <ul className="mt-1 space-y-0.5">
+                {dados.pendencias.map((p) => (
+                  <li key={p.regra} className="text-sm text-foreground">
+                    {p.pedido}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {dados.grupos.map((g) => (
+            <div key={g.escopo}>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{g.titulo}</p>
+              <div className="mt-1.5 space-y-2">{g.requisitos.map(blocoRequisito)}</div>
+            </div>
+          ))}
+
+          {dados.porProfissional.map(({ profissional, requisitos }) => (
+            <div key={profissional.id} className="rounded-lg border p-3">
+              <p className="text-sm font-semibold text-foreground">
+                {profissional.nome}
+                {profissional.especialidade && (
+                  <span className="font-normal text-muted-foreground"> · {profissional.especialidade}</span>
+                )}
+              </p>
+              <div className="mt-2 space-y-2">{requisitos.map(blocoRequisito)}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
   );
 }

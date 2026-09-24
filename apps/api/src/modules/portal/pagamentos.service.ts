@@ -49,9 +49,7 @@ function somar(valores: number[]): number {
 
 export async function pagamentosDoCliente(clienteId: string) {
   const hoje = hojeBRT();
-  const desdePagas = new Date(
-    Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() - MESES_DE_PAGAS_NO_PORTAL, hoje.getUTCDate()),
-  );
+  const desdePagas = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth() - MESES_DE_PAGAS_NO_PORTAL, hoje.getUTCDate()));
   const doCliente = { clienteId, tipo: "RECEBER" as const, escopo: "EMPRESA" as const, donoId: null, deletedAt: null };
   const campos = { id: true, descricao: true, valor: true, vencimento: true, pagoEm: true, recorrencia: true } as const;
 

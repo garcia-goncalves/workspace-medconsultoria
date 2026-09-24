@@ -7,12 +7,7 @@ import {
   marcoDoAndamento,
   montarDadosPagamento,
 } from "@app/shared";
-import {
-  INTERVALO_MINIMO_MS,
-  planejarAvisoDePendencias,
-  podeAvisarDeNovo,
-  type Pendencia,
-} from "../modules/portal/aviso-de-pendencias.js";
+import { INTERVALO_MINIMO_MS, planejarAvisoDePendencias, podeAvisarDeNovo, type Pendencia } from "../modules/portal/aviso-de-pendencias.js";
 import { descricaoParaOCliente } from "../modules/portal/pagamentos.service.js";
 
 /** Onda 3B — as regras puras do Portal que responde o que o cliente pergunta por WhatsApp. */
