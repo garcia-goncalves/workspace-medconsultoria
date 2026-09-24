@@ -5,6 +5,7 @@ import { normalizarTexto } from "./planilha/index.js";
 import {
   DIAS_ATE_A_RESPOSTA_DO_RECURSO,
   diasEntre,
+  ehGlosaTotalPorAusencia,
   estaAtrasada,
   glosaDe,
   repartirRecebido,
@@ -278,19 +279,39 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
     if (lista.length > 1) lista.forEach((b) => compartilhado.add(b.c.id));
   }
 
-  const linhas: LinhaConciliada[] = base.map(({ c, codigo, cobrado, cobradoOrigem }) => {
-    const manual = emReais(c.valorRecebido);
-    const doRepasse = parteDoRepasse.get(c.id);
+  // Segunda passada: o status de cada uma pelo que se SABE (digitado, repasse). É dela que sai
+  // quais competências o repasse já pagou — o que a glosa total por ausência precisa saber.
+  const calculadas = base.map((b) => {
+    const manual = emReais(b.c.valorRecebido);
+    const doRepasse = parteDoRepasse.get(b.c.id);
     const recebido = manual ?? doRepasse ?? null;
-    const rep = c.atendimento ? repassePorAtend.get(c.atendimento) : undefined;
-    const dataPagamento = c.dataPagamento ?? (doRepasse !== undefined ? (rep?.ultimaData ?? null) : null);
     const status = statusDaConciliacao({
-      statusTasy: c.status,
-      naoCobrar: c.naoCobrar,
-      atendimento: c.atendimento,
-      cobrado,
+      statusTasy: b.c.status,
+      naoCobrar: b.c.naoCobrar,
+      atendimento: b.c.atendimento,
+      cobrado: b.cobrado,
       recebido,
     });
+    return { ...b, manual, doRepasse, recebido, status };
+  });
+  const competenciasPagasPeloRepasse = new Set(
+    calculadas.filter((x) => x.doRepasse !== undefined && x.doRepasse > 0).map((x) => x.c.competencia),
+  );
+
+  const linhas: LinhaConciliada[] = calculadas.map(({ c, codigo, cobrado, cobradoOrigem, manual, doRepasse, recebido, status: sabido }) => {
+    const rep = c.atendimento ? repassePorAtend.get(c.atendimento) : undefined;
+    const dataPagamento = c.dataPagamento ?? (doRepasse !== undefined ? (rep?.ultimaData ?? null) : null);
+    // ⚠️ REGRA PROVISÓRIA (`ehGlosaTotalPorAusencia`): o atendimento que não veio no repasse de um
+    // mês que o repasse já pagou é glosa total. Só a LEITURA muda — o recebido continua nulo (não
+    // se inventa um "recebido 0" que a planilha exportada devolveria como digitado à mão), e a
+    // glosa passa a ser o cobrado inteiro.
+    const glosaPorAusencia = ehGlosaTotalPorAusencia({
+      status: sabido,
+      atendimentoNoRepasse: rep !== undefined,
+      atrasada: estaAtrasada(sabido, c.dataCirurgia, agora),
+      repassePagouOutrasDoMes: competenciasPagasPeloRepasse.has(c.competencia),
+    });
+    const status: StatusConciliacao = glosaPorAusencia ? "GLOSA_TOTAL" : sabido;
     return {
       id: c.id,
       numeroCirurgia: c.numeroCirurgia,
@@ -315,7 +336,7 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
       recebidoOrigem: manual !== null ? "MANUAL" : doRepasse !== undefined ? "REPASSE" : null,
       repasseCompartilhado: compartilhado.has(c.id),
       dataPagamento: dataPagamento ? dia(dataPagamento) : null,
-      glosa: glosaDe(cobrado, recebido),
+      glosa: glosaPorAusencia ? cobrado : glosaDe(cobrado, recebido),
       statusConciliacao: status,
       // ⚠️ O que separa "esperando" de "travado". Sem isto, uma cirurgia de um ano atrás e uma do
       // mês passado dizem a mesma coisa na tela ("a receber"), e a pergunta da manhã — "o que
