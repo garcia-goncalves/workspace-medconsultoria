@@ -431,34 +431,114 @@ export async function fecharCompetencia(clienteId: string, competencia: string, 
   const t = totalizar(doMes);
   const retrato = { cobrado: t.cobrado, recebido: t.recebido, glosa: t.glosa, aReceber: t.aReceber, cirurgias: doMes.length };
 
-  // Fechar de novo grava um retrato NOVO por cima e limpa a reabertura — mas a linha é a mesma,
-  // então "quem conferiu, e quando" continua sendo uma pergunta com resposta.
-  return prisma.competenciaFechada.upsert({
-    where: { clienteId_competencia: { clienteId, competencia } },
-    create: { clienteId, competencia, fechadoPorId: usuarioId, observacao: observacao?.trim() || null, ...retrato },
-    update: {
-      fechadoEm: new Date(),
-      fechadoPorId: usuarioId,
-      reabertoEm: null,
-      reabertoPorId: null,
-      observacao: observacao?.trim() || null,
-      ...retrato,
-    },
-    select: { id: true, competencia: true },
-  });
+  const obs = observacao?.trim() || null;
+  const em = new Date();
+  // O nome vai COPIADO para o evento: se a conta for excluída um dia, o histórico continua
+  // dizendo quem conferiu, em vez de "alguém".
+  const autor = await prisma.user.findUnique({ where: { id: usuarioId }, select: { nome: true } });
+
+  // ⚠️ ESTADO E EVENTO NA MESMA TRANSAÇÃO. Em dois passos, uma queda no meio deixaria o mês
+  // fechado sem registro de quem fechou — exatamente o defeito que o histórico veio fechar.
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // Mês REABERTO: fecha de novo na mesma linha (o estado é um só). O fechamento anterior não
+      // se perde mais — ele está no histórico.
+      const { count } = await tx.competenciaFechada.updateMany({
+        where: { clienteId, competencia, reabertoEm: { not: null } },
+        data: { fechadoEm: em, fechadoPorId: usuarioId, reabertoEm: null, reabertoPorId: null, observacao: obs, ...retrato },
+      });
+      // Mês nunca fechado: cria. ⚠️ Já FECHADO é recusado — antes, fechar de novo escrevia por
+      // cima de quem conferiu primeiro. A conferência abaixo existe para a MENSAGEM (e para não
+      // sujar o log com um erro de banco esperado); quem GARANTE, com duas gravações simultâneas,
+      // é o índice único, cujo P2002 o `catch` traduz na mesma frase.
+      if (count === 0) {
+        const jaFechada = await tx.competenciaFechada.findFirst({ where: { clienteId, competencia }, select: { id: true } });
+        if (jaFechada) throw jaFechadaErro(competencia);
+        await tx.competenciaFechada.create({
+          data: { clienteId, competencia, fechadoEm: em, fechadoPorId: usuarioId, observacao: obs, ...retrato },
+        });
+      }
+      await tx.competenciaFechamentoEvento.create({
+        data: { clienteId, competencia, tipo: "FECHOU", em, porId: usuarioId, porNome: autor?.nome ?? null, observacao: obs, ...retrato },
+      });
+      return { competencia };
+    });
+  } catch (e) {
+    if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") {
+      throw jaFechadaErro(competencia);
+    }
+    throw e;
+  }
 }
 
-export async function reabrirCompetencia(clienteId: string, competencia: string, usuarioId: string) {
-  // Posse no próprio WHERE, e `reabertoEm: null` para reabrir duas vezes não reescrever quem
-  // reabriu primeiro — o mesmo desenho da resposta ao recurso.
-  const { count } = await prisma.competenciaFechada.updateMany({
-    where: { clienteId, competencia, reabertoEm: null },
-    data: { reabertoEm: new Date(), reabertoPorId: usuarioId },
+const jaFechadaErro = (competencia: string) =>
+  new TRPCError({
+    code: "CONFLICT",
+    message: `A competência ${competencia} já está fechada. Para conferir de novo, reabra o mês primeiro.`,
   });
-  if (count === 0) {
-    throw new TRPCError({ code: "NOT_FOUND", message: `A competência ${competencia} não está fechada neste cliente.` });
-  }
+
+export async function reabrirCompetencia(clienteId: string, competencia: string, usuarioId: string) {
+  const autor = await prisma.user.findUnique({ where: { id: usuarioId }, select: { nome: true } });
+  await prisma.$transaction(async (tx) => {
+    // Posse no próprio WHERE, e `reabertoEm: null` para reabrir duas vezes não reescrever quem
+    // reabriu primeiro — o mesmo desenho da resposta ao recurso. É também o que garante UM evento
+    // REABRIU por reabertura, mesmo com dois cliques simultâneos: só um deles acha a linha.
+    const { count } = await tx.competenciaFechada.updateMany({
+      where: { clienteId, competencia, reabertoEm: null },
+      data: { reabertoEm: new Date(), reabertoPorId: usuarioId },
+    });
+    if (count === 0) {
+      throw new TRPCError({ code: "NOT_FOUND", message: `A competência ${competencia} não está fechada neste cliente.` });
+    }
+    await tx.competenciaFechamentoEvento.create({
+      data: { clienteId, competencia, tipo: "REABRIU", porId: usuarioId, porNome: autor?.nome ?? null },
+    });
+  });
   return { ok: true };
+}
+
+export interface EventoDeFechamentoNaTela {
+  id: number;
+  tipo: "FECHOU" | "REABRIU";
+  em: Date;
+  por: string | null;
+  observacao: string | null;
+  /** O retrato conferido — só no FECHOU. Memória do que se conferiu, nunca valor de hoje. */
+  retrato: { cobrado: number; glosa: number; cirurgias: number } | null;
+}
+
+/**
+ * O histórico de uma competência, do mais antigo ao mais recente.
+ *
+ * ⚠️ SÓ LEITURA, e não há par de escrita: evento não se edita nem se apaga (append-only). Quem
+ * precisar "corrigir" um fechamento reabre e fecha de novo — e isso também fica registrado.
+ */
+export async function historicoFechamento(clienteId: string, competencia: string): Promise<EventoDeFechamentoNaTela[]> {
+  const eventos = await prisma.competenciaFechamentoEvento.findMany({
+    where: { clienteId, competencia },
+    // `id` é autoincremento: a ordem de gravação, que desempata dois eventos no mesmo milissegundo.
+    orderBy: { id: "asc" },
+    select: {
+      id: true,
+      tipo: true,
+      em: true,
+      porNome: true,
+      observacao: true,
+      cobrado: true,
+      glosa: true,
+      cirurgias: true,
+      por: { select: { nome: true } },
+    },
+  });
+  return eventos.map((e) => ({
+    id: e.id,
+    tipo: e.tipo,
+    em: e.em,
+    // O nome gravado no evento é o de QUANDO se agiu; o da conta só entra se a cópia faltar.
+    por: e.porNome ?? e.por?.nome ?? null,
+    observacao: e.observacao,
+    retrato: e.tipo === "FECHOU" ? { cobrado: emReaisOu(e.cobrado), glosa: emReaisOu(e.glosa), cirurgias: e.cirurgias ?? 0 } : null,
+  }));
 }
 
 export interface CompetenciaFechadaNaTela {
