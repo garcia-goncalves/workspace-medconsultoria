@@ -3,19 +3,35 @@
 # ⚠️ A VPS É COMPARTILHADA com outros projetos (descoberto em 13/09/2026, ~20 containers no ar).
 # Por isso:
 #   - NÃO há Caddy aqui: as portas 80/443 são do nginx do HOST, que publica todos os sites.
-#     O arquivo do site está em `infra/ovh/nginx-medconsultoria.conf`.
+#     O arquivo do site está em `infra/ovh/nginx-producao.conf` (e o de homologação em
+#     `infra/ovh/nginx-medconsultoria.conf`).
 #   - O app escuta SÓ em 127.0.0.1:4319 — nada deste projeto fica exposto fora do loopback.
 #   - O banco não publica porta nenhuma; quem fala com ele é a rede interna do compose.
 #
 # Os três comandos, nesta ordem e cada um com seu código de saída:
 #   docker compose up -d mysql
-#   docker compose run --rm app npm run prisma:deploy
-#   docker compose up -d app
+#   docker compose run --rm --no-deps app npm run prisma:deploy
+#   docker compose up -d --no-deps app
 #
 # Encadear com `&&` foi o que, na esteira antiga, fazia o deploy dizer "concluído" com a migration
 # falhada e o app servindo o código anterior. A lição não era da hospedagem — é desta ordem.
+# ⚠️ `--no-deps` nos dois últimos NÃO é enfeite: ver `deploy-ovh.yml` (21 e 22/09/2026, o banco
+# recriado no meio da publicação).
+#
+# ⚠️ ESTE ARQUIVO MUDOU EM 24/09/2026 (env_file próprio do mysql + limite de log). Aplicar na VPS
+# RECRIA o container do mysql uma vez — o passo a passo seguro está em docs/OPERACAO_OVH.md,
+# "Separar o env_file do banco". Não copie este arquivo por cima do da VPS sem ler aquilo.
 
 name: medconsultoria
+
+# Limite de log nos dois serviços. Sem ele o driver `json-file` do Docker guarda TUDO para sempre,
+# num disco que já é o gargalo da máquina compartilhada (21/09/2026) — e o app loga cada
+# requisição. 5 arquivos de 10 MB = no máximo 50 MB por container, girando sozinho.
+x-log-limitado: &log-limitado
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 
 services:
   app:
@@ -33,6 +49,7 @@ services:
       # para chown — o usuário da VPS não é o uid 1000. E arquivo dentro do container sumiria
       # na primeira troca de imagem.
       - uploads:/dados/uploads
+    logging: *log-limitado
     depends_on:
       mysql:
         condition: service_healthy
@@ -43,9 +60,23 @@ services:
     # Mesma collation do docker-compose.yml de desenvolvimento. Divergir aqui é acentuação
     # quebrada em nome de paciente e ordenação diferente da que os testes provaram.
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-    env_file: .env
+    # ⚠️ ARQUIVO PRÓPRIO, SÓ COM `MYSQL_*` — a "cura de fundo" registrada em 21/09/2026.
+    # Antes o banco lia o MESMO `.env` do app, e isso tinha dois custos:
+    #   1. o container do banco carregava no ambiente as chaves de cifra do paciente e do
+    #      e-mail, a SESSION_SECRET e a senha do SMTP — que ele nunca usa (`docker inspect`
+    #      do mysql mostrava tudo);
+    #   2. todo deploy altera o `.env` (a linha APP_IMAGE), o que mudava o hash de configuração
+    #      do mysql e fazia o compose querer RECRIÁ-LO — o incidente de 22/09/2026, contido até
+    #      aqui só pelo `--no-deps`.
+    # Com `mysql.env`, publicar não toca na configuração do banco. O `--no-deps` continua no
+    # workflow mesmo assim: são duas travas, e tirar uma não deve reabrir o buraco.
+    # ⚠️ Depois da 1ª inicialização do volume, o MySQL IGNORA MYSQL_DATABASE/USER/PASSWORD (o
+    # banco e o usuário já existem). O que continua sendo lido é MYSQL_ROOT_PASSWORD, pelo
+    # healthcheck abaixo e pelo backup — por isso ele tem de ser o valor REAL do root de hoje.
+    env_file: mysql.env
     volumes:
       - mysql_dados:/var/lib/mysql
+    logging: *log-limitado
     healthcheck:
       # `$$` para o compose não interpolar: a senha é lida DENTRO do container.
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -p\"$$MYSQL_ROOT_PASSWORD\""]
