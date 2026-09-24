@@ -55,9 +55,9 @@ jobs:
     env:
       ALVO: medconsultoria
     steps:
-      # Antes de abrir SSH: os dois segredos novos existem e têm cara de certo? Cada valor do
-      # BACKUP_ENV também é MASCARADO aqui — os scripts não imprimem segredo, mas a máscara é a
-      # segunda tranca, caso algum erro de ferramenta ecoe uma linha de configuração.
+      # Antes de abrir SSH: os dois segredos novos existem e têm cara de certo? Os valores
+      # sensíveis do BACKUP_ENV também são MASCARADOS aqui — os scripts não imprimem segredo, mas a
+      # máscara é a segunda tranca, caso algum erro de ferramenta ecoe uma linha de configuração.
       - name: Conferir os segredos do backup
         env:
           BACKUP_ENV: ${{ secrets.BACKUP_ENV }}
@@ -67,12 +67,30 @@ jobs:
           [ -n "${BACKUP_ENV:-}" ] || { echo "::error::falta o segredo BACKUP_ENV (gh secret set BACKUP_ENV < backup.env) — modelo em infra/ovh/backup/backup.env.example"; exit 1; }
           [ -n "${BACKUP_CHAVE:-}" ] || { echo "::error::falta o segredo BACKUP_CHAVE — gere com 'openssl rand -base64 48', guarde uma cópia FORA do GitHub, e só então: gh secret set BACKUP_CHAVE"; exit 1; }
           [ "${#BACKUP_CHAVE}" -ge 32 ] || { echo "::error::BACKUP_CHAVE curta demais (${#BACKUP_CHAVE} caracteres; use 'openssl rand -base64 48')"; exit 1; }
+          # Máscara só para o que pode ser SENSÍVEL. Mascarar todo valor escondia palavras comuns do
+          # log inteiro — `s3`, `Other`, `7`, e `medconsultoria` (o BACKUP_PREFIXO) virariam `***`
+          # em qualquer linha de qualquer passo, e o log deixava de servir para diagnosticar.
+          # Regra: nome com cara de segredo (SECRET/KEY/SENHA/TOKEN/PASS/PING_URL — a URL do
+          # Healthchecks embute o id do check) é sempre mascarado; os nomes sabidamente inofensivos
+          # da lista abaixo nunca; qualquer outro nome, se o valor tiver 8+ caracteres.
+          INOFENSIVOS=" RCLONE_CONFIG_DESTINO_TYPE RCLONE_CONFIG_DESTINO_PROVIDER RCLONE_CONFIG_DESTINO_REGION BACKUP_PREFIXO MANTER_DIARIOS MANTER_SEMANAIS MANTER_MENSAIS PROJETO_DIR VOLUME_UPLOADS ENSAIO_TMPFS_TAMANHO BANCO "
           while IFS= read -r LINHA; do
+            LINHA="${LINHA%$'\r'}"
             case "$LINHA" in ''|'#'*) continue ;; esac
+            NOME="${LINHA%%=*}"
             VALOR="${LINHA#*=}"
-            [ -n "$VALOR" ] && echo "::add-mask::$VALOR"
+            [ -n "$VALOR" ] || continue
+            if [[ "$NOME" =~ (SECRET|KEY|SENHA|TOKEN|PASS|PING_URL) ]]; then
+              echo "::add-mask::$VALOR"
+            elif [[ "$INOFENSIVOS" == *" $NOME "* ]]; then
+              continue
+            elif [ "${#VALOR}" -ge 8 ]; then
+              echo "::add-mask::$VALOR"
+            fi
           done <<< "$BACKUP_ENV"
-          for N in RCLONE_CONFIG_DESTINO_ENDPOINT RCLONE_CONFIG_DESTINO_ACCESS_KEY_ID RCLONE_CONFIG_DESTINO_SECRET_ACCESS_KEY BACKUP_BUCKET; do
+          # RCLONE_CONFIG_DESTINO_TYPE é exigido pelo comum.sh na VPS; conferido aqui para falhar
+          # cedo, antes de abrir SSH, com a mensagem certa.
+          for N in RCLONE_CONFIG_DESTINO_TYPE RCLONE_CONFIG_DESTINO_ENDPOINT RCLONE_CONFIG_DESTINO_ACCESS_KEY_ID RCLONE_CONFIG_DESTINO_SECRET_ACCESS_KEY BACKUP_BUCKET; do
             grep -qE "^$N=.+" <<< "$BACKUP_ENV" || { echo "::error::BACKUP_ENV não tem $N preenchido"; exit 1; }
           done
           echo "segredos do backup presentes"
