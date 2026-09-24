@@ -35,11 +35,14 @@ O app é **um único processo Node** (`server.js`) que serve, na mesma porta: a 
 
 ---
 
-## 0-A. O VPS OVH (a homologação de hoje) — `Deploy OVH`
+## 0-A. O VPS OVH (a PRODUÇÃO desde 22/09/2026) — `Deploy OVH`
 
-> **Este é o alvo atual.** O resto deste documento descreve a TineHost, que segue servindo
-> `workspace.medconsultoria.com.br`. A homologação — `https://homolog.workspace.medconsultoria.com.br`
-> — roda em container no VPS OVH, e a esteira dela é outra (ADR-154).
+> **Este é o alvo atual, e o único jeito normal de publicar.** Desde 22/09/2026
+> `workspace.medconsultoria.com.br` roda em container no VPS OVH, ao lado da homologação
+> (`https://homolog.workspace.medconsultoria.com.br`). O resto deste documento descreve a
+> TineHost, que ficou só como rede de segurança do rollback de DNS (ADR-154): o `deploy.yml` é
+> **legado** e passou a exigir `PUBLICAR-TINEHOST` (§0). Checklist de operação da OVH:
+> [`OPERACAO_OVH.md`](./OPERACAO_OVH.md).
 
 **O que mudou:** o servidor deixou de montar o ambiente. A imagem é construída **no runner do
 GitHub**, publicada no GHCR, e o VPS só faz `pull`, `migrate` e `up -d`. O `npm ci` em produção —
@@ -52,18 +55,23 @@ Actions → **Deploy OVH** → _Run workflow_ → escolher:
 | Escolha     | O que faz                                                                                                                                             |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SO_IMAGEM` | Roda a suíte completa, constrói e publica a imagem. **Não toca no servidor.**                                                                         |
-| `PUBLICAR`  | O acima **e** sobe no VPS: aponta o `.env`, baixa a imagem, aplica migrations em container descartável, troca o container e faz smoke test por HTTPS. |
+| `PUBLICAR`  | O acima **e** sobe no VPS: aponta o `.env`, baixa a imagem, aplica migrations em container descartável, troca o container e faz smoke test por HTTPS (`/health/pronto`, que toca o banco). Se algo falhar ou o run for cancelado depois da troca, volta sozinho para a imagem anterior e termina **vermelho**. |
 
-### ⚠️ `PUBLICAR` exige QUATRO segredos, e eles ainda NÃO existem
+Pelo terminal: `gh workflow run deploy-ovh.yml --ref main -f confirmar=PUBLICAR` (ou `SO_IMAGEM`).
 
-`SO_IMAGEM` não precisa de nenhum — já foi exercido e a imagem do commit está no GHCR. O caminho
-`PUBLICAR` é **inédito** até estes quatro serem postos (uma vez, só o dono):
+### ⚠️ `PUBLICAR` exige CINCO segredos
+
+`SO_IMAGEM` não precisa de nenhum. Os quatro primeiros existem desde 22/09/2026 (o `PUBLICAR`
+rodou de ponta a ponta naquele dia); o quinto, **`VPS_KNOWN_HOSTS`, é obrigatório desde
+24/09/2026** — sem ele todo workflow da OVH para no primeiro passo, dizendo isso
+(passo a passo em [`OPERACAO_OVH.md`](./OPERACAO_OVH.md) §2.1):
 
 ```bash
 gh secret set VPS_HOST      # o endereço do VPS
 gh secret set VPS_USER      # o usuário do SSH
 gh secret set VPS_PORT      # ⚠️ a porta NÃO é 22
 gh secret set VPS_SSH_KEY < ~/.ssh/<a_chave_privada>   # no PowerShell: Get-Content <arq> -Raw | gh secret set VPS_SSH_KEY
+gh secret set VPS_KNOWN_HOSTS < known_hosts_vps        # a chave PÚBLICA do servidor (ssh-keyscan), conferida contra ele
 ```
 
 ⚠️ **Os três primeiros são dados de acesso e por isso não estão escritos em lugar nenhum do
@@ -109,8 +117,9 @@ Tentativa de deploy manual da Conciliação. **Não concluiu, e o motivo não er
 - **Rollback é um `up -d`.** A tag do commit fica no `.env` do servidor (`APP_IMAGE=`); voltar é
   trocar a linha para a tag anterior e subir de novo.
 - **Migrations em passo próprio**, em container descartável, **antes** de o tráfego trocar.
-- **Smoke test por HTTPS real** no fim — `/health` precisa dizer `ok`, e `/` e `/credenciamentos`
-  precisam responder 200. Sem isso o workflow ficaria verde com o site fora do ar.
+- **Smoke test por HTTPS real** no fim — `/health/pronto` precisa dizer `pronto` (ele faz
+  `SELECT 1`; o `/health` não toca o banco e disse "ok" com o MySQL fora em 22/09/2026), e `/` e
+  `/credenciamentos` precisam responder 200. Sem isso o workflow ficaria verde com o site fora do ar.
 
 ### ⛔ Duas coisas que NÃO se faz nesse VPS
 
@@ -120,7 +129,13 @@ Tentativa de deploy manual da Conciliação. **Não concluiu, e o motivo não er
 
 ---
 
-## 0. Como se publica HOJE — o botão no GitHub (desde 17/08/2026)
+## 0. LEGADO — publicar na TineHost pelo `deploy.yml` (17/08 a 22/09/2026)
+
+> ⛔ **Isto NÃO publica a produção desde 22/09/2026** — a produção é a OVH, pelo **Deploy OVH**
+> (§0-A). O `deploy.yml` ficou para a TineHost, que é só a rede de segurança do rollback de DNS,
+> e passou a exigir a confirmação **`PUBLICAR-TINEHOST`**: digitar `PUBLICAR` nele não faz nada
+> (e diz isso). Onde este §0 diz `PUBLICAR`, leia `PUBLICAR-TINEHOST`. O texto abaixo fica como
+> registro de como a TineHost era publicada.
 
 **O deploy não sai mais do computador de ninguém.** Ele roda no GitHub, pelo arquivo
 [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), que faz exatamente a mesma
@@ -147,7 +162,8 @@ publicar é apertar um botão.
    _"Ensaio de boot"_, **a produção não foi tocada** — ela continua servindo a versão
    anterior, e não há nada de urgente a fazer.
 
-Pelo terminal, o equivalente é `gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR`.
+Pelo terminal, o equivalente é `gh workflow run deploy.yml --ref main -f confirmar=PUBLICAR-TINEHOST`
+(até 24/09/2026 era `PUBLICAR`; os exemplos abaixo guardam a forma antiga).
 
 > ⚠️ **Esse comando é RECUSADO quando o Claude o roda** — volta `Blocked by classifier`,
 > uma recusa seca, e o "pode subir" dito na conversa **não** a levanta. É de propósito:
@@ -289,7 +305,9 @@ segunda execução **esperar** a primeira terminar. Não existe mais como colidi
 ### Rollback
 
 Rodar o mesmo workflow apontando para o commit anterior:
-`gh workflow run deploy.yml --ref <tag-ou-sha> -f confirmar=PUBLICAR`.
+`gh workflow run deploy.yml --ref <tag-ou-sha> -f confirmar=PUBLICAR-TINEHOST` (TineHost, legado).
+Na OVH o rollback é outro: a volta automática do **Deploy OVH**, ou trocar `APP_IMAGE` no `.env`
+da VPS para a tag anterior e `docker compose up -d --no-deps app` (§0-A).
 O snapshot em `~/backups/release-pre-<carimbo>.tar.gz` continua sendo tirado a cada
 publicação, como sempre foi.
 
