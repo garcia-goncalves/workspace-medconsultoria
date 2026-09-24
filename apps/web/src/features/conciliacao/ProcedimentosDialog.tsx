@@ -73,6 +73,7 @@ export function ProcedimentosDialog({ clienteId, onClose, onSalvo }: { clienteId
               <LinhaDeValor
                 key={`padrao:${p.padrao?.codigo ?? ""}:${p.padrao?.valor ?? ""}`}
                 rotulo="Padrão"
+                procedimento={p.procedimento}
                 inicial={p.padrao}
                 // O padrão vale para quem NÃO tem valor específico por convênio — daí o total do
                 // procedimento menos o que já está coberto por operadora, não o total cru.
@@ -87,6 +88,7 @@ export function ProcedimentosDialog({ clienteId, onClose, onSalvo }: { clienteId
                 <LinhaDeValor
                   key={`${o.operadoraId}:${o.codigo ?? ""}:${o.valor ?? ""}`}
                   rotulo={o.operadora}
+                  procedimento={p.procedimento}
                   inicial={{ codigo: o.codigo, valor: o.valor }}
                   cirurgiasAfetadas={o.cirurgias}
                   pendente={salvar.isPending}
@@ -113,6 +115,7 @@ export function ProcedimentosDialog({ clienteId, onClose, onSalvo }: { clienteId
 
 function LinhaDeValor({
   rotulo,
+  procedimento,
   inicial,
   cirurgiasAfetadas,
   pendente,
@@ -120,6 +123,8 @@ function LinhaDeValor({
   removivel,
 }: {
   rotulo: string;
+  /** Nome do procedimento — é ele que a confirmação precisa dizer, não só "Padrão". */
+  procedimento: string;
   inicial: { codigo: string | null; valor: number | null } | null;
   /** Quantas cirurgias usam este valor hoje — é o número que aparece ao confirmar apagar/mudar. */
   cirurgiasAfetadas: number;
@@ -144,7 +149,7 @@ function LinhaDeValor({
     if (valorAntes !== null && valorFinal !== valorAntes) {
       const apagando = valorFinal === null;
       const ok = await confirm({
-        title: apagando ? `Remover o valor de "${rotulo}"` : `Mudar o valor de "${rotulo}"`,
+        title: `${apagando ? "Remover" : "Mudar"} o valor ${rotulo === "Padrão" ? "padrão" : `de ${rotulo}`} de "${procedimento}"`,
         description: apagando
           ? `${quantas} vão ficar sem valor de referência, e a glosa delas deixa de ser calculada.`
           : `${quantas} vão passar a usar o valor novo na hora, sem retroação.`,

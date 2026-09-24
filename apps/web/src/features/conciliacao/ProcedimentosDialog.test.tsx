@@ -116,7 +116,7 @@ describe("ProcedimentosDialog — confirmação ao apagar/mudar valor já usado 
 
     // O diálogo de confirmação abriu, com a contagem certa — nada foi gravado ainda.
     const texto = raiz.container.textContent ?? "";
-    expect(texto).toContain('Remover o valor de "Padrão"');
+    expect(texto).toContain('Remover o valor padrão de "');
     expect(texto).toContain("8 cirurgias vão ficar sem valor de referência");
     expect(ultimoInput).toBeNull();
 
@@ -149,7 +149,7 @@ describe("ProcedimentosDialog — confirmação ao apagar/mudar valor já usado 
     const salvarBtn = [...raiz.container.querySelectorAll("button")].find((b) => b.textContent === "Salvar")!;
     act(() => clicar(salvarBtn));
 
-    expect(raiz.container.textContent).toContain('Mudar o valor de "Padrão"');
+    expect(raiz.container.textContent).toContain('Mudar o valor padrão de "');
     const cancelarBtn = [...raiz.container.querySelectorAll("button")].find((b) => b.textContent === "Cancelar")!;
     act(() => clicar(cancelarBtn));
     await aguardar();
