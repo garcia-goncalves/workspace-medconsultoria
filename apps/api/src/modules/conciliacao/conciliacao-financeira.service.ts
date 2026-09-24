@@ -2,6 +2,7 @@ import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 import { normalizarTexto } from "./planilha/index.js";
+import { chaveDoConvenio } from "./producao-consultas.js";
 import {
   DIAS_ATE_A_RESPOSTA_DO_RECURSO,
   diasEntre,
@@ -48,6 +49,8 @@ export interface LinhaConciliada {
   categoriaConvenio: string;
   convenioBruto: string;
   operadora: { id: string; nome: string } | null;
+  /** O de-para marcou este convênio como particular (sem operadora) — o resumo o chama assim. */
+  convenioParticular: boolean;
   profissionalBruto: string;
   profissional: { id: string; nome: string } | null;
   codigo: string | null;
@@ -123,7 +126,7 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
   // UMA vez para a montagem inteira: com `new Date()` dentro do laço, duas linhas da mesma lista
   // poderiam cair em lados diferentes do limite de atraso.
   const agora = new Date();
-  const [cirurgias, mapeamentos, repasses, recursos] = await Promise.all([
+  const [cirurgias, mapeamentos, repasses, recursos, conveniosParticulares] = await Promise.all([
     prisma.producaoCirurgia.findMany({
       where: { clienteId },
       select: {
@@ -179,7 +182,11 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
         respondidoEm: true,
       },
     }),
+    // O mesmo de-para de convênio que a tela usa no resumo por operadora: o texto marcado como
+    // particular não tem operadora, e sem isto a exportação o mostraria como "a ligar".
+    prisma.mapeamentoConvenio.findMany({ where: { clienteId, particular: true }, select: { textoNormalizado: true } }),
   ]);
+  const ehParticular = new Set(conveniosParticulares.map((m) => m.textoNormalizado));
 
   // O mais recente de cada cirurgia: a ordenação acima põe a maior tentativa primeiro, então a
   // PRIMEIRA que chega de cada cirurgia é a que vale.
@@ -327,6 +334,7 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
       categoriaConvenio: c.categoriaConvenio,
       convenioBruto: c.convenioBruto,
       operadora: c.operadora,
+      convenioParticular: !c.operadora && ehParticular.has(chaveDoConvenio(c.convenioBruto)),
       profissionalBruto: c.profissionalBruto,
       profissional: c.profissional,
       codigo,

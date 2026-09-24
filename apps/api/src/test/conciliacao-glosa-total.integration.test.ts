@@ -150,3 +150,13 @@ describe("glosa total por ausência — o gabarito das fictícias", () => {
     expect(linha5550122).toContain(";1900,00;;1900,00;");
   });
 });
+
+describe("resumo por convênio exportado — pela operadora ligada, como a tela", () => {
+  it("convênio ligado sai com o nome da operadora; o resto, com o texto bruto e '(a ligar)'", async () => {
+    await caller.conciliacao.ligarConvenio({ clienteId, textoBruto: "BRADESCO SAUDE", operadoraId });
+    const { porConvenio } = await caller.conciliacao.exportar({ clienteId });
+    expect(porConvenio).toContain(`"Bradesco Fictício ${SUFIXO}"`);
+    expect(porConvenio).not.toContain('"BRADESCO SAUDE');
+    expect(porConvenio).toContain('"UNIMED SEGUROS (a ligar)"');
+  });
+});
