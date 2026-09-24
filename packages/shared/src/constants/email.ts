@@ -118,6 +118,17 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   },
   { tipo: "incidente", label: "Alertas do sistema", descricao: "Incidentes técnicos detectados na aplicação.", grupo: "Sistema", minRole: "ROOT" },
   { tipo: "erro", label: "Erros do sistema", descricao: "Novos erros registrados na aplicação.", grupo: "Sistema", minRole: "ROOT" },
+  // ── MENSAGEM INTERNA NÃO AVISAVA NINGUÉM FORA DO SISTEMA (W5, Onda 1) ────────────────
+  //
+  // Conversa INDIVIDUAL/GRUPO/PROJETO só emitia socket — e em produção o tempo real é polling
+  // (Socket.IO desligado), então nem isso chegava. Nasce LIGADA (nenhum papel desligado por
+  // padrão): quem manda uma mensagem interna espera que o destinatário saiba, mesmo longe da tela.
+  {
+    tipo: "mensagem_interna",
+    label: "Mensagem em conversa interna",
+    descricao: "Nova mensagem numa conversa individual, de grupo ou de projeto da qual você participa.",
+    grupo: "Agenda e tarefas",
+  },
 ];
 
 /** Conjunto de tipos que disparam e-mail (usado no back para filtrar). */

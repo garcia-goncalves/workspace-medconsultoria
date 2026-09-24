@@ -803,6 +803,31 @@ export const EMAIL_TEMPLATES = {
     },
   },
 
+  // ── MENSAGEM INTERNA (W5, Onda 1) ─────────────────────────────────────────────────────
+  //
+  // Conversa INDIVIDUAL/GRUPO/PROJETO só emitia socket (que em produção nem existe — tempo
+  // real é polling). Anti-spam de 1 e-mail por conversa/destinatário a cada 30 min mora em
+  // `mensagens.service.ts`, não aqui: este template só descreve o texto.
+  mensagem_interna: {
+    label: "Mensagem em conversa interna",
+    descricao: "Nova mensagem numa conversa individual, de grupo ou de projeto. Vai para os outros participantes (nunca para quem escreveu).",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "remetente", rotulo: "Quem escreveu", descricao: "Nome de quem mandou a mensagem", exemplo: "Thaís Garcia" },
+      { chave: "conversa", rotulo: "Conversa", descricao: "Nome do grupo/projeto, ou o nome de quem escreveu numa conversa individual", exemplo: "Equipe comercial" },
+      { chave: "mensagem", rotulo: "Trecho da mensagem", descricao: "Início da mensagem", exemplo: "Vamos alinhar a proposta da Clínica Bem-Estar?" },
+      { chave: "link", rotulo: "Link das mensagens", descricao: "Página de Mensagens", exemplo: "(link de Mensagens)" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "{{remetente}} mandou uma mensagem — {{conversa}}",
+      titulo: "Nova mensagem: {{conversa}}",
+      corpo: '{{remetente}} escreveu em "{{conversa}}":\n\n"{{mensagem}}"',
+      ctaTexto: "Abrir Mensagens",
+    },
+  },
+
   // ───────── Sistema (ROOT; título/detalhe dinâmicos) ─────────
   incidente: {
     label: "Alerta do sistema (incidente)",
