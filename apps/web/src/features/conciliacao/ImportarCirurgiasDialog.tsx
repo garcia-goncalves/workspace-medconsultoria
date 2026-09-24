@@ -32,7 +32,11 @@ export function ImportarCirurgiasDialog({
 }) {
   const [arquivo, setArquivo] = useState<ArquivoEnviado | null>(null);
 
-  const previa = trpc.conciliacao.previsualizarCirurgias.useMutation({ onError: (e) => toast(e.message) });
+  // ⚠️ Sem `onError` aqui de propósito: um arquivo do relatório errado (ex.: consultas, no
+  // importador de cirurgias) é recusado com a dica de para onde levar o arquivo — e um toast
+  // some sozinho em ~5s, deixando o modal vazio sem explicação nenhuma. O erro fica visível e
+  // FIXO no corpo do modal (`previa.error` abaixo), até a pessoa trocar de arquivo ou fechar.
+  const previa = trpc.conciliacao.previsualizarCirurgias.useMutation();
   const importar = trpc.conciliacao.importarCirurgias.useMutation({
     onSuccess: (r) => {
       const extras = [
@@ -107,6 +111,7 @@ export function ImportarCirurgiasDialog({
         </div>
 
         {previa.isPending && <p className="text-sm text-muted-foreground">Lendo o arquivo…</p>}
+        {previa.error && <Aviso tom="erro">{previa.error.message}</Aviso>}
 
         {p && (
           <>

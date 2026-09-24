@@ -33,8 +33,13 @@ export function ImportarRecebidoDialog({
   const [arquivo, setArquivo] = useState<ArquivoEnviado | null>(null);
   const titulo = tipo === "repasse" ? "Importar repasse (TASY)" : "Importar planilha de conciliação preenchida";
 
-  const previaRepasse = trpc.conciliacao.previsualizarRepasse.useMutation({ onError: (e) => toast(e.message) });
-  const previaPlanilha = trpc.conciliacao.previsualizarPlanilha.useMutation({ onError: (e) => toast(e.message) });
+  // ⚠️ Sem `onError` nas duas prévias, de propósito: um arquivo do relatório errado (ex.: a
+  // planilha modelo no importador de repasse) é recusado com a dica de para onde levar o
+  // arquivo — e um toast some sozinho em ~5s, deixando o modal vazio sem explicação nenhuma. O
+  // erro fica visível e FIXO no corpo do modal (`erroDaPrevia` abaixo), até a pessoa trocar de
+  // arquivo ou fechar.
+  const previaRepasse = trpc.conciliacao.previsualizarRepasse.useMutation();
+  const previaPlanilha = trpc.conciliacao.previsualizarPlanilha.useMutation();
   const importarRepasse = trpc.conciliacao.importarRepasse.useMutation({
     onSuccess: (r) => {
       toast(
@@ -71,6 +76,7 @@ export function ImportarRecebidoDialog({
   // A substituição do período só é oferecida quando o servidor recusou por conflito — a pessoa lê
   // o que vai trocar antes de confirmar.
   const conflito = importarRepasse.error?.data?.code === "CONFLICT" ? importarRepasse.error.message : null;
+  const erroDaPrevia = (tipo === "repasse" ? previaRepasse.error : previaPlanilha.error)?.message ?? null;
   const lendo = previaRepasse.isPending || previaPlanilha.isPending;
   const gravando = importarRepasse.isPending || importarPlanilha.isPending;
   const pode = !!arquivo && (tipo === "repasse" ? !!pr && pr.linhas > 0 && !pr.jaImportado : !!pp && pp.aplicaveis > 0);
@@ -132,6 +138,7 @@ export function ImportarRecebidoDialog({
         </div>
 
         {lendo && <p className="text-sm text-muted-foreground">Lendo o arquivo…</p>}
+        {erroDaPrevia && <Aviso tom="erro">{erroDaPrevia}</Aviso>}
 
         {tipo === "repasse" && pr && (
           <>
