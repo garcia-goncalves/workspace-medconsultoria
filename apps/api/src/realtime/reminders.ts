@@ -342,9 +342,20 @@ export async function scanProativo(): Promise<void> {
   //    concluídas. Avisa cada responsável e quem delegou — uma vez por tarefa, para sempre
   //    (mesmo padrão do `unico` acima: reabrir o prazo/reatribuir cria uma tarefa "nova" aos
   //    olhos da notificação só se o id mudar, o que não acontece aqui).
+  //    ⚠️ SÓ O QUE VENCEU NOS ÚLTIMOS 7 DIAS, E NO MÁXIMO 200 POR VARREDURA. Sem o piso, a
+  //    primeira varredura depois de publicar este aviso despejaria de uma vez TODA tarefa
+  //    vencida desde sempre — dezenas de sininhos e e-mails de coisa que ninguém mais vai
+  //    fazer —, e aviso que vira ruído deixa de ser lido (ADR-134), inclusive o que importa.
+  //    O que venceu há mais tempo continua visível na página Tarefas; aviso é para o que
+  //    acabou de passar do prazo. O teto é rede contra rajada (importação, prazo em massa):
+  //    como cada aviso é `unico`, o que sobrar sai na varredura seguinte, do mais antigo da
+  //    janela para o mais novo — é o que sai da janela primeiro.
   try {
+    const seteDiasAtras = new Date(agora.getTime() - 7 * 86_400_000);
     const tarefasVencidas = await prisma.tarefa.findMany({
-      where: { deletedAt: null, status: { not: "CONCLUIDA" }, prazo: { lt: agora } },
+      where: { deletedAt: null, status: { not: "CONCLUIDA" }, prazo: { lt: agora, gte: seteDiasAtras } },
+      orderBy: { prazo: "asc" },
+      take: 200,
       select: {
         id: true,
         titulo: true,

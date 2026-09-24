@@ -103,4 +103,20 @@ describe("scanProativo avisa de tarefa individual vencida", () => {
     });
     expect(notifs).toHaveLength(0);
   });
+
+  it("tarefa vencida há 30 dias NÃO gera aviso — a 1ª varredura não despeja o passado inteiro", async () => {
+    const antiga = await prisma.tarefa.create({
+      data: {
+        titulo: `${PFX}-vencida ha 30 dias`,
+        criadoPorId: criadorId,
+        prazo: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+        responsaveis: { create: [{ userId: responsavelId }] },
+      },
+    });
+
+    await scanProativo();
+
+    const notifs = await prisma.notificacao.findMany({ where: { tipo: "tarefa_vencida", entidadeId: antiga.id } });
+    expect(notifs).toHaveLength(0);
+  });
 });
