@@ -860,14 +860,17 @@ export const EMAIL_TEMPLATES = {
     variaveis: [
       { chave: "remetente", rotulo: "Quem escreveu", descricao: "Nome de quem mandou a mensagem", exemplo: "Thaís Garcia" },
       { chave: "conversa", rotulo: "Conversa", descricao: "Nome do grupo/projeto, ou o nome de quem escreveu numa conversa individual", exemplo: "Equipe comercial" },
-      { chave: "mensagem", rotulo: "Trecho da mensagem", descricao: "Início da mensagem", exemplo: "Vamos alinhar a proposta da Clínica Bem-Estar?" },
+      // ⚠️ SEM variável de TRECHO, de propósito. A conversa interna fala de cliente e de paciente
+      // (Conciliação), e o e-mail sai da casa e fica guardado na caixa de cada um, fora do nosso
+      // controle e do nosso expurgo. O trecho aparece só no sininho, dentro do sistema e já
+      // passado pela peneira de dado pessoal (`mensagens.service.ts`); o e-mail só chama para ler.
       { chave: "link", rotulo: "Link das mensagens", descricao: "Página de Mensagens", exemplo: "(link de Mensagens)" },
     ],
     temCta: true,
     default: {
       assunto: "{{remetente}} mandou uma mensagem — {{conversa}}",
       titulo: "Nova mensagem: {{conversa}}",
-      corpo: '{{remetente}} escreveu em "{{conversa}}":\n\n"{{mensagem}}"',
+      corpo: '{{remetente}} te escreveu em "{{conversa}}". Abra as Mensagens para ler.',
       ctaTexto: "Abrir Mensagens",
     },
   },

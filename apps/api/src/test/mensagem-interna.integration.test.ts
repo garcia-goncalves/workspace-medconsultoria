@@ -105,3 +105,37 @@ describe("quem silenciou a conversa não recebe nem sino nem e-mail", () => {
     await silenciar(conversaId, colegaBId, false);
   });
 });
+
+describe("o trecho da mensagem não sai por e-mail, e no sino passa pela peneira", () => {
+  it("e-mail diz só quem escreveu e onde; o sino mostra o trecho com o CPF trocado por [CPF]", async () => {
+    // Conversa própria: a janela anti-spam de 30 min da conversa acima já está aberta.
+    const conversa = await prisma.conversa.create({ data: { tipo: "GRUPO", nome: `${PFX}-grupo-trecho`, criadoPorId: autorId } });
+    await prisma.conversaParticipante.createMany({
+      data: [{ conversaId: conversa.id, userId: autorId }, { conversaId: conversa.id, userId: colegaAId }],
+    });
+    try {
+      await sendMensagem(conversa.id, "Paciente Maria Souza, CPF 123.456.789-09, glosa na Unimed", autorId);
+      await aguardarAvisosDeMensagem();
+
+      const email = await prisma.emailEnviado.findFirst({
+        where: { template: "mensagem_interna", para: `${PFX}-colega-a@teste.local` },
+        orderBy: { createdAt: "desc" },
+      });
+      expect(email).not.toBeNull();
+      expect(email?.corpo).toContain(`${PFX}-grupo-trecho`);
+      expect(email?.corpo).not.toContain("Maria Souza");
+      expect(email?.corpo).not.toContain("123.456.789-09");
+      expect(email?.corpo).not.toContain("glosa");
+
+      const sino = await prisma.notificacao.findFirst({ where: { userId: colegaAId, tipo: "mensagem_interna", entidadeId: conversa.id } });
+      expect(sino?.corpo).toContain("[CPF]");
+      expect(sino?.corpo).not.toContain("123.456.789-09");
+      expect(sino?.corpo).toContain("glosa na Unimed");
+    } finally {
+      await prisma.notificacao.deleteMany({ where: { entidadeId: conversa.id } });
+      await prisma.mensagem.deleteMany({ where: { conversaId: conversa.id } });
+      await prisma.conversaParticipante.deleteMany({ where: { conversaId: conversa.id } });
+      await prisma.conversa.delete({ where: { id: conversa.id } });
+    }
+  });
+});
