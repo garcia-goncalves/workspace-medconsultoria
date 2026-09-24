@@ -357,7 +357,8 @@ describe("edição, filtros, exportação e visão geral", () => {
     const l103 = corpo.find((l) => l.includes('"103"'))!;
     expect(l103).toContain(';5000,00;4000,00;1000,00;"10/09/2026";"Glosa parcial"');
     expect(e.modelo).not.toContain("PRONTUARIO-SECRETO");
-    expect(e.porConvenio).toContain('"Central Nacional Unimed";4;');
+    // O convênio está ligado à operadora: o resumo sai pelo nome DELA, como a tela (não pelo texto do TASY).
+    expect(e.porConvenio).toContain(`"Unimed 2b ${SUFIXO}";4;`);
     expect(e.porMesMedico).toContain('"2026-05";"Sergio Almeida de Oliveira";4;');
   });
 

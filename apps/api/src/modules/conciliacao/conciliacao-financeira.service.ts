@@ -2,9 +2,11 @@ import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 import { normalizarTexto } from "./planilha/index.js";
+import { chaveDoConvenio } from "./producao-consultas.js";
 import {
   DIAS_ATE_A_RESPOSTA_DO_RECURSO,
   diasEntre,
+  ehGlosaTotalPorAusencia,
   estaAtrasada,
   glosaDe,
   repartirRecebido,
@@ -47,6 +49,8 @@ export interface LinhaConciliada {
   categoriaConvenio: string;
   convenioBruto: string;
   operadora: { id: string; nome: string } | null;
+  /** O de-para marcou este convênio como particular (sem operadora) — o resumo o chama assim. */
+  convenioParticular: boolean;
   profissionalBruto: string;
   profissional: { id: string; nome: string } | null;
   codigo: string | null;
@@ -122,7 +126,7 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
   // UMA vez para a montagem inteira: com `new Date()` dentro do laço, duas linhas da mesma lista
   // poderiam cair em lados diferentes do limite de atraso.
   const agora = new Date();
-  const [cirurgias, mapeamentos, repasses, recursos] = await Promise.all([
+  const [cirurgias, mapeamentos, repasses, recursos, conveniosParticulares] = await Promise.all([
     prisma.producaoCirurgia.findMany({
       where: { clienteId },
       select: {
@@ -178,7 +182,11 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
         respondidoEm: true,
       },
     }),
+    // O mesmo de-para de convênio que a tela usa no resumo por operadora: o texto marcado como
+    // particular não tem operadora, e sem isto a exportação o mostraria como "a ligar".
+    prisma.mapeamentoConvenio.findMany({ where: { clienteId, particular: true }, select: { textoNormalizado: true } }),
   ]);
+  const ehParticular = new Set(conveniosParticulares.map((m) => m.textoNormalizado));
 
   // O mais recente de cada cirurgia: a ordenação acima põe a maior tentativa primeiro, então a
   // PRIMEIRA que chega de cada cirurgia é a que vale.
@@ -278,19 +286,39 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
     if (lista.length > 1) lista.forEach((b) => compartilhado.add(b.c.id));
   }
 
-  const linhas: LinhaConciliada[] = base.map(({ c, codigo, cobrado, cobradoOrigem }) => {
-    const manual = emReais(c.valorRecebido);
-    const doRepasse = parteDoRepasse.get(c.id);
+  // Segunda passada: o status de cada uma pelo que se SABE (digitado, repasse). É dela que sai
+  // quais competências o repasse já pagou — o que a glosa total por ausência precisa saber.
+  const calculadas = base.map((b) => {
+    const manual = emReais(b.c.valorRecebido);
+    const doRepasse = parteDoRepasse.get(b.c.id);
     const recebido = manual ?? doRepasse ?? null;
-    const rep = c.atendimento ? repassePorAtend.get(c.atendimento) : undefined;
-    const dataPagamento = c.dataPagamento ?? (doRepasse !== undefined ? (rep?.ultimaData ?? null) : null);
     const status = statusDaConciliacao({
-      statusTasy: c.status,
-      naoCobrar: c.naoCobrar,
-      atendimento: c.atendimento,
-      cobrado,
+      statusTasy: b.c.status,
+      naoCobrar: b.c.naoCobrar,
+      atendimento: b.c.atendimento,
+      cobrado: b.cobrado,
       recebido,
     });
+    return { ...b, manual, doRepasse, recebido, status };
+  });
+  const competenciasPagasPeloRepasse = new Set(
+    calculadas.filter((x) => x.doRepasse !== undefined && x.doRepasse > 0).map((x) => x.c.competencia),
+  );
+
+  const linhas: LinhaConciliada[] = calculadas.map(({ c, codigo, cobrado, cobradoOrigem, manual, doRepasse, recebido, status: sabido }) => {
+    const rep = c.atendimento ? repassePorAtend.get(c.atendimento) : undefined;
+    const dataPagamento = c.dataPagamento ?? (doRepasse !== undefined ? (rep?.ultimaData ?? null) : null);
+    // ⚠️ REGRA PROVISÓRIA (`ehGlosaTotalPorAusencia`): o atendimento que não veio no repasse de um
+    // mês que o repasse já pagou é glosa total. Só a LEITURA muda — o recebido continua nulo (não
+    // se inventa um "recebido 0" que a planilha exportada devolveria como digitado à mão), e a
+    // glosa passa a ser o cobrado inteiro.
+    const glosaPorAusencia = ehGlosaTotalPorAusencia({
+      status: sabido,
+      atendimentoNoRepasse: rep !== undefined,
+      atrasada: estaAtrasada(sabido, c.dataCirurgia, agora),
+      repassePagouOutrasDoMes: competenciasPagasPeloRepasse.has(c.competencia),
+    });
+    const status: StatusConciliacao = glosaPorAusencia ? "GLOSA_TOTAL" : sabido;
     return {
       id: c.id,
       numeroCirurgia: c.numeroCirurgia,
@@ -306,6 +334,7 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
       categoriaConvenio: c.categoriaConvenio,
       convenioBruto: c.convenioBruto,
       operadora: c.operadora,
+      convenioParticular: !c.operadora && ehParticular.has(chaveDoConvenio(c.convenioBruto)),
       profissionalBruto: c.profissionalBruto,
       profissional: c.profissional,
       codigo,
@@ -315,7 +344,7 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
       recebidoOrigem: manual !== null ? "MANUAL" : doRepasse !== undefined ? "REPASSE" : null,
       repasseCompartilhado: compartilhado.has(c.id),
       dataPagamento: dataPagamento ? dia(dataPagamento) : null,
-      glosa: glosaDe(cobrado, recebido),
+      glosa: glosaPorAusencia ? cobrado : glosaDe(cobrado, recebido),
       statusConciliacao: status,
       // ⚠️ O que separa "esperando" de "travado". Sem isto, uma cirurgia de um ano atrás e uma do
       // mês passado dizem a mesma coisa na tela ("a receber"), e a pergunta da manhã — "o que

@@ -3,6 +3,7 @@
 import { ROTULO_STATUS } from "./conciliacao-cirurgica.js";
 export { ROTULO_STATUS };
 import type { LinhaConciliada } from "./conciliacao-financeira.service.js";
+import { chaveDoConvenio } from "./producao-consultas.js";
 
 /**
  * CONCILIAÇÃO — Fase 2b: as planilhas que saem do sistema. Puras.
@@ -97,16 +98,28 @@ function acumular(acc: Acumulado, l: LinhaConciliada) {
 const colunasDinheiro = (a: Acumulado) => [reais(a.cobrado), reais(a.recebido), reais(a.glosa), reais(a.aReceber)];
 const CAB_DINHEIRO = ["Cobrado (R$)", "Recebido (R$)", "Glosa (R$)", "A receber (R$)"].map(texto);
 
+/**
+ * ⚠️ Agrupa pela OPERADORA LIGADA (o de-para de convênio), não pelo texto cru do TASY — a mesma
+ * régua de `somarPorOperadora`, que a tela usa. Pelo texto, "BRADESCO SAUDE" e "BRADESCO SAÚDE -
+ * TOP" saíam em duas linhas, e a planilha contradizia a tela sobre quanto a Bradesco deve.
+ * Sem ligação, o texto bruto sai com "(a ligar)" — o mesmo aviso da tela de que o número ainda
+ * não está fechado —, juntando as grafias que normalizam igual (`Cassi` × `CASSI`).
+ */
 export function resumoPorConvenio(linhas: LinhaConciliada[]): string {
-  const mapa = new Map<string, Acumulado>();
+  const mapa = new Map<string, { rotulo: string; acc: Acumulado }>();
   for (const l of linhas) {
-    const acc = mapa.get(l.convenioBruto) ?? vazio();
-    acumular(acc, l);
-    mapa.set(l.convenioBruto, acc);
+    const [chave, rotulo] = l.operadora
+      ? [`op:${l.operadora.id}`, l.operadora.nome]
+      : l.convenioParticular
+        ? ["__particular__", "Particular"]
+        : [`bruto:${chaveDoConvenio(l.convenioBruto)}`, `${l.convenioBruto} (a ligar)`];
+    const item = mapa.get(chave) ?? { rotulo, acc: vazio() };
+    acumular(item.acc, l);
+    mapa.set(chave, item);
   }
-  const corpo = [...mapa.entries()]
-    .sort((a, b) => b[1].qtd - a[1].qtd || a[0].localeCompare(b[0]))
-    .map(([conv, a]) => [texto(conv), String(a.qtd), ...colunasDinheiro(a)]);
+  const corpo = [...mapa.values()]
+    .sort((a, b) => b.acc.qtd - a.acc.qtd || a.rotulo.localeCompare(b.rotulo))
+    .map(({ rotulo, acc }) => [texto(rotulo), String(acc.qtd), ...colunasDinheiro(acc)]);
   return csv([[texto("Convênio"), texto("Qtd cirurgias"), ...CAB_DINHEIRO], ...corpo]);
 }
 

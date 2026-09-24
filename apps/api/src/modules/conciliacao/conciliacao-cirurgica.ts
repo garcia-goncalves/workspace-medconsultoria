@@ -137,6 +137,36 @@ export function estaAtrasada(status: StatusConciliacao, dataCirurgia: Date, hoje
   return diasEntre(dataCirurgia, hoje) > DIAS_ATE_O_PAGAMENTO_ESPERADO;
 }
 
+/**
+ * ⚠️ REGRA PROVISÓRIA — A CONFIRMAR COM A THAÍS. Isolada aqui de propósito: trocar a regra é
+ * mexer SÓ nesta função (e no teste dela); quem monta a conciliação apenas a consulta.
+ *
+ * A glosa total por AUSÊNCIA: a operadora não manda linha dizendo "não paguei", ela simplesmente
+ * não põe o atendimento no repasse. Sem esta regra, a cirurgia glosada inteira ficava "a receber"
+ * para sempre — e o filtro "Glosa total" mostrava zero enquanto o dinheiro sumia.
+ *
+ * É glosa total quando TUDO isto vale:
+ * - o status calculado é `A_RECEBER` (executada, cobrável, com atendimento, com valor, sem
+ *   recebido — nem digitado nem do repasse; o digitado à mão sempre tem precedência);
+ * - o atendimento NÃO aparece no repasse do cliente (se aparece e a parte desta cirurgia ficou
+ *   desconhecida, é "não sei", não "não pagaram");
+ * - já passou da defasagem normal (`estaAtrasada`);
+ * - e o repasse já PAGOU outras cirurgias da MESMA competência. ⚠️ É isto que separa "glosou" de
+ *   "o mês ainda não chegou": se o repasse não pagou nada daquele mês, a culpa pode ser o arquivo
+ *   que ninguém importou — e aí a tela deve dizer "passou do prazo", não inventar uma glosa.
+ *
+ * ⚠️ Nada disto é gravado: é leitura, recalculada a cada montagem. Chegando o repasse depois, a
+ * cirurgia volta a ser paga sozinha.
+ */
+export function ehGlosaTotalPorAusencia(e: {
+  status: StatusConciliacao;
+  atendimentoNoRepasse: boolean;
+  atrasada: boolean;
+  repassePagouOutrasDoMes: boolean;
+}): boolean {
+  return e.status === "A_RECEBER" && !e.atendimentoNoRepasse && e.atrasada && e.repassePagouOutrasDoMes;
+}
+
 /** Dias inteiros entre duas datas. Um lugar só, para os dois relógios contarem igual. */
 export function diasEntre(de: Date, ate: Date): number {
   return Math.floor((ate.getTime() - de.getTime()) / 86_400_000);

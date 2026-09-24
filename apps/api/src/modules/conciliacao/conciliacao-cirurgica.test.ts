@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { DIAS_ATE_O_PAGAMENTO_ESPERADO, estaAtrasada, glosaDe, repartirRecebido, statusDaConciliacao } from "./conciliacao-cirurgica.js";
+import {
+  DIAS_ATE_O_PAGAMENTO_ESPERADO,
+  ehGlosaTotalPorAusencia,
+  estaAtrasada,
+  glosaDe,
+  podeRecorrer,
+  repartirRecebido,
+  statusDaConciliacao,
+} from "./conciliacao-cirurgica.js";
 
 const base = { statusTasy: "EXECUTADA" as const, naoCobrar: false, atendimento: "19100842", cobrado: 1000, recebido: null };
 
@@ -98,5 +106,42 @@ describe("estaAtrasada — o que separa 'esperando' de 'travado'", () => {
     for (const s of ["PAGO", "GLOSA_PARCIAL", "GLOSA_TOTAL", "PAGO_A_MAIS", "NAO_COBRAR", "NAO_REALIZADA", "RECEBIDO_SEM_VALOR"] as const) {
       expect(estaAtrasada(s, cirurgia, fora), `${s} não é espera`).toBe(false);
     }
+  });
+});
+
+describe("ehGlosaTotalPorAusencia — REGRA PROVISÓRIA: o que não veio no repasse de um mês já pago", () => {
+  const caso = {
+    status: "A_RECEBER" as const,
+    atendimentoNoRepasse: false,
+    atrasada: true,
+    repassePagouOutrasDoMes: true,
+  };
+
+  it("executada, com atendimento, vencida, fora do repasse, num mês que o repasse já pagou: glosa total", () => {
+    expect(ehGlosaTotalPorAusencia(caso)).toBe(true);
+  });
+
+  it("o repasse não pagou nada daquele mês: continua a receber (o mês inteiro ainda não chegou)", () => {
+    expect(ehGlosaTotalPorAusencia({ ...caso, repassePagouOutrasDoMes: false })).toBe(false);
+  });
+
+  it("ainda dentro da defasagem normal: é espera, não glosa", () => {
+    expect(ehGlosaTotalPorAusencia({ ...caso, atrasada: false })).toBe(false);
+  });
+
+  // ⚠️ O atendimento veio no repasse, mas a parte desta cirurgia ficou desconhecida (outra sem
+  // valor de referência levou tudo): isso é "não sei", não "não pagaram".
+  it("o atendimento veio no repasse: nunca é glosa por ausência", () => {
+    expect(ehGlosaTotalPorAusencia({ ...caso, atendimentoNoRepasse: true })).toBe(false);
+  });
+
+  it("só vale para quem está A_RECEBER — sem atendimento, sem valor, pago, não cobrar e não realizada ficam como estão", () => {
+    for (const s of ["SEM_ATENDIMENTO", "SEM_VALOR", "PAGO", "GLOSA_PARCIAL", "NAO_COBRAR", "NAO_REALIZADA", "RECEBIDO_SEM_VALOR"] as const) {
+      expect(ehGlosaTotalPorAusencia({ ...caso, status: s }), s).toBe(false);
+    }
+  });
+
+  it("e a glosa total por ausência aceita recurso, como qualquer glosa", () => {
+    expect(podeRecorrer("GLOSA_TOTAL")).toBe(true);
   });
 });
