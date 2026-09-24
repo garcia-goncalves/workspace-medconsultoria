@@ -1,4 +1,20 @@
-name: Deploy
+name: Deploy TineHost (legado — NÃO é a produção)
+
+# ⛔⛔ LEIA ANTES DE APERTAR (24/09/2026): ESTE WORKFLOW PUBLICA NA TINEHOST, QUE NÃO É MAIS A
+# PRODUÇÃO. Desde 22/09/2026 o DNS de `workspace.medconsultoria.com.br` aponta para a VPS OVH, e
+# publicar de verdade é o workflow **Deploy OVH** (`deploy-ovh.yml`).
+#
+# Por que ele NÃO foi apagado: a TineHost fica ligada por ao menos 14 dias como rede de segurança
+# do rollback (ADR-154, docs/MIGRACAO_OVH.md) — voltar = apontar o DNS de volta. Se um dia for
+# preciso atualizar o código lá antes de voltar o DNS, é por aqui.
+#
+# ⚠️ A confirmação passou de `PUBLICAR` para `PUBLICAR-TINEHOST` de propósito: `PUBLICAR` é a
+# palavra do Deploy OVH, e quem a digitasse aqui por hábito publicaria no servidor errado — e o
+# workflow terminaria VERDE, porque o smoke test abaixo bate em `workspace.medconsultoria.com.br`,
+# que hoje responde da OVH. ⚠️ Pelo mesmo motivo, o smoke test deste arquivo NÃO PROVA MAIS NADA
+# sobre a TineHost enquanto o DNS estiver na OVH: ele confere o site da OVH.
+#
+# Depois que a TineHost for desligada, este arquivo (e o `deploy.sh`) pode ser apagado.
 
 # Publicar NÃO é automático. O gatilho é o botão "Run workflow" na aba Actions — nunca
 # `on: push`. Quem aperta é o dono, ou eu depois do "pode subir" dele (§0.9 do CLAUDE.md
@@ -17,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       confirmar:
-        description: "Digite PUBLICAR (em maiúsculas) para confirmar"
+        description: "⛔ Isto publica na TINEHOST, não na produção (OVH). Digite PUBLICAR-TINEHOST para confirmar"
         required: true
         type: string
 
@@ -32,6 +48,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Confirmação errada termina VERMELHO, dizendo por quê — em vez de todos os jobs ficarem
+  # "skipped" e a execução parecer que não aconteceu nada de errado. Quem digitou `PUBLICAR`
+  # queria, quase certamente, o Deploy OVH.
+  recusar:
+    if: github.event.inputs.confirmar != 'PUBLICAR-TINEHOST'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: |
+          echo "::error::Nada foi publicado. Este workflow publica na TINEHOST, que NÃO é mais a produção desde 22/09/2026. Para publicar a produção use 'Deploy OVH'. Se é mesmo a TineHost que você quer, digite PUBLICAR-TINEHOST."
+          exit 1
+
   # ⛔ O ELO QUE SEGURA O CORTE DE CUSTO DA CI (21/08/2026).
   # Desde o escalonamento do `ci.yml`, um commit que chega à `main` por push direto roda só o
   # teste barato. Se a publicação também não rodasse o caro, o corte teria virado buraco de
@@ -39,11 +67,11 @@ jobs:
   # Aqui a suíte COMPLETA (`build-test` + `e2e` + `integration`) roda no commit EXATO que vai
   # ao ar, e o passo que toca o servidor só começa se ela terminar verde.
   suite:
-    if: github.event.inputs.confirmar == 'PUBLICAR'
+    if: github.event.inputs.confirmar == 'PUBLICAR-TINEHOST'
     uses: ./.github/workflows/ci.yml
 
   deploy:
-    if: github.event.inputs.confirmar == 'PUBLICAR'
+    if: github.event.inputs.confirmar == 'PUBLICAR-TINEHOST'
     needs: suite
     runs-on: ubuntu-latest
     environment: producao
@@ -65,7 +93,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.20.2"
+          # Node 22 só no RUNNER, que monta o artefato. O bundle segue com `target: "node20"`
+          # (scripts/bundle-deploy.mjs) porque o servidor da TineHost roda Node 20.
+          node-version: "22.23.3"
           cache: "pnpm"
 
       - name: 1/7 · Build de produção + bundle auto-contido

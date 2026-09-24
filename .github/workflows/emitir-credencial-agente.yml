@@ -4,17 +4,24 @@ name: Emitir credencial do agente
 # administrativo, disparado à mão, que cria/consulta/revoga a credencial com a qual a Cora
 # (assistente externa, ADR-149/150) fala com o Workspace em produção. Nunca `on: push`.
 #
-# ⚠️ POR QUE ISTO PRECISA DE SSH E NÃO RODA "DAQUI": `pnpm agente cliente|delegar|revogar|listar`
-# tem uma trava (`podeRodarDemoSeed`, a MESMA do `demo-seed`) que recusa qualquer banco que não
-# seja localhost — de propósito, para ninguém semear/emitir credencial em produção por engano
-# de uma máquina de desenvolvimento. A única forma legítima de emitir credencial de produção é
-# rodar o comando DENTRO do servidor, onde o MySQL É localhost — e é isso que este workflow faz,
-# pela mesma conexão SSH do `deploy.yml`.
+# ⚠️ ONDE RODA (desde 24/09/2026): na VPS OVH, DENTRO do container `app` que está no ar
+# (`docker compose exec -T app ...`). Até a migração rodava na TineHost, por SSH na porta 1992 e
+# com o virtualenv do Node — caminho que deixou de ser a produção em 22/09 (o DNS foi para a OVH).
+# A imagem já leva `scripts/agente.js` (nasce no `bundle-deploy.mjs`, igual ao `seed.js`), então
+# não há nada a instalar: o comando usa o MESMO código e o MESMO `.env` que o app em produção.
 #
-# ⚠️ A TRAVA CONTINUA DE PÉ. O comando roda com `NODE_ENV` sobrescrito só PARA ESTA CHAMADA
-# (nunca a variável do processo da aplicação, que continua `production`) — é a escotilha que o
-# próprio comentário de `apps/api/src/scripts/agente.ts` descreve. Ninguém edita a trava; quem
-# dispara este workflow está escolhendo, conscientemente, contorná-la uma vez.
+# ⚠️ POR QUE ISTO PRECISA DE SSH E NÃO RODA "DAQUI": `pnpm agente cliente|delegar|revogar|listar`
+# tem uma trava (`podeRodarDemoSeed`, a MESMA do `demo-seed`) que recusa `NODE_ENV=production` e
+# recusa banco que não seja localhost — de propósito, para ninguém emitir credencial de produção
+# por engano de uma máquina de desenvolvimento. A única forma legítima é rodar o comando DENTRO
+# da produção, e é isso que este workflow faz, pela mesma conexão SSH do `deploy-ovh.yml`.
+#
+# ⚠️ A TRAVA CONTINUA DE PÉ — e aqui ela exige DUAS escotilhas, as duas só PARA ESTA CHAMADA:
+#   NODE_ENV=administracao-agente → a do `NODE_ENV` (o processo do app segue `production`);
+#   DEMO_SEED_CONFIRMO=1          → a do host: dentro do compose o banco é `mysql`, não
+#                                   `localhost`, e sem ela a trava recusaria com razão.
+# As duas entram por `docker compose exec -e`, valem só para este processo descartável e morrem
+# com ele. Ninguém edita a trava; quem dispara este workflow está escolhendo contorná-la uma vez.
 #
 # ⚠️ O SEGREDO/TOKEN SÓ APARECE UMA VEZ, no log desta execução — exatamente como no terminal.
 # ⛔ ISSO SÓ É SEGURO SE O REPOSITÓRIO FOR PRIVADO — o primeiro passo do job RECUSA rodar se não
@@ -74,7 +81,8 @@ concurrency:
   group: credencial-agente-producao
   cancel-in-progress: false
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   emitir:
@@ -82,30 +90,23 @@ jobs:
     runs-on: ubuntu-latest
     environment: producao
     env:
-      DEPLOY_PATH: /home3/medconsultoria/domains/workspace.medconsultoria.com.br/public_html
-      DEPLOY_SSH_PORT: "1992"
-      NODE_VENV: ~/nodevenv/domains/workspace.medconsultoria.com.br/public_html/20/bin/activate
+      # Relativo de propósito, como no deploy-ovh.yml: o ssh já começa na home do VPS_USER.
+      ALVO: medconsultoria
 
     steps:
       # ⛔ TRAVA ESTRUTURAL, NÃO COMENTÁRIO (achado da revisão de segurança, 04/09/2026).
-      # Este workflow IMPRIME CREDENCIAL DE PRODUÇÃO NO LOG da execução — mesmo risco aceito que
-      # o comando local (`pnpm agente ...`) já assume ao mostrar o segredo uma vez na tela. Isso só
-      # é seguro se só quem tem escrita neste repositório enxergar o log. Em repositório PÚBLICO, o
-      # log do Actions é lido por qualquer pessoa da internet, sem login — a 1ª versão deste arquivo
-      # presumia "repositório privado" só no comentário, e o revisor confirmou por API que
-      # `garcia-goncalves/workspace-medconsultoria` está `public`. Por isso a conferência é feita
-      # em código, não em prosa, e para o job inteiro ANTES de gastar uma conexão SSH.
+      # Este workflow IMPRIME CREDENCIAL DE PRODUÇÃO NO LOG da execução. Em repositório PÚBLICO,
+      # o log do Actions é lido por qualquer pessoa da internet, sem login. Por isso a conferência
+      # é feita em código, e para o job inteiro ANTES de gastar uma conexão SSH.
       - name: Recusar rodar em repositório público
         if: github.event.repository.private == false
         run: |
-          echo "::error::Este workflow imprime credencial de produção no log da execução, e ESTE REPOSITÓRIO É PÚBLICO — qualquer pessoa da internet leria o token. Torne o repositório privado (Settings → General → Danger Zone → Change visibility) antes de rodar este workflow. Nada foi executado."
+          echo "::error::Este workflow imprime credencial de produção no log da execução, e ESTE REPOSITÓRIO É PÚBLICO — qualquer pessoa da internet leria o token. Torne o repositório privado antes de rodar este workflow. Nada foi executado."
           exit 1
 
-      # Conferência cedo, com mensagem clara — antes de gastar uma conexão SSH com um pedido
-      # que já se sabe malformado. Os inputs entram por variável de ambiente, nunca interpolados
-      # dentro da string do `run:` — achado da revisão: `${{ inputs.nome }}` cru dentro de
-      # `[ -n "${{ inputs.nome }}" ]` deixava injetar comando no RUNNER com um nome do tipo
-      # `cora$(curl ... | bash)` (o `$(...)` do bash expande ANTES do `[ -n ... ]` rodar).
+      # Conferência cedo, com mensagem clara. Os inputs entram por variável de ambiente, nunca
+      # interpolados dentro da string do `run:` — `${{ inputs.nome }}` cru deixaria injetar
+      # comando no RUNNER com um nome do tipo `cora$(curl ... | bash)`.
       - name: Validar os argumentos da ação escolhida
         env:
           ACAO: ${{ inputs.acao }}
@@ -130,59 +131,31 @@ jobs:
             *) echo "::error::Ação desconhecida: $ACAO"; exit 1 ;;
           esac
 
-      - name: Abrir a conexão com o servidor
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      - uses: actions/checkout@v4
+
+      - name: Abrir a conexão com o VPS
+        uses: ./infra/ovh/acoes/abrir-ssh-vps
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          user: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          known_hosts: ${{ secrets.VPS_KNOWN_HOSTS }}
+
+      # O comando roda no container QUE ESTÁ NO AR — sem ele, não há o que emitir contra.
+      # `exec` (e não `run`) de propósito: `run` criaria outro container e, sem `--no-deps`,
+      # poderia recriar o banco pelo mesmo motivo que o deploy-ovh.yml documenta.
+      - name: Conferir que o app está no ar e tem o comando
         run: |
           set -euo pipefail
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
+          ssh vps "cd '$ALVO' && docker compose exec -T app test -f scripts/agente.js" </dev/null \
+            || { echo "::error::O container 'app' não está no ar, ou a imagem não tem scripts/agente.js. Confira 'docker compose ps' na VPS (ou publique pelo Deploy OVH) e tente de novo."; exit 1; }
 
-          cat > ~/.ssh/config <<CFG
-          Host deploy
-            HostName $DEPLOY_HOST
-            User $DEPLOY_USER
-            Port $DEPLOY_SSH_PORT
-            IdentityFile ~/.ssh/deploy_key
-            IdentitiesOnly yes
-            StrictHostKeyChecking accept-new
-            ControlMaster auto
-            ControlPath ~/.ssh/cm-%r@%h:%p
-            ControlPersist 5m
-            ServerAliveInterval 30
-            ServerAliveCountMax 6
-            ConnectTimeout 30
-          CFG
-          chmod 600 ~/.ssh/config
-
-          for TENTATIVA in 1 2 3 4; do
-            if ssh -o LogLevel=ERROR -N -f deploy 2>/tmp/ssh-erro; then
-              echo "conexão aberta na tentativa $TENTATIVA"
-              break
-            fi
-            echo "tentativa $TENTATIVA falhou: $(cat /tmp/ssh-erro)"
-            [ "$TENTATIVA" = "4" ] && { echo "!! não consegui abrir a conexão com o servidor"; exit 1; }
-            sleep $((TENTATIVA * 20))
-          done
-          ssh -O check deploy
-
-      # ⚠️ O script compilado (`scripts/agente.js`) só existe no servidor a partir do PRÓXIMO
-      # deploy que incluir este workflow — ele nasce junto do bundle (`bundle-deploy.mjs`),
-      # igual ao `seed.js`. Se ainda não foi publicado, este passo falha dizendo exatamente isso,
-      # em vez de um erro de "arquivo não encontrado" sem contexto.
-      - name: Conferir que o servidor já tem o comando
-        run: |
-          set -euo pipefail
-          ssh -o LogLevel=ERROR deploy "test -f '$DEPLOY_PATH/scripts/agente.js'" \
-            || { echo "::error::'$DEPLOY_PATH/scripts/agente.js' não existe ainda no servidor — publique (workflow Deploy) pelo menos uma vez depois que este workflow foi mesclado, e tente de novo."; exit 1; }
-
-      # Cada argumento entra pela variável de ambiente (nunca interpolado dentro da string do
-      # comando remoto) — é o que impede um valor com aspas ou `;` de escapar para outro
-      # comando no shell do servidor.
-      - name: Rodar o comando no servidor (com NODE_ENV sobrescrito só para esta chamada)
+      # Cada argumento entra pela variável de ambiente e é montado com `printf %q` — é o que
+      # impede um valor com aspas ou `;` de escapar para outro comando no shell do VPS.
+      # ⚠️ `-T` e `</dev/null`: sem TTY (não há terminal no runner) e sem deixar o `exec` comer
+      # o stdin do ssh — a armadilha do `docker compose run` registrada em 13/09/2026.
+      - name: Rodar o comando dentro do container (escotilhas só para esta chamada)
         env:
           ACAO: ${{ inputs.acao }}
           ARG_NOME: ${{ inputs.nome }}
@@ -205,16 +178,12 @@ jobs:
             listar)   ARGS=(listar) ;;
           esac
 
-          # `printf %q` monta uma linha shell-safe a partir do array — cada argumento chega ao
-          # bash remoto exatamente como um token, mesmo que contenha espaço, aspas ou `;`.
-          COMANDO_REMOTO="cd '$DEPLOY_PATH' && source $NODE_VENV && NODE_ENV=administracao-agente node scripts/agente.js $(printf '%q ' "${ARGS[@]}")"
+          COMANDO_REMOTO="cd '$ALVO' && docker compose exec -T -e NODE_ENV=administracao-agente -e DEMO_SEED_CONFIRMO=1 app node scripts/agente.js $(printf '%q ' "${ARGS[@]}")"
 
-          SAIDA="$(ssh -o LogLevel=ERROR deploy "$COMANDO_REMOTO" 2>&1)" && CODIGO=0 || CODIGO=$?
+          SAIDA="$(ssh -o LogLevel=ERROR vps "$COMANDO_REMOTO" </dev/null 2>&1)" && CODIGO=0 || CODIGO=$?
 
           # Mascara ANTES de imprimir uma linha sequer — a régua é a saída REAL de
-          # `apps/api/src/scripts/agente.ts` (achado da revisão: a 1ª versão procurava
-          # "Bearer: valor", com dois-pontos; o script imprime "Bearer valor", com ESPAÇO —
-          # a máscara nunca disparava e o token ia para o log em claro).
+          # `apps/api/src/scripts/agente.ts` ("Bearer valor", com ESPAÇO, não dois-pontos).
           while IFS= read -r LINHA; do
             case "$LINHA" in
               *"x-agent-secret:"*) VALOR="${LINHA##*x-agent-secret: }" ;;
@@ -231,8 +200,6 @@ jobs:
             exit "$CODIGO"
           fi
 
-      - name: Fechar a conexão e limpar a chave do runner
+      - name: Limpar a chave do runner
         if: always()
-        run: |
-          ssh -O exit deploy 2>/dev/null || true
-          rm -f ~/.ssh/deploy_key ~/.ssh/config
+        run: rm -f ~/.ssh/vps_key ~/.ssh/config ~/.ssh/known_hosts_vps

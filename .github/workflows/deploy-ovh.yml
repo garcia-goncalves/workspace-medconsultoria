@@ -11,8 +11,8 @@ name: Deploy OVH
 #   SO_IMAGEM  → constrói e publica a imagem, e PARA. Não toca no servidor.
 #   PUBLICAR   → constrói, publica e sobe no VPS.
 #
-# PUBLICAR exige QUATRO segredos no repositório — `SO_IMAGEM` não exige nenhum:
-#   VPS_HOST · VPS_USER · VPS_PORT · VPS_SSH_KEY
+# PUBLICAR exige CINCO segredos no repositório — `SO_IMAGEM` não exige nenhum:
+#   VPS_HOST · VPS_USER · VPS_PORT · VPS_SSH_KEY · VPS_KNOWN_HOSTS (desde 24/09/2026)
 # ⚠️ Os três primeiros são dados de acesso e por isso NÃO estão escritos em lugar nenhum do
 # repositório, que é público (ADR-154). `VPS_PORT` existe como segredo separado justamente
 # porque a porta deste VPS não é a 22.
@@ -87,39 +87,40 @@ jobs:
       # propósito: o ssh já começa na home, e `~` entre as aspas simples do `cd` não se expande.
       ALVO: medconsultoria
     steps:
+      # Só para a ação local de SSH abaixo existir no runner — nada do código vai para o VPS.
+      - uses: actions/checkout@v4
+
+      # ⚠️ O SSH deste VPS NÃO é na porta 22, e a chave do servidor é CONFERIDA contra o segredo
+      # `VPS_KNOWN_HOSTS` (antes era `accept-new`, que no runner efêmero não verificava nada).
+      # A ação diz exatamente qual segredo falta, se faltar.
       - name: 1/5 · Abrir a conexão com o VPS
-        env:
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PORT: ${{ secrets.VPS_PORT }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_key && chmod 600 ~/.ssh/vps_key
-          # ⚠️ O SSH deste VPS NÃO é na porta 22 — e a porta não pode ser escrita aqui, porque o
-          # repositório é público. Sem o segredo `VPS_PORT` o passo falha dizendo isso, em vez de
-          # tentar a 22 e morrer em "Connection refused" trinta segundos depois.
-          [ -n "${VPS_PORT:-}" ] || { echo "!! falta o segredo VPS_PORT (gh secret set VPS_PORT)"; exit 1; }
-          cat > ~/.ssh/config <<CFG
-          Host vps
-            HostName $VPS_HOST
-            User $VPS_USER
-            Port $VPS_PORT
-            IdentityFile ~/.ssh/vps_key
-            IdentitiesOnly yes
-            StrictHostKeyChecking accept-new
-            ConnectTimeout 30
-          CFG
-          chmod 600 ~/.ssh/config
-          ssh vps "echo conectado: \$(hostname)"
+        uses: ./infra/ovh/acoes/abrir-ssh-vps
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          user: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          known_hosts: ${{ secrets.VPS_KNOWN_HOSTS }}
 
       # A tag do commit entra no .env do servidor. É isso que torna o rollback um `up -d`:
       # trocar a linha para a tag anterior e subir de novo.
+      #
+      # ⚠️ A imagem ANTERIOR é lida ANTES da troca e guardada em dois lugares: no ambiente do
+      # runner (é o que o passo "Voltar para a imagem anterior" usa) e em `.env.antes-do-deploy`
+      # no servidor (para quem precisar voltar à mão depois que este run acabou). Sem isso, o
+      # único registro da versão boa seria o `.env` — justamente o arquivo que este passo apaga.
       - name: 2/5 · Apontar o .env para a imagem deste commit
+        id: troca
         run: |
           set -euo pipefail
-          ssh vps "cd '$ALVO' && sed -i 's|^APP_IMAGE=.*|APP_IMAGE=${{ needs.imagem.outputs.tag }}|' .env && grep '^APP_IMAGE=' .env"
+          ANTERIOR="$(ssh vps "cd '$ALVO' && grep '^APP_IMAGE=' .env | cut -d= -f2-" || true)"
+          if [ -n "$ANTERIOR" ]; then
+            echo "imagem anterior: $ANTERIOR"
+            echo "APP_IMAGE_ANTERIOR=$ANTERIOR" >> "$GITHUB_ENV"
+          else
+            echo "::warning::o .env não tinha APP_IMAGE — se este deploy falhar, NÃO há volta automática."
+          fi
+          ssh vps "cd '$ALVO' && cp -p .env .env.antes-do-deploy && sed -i 's|^APP_IMAGE=.*|APP_IMAGE=${{ needs.imagem.outputs.tag }}|' .env && grep '^APP_IMAGE=' .env"
 
       # O VPS não guarda credencial do GHCR de propósito (é máquina compartilhada com outros
       # projetos do dono). Ele recebe o token EFÊMERO deste run, por stdin — nunca na linha de
@@ -185,27 +186,67 @@ jobs:
           # banco a cada publicação. O PR #215 pôs `--no-deps` na migração e deixou ESTE de
           # fora — foi exatamente aqui que a homologação caiu em 22/09/2026.
           ssh vps "cd '$ALVO' && docker compose up -d --no-deps app"
-          sleep 20
           ssh vps "cd '$ALVO' && docker compose ps"
 
       # Sem isto o workflow fica verde com o site fora do ar — a regra que não muda de hospedagem:
       # não se anuncia publicação sem resposta HTTP lida.
-      - name: Smoke test — o site respondeu de verdade?
+      #
+      # ⚠️ `/health/pronto`, não `/health`: o segundo NÃO toca o banco, e foi assim que a
+      # homologação passou por "ok" com o MySQL fora em 22/09/2026. O primeiro faz `SELECT 1`.
+      # ⚠️ Espera em laço (até ~2 min) em vez de `sleep` fixo: o app leva uns 20–40 s para subir,
+      # e na VPS de disco disputado pode levar mais — um `sleep 20` reprovava deploy bom.
+      - name: Smoke test — o site respondeu de verdade (banco incluído)?
         run: |
           set -euo pipefail
           DOMINIO="$(ssh vps "cd '$ALVO' && grep '^DOMINIO=' .env | cut -d= -f2")"
-          SAUDE="$(curl -fsS --compressed --max-time 30 "https://$DOMINIO/health")"
-          echo "$SAUDE"
-          echo "$SAUDE" | grep -q '"status":"ok"' || { echo "!! /health não disse ok"; exit 1; }
+          PRONTO=""
+          for i in $(seq 1 24); do
+            if SAUDE="$(curl -fsS --compressed --max-time 10 "https://$DOMINIO/health/pronto")" \
+               && echo "$SAUDE" | grep -q '"status":"pronto"'; then
+              PRONTO=1; echo "tentativa $i: $SAUDE"; break
+            fi
+            echo "tentativa $i: ainda não pronto"; sleep 5
+          done
+          [ -n "$PRONTO" ] || { echo "::error::/health/pronto não respondeu 'pronto' em ~2 min"; exit 1; }
           for ROTA in / /credenciamentos; do
             CODIGO="$(curl -s --compressed -o /dev/null -w '%{http_code}' --max-time 30 "https://$DOMINIO$ROTA")"
             echo "$ROTA -> $CODIGO"
-            [ "$CODIGO" = "200" ] || { echo "!! $ROTA não devolveu 200"; exit 1; }
+            [ "$CODIGO" = "200" ] || { echo "::error::$ROTA não devolveu 200"; exit 1; }
           done
           echo "NO AR: https://$DOMINIO"
+
+      # A VOLTA AUTOMÁTICA. Roda só se algo falhou DEPOIS que o `.env` foi trocado (o passo
+      # `troca` deu certo) e havia imagem anterior para onde voltar.
+      #
+      # ⚠️ `--no-deps`, sempre — pelo mesmo motivo dos passos 4/5 e 5/5: sem ele o `up -d`
+      # recriaria o banco, e numa hora em que já há algo errado.
+      # ⚠️ Se a falha foi na MIGRAÇÃO, o app nem chegou a trocar: voltar a linha do `.env` deixa
+      # a configuração do `app` igual à do container no ar, e o `up -d` não faz nada — seguro.
+      # ⚠️ A volta NÃO desfaz migração já aplicada. É por isso que migração aqui é ADITIVA
+      # (coluna/tabela nova): a imagem anterior roda sobre o banco novo. Migração que apague ou
+      # renomeie coluna precisa de plano próprio antes de publicar.
+      # ⚠️ Termina VERMELHO de propósito, mesmo quando a volta dá certo: a publicação falhou, e o
+      # que está no ar é a versão anterior — ninguém pode ler "verde" aqui.
+      - name: Voltar para a imagem anterior (a publicação falhou)
+        if: failure() && steps.troca.outcome == 'success' && env.APP_IMAGE_ANTERIOR != ''
+        run: |
+          set -euo pipefail
+          echo "voltando APP_IMAGE para $APP_IMAGE_ANTERIOR"
+          ssh vps "cd '$ALVO' && sed -i 's|^APP_IMAGE=.*|APP_IMAGE=$APP_IMAGE_ANTERIOR|' .env && grep '^APP_IMAGE=' .env"
+          ssh vps "cd '$ALVO' && docker compose up -d --no-deps app"
+          DOMINIO="$(ssh vps "cd '$ALVO' && grep '^DOMINIO=' .env | cut -d= -f2")"
+          for _ in $(seq 1 24); do
+            if curl -fsS --max-time 10 "https://$DOMINIO/health/pronto" | grep -q '"status":"pronto"'; then
+              echo "::error::A PUBLICAÇÃO FALHOU e o site VOLTOU para a imagem anterior ($APP_IMAGE_ANTERIOR), que respondeu 'pronto'. Veja o passo que falhou acima."
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "::error::A PUBLICAÇÃO FALHOU, a volta para $APP_IMAGE_ANTERIOR foi aplicada, mas /health/pronto NÃO respondeu depois dela. O site pode estar FORA — olhe 'docker compose ps' e 'docker compose logs app' na VPS agora."
+          exit 1
 
       - name: Limpar a chave do runner e a credencial deixada no VPS
         if: always()
         run: |
           ssh vps "docker logout ghcr.io" || true
-          rm -f ~/.ssh/vps_key ~/.ssh/config
+          rm -f ~/.ssh/vps_key ~/.ssh/config ~/.ssh/known_hosts_vps

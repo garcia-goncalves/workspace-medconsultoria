@@ -13,8 +13,19 @@
 # ⚠️ O Prisma precisa de `openssl` até no estágio final: sem ele o Client sobe com
 # "Unable to require libquery_engine" e o app morre no boot.
 
+# Node 22 LTS, tag FIXA (conferida em 24/09/2026 com `docker run node:22.23.3-bookworm-slim node -v`).
+# O Node 20 chegou ao fim de vida em 30/04/2026: sem correção de segurança, num processo que é
+# a porta pública do sistema. ⚠️ Os três estágios TÊM de usar a mesma tag — o argon2 é compilado
+# no `deps` contra a ABI daquele Node, e um runtime diferente morre no boot com
+# "was compiled against a different Node.js version". Para travar também o conteúdo, troque a
+# tag pelo digest (`node:22.23.3-bookworm-slim@sha256:...`, visto com
+# `docker image inspect --format '{{index .RepoDigests 0}}'`).
+# ⚠️ `scripts/bundle-deploy.mjs` continua com `target: "node20"` DE PROPÓSITO: o mesmo artefato
+# ainda pode ir para a TineHost (rede de segurança do rollback), que roda Node 20. Sintaxe para
+# 20 roda igual no 22.
+
 # ── 1. build: monta o artefato auto-contido ──────────────────────────────────────────────────
-FROM node:20.20.2-bookworm-slim AS build
+FROM node:22.23.3-bookworm-slim AS build
 RUN corepack enable && corepack prepare pnpm@10.34.5 --activate
 WORKDIR /app
 COPY . .
@@ -26,7 +37,7 @@ RUN pnpm install --frozen-lockfile \
  && node scripts/conferir-artefato.mjs
 
 # ── 2. deps: instala as dependências de runtime do artefato ──────────────────────────────────
-FROM node:20.20.2-bookworm-slim AS deps
+FROM node:22.23.3-bookworm-slim AS deps
 RUN apt-get update \
  && apt-get install -y --no-install-recommends openssl ca-certificates python3 build-essential \
  && rm -rf /var/lib/apt/lists/*
@@ -39,7 +50,7 @@ COPY --from=build /app/apps/api/dist/prisma            ./prisma
 RUN npm ci --omit=dev && npm run prisma:generate
 
 # ── 3. runtime: o que vai para o ar ──────────────────────────────────────────────────────────
-FROM node:20.20.2-bookworm-slim AS runtime
+FROM node:22.23.3-bookworm-slim AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends openssl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -57,8 +68,13 @@ RUN mkdir -p /dados/uploads && chown node:node /app && chown -R node:node /dados
 USER node
 EXPOSE 4319
 
-# Prova de vida, e é ela que decide se o tráfego troca: o `docker compose up -d` não encaminha
-# para um container que não respondeu. É o ensaio de boot do deploy antigo, agora contínuo.
+# Prova de VIDA (liveness), não de prontidão — e é de propósito que lê `/health`, não
+# `/health/pronto`. Se o banco cai, marcar o app "unhealthy" não conserta nada: reiniciar o app
+# não religa o MySQL, e o estado "unhealthy" convida a um reinício em laço (autoheal, ou alguém
+# com `docker restart`) que derruba junto o SPA. Quem pergunta "o banco responde?" é o smoke test
+# do deploy (que volta a imagem anterior se falhar) e o monitor externo (docs/OPERACAO_OVH.md).
+# ⚠️ O `docker compose up -d` NÃO segura tráfego esperando este healthcheck — a porta é
+# publicada assim que o container nasce. Ele serve ao `docker ps` e a quem o ler.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=4 \
   CMD node -e "fetch('http://127.0.0.1:4319/health').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"
 
