@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import { MARCADOR_ANONIMIZADO, emailAnonimizado } from "@app/shared";
+import { anonimizarPacientesDaConciliacao, apagarArquivosOriginais } from "../conciliacao/retencao-paciente.service.js";
 
 /**
  * ELIMINAÇÃO PELO TITULAR (LGPD art. 18, V) — ADR-141.
@@ -46,6 +47,18 @@ export async function anonimizarCliente(id: string, userId: string) {
 
   const usuarios = await prisma.user.findMany({ where: { clienteId: id }, select: { id: true } });
   const idsUsuarios = usuarios.map((u) => u.id);
+
+  // OS PACIENTES DA CLÍNICA, na Conciliação. Pedido de eliminação que deixasse o nome, o CPF e a
+  // planilha do TASY de milhares de pacientes para trás não seria eliminação — e o cliente
+  // arquivado some de toda tela, então ninguém mais acharia esse dado para apagar à mão. Mesma
+  // regra do expurgo por prazo (anonimiza a linha, mantém o dinheiro; apaga o arquivo original),
+  // só que SEM corte de data: é tudo daquele cliente.
+  // ⚠️ ANTES da ficha, e fora da transação (apagar do disco não é transacional): se falhar aqui,
+  // o cliente ainda não está marcado como anonimizado e o botão pode ser apertado de novo. Na
+  // ordem inversa, a trava "já foi anonimizado" acima impediria para sempre de terminar o
+  // serviço. As duas funções são idempotentes, então repetir não estraga nada.
+  const pacientes = await anonimizarPacientesDaConciliacao({ clienteId: id, marcador: MARCADOR_ANONIMIZADO });
+  const arquivosDaConciliacao = await apagarArquivosOriginais({ clienteId: id });
 
   await prisma.$transaction([
     // A ficha
@@ -103,7 +116,7 @@ export async function anonimizarCliente(id: string, userId: string) {
       entidadeId: id,
       // O nome anterior fica no registro de auditoria de propósito: é a prova de QUAL
       // pedido foi atendido, e a auditoria tem base legal própria.
-      dados: { nomeAnterior: cliente.nome, contas: usuarios.length },
+      dados: { nomeAnterior: cliente.nome, contas: usuarios.length, conciliacao: { ...pacientes, arquivos: arquivosDaConciliacao } },
     },
   });
 
