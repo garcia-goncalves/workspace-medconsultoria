@@ -22,8 +22,17 @@ import {
  * Visão agregada dos serviços de um cliente (ficha): o catálogo ativo, com o status
  * contratado, as exigências (requisitos) de cada um e os arquivos que atendem cada
  * exigência (+ pendências dos obrigatórios). É a base do card "Serviços contratados".
+ *
+ * ⚠️ `ocultarArquivos` é a SEGUNDA PORTA da régua do Painel do Cliente (ADR-128): o funcionário
+ * que não é responsável pelo cliente não pode ver o CONTEÚDO dos documentos — nome, tamanho,
+ * id, quem enviou —, mas continua vendo o que o card sempre mostrou (contratado, preço, quantos
+ * documentos faltam). `atendido`/`pendentes` são contados ANTES de ocultar, porque são contagem,
+ * não conteúdo — esconder o número junto tiraria da equipe a régua "quanto falta", que é
+ * justamente o que ela precisa para cobrar o cliente. O Portal (`servicosDoClientePortal`) nunca
+ * passa `true` aqui: o cliente sempre vê os PRÓPRIOS documentos.
  */
-export async function servicosDoCliente(clienteId: string) {
+export async function servicosDoCliente(clienteId: string, opts: { ocultarArquivos?: boolean } = {}) {
+  const ocultarArquivos = opts.ocultarArquivos ?? false;
   await seedRequisitosSeVazio();
   // Faz a lista real do credenciamento convergir sem passo manual (idempotente, uma vez
   // por processo). Best-effort: se falhar, a ficha continua abrindo.
@@ -67,12 +76,12 @@ export async function servicosDoCliente(clienteId: string) {
         escopo: r.escopo,
         frenteVerso: r.frenteVerso,
         atendido,
-        arquivos: arqs,
+        arquivos: ocultarArquivos ? [] : arqs,
         respostaId: resp?.id ?? null,
         respostaStatus: resp?.status ?? null,
       };
     });
-    const arquivosAvulsos = arquivos.filter((a) => a.servicoId === s.id && !a.requisitoId);
+    const arquivosAvulsos = ocultarArquivos ? [] : arquivos.filter((a) => a.servicoId === s.id && !a.requisitoId);
     const obrigatorios = requisitos.filter((r) => r.obrigatorio);
     const pendentes = obrigatorios.filter((r) => !r.atendido).length;
     return {
@@ -109,6 +118,9 @@ export async function servicosDoCliente(clienteId: string) {
       arquivosAvulsos,
       totalObrigatorios: obrigatorios.length,
       pendentes,
+      // A tela usa este sinal para trocar o link/botão de enviar por uma frase — sem ele,
+      // `arquivos: []` e `arquivosAvulsos: []` pareceriam "nada foi enviado ainda".
+      arquivosRestritos: ocultarArquivos,
     };
   });
 }

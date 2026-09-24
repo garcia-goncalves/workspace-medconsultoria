@@ -369,6 +369,16 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
 
               {item.contratado && (
                 <div className="mt-3 space-y-2 border-t pt-3">
+                  {/* ⚠️ Segunda porta da régua do Painel do Cliente (ADR-128): funcionário que
+                      não é responsável por este cliente não vê nome/tamanho/link de documento
+                      nenhum aqui — só quem responde pela conta ou um administrador. Status e
+                      progresso (badges "Obrigatório", "atendido") continuam, porque são
+                      contagem/veredito, não conteúdo. */}
+                  {item.arquivosRestritos && (
+                    <p className="text-xs text-muted-foreground">
+                      Só o responsável pelo cliente ou um administrador vê os documentos.
+                    </p>
+                  )}
                   {item.requisitos.length === 0 ? (
                     <p className="text-xs text-muted-foreground">
                       Nenhuma exigência configurada.{" "}
@@ -405,7 +415,7 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                               )}
                             </div>
                             {r.descricao && <p className="text-xs text-muted-foreground">{r.descricao}</p>}
-                            {r.arquivos.length > 0 && (
+                            {!item.arquivosRestritos && r.arquivos.length > 0 && (
                               <ul className="mt-1 space-y-0.5">
                                 {r.arquivos.map((a) => (
                                   <li key={a.id} className="flex items-center gap-1.5 text-xs">
@@ -427,14 +437,16 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                               </ul>
                             )}
                             {r.tipo === "DOCUMENTO" ? (
-                              <div className="mt-1.5">
-                                <UploadArquivo
-                                  size="xs"
-                                  label={r.atendido ? "Enviar outro" : "Anexar"}
-                                  campos={{ clienteId, servicoId: item.servico.id, requisitoId: r.id }}
-                                  onDone={aposUpload}
-                                />
-                              </div>
+                              item.arquivosRestritos ? null : (
+                                <div className="mt-1.5">
+                                  <UploadArquivo
+                                    size="xs"
+                                    label={r.atendido ? "Enviar outro" : "Anexar"}
+                                    campos={{ clienteId, servicoId: item.servico.id, requisitoId: r.id }}
+                                    onDone={aposUpload}
+                                  />
+                                </div>
+                              )
                             ) : r.respostaId ? (
                               <button
                                 onClick={() => setRespostaAberta(r.respostaId!)}
@@ -453,7 +465,7 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                   )}
 
                   {/* Documentos avulsos deste serviço */}
-                  {item.arquivosAvulsos.length > 0 && (
+                  {!item.arquivosRestritos && item.arquivosAvulsos.length > 0 && (
                     <ul className="space-y-0.5 pt-1">
                       {item.arquivosAvulsos.map((a) => (
                         <li key={a.id} className="flex items-center gap-1.5 text-xs">
@@ -474,12 +486,14 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
                       ))}
                     </ul>
                   )}
-                  <UploadArquivo
-                    size="xs"
-                    label="Anexar outro documento"
-                    campos={{ clienteId, servicoId: item.servico.id }}
-                    onDone={aposUpload}
-                  />
+                  {!item.arquivosRestritos && (
+                    <UploadArquivo
+                      size="xs"
+                      label="Anexar outro documento"
+                      campos={{ clienteId, servicoId: item.servico.id }}
+                      onDone={aposUpload}
+                    />
+                  )}
                 </div>
               )}
             </div>

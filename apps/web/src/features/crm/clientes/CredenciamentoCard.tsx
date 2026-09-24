@@ -81,7 +81,7 @@ export function CredenciamentoCard({ clienteId }: { clienteId: string }) {
   // deste cliente — o card some em vez de pedir alvará a quem só faz marketing.
   if (!dados?.emCurso) return null;
 
-  const { triagem, progresso, porProfissional } = dados;
+  const { triagem, progresso, porProfissional, arquivosRestritos } = dados;
   const selo = SELO[triagem.veredito];
 
   const onRemover = async (p: Profissional) => {
@@ -118,6 +118,15 @@ export function CredenciamentoCard({ clienteId }: { clienteId: string }) {
           )}
         </div>
 
+        {/* ⚠️ Segunda porta da régua do Painel do Cliente (ADR-128): quem não é responsável por
+            este cliente vê o veredito e o progresso (contagem, não conteúdo), mas o documento em
+            si — nome, tamanho, id — some do retorno. */}
+        {arquivosRestritos && (
+          <p className="text-xs text-muted-foreground">
+            Só o responsável pelo cliente ou um administrador vê os documentos.
+          </p>
+        )}
+
         {triagem.motivos.length > 0 && (
           <ul className="space-y-1">
             {triagem.motivos.map((m, i) => (
@@ -142,7 +151,10 @@ export function CredenciamentoCard({ clienteId }: { clienteId: string }) {
           <ul className="divide-y rounded-lg border">
             {porProfissional.map(({ profissional: p, requisitos }) => {
               const vagas = requisitos.flatMap((r) => r.vagas);
-              const entregues = vagas.filter((v) => v.arquivo).length;
+              // `preenchida` (não `v.arquivo`) porque a régua do Painel do Cliente (ADR-128)
+              // oculta o objeto `arquivo` de quem não é responsável pelo cliente — a contagem
+              // de progresso é sobre a metadados nenhum e continua certa mesmo assim.
+              const entregues = vagas.filter((v) => v.preenchida).length;
               return (
                 <li key={p.id} className="flex flex-wrap items-center gap-2 p-2.5">
                   <div className="min-w-0 flex-1">

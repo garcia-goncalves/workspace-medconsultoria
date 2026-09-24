@@ -476,8 +476,17 @@ export async function removerProfissional(id: string) {
  * Junta num lugar só o que a ficha, o painel do lead e o Portal precisam saber: quem são
  * os profissionais, o que a triagem diz, quais documentos faltam e quanto da papelada já
  * veio. Uma consulta, uma verdade — as três telas não podem divergir.
+ *
+ * ⚠️ `ocultarArquivos` é a SEGUNDA PORTA da régua do Painel do Cliente (ADR-128): o funcionário
+ * que não é responsável pelo cliente não pode ver o CONTEÚDO dos documentos (nome, tamanho, id),
+ * mas continua vendo a triagem e o progresso — são contagem/veredito, não conteúdo, e é o que a
+ * equipe usa no dia a dia para saber o que falta. Cada `vaga` ganha `preenchida` (booleano, sempre
+ * presente) para a tela contar "X de Y documentos" sem depender do objeto `arquivo`, que só vem
+ * quando a régua libera. O Portal (`credenciamentoParaOPortal`) nunca passa `true` aqui: o
+ * cliente sempre vê os PRÓPRIOS documentos.
  */
-export async function credenciamentoDoCliente(clienteId: string) {
+export async function credenciamentoDoCliente(clienteId: string, opts: { ocultarArquivos?: boolean } = {}) {
+  const ocultarArquivos = opts.ocultarArquivos ?? false;
   // ⚠️ GARANTIR O CATÁLOGO ANTES DE SINCRONIZAR, e a ordem é o conserto.
   //
   // O catálogo de serviços é criado sob demanda, e quem o criava era quem listasse serviços
@@ -630,7 +639,13 @@ export async function credenciamentoDoCliente(clienteId: string) {
     obrigatorio: r.obrigatorio,
     frenteVerso: r.frenteVerso,
     travaElegibilidade: r.travaElegibilidade as TravaElegibilidade | null,
-    vagas: vagasDo(r.id, r.frenteVerso, profissionalId),
+    vagas: vagasDo(r.id, r.frenteVerso, profissionalId).map((v) => ({
+      lado: v.lado,
+      profissionalId: v.profissionalId,
+      // Contagem, não conteúdo — sobrevive à ocultação para "X de Y documentos" continuar certo.
+      preenchida: !!v.arquivo,
+      arquivo: ocultarArquivos ? null : v.arquivo,
+    })),
   });
 
   // Todo cliente é pessoa jurídica (ADR-119), então os documentos de EMPRESA valem sempre —
@@ -679,6 +694,9 @@ export async function credenciamentoDoCliente(clienteId: string) {
     porProfissional,
     semEscopo,
     servicoId: servico?.id ?? null,
+    // A tela usa este sinal para trocar link/upload por uma frase — sem ele, `arquivo: null`
+    // pareceria "documento não enviado" em vez de "enviado, mas você não pode ver".
+    arquivosRestritos: ocultarArquivos,
   };
 }
 
