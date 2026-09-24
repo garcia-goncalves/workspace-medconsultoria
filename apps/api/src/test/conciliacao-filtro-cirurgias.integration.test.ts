@@ -112,3 +112,19 @@ describe("filtro 'Particular' das cirurgias", () => {
     expect((await caller.conciliacao.exportar({ clienteId })).linhas).toBe(3);
   });
 });
+
+describe("a exportação leva TODOS os filtros da lista", () => {
+  it("busca pelo paciente: a tela e a planilha contam a mesma coisa", async () => {
+    const naTela = await caller.conciliacao.cirurgias({ clienteId, busca: "maria" });
+    const exportado = await caller.conciliacao.exportar({ clienteId, busca: "maria" });
+    expect(naTela.total).toBe(1);
+    expect(exportado.linhas).toBe(naTela.total);
+  });
+
+  it("situação no TASY também recorta a exportação", async () => {
+    // As três têm atendimento: "sem número de atendimento" não sobra nenhuma — nem na planilha.
+    const exportado = await caller.conciliacao.exportar({ clienteId, situacao: "SEM_ATENDIMENTO" });
+    expect(exportado.linhas).toBe((await caller.conciliacao.cirurgias({ clienteId, situacao: "SEM_ATENDIMENTO" })).total);
+    expect(exportado.linhas).toBe(0);
+  });
+});

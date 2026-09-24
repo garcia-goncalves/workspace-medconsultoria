@@ -64,6 +64,11 @@ const brl = (v: number | null) => (v === null ? "—" : formatBRL(v));
  */
 const OPCAO_PARTICULAR = "__particular__";
 
+/** O pedido de exportação levou algum recorte além do mês? (o mês é o escopo, não filtro) */
+function pedidoTemFiltro(p: Record<string, unknown>): boolean {
+  return Object.entries(p).some(([k, v]) => k !== "clienteId" && k !== "competencia" && v !== undefined);
+}
+
 /** Traduz o valor do `<select>` de operadora para o que o servidor entende. */
 function filtroDeOperadora(valor: string): { operadoraId?: string; particular?: true } {
   if (!valor) return {};
@@ -127,15 +132,41 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
   });
 
   const exportar = trpc.conciliacao.exportar.useMutation({
-    onSuccess: (r) => {
-      const sufixo = `${clienteNome.replace(/[^\p{L}\p{N}]+/gu, "_").toLowerCase()}${competencia ? `_${competencia}` : ""}`;
+    onSuccess: (r, pedido) => {
+      // O arquivo recortado leva "_filtro" no nome: sem isso, a planilha de 2 cirurgias e a do mês
+      // inteiro saem com o MESMO nome, e a pasta de Downloads não diz qual é qual.
+      const recortado = pedidoTemFiltro(pedido);
+      const sufixo = `${clienteNome.replace(/[^\p{L}\p{N}]+/gu, "_").toLowerCase()}${competencia ? `_${competencia}` : ""}${recortado ? "_filtro" : ""}`;
       baixarTexto(r.modelo, `conciliacao_${sufixo}.csv`);
       baixarTexto(r.porConvenio, `resumo_por_convenio_${sufixo}.csv`);
       baixarTexto(r.porMesMedico, `resumo_por_mes_medico_${sufixo}.csv`);
-      toast(`${r.linhas} cirurgia(s) exportada(s) em 3 planilhas.`, "success");
+      toast(`${r.linhas} cirurgia(s) exportada(s) em 3 planilhas${recortado ? ", só as do filtro" : ""}.`, "success");
     },
     onError: (e) => toast(e.message),
   });
+
+  /**
+   * ⚠️ As três planilhas saem do MESMO recorte da tabela. Com filtro ligado ("glosa sem recurso",
+   * por exemplo), exportar entregava 2 cirurgias sem avisar — e quem esperava o mês inteiro
+   * mandava à clínica um documento incompleto. Por isso, com filtro, o botão diz QUANTAS vão
+   * sair e existe o "Exportar tudo" ao lado. O mês escolhido vale nos dois: ele é o escopo da
+   * tela (os totais do topo também são dele), não um filtro.
+   */
+  const exportarPlanilhas = (comFiltro: boolean) =>
+    exportar.mutate({
+      clienteId,
+      competencia: competencia || undefined,
+      ...(comFiltro
+        ? {
+            ...filtroDeOperadora(operadoraId),
+            situacao: situacao || undefined,
+            statusConciliacao: status || undefined,
+            soAtrasadas: soAtrasadas || undefined,
+            recurso: recurso || undefined,
+            busca: buscaAdiada.trim() || undefined,
+          }
+        : {}),
+    });
 
   /** Todo filtro volta para a página 1 — senão a pessoa fica numa página que não existe mais. */
   const filtrar = (f: () => void) => {
@@ -176,25 +207,28 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           <FileUp className="mr-1.5 h-4 w-4" />
           Importar planilha preenchida
         </Button>
-        <Button
-          variant="outline"
-          disabled={exportar.isPending}
-          onClick={() =>
-            exportar.mutate({
-              clienteId,
-              competencia: competencia || undefined,
-              ...filtroDeOperadora(operadoraId),
-              statusConciliacao: status || undefined,
-              // A planilha leva o MESMO recorte que está na tela — exportar tudo quando a tela
-              // mostra só o atrasado seria entregar outro documento do que se conferiu.
-              soAtrasadas: soAtrasadas || undefined,
-              recurso: recurso || undefined,
-            })
-          }
-        >
-          <Download className="mr-1.5 h-4 w-4" />
-          {exportar.isPending ? "Exportando…" : "Exportar planilhas"}
-        </Button>
+        {temFiltro ? (
+          <>
+            <Button variant="outline" disabled={exportar.isPending} onClick={() => exportarPlanilhas(true)}>
+              <Download className="mr-1.5 h-4 w-4" />
+              {exportar.isPending
+                ? "Exportando…"
+                : // ⚠️ Sem número enquanto a lista do filtro NOVO não chega: o `placeholderData`
+                  // ainda mostra a contagem do filtro anterior, e o botão prometeria outra quantidade.
+                  lista.data && !lista.isPlaceholderData
+                  ? `Exportar ${lista.data.total} cirurgia(s) do filtro`
+                  : "Exportar o filtro"}
+            </Button>
+            <Button variant="ghost" disabled={exportar.isPending} onClick={() => exportarPlanilhas(false)}>
+              {competencia ? `Exportar tudo de ${competencia}` : "Exportar tudo"}
+            </Button>
+          </>
+        ) : (
+          <Button variant="outline" disabled={exportar.isPending} onClick={() => exportarPlanilhas(false)}>
+            <Download className="mr-1.5 h-4 w-4" />
+            {exportar.isPending ? "Exportando…" : "Exportar planilhas"}
+          </Button>
+        )}
       </div>
 
       {competencia && (
