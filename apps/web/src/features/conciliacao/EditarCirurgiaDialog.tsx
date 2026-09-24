@@ -8,7 +8,7 @@ import { Textarea } from "../../components/ui/textarea";
 import { MoneyInput } from "../../components/ui/money-input";
 import { toast } from "../../components/ui/toast";
 import { formatBRL } from "../../lib/masks";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia, dataUTC } from "../../lib/format-date";
 import { Aviso, STATUS_CONCILIACAO, type StatusConciliacao, type StatusRecurso } from "./partes";
 
 /** O que o diálogo precisa de uma linha conciliada (ver `LinhaConciliada` no servidor). */
@@ -125,7 +125,7 @@ export function EditarCirurgiaDialog({
               {c.competencia} está fechado
               {fechada.fechadoPor && ` — conferido por ${fechada.fechadoPor}`}
             </strong>{" "}
-            em {dataUTC(fechada.fechadoEm)}. Só um administrador pode reabrir o mês para editar esta cirurgia; os campos abaixo são só
+            em {dataBrasilia(fechada.fechadoEm)}. Só um administrador pode reabrir o mês para editar esta cirurgia; os campos abaixo são só
             para conferência.
           </Aviso>
         )}
