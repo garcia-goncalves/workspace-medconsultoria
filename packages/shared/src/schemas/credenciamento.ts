@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hasRoleLevel, type Role } from "../constants/roles.js";
 
 /**
  * CREDENCIAMENTO — regras puras, compartilhadas por tela e servidor.
@@ -373,6 +374,22 @@ export function motivoDaTransicaoRecusada(de: StatusCredenciamento, para: Status
     return "Este credenciamento já foi aprovado. Só é possível encerrá-lo.";
   }
   return `Não dá para ir de "${STATUS_CREDENCIAMENTO_LABEL[de]}" direto para "${STATUS_CREDENCIAMENTO_LABEL[para]}".`;
+}
+
+// ── Quem pode aprovar (a transição que lança a cobrança) ─────────────────────
+
+/**
+ * Mensagem ÚNICA — servidor e tela mostram exatamente o mesmo texto. Aprovar é o que lança a
+ * conta a receber do honorário (§3.3/§6.3), e por isso a transição para `APROVADO` — e o acerto
+ * do honorário "a combinar" de um credenciamento já aprovado (a mesma cobrança nascendo por
+ * outra porta, M15) — exige ADMIN+. `FUNCIONARIO` continua podendo protocolar, pôr em análise,
+ * negar (com motivo) e abrir nova tentativa: só o gesto que lança dinheiro é restrito.
+ */
+export const APROVACAO_CREDENCIAMENTO_SO_ADMIN = "Só um administrador aprova — é a aprovação que lança a cobrança.";
+
+/** `role` pode aprovar um credenciamento (ou acertar o honorário de um já aprovado)? */
+export function podeAprovarCredenciamento(role: Role): boolean {
+  return hasRoleLevel(role, "ADMIN");
 }
 
 /**

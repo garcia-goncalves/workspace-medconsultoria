@@ -19,7 +19,7 @@ import { mudarStatusCredenciamento } from "../modules/servicos/credenciamento-gr
  */
 
 const PFX = `catconta-${randomBytes(4).toString("hex")}`;
-let ator: { id: string };
+let ator: { id: string; role: "ADMIN" };
 let clienteId1: string;
 let clienteId2: string;
 let servicoId: string;
@@ -31,7 +31,7 @@ beforeAll(async () => {
   const u = await prisma.user.create({
     data: { nome: `${PFX}-u`, email: `${PFX}@example.test`, passwordHash: await hashPassword("x"), role: "ADMIN" },
   });
-  ator = { id: u.id };
+  ator = { id: u.id, role: "ADMIN" };
 
   clienteId1 = (await prisma.cliente.create({ data: { nome: `${PFX}-clinica-1` } })).id;
   clienteId2 = (await prisma.cliente.create({ data: { nome: `${PFX}-clinica-2` } })).id;

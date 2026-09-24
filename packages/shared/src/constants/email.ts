@@ -69,6 +69,13 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   { tipo: "proposta_recusada", label: "Proposta recusada pelo cliente", descricao: "Quando um cliente recusa a proposta pelo link/Portal.", grupo: "Vendas e funil" },
   { tipo: "credenciamento_aprovado", label: "Operadora aprovou um credenciamento", descricao: "Quando uma operadora aprova o credenciamento de um médico — é quando o honorário passa a ser devido.", grupo: "Credenciamento" },
   { tipo: "credenciamento_negado", label: "Operadora negou um credenciamento", descricao: "Quando uma operadora nega o credenciamento de um médico, com o motivo.", grupo: "Credenciamento" },
+  // ── LEMBRETE DO HONORÁRIO "A COMBINAR" APROVADO (Onda 1, item B) ──────────────────────
+  //
+  // Aprovar com honorário zerado não cria conta (M15) e só grava aviso nas observações do
+  // cruzamento — que só quem abrir aquela ficha por acaso vê. Nasce LIGADA, como as outras duas
+  // desta seção: aqui o risco é o dinheiro nunca ser cobrado porque ninguém lembrou de voltar e
+  // preencher o valor, não o oposto.
+  { tipo: "credenciamento_a_combinar", label: "Credenciamento aprovado com honorário a combinar", descricao: "Quando uma operadora aprova um credenciamento cujo honorário ainda está \"a combinar\" (R$ 0,00) — falta preencher o valor para a cobrança nascer.", grupo: "Credenciamento" },
   { tipo: "servico_solicitado", label: "Cliente pediu serviços pelo Portal", descricao: "Quando um cliente escolhe serviços no Portal do Cliente.", grupo: "Clientes e Portal" },
   { tipo: "documento_cliente_enviado", label: "Cliente enviou um documento", descricao: "Quando um cliente anexa um documento pelo Portal.", grupo: "Clientes e Portal" },
   { tipo: "servico_cancelado", label: "Cliente cancelou um serviço", descricao: "Quando um cliente cancela um serviço pelo Portal.", grupo: "Clientes e Portal" },

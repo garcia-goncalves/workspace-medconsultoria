@@ -22,7 +22,7 @@ import { hashPassword } from "../lib/password.js";
  */
 
 const PFX = `zero-${randomBytes(4).toString("hex")}`;
-let ator: { id: string };
+let ator: { id: string; role: "ADMIN" };
 let clienteId: string;
 let profissionalId: string;
 let operadoraId: string;
@@ -32,7 +32,7 @@ beforeAll(async () => {
   const u = await prisma.user.create({
     data: { nome: `${PFX}-u`, email: `${PFX}@example.test`, passwordHash: await hashPassword("x"), role: "ADMIN" },
   });
-  ator = { id: u.id };
+  ator = { id: u.id, role: "ADMIN" };
   clienteId = (await prisma.cliente.create({ data: { nome: `${PFX}-clinica` } })).id;
   profissionalId = (
     await prisma.profissional.create({
