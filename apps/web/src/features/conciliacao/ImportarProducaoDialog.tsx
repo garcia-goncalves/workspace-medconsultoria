@@ -41,12 +41,15 @@ export function ImportarProducaoDialog({
   const [arquivo, setArquivo] = useState<ArquivoEnviado | null>(null);
   const [competencia, setCompetencia] = useState("");
 
-  // ⚠️ Sem `onError` aqui de propósito: um arquivo do relatório errado (ex.: cirurgias, no
+  // ⚠️ Sem toast aqui de propósito: um arquivo do relatório errado (ex.: cirurgias, no
   // importador de consultas) é recusado com a dica de para onde levar o arquivo — e um toast
   // some sozinho em ~5s, deixando o modal vazio sem explicação nenhuma. O erro fica visível e
   // FIXO no corpo do modal (`previa.error` abaixo), até a pessoa trocar de arquivo ou fechar.
+  // ⚠️ O `onError` vazio NÃO é descuido: sem ele, a rede de segurança global de mutações
+  // (`main.tsx`) acende um toast com a MESMA frase que o aviso fixo do modal já mostra.
   const previa = trpc.conciliacao.previsualizar.useMutation({
     onSuccess: (p) => setCompetencia(p.competenciaSugerida ?? ""),
+    onError: () => {},
   });
 
   const importar = trpc.conciliacao.importar.useMutation({

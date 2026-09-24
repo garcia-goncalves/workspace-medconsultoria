@@ -33,13 +33,15 @@ export function ImportarRecebidoDialog({
   const [arquivo, setArquivo] = useState<ArquivoEnviado | null>(null);
   const titulo = tipo === "repasse" ? "Importar repasse (TASY)" : "Importar planilha de conciliação preenchida";
 
-  // ⚠️ Sem `onError` nas duas prévias, de propósito: um arquivo do relatório errado (ex.: a
+  // ⚠️ Sem toast nas duas prévias, de propósito: um arquivo do relatório errado (ex.: a
   // planilha modelo no importador de repasse) é recusado com a dica de para onde levar o
   // arquivo — e um toast some sozinho em ~5s, deixando o modal vazio sem explicação nenhuma. O
   // erro fica visível e FIXO no corpo do modal (`erroDaPrevia` abaixo), até a pessoa trocar de
   // arquivo ou fechar.
-  const previaRepasse = trpc.conciliacao.previsualizarRepasse.useMutation();
-  const previaPlanilha = trpc.conciliacao.previsualizarPlanilha.useMutation();
+  // ⚠️ O `onError` vazio NÃO é descuido: sem ele, a rede de segurança global de mutações
+  // (`main.tsx`) acende um toast com a MESMA frase que o aviso fixo do modal já mostra.
+  const previaRepasse = trpc.conciliacao.previsualizarRepasse.useMutation({ onError: () => {} });
+  const previaPlanilha = trpc.conciliacao.previsualizarPlanilha.useMutation({ onError: () => {} });
   const importarRepasse = trpc.conciliacao.importarRepasse.useMutation({
     onSuccess: (r) => {
       toast(
