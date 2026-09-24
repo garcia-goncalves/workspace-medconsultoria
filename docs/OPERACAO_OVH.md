@@ -14,7 +14,7 @@
 |---|---|---|---|
 | A | **Backup cifrado** do banco + uploads para um bucket S3 fora da VPS, com retenção 7 diários / 4 semanais / 12 mensais, e **ensaio de restauração** num MySQL descartável | `infra/ovh/backup/` · workflow **Instalar backup OVH** | Não — só quando o dono disparar o workflow |
 | B | **`/health/pronto`**: responde `200 {"status":"pronto"}` só se o banco responde (`SELECT 1`, prazo de 2 s); senão `503`, sem detalhe. `/health` continua igual | `apps/api/src/http/saude.ts` | Entra no próximo deploy |
-| C | **Deploy com volta automática**: o smoke test usa `/health/pronto`; se falhar depois da troca, o `.env` volta para a imagem anterior e o app sobe de novo (`--no-deps`), e o workflow termina **vermelho** dizendo que voltou | `deploy-ovh.yml` | Entra no próximo deploy |
+| C | **Deploy com volta automática**: o smoke test usa `/health/pronto`; se falhar **ou o run for cancelado** depois da troca, o `.env` volta para a imagem anterior e o app sobe de novo (`--no-deps`), e o workflow termina **vermelho** dizendo que voltou | `deploy-ovh.yml` | Entra no próximo deploy |
 | D | **Compose endurecido**: o `mysql` lê `mysql.env` (só `MYSQL_*`) e os dois serviços têm limite de log (5 × 10 MB) | `infra/ovh/docker-compose.yml`, `infra/ovh/mysql.env.example` | Não — exige o passo 2.5 |
 | E | **Node 22 LTS** (`22.23.3`) na imagem, na CI e no `.nvmrc` | `Dockerfile`, `ci.yml`, `.nvmrc`, `package.json` | Entra no próximo deploy (imagem nova) |
 | F | O link de **redefinição de senha não vai mais ao log em produção** quando o e-mail falha | `apps/api/src/lib/log-de-link.ts` | Entra no próximo deploy |
@@ -27,10 +27,17 @@
 - **Cifra: `openssl enc -aes-256-cbc -pbkdf2 -iter 200000`, chave em arquivo 600** fora do
   repositório (`~/.config/medconsultoria-backup/chave`). O `openssl` já existe na VPS (nada a
   instalar) e o arquivo se decifra em qualquer máquina com OpenSSL ≥ 1.1.1 — inclusive a do dono,
-  no dia em que a VPS não existir. **Custo conhecido:** `openssl enc` não autentica (sem MAC). A
-  integridade vem do `.sha256` enviado junto e **conferido antes de decifrar** (ensaiado: arquivo
-  adulterado é recusado), e do tar/gzip, que recusam arquivo quebrado. O `age` seria autenticado,
-  mas exigiria instalar binário na VPS compartilhada.
+  no dia em que a VPS não existir. `openssl enc` não autentica (sem MAC), então **cada backup leva
+  um `<nome>.hmac`: HMAC-SHA256 do arquivo cifrado**, com chave **derivada** da chave do backup
+  (`SHA-256("medconsultoria-backup-hmac-v1\n" || chave)`). O restore confere o HMAC **em tempo
+  constante e ANTES de decifrar**, e **recusa** se o `.hmac` faltar ou não bater — não existe
+  "avisa e segue". (Até 24/09/2026 era um `.sha256` sem chave: quem tivesse escrita no bucket
+  trocava o arquivo e recalculava o hash junto.) O HMAC é calculado pelo próprio shell sobre
+  `sha256sum` (RFC 2104) porque `openssl dgst -hmac`/`-macopt hexkey:` recebem a chave **por
+  argumento**, visível no `ps` da VPS compartilhada; o resultado é idêntico ao do `openssl` (a
+  receita para conferir na sua máquina está na seção 3). **Por que não `age`:** também autentica,
+  mas exigiria binário ou imagem nova na VPS, e o arquivo deixaria de abrir com o `openssl` que
+  já existe em qualquer máquina.
 - **Cliente S3: `rclone/rclone:1.71` em container**, configurado só por variável de ambiente
   (nenhum arquivo de configuração com chave no disco além do `backup.env` 600).
 - **Agendamento: cron do usuário**, não systemd. Timer de usuário do systemd só roda com a pessoa
@@ -58,6 +65,13 @@
   retenção apagando o excedente, ensaio OK em ~8 s; **negativos**: arquivo adulterado recusado no
   sha256, chave errada recusada ao decifrar, chave com permissão 644 recusada; nenhum segredo nos
   logs; acentos preservados no dump; nenhum container de ensaio sobrando.
+- **Refeito em 24/09/2026 com o HMAC** (mesma VPS simulada, `docker:dind` + MinIO): backup OK com
+  `.tar.enc` + `.tar.enc.hmac` no bucket e nenhum `.sha256`; ensaio remoto e local OK; o `.hmac`
+  gravado é idêntico ao de `openssl dgst -sha256 -mac HMAC` (a receita manual confere);
+  **recusados antes de decifrar**: arquivo com 1 byte adulterado, arquivo trocado com hash
+  recalculado sem a chave, `.hmac` apagado (local e no bucket) e chave errada. Um espião de `ps`
+  (≈4.800 amostras durante backup e ensaio) não viu a chave, a chave HMAC derivada, a senha do
+  root do MySQL nem a chave do bucket; os logs também não.
 - **Troca do `env_file` do mysql ensaiada** na mesma VPS simulada: o `up -d --no-deps mysql`
   recria o container, **os dados sobrevivem** (volume nomeado), a chave do paciente some do
   ambiente do banco, e depois disso **mudar o `.env` não faz o compose querer recriar o mysql**
@@ -125,10 +139,47 @@ cada execução aceitava qualquer servidor que respondesse naquele IP.
 5. **Disparar:** Actions → **Instalar backup OVH** → digitar `INSTALAR`.
 6. **Conferir no log do workflow:** `BACKUP OK`, e no fim `ENSAIO OK — restaurado e conferido em
    N s`, com tabelas/linhas/migrações/uploads batendo. **Anote o N** (é o tempo de restauração).
-   No bucket devem aparecer `medconsultoria/diario/medconsultoria-<data>.tar.enc` + `.sha256`.
+   No bucket devem aparecer `medconsultoria/diario/medconsultoria-<data>.tar.enc` + `.tar.enc.hmac`
+   (⚠️ sem o `.hmac` o backup **não se restaura** — o restore recusa).
 7. O cron fica instalado: backup **todo dia às 06:17** (hora da VPS; o log mostra o fuso — em UTC é
    03:17 de Brasília) e ensaio **todo domingo às 07:47**. Último resultado sempre em
    `~/medconsultoria/backup/ultimo.log` e `ultimo-ensaio.log` (o Diagnóstico mostra o primeiro).
+
+### 2.2-A Chaves que o backup NÃO leva — cópia fora da VPS, OBRIGATÓRIA
+
+⚠️ **O backup guarda o banco e os uploads, mas não as chaves que os tornam legíveis.** Elas moram
+só no `.env` da VPS (e a do backup, em `~/.config/medconsultoria-backup/chave`). Se a VPS sumir
+e só o bucket sobrar, sem estas chaves a restauração devolve um banco **incompleto na prática**:
+
+| Chave (no `.env` da VPS, salvo a última) | Sem ela, depois de restaurar |
+|---|---|
+| `PACIENTE_CRYPTO_KEY` | CPF, telefone e e-mail dos pacientes da Conciliação ficam **ilegíveis para sempre** (a coluna volta cifrada, e não há outra cópia) — e o módulo sobe desligado |
+| `EMAIL_CRYPTO_KEY` | as senhas IMAP das caixas plugadas em `/email` ficam ilegíveis; cada pessoa terá de reconectar a caixa |
+| `SESSION_SECRET` | todo mundo é deslogado e caem os cursores/prévias assinados da API do agente (menor que as outras, mas voltar com a mesma evita o susto) |
+| chave do backup (`BACKUP_CHAVE`) | **nenhum** backup decifra nem passa na conferência do HMAC |
+
+**O que fazer (uma vez, e de novo sempre que alguma mudar):**
+
+1. Copiar as três do `.env` da VPS para o **gerenciador de senhas**, cada uma num item com a data
+   ("Workspace OVH — PACIENTE_CRYPTO_KEY — 24/09/2026"). Ler sem deixar no histórico do terminal:
+   ```bash
+   ssh -p PORTA andre@HOST "grep -E '^(PACIENTE_CRYPTO_KEY|EMAIL_CRYPTO_KEY|SESSION_SECRET)=' ~/medconsultoria/.env"
+   ```
+   (a saída vai para a sua tela, não para arquivo; copie e feche o terminal).
+2. A chave do backup já foi para o gerenciador no passo 2.2.3 — confira que está lá.
+3. **Conferir que a cópia está certa** (sem imprimir as chaves): compare o hash de cada uma dos
+   dois lados.
+   ```bash
+   # na VPS:
+   ssh -p PORTA andre@HOST "for n in PACIENTE_CRYPTO_KEY EMAIL_CRYPTO_KEY SESSION_SECRET; do printf '%s ' \$n; grep \"^\$n=\" ~/medconsultoria/.env | cut -d= -f2- | tr -d '\r\n' | sha256sum | cut -c1-12; done"
+   ssh -p PORTA andre@HOST "head -n1 ~/.config/medconsultoria-backup/chave | tr -d '\r\n' | sha256sum | cut -c1-12"
+   # na sua máquina, para cada valor copiado do gerenciador:
+   printf '%s' '<valor colado>' | sha256sum | cut -c1-12
+   ```
+   PowerShell (sua máquina): `$v='<valor colado>'; -join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($v)) | % { $_.ToString('x2') })[0..11]`
+   Os 12 primeiros caracteres têm de ser **iguais** para cada chave.
+4. ⚠️ **Nunca troque `PACIENTE_CRYPTO_KEY` ou `EMAIL_CRYPTO_KEY`** sem plano: o dado já cifrado só
+   abre com a chave antiga (os scripts `set-*-crypto-key.sh` recusam sobrescrever de propósito).
 
 ### 2.3 Monitor externo
 
@@ -262,8 +313,6 @@ Recomendação: **2**, numa rodada própria (mexe em todos os workflows da OVH e
   desta migração e contradiz o próprio comentário ("aparece uma vez no log"). Decidir: entregar o
   valor por outro canal (ex.: gravar cifrado num artefato do run com senha informada no disparo)
   ou tirar a máscara (só aceitável com repositório privado, que é o caso hoje).
-- `docs/DEPLOY.md` e `docs/LINKS.md` ainda descrevem o `deploy.yml` com `PUBLICAR`; o botão da
-  TineHost agora pede `PUBLICAR-TINEHOST` e o de produção é o **Deploy OVH**.
 - Localmente (Windows, npm 11.17), `pnpm build:deploy` falha com `EALLOWSCRIPTS` ao gerar o lock do
   artefato — é do npm desta máquina; no Linux da CI e no `docker build` (npm do Node 22.23.3) o
   mesmo passo passa. Se a CI um dia ganhar npm ≥ 11 com essa regra, é aqui que vai aparecer.
@@ -281,8 +330,15 @@ docker compose stop app                                      # ninguém escreve 
 bash backup/backup.sh                                        # foto do estado atual, por via das dúvidas
 # baixar e decifrar o backup escolhido numa pasta 700:
 mkdir -m 700 ~/volta && cd ~/volta
-# (baixe <nome>.tar.enc e .sha256 do bucket — pelo painel do provedor ou pelo rclone do restore.sh)
-sha256sum -c <nome>.tar.enc.sha256
+# (baixe <nome>.tar.enc e <nome>.tar.enc.hmac do bucket — pelo painel do provedor ou pelo rclone do restore.sh)
+# Integridade AUTENTICADA, antes de decifrar — os dois valores têm de ser IGUAIS; se não forem, PARE:
+K="$(printf 'medconsultoria-backup-hmac-v1\n%s' "$(head -n1 ~/.config/medconsultoria-backup/chave)" | sha256sum | cut -d' ' -f1)"
+openssl dgst -sha256 -mac HMAC -macopt "hexkey:$K" <nome>.tar.enc | awk '{print $NF}'; cut -d' ' -f1 <nome>.tar.enc.hmac
+unset K
+# (⚠️ a chave derivada aparece no `ps` durante esse `openssl dgst` — aqui é aceitável porque é uma
+#  restauração manual com a VPS sob seu controle; o backup.sh/restore.sh nunca fazem isso.
+#  Mais simples e sem esse cuidado: `bash backup/restore.sh ~/volta/<nome>.tar.enc` confere o HMAC
+#  e faz o ensaio completo num MySQL descartável antes de você carregar de verdade.)
 openssl enc -d -aes-256-cbc -salt -pbkdf2 -iter 200000 -md sha256 \
   -pass file:$HOME/.config/medconsultoria-backup/chave -in <nome>.tar.enc | tar -xf -
 cat manifesto.txt
@@ -310,7 +366,8 @@ Conferir na tela. Os dois bancos ficam lado a lado até alguém decidir apagar o
 
 ## 4. Trocar a chave do backup (raro, e com consequência)
 
-Os backups **já enviados** só abrem com a chave **antiga**. Trocar é: guardar a antiga no
+Os backups **já enviados** só abrem com a chave **antiga** — e só passam na conferência do HMAC
+com ela também, porque a chave do HMAC é derivada da do backup. Trocar é: guardar a antiga no
 gerenciador de senhas com a data ("vale para backups até DD/MM"), gerar a nova, apagar o arquivo
 `~/.config/medconsultoria-backup/chave` na VPS, atualizar o segredo `BACKUP_CHAVE` e disparar
 **Instalar backup OVH**. O workflow recusa sobrescrever uma chave diferente justamente para que

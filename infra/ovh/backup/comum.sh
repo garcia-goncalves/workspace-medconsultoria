@@ -9,7 +9,8 @@
 #     $MYSQL_ROOT_PASSWORD, e entregue ao cliente por MYSQL_PWD);
 #   - as chaves do bucket vão para o container do rclone com `-e NOME` (só o nome: o Docker lê o
 #     valor do ambiente deste processo), nunca `-e NOME=valor`;
-#   - a chave de cifra é lida de ARQUIVO (`-pass file:`), nunca de argumento.
+#   - a chave de cifra é lida de ARQUIVO (`-pass file:`), nunca de argumento;
+#   - a chave do HMAC é derivada e usada só dentro do shell (ver hmac_do_arquivo).
 
 RCLONE_IMAGEM="${RCLONE_IMAGEM:-rclone/rclone:1.71}"
 MYSQL_IMAGEM="${MYSQL_IMAGEM:-mysql:8.4}"
@@ -20,6 +21,69 @@ CHAVE_ARQ="$CONF_DIR/chave"
 # o restore.sh teria de saber qual versão usar. Se mudar, suba FORMATO e trate os dois.
 CIFRA_ARGS=(-aes-256-cbc -salt -pbkdf2 -iter 200000 -md sha256)
 FORMATO=1
+
+# ── Integridade AUTENTICADA do arquivo cifrado (HMAC-SHA256, arquivo `<nome>.hmac`) ───────────
+# `openssl enc` (CBC) NÃO autentica: sem MAC, quem tem escrita no bucket pode trocar o arquivo —
+# e um `.sha256` guardado ao lado, sem chave, ele recalcula junto. O HMAC exige a chave, então
+# arquivo trocado ou adulterado é RECUSADO antes de decifrar (encrypt-then-MAC).
+#
+# A chave do HMAC é DERIVADA da chave do backup, com rótulo próprio (separação de domínio: a
+# mesma chave nunca serve, crua, a dois usos):
+#     chave_hmac = SHA-256( "medconsultoria-backup-hmac-v1\n" || <1ª linha do arquivo de chave> )
+# A chave do backup é sorteada (openssl rand -base64 48, 288 bits), então um SHA-256 com rótulo
+# basta como derivador — não há senha fraca para esticar.
+#
+# ⚠️ POR QUE O HMAC É CALCULADO "À MÃO" (RFC 2104 sobre sha256sum) e não com `openssl dgst -hmac`
+# ou `-macopt hexkey:`: os dois recebem a chave POR ARGUMENTO, visível no `ps` de quem mais estiver
+# na VPS compartilhada. Aqui a chave só passa por variável do shell e por `printf` (builtin, não
+# vira processo) — nenhum comando externo a recebe na linha de comando.
+#
+# CONFERIR NA MÁQUINA DO DONO (sem a VPS), com o mesmo resultado:
+#     K="$(printf 'medconsultoria-backup-hmac-v1\n%s' "$CHAVE" | sha256sum | cut -d' ' -f1)"
+#     openssl dgst -sha256 -mac HMAC -macopt "hexkey:$K" <nome>.tar.enc     # compare com o .hmac
+HMAC_ROTULO="medconsultoria-backup-hmac-v1"
+
+# Imprime o HMAC-SHA256 (hex minúsculo, 64 caracteres) do arquivo $1.
+hmac_do_arquivo() {
+  local arq="$1" k i b ipad="" opad="" interno interno_bytes=""
+  [ -f "$arq" ] || falhar "hmac: arquivo '$arq' não existe"
+  k="$({ printf '%s\n' "$HMAC_ROTULO"; head -n 1 "$CHAVE_ARQ" | tr -d '\r\n'; } | sha256sum | cut -d' ' -f1)"
+  [[ "$k" =~ ^[0-9a-f]{64}$ ]] || falhar "hmac: não consegui derivar a chave"
+  # Bloco do SHA-256 = 64 bytes: a chave derivada (32 bytes) completada com zeros.
+  k="${k}0000000000000000000000000000000000000000000000000000000000000000"
+  for ((i = 0; i < 128; i += 2)); do
+    b=$((16#${k:i:2}))
+    printf -v ipad '%s\\x%02x' "$ipad" $((b ^ 0x36))
+    printf -v opad '%s\\x%02x' "$opad" $((b ^ 0x5c))
+  done
+  interno="$({ printf '%b' "$ipad"; cat "$arq"; } | sha256sum | cut -d' ' -f1)"
+  for ((i = 0; i < 64; i += 2)); do interno_bytes+="\\x${interno:i:2}"; done
+  { printf '%b' "$opad"; printf '%b' "$interno_bytes"; } | sha256sum | cut -d' ' -f1
+}
+
+# Compara dois hex em tempo constante (não para no primeiro caractere diferente).
+iguais_em_tempo_constante() {
+  local a="$1" b="$2" i d=0 ca cb
+  [ "${#a}" -eq "${#b}" ] || return 1
+  for ((i = 0; i < ${#a}; i++)); do
+    printf -v ca '%d' "'${a:i:1}"
+    printf -v cb '%d' "'${b:i:1}"
+    d=$((d | (ca ^ cb)))
+  done
+  [ "$d" -eq 0 ]
+}
+
+# Confere o arquivo $1 contra o .hmac $2. FALHA (sai) se o .hmac faltar, estiver malformado ou não
+# bater — nunca "avisa e segue": backup sem integridade conferida não é decifrado.
+conferir_hmac() {
+  local arq="$1" arq_hmac="$2" esperado calculado
+  [ -f "$arq_hmac" ] || falhar "falta o arquivo de integridade (.hmac) — o backup NÃO é decifrado sem ele"
+  read -r esperado _ < "$arq_hmac" || true
+  [[ "${esperado:-}" =~ ^[0-9a-f]{64}$ ]] || falhar "o arquivo .hmac está malformado — o backup NÃO é decifrado"
+  calculado="$(hmac_do_arquivo "$arq")"
+  iguais_em_tempo_constante "$esperado" "$calculado" \
+    || falhar "o HMAC NÃO confere — arquivo adulterado, corrompido, ou a chave instalada não é a deste backup"
+}
 
 log() { printf '%s  %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 falhar() { log "!! $*"; exit 1; }
@@ -64,7 +128,7 @@ carregar_config() {
 
 exigir_comandos() {
   local c
-  for c in docker gzip openssl sha256sum tar stat; do
+  for c in docker gzip openssl sha256sum tar stat head tr cut; do
     command -v "$c" >/dev/null || falhar "falta o comando '$c' na VPS"
   done
   # -pbkdf2 só existe a partir do OpenSSL 1.1.1. Sem ele a cifra cairia no derivador antigo
