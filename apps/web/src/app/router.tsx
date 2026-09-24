@@ -7,6 +7,7 @@ import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { RoleGuard } from "../components/RoleGuard";
 import { JaConectadoPage } from "../features/auth/JaConectadoPage";
 import { lerBuscaDaConciliacao } from "../features/conciliacao/busca-na-url";
+import { lerBuscaDeTarefas } from "../features/tarefas/busca-na-url";
 
 // Páginas carregadas sob demanda (um chunk por rota) — só o Dashboard (landing) é eager.
 const ClientesListPage = lazyRouteComponent(() => import("../features/crm/clientes/ClientesListPage"), "ClientesListPage");
@@ -137,6 +138,8 @@ const tarefasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tarefas",
   component: TarefasPage,
+  // Aba e tarefa a abrir chegam pela URL quando o clique vem de um aviso do sininho.
+  validateSearch: lerBuscaDeTarefas,
 });
 
 const financeiroRoute = createRoute({

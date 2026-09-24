@@ -388,30 +388,46 @@ export function AgendaPage() {
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-        {iaOk.data?.disponivel && (
-          <Button variant="outline" onClick={() => setResumoIA(true)} title={`Resumo ${rotuloIA} com IA`}>
+        {/* O botão NUNCA some: sem IA fica desabilitado com o porquê ao lado, em vez de
+            desaparecer em silêncio (mesmo defeito já corrigido na Proposta Personalizada). */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setResumoIA(true)}
+            disabled={!iaOk.data?.disponivel}
+            title={iaOk.data?.disponivel ? `Resumo ${rotuloIA} com IA` : "IA indisponível no momento"}
+          >
             <Sparkles className="h-4 w-4" />
             Resumo IA
           </Button>
-        )}
+          {!iaOk.data?.disponivel && (
+            <span className="text-xs text-muted-foreground">
+              {iaOk.data === undefined ? "Verificando se a IA está ligada…" : "IA indisponível: falta configurar a chave"}
+            </span>
+          )}
+        </div>
         <Button onClick={() => criarEm(new Date())}>
           <Plus className="h-4 w-4" />
           Novo evento
         </Button>
       </PageHeader>
 
-      {/* KPIs */}
-      <div className="grid shrink-0 grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard icon={CalendarDays} label="Hoje" valor={kpis.hoje} hint="compromisso(s)" onClick={() => (setRef(new Date()), setModo("dia"))} />
-        <KpiCard icon={CalendarClock} label="Próximos 7 dias" valor={kpis.semana} hint="compromisso(s)" />
-        <KpiCard
-          icon={Clock}
-          label="Próxima reunião"
-          valorTexto={kpis.proxima ? `${data(kpis.proxima.inicio)} ${hora(kpis.proxima.inicio)}` : "—"}
-          hint={kpis.proxima?.titulo ?? "nada agendado"}
-        />
-        <KpiCard icon={CheckCircle2} label="Aguardando confirmação" valor={kpis.aConfirmar} hint="reunião(ões) do cliente" destaque={kpis.aConfirmar > 0} />
-      </div>
+      {/* KPIs — falha na consulta NUNCA vira "zero compromissos"; some com o próprio erro. */}
+      {kpiQuery.isError ? (
+        <QueryError message={kpiQuery.error.message} onRetry={() => void kpiQuery.refetch()} />
+      ) : (
+        <div className="grid shrink-0 grid-cols-2 gap-3 lg:grid-cols-4">
+          <KpiCard icon={CalendarDays} label="Hoje" valor={kpis.hoje} hint="compromisso(s)" onClick={() => (setRef(new Date()), setModo("dia"))} />
+          <KpiCard icon={CalendarClock} label="Próximos 7 dias" valor={kpis.semana} hint="compromisso(s)" />
+          <KpiCard
+            icon={Clock}
+            label="Próxima reunião"
+            valorTexto={kpis.proxima ? `${data(kpis.proxima.inicio)} ${hora(kpis.proxima.inicio)}` : "—"}
+            hint={kpis.proxima?.titulo ?? "nada agendado"}
+          />
+          <KpiCard icon={CheckCircle2} label="Aguardando confirmação" valor={kpis.aConfirmar} hint="reunião(ões) do cliente" destaque={kpis.aConfirmar > 0} />
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">

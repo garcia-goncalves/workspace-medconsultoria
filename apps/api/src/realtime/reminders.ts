@@ -109,7 +109,8 @@ export async function lembrarClientes(): Promise<void> {
 /**
  * Scan proativo (a cada ~10 min): gera alertas do que precisa de atenção e que o
  * usuário não deve esquecer — tarefas atrasadas (para o responsável), contas
- * vencidas e documentos aguardando revisão (para admins). Deduplicado por entidade.
+ * vencidas, documentos aguardando revisão (para admins) e tarefas individuais (a
+ * página Tarefas, não o Kanban) que venceram sozinhas. Deduplicado por entidade.
  */
 export async function scanProativo(): Promise<void> {
   ultimoScanEm = new Date();
@@ -331,6 +332,32 @@ export async function scanProativo(): Promise<void> {
       const alvo = l.responsavelId ? [l.responsavelId] : idAdmins;
       for (const uid of alvo) {
         await notificar(uid, "lead_parado", { contato }, { entidadeTipo: "lead", entidadeId: l.id, unico: true }).catch(() => {});
+      }
+    }
+  } catch {
+    /* isola a falha */
+  }
+
+  // 9) Tarefas (a página "Tarefas", NÃO o Card do Kanban acima) com prazo vencido e não
+  //    concluídas. Avisa cada responsável e quem delegou — uma vez por tarefa, para sempre
+  //    (mesmo padrão do `unico` acima: reabrir o prazo/reatribuir cria uma tarefa "nova" aos
+  //    olhos da notificação só se o id mudar, o que não acontece aqui).
+  try {
+    const tarefasVencidas = await prisma.tarefa.findMany({
+      where: { deletedAt: null, status: { not: "CONCLUIDA" }, prazo: { lt: agora } },
+      select: {
+        id: true,
+        titulo: true,
+        prazo: true,
+        criadoPorId: true,
+        responsaveis: { select: { userId: true } },
+      },
+    });
+    for (const t of tarefasVencidas) {
+      const prazo = t.prazo ? dataFmt(t.prazo) : "";
+      const destinatarios = new Set<string>([t.criadoPorId, ...t.responsaveis.map((r) => r.userId)]);
+      for (const uid of destinatarios) {
+        await notificar(uid, "tarefa_vencida", { tarefa: t.titulo, prazo }, { entidadeTipo: "tarefa", entidadeId: t.id, unico: true }).catch(() => {});
       }
     }
   } catch {
