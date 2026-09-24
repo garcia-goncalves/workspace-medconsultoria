@@ -6,6 +6,7 @@ import { useAuth } from "../../../lib/auth-context";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { useConfirm, useConfirmar } from "../../../components/ui/confirm-dialog";
+import { toast } from "../../../components/ui/toast";
 import { UploadArquivo, ArquivoLink } from "../../../components/ui/upload-arquivo";
 import { Modal } from "../../../components/ui/modal";
 import { Button } from "../../../components/ui/button";
@@ -201,8 +202,22 @@ export function ServicosContratadosCard({ clienteId }: { clienteId: string }) {
     invalidate();
     utils.clientes.list.invalidate();
   };
-  const ativar = trpc.clientes.ativarServico.useMutation({ onSuccess: invalidateComLista });
-  const cancelar = trpc.clientes.cancelarServico.useMutation({ onSuccess: invalidateComLista });
+  // ⚠️ `avisoFinanceiro` só vem quando a provisão/o encerramento da conta tropeçou — a
+  // contratação/cancelamento em si não falha por isso (best-effort), mas ficar calado faria a
+  // Thaís achar que o Financeiro já está certo. O erro também fica em SISTEMA → Erros; aqui é
+  // só o aviso imediato de quem clicou.
+  const ativar = trpc.clientes.ativarServico.useMutation({
+    onSuccess: (r) => {
+      invalidateComLista();
+      if (r.avisoFinanceiro) toast(r.avisoFinanceiro, "error");
+    },
+  });
+  const cancelar = trpc.clientes.cancelarServico.useMutation({
+    onSuccess: (r) => {
+      invalidateComLista();
+      if (r.avisoFinanceiro) toast(r.avisoFinanceiro, "error");
+    },
+  });
   const removerArquivo = trpc.clientes.removerArquivo.useMutation({ onSuccess: invalidate });
   const { user } = useAuth();
   // Excluir arquivo é ADMIN+ (RBAC). FUNCIONARIO envia/atualiza, mas não exclui.
