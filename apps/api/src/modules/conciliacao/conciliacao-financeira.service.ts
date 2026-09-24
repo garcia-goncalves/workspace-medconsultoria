@@ -664,8 +664,11 @@ export async function recursosDaCirurgia(clienteId: string, cirurgiaId: string) 
 // ─── De-para de procedimento ────────────────────────────────────────────────────────────────────
 
 export async function listarProcedimentos(clienteId: string) {
-  const [grupos, mapeamentos] = await Promise.all([
+  const [grupos, gruposPorOperadora, mapeamentos] = await Promise.all([
     prisma.producaoCirurgia.groupBy({ by: ["procedimento"], where: { clienteId }, _count: { _all: true } }),
+    // Contagem por operadora, na mesma chave — é dela que sai o "quantas cirurgias" da confirmação
+    // ao apagar/mudar um valor: sem isso a tela teria que adivinhar ou perguntar sem número.
+    prisma.producaoCirurgia.groupBy({ by: ["procedimento", "operadoraId"], where: { clienteId }, _count: { _all: true } }),
     prisma.mapeamentoProcedimento.findMany({
       where: { clienteId },
       select: {
@@ -688,6 +691,15 @@ export async function listarProcedimentos(clienteId: string) {
     else porChave.set(chave, { procedimento: g.procedimento, cirurgias: g._count._all });
   }
 
+  // Cirurgias por procedimento+operadora — só as com operadora conhecida: cirurgia sem operadora
+  // nunca usa um valor "por convênio", então não entra nesta contagem.
+  const cirurgiasPorOperadora = new Map<string, number>();
+  for (const g of gruposPorOperadora) {
+    if (!g.operadoraId) continue;
+    const chave = `${chaveDoProcedimento(g.procedimento)}|${g.operadoraId}`;
+    cirurgiasPorOperadora.set(chave, (cirurgiasPorOperadora.get(chave) ?? 0) + g._count._all);
+  }
+
   return [...porChave.entries()]
     .map(([chave, p]) => {
       const deste = mapeamentos.filter((m) => m.textoNormalizado === chave);
@@ -703,6 +715,7 @@ export async function listarProcedimentos(clienteId: string) {
             operadora: m.operadora?.nome ?? "",
             codigo: m.codigo,
             valor: emReais(m.valor),
+            cirurgias: cirurgiasPorOperadora.get(`${chave}|${m.operadoraId}`) ?? 0,
           })),
       };
     })
