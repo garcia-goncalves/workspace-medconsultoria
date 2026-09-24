@@ -1,5 +1,6 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
+import { dataBRT } from "../../lib/datas.js";
 import { hashBytes } from "../../lib/hash.js";
 import { ErroDePlanilha, lerGrade, normalizarTexto, type Formato } from "./planilha/index.js";
 import { dicaDeRota } from "./planilha/qual-relatorio.js";
@@ -12,7 +13,12 @@ import {
   type TotaisConciliacao,
 } from "./conciliacao-financeira.service.js";
 import { carregarDePara, exigirModuloLigado } from "./conciliacao.service.js";
-import { somarPorOperadora, somarPorProfissional, type SomaOperadora, type SomaProfissional } from "./conciliacao-painel.service.js";
+import {
+  somarPorOperadora,
+  somarPorProfissional,
+  type SomaOperadora,
+  type SomaProfissional,
+} from "./conciliacao-painel.service.js";
 import { chaveDoConvenio, chaveDoProfissional, competenciaDe, ErroDeLeitura, type ProblemaDeLinha } from "./producao-consultas.js";
 import {
   interpretarMapaCirurgico,
@@ -231,7 +237,7 @@ export async function importarCirurgias(entrada: {
   if (mesmoArquivo) {
     throw new TRPCError({
       code: "CONFLICT",
-      message: `Este arquivo já foi importado em ${mesmoArquivo.createdAt.toLocaleDateString("pt-BR")}. Nada foi alterado.`,
+      message: `Este arquivo já foi importado em ${dataBRT(mesmoArquivo.createdAt)}. Nada foi alterado.`,
     });
   }
   if (!leitura.periodo || leitura.linhas.length === 0) {
@@ -367,6 +373,13 @@ export interface FiltroCirurgias {
   clienteId: string;
   competencia?: string;
   operadoraId?: string;
+  /**
+   * Só o convênio que foi ligado como PARTICULAR no de-para. ⚠️ Não dá para filtrar pelo
+   * `operadoraId` nulo: convênio que ninguém ligou também tem operadora nula, e o filtro
+   * misturaria "particular" com "pendente de ligação". A régua é `convenioParticular`, a mesma
+   * que o resumo usa para escrever "Particular" na lista de operadoras.
+   */
+  particular?: boolean;
   profissionalId?: string;
   situacao?: SituacaoCirurgia;
   statusConciliacao?: StatusConciliacao;
@@ -385,6 +398,7 @@ export interface FiltroCirurgias {
 function passaNoFiltro(l: LinhaConciliada, f: FiltroCirurgias): boolean {
   if (f.competencia && l.competencia !== f.competencia) return false;
   if (f.operadoraId && l.operadora?.id !== f.operadoraId) return false;
+  if (f.particular && !l.convenioParticular) return false;
   if (f.profissionalId && l.profissional?.id !== f.profissionalId) return false;
   if (f.situacao === "SEM_ATENDIMENTO" && l.atendimento) return false;
   if (f.situacao === "AUTORIZACAO_PENDENTE" && l.autorizacao !== "PENDENTE") return false;
@@ -413,6 +427,7 @@ export async function listarCirurgias(filtro: FiltroCirurgias) {
   const { linhas } = await montarConciliacao(filtro.clienteId);
   const filtradas = linhas.filter((l) => passaNoFiltro(l, filtro));
   return {
+    // `convenioParticular` já vem de `montarConciliacao`, pela mesma régua do resumo e das consultas.
     linhas: filtradas.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA),
     total: filtradas.length,
     pagina,

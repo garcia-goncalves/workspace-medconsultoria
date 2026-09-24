@@ -157,9 +157,11 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
 
     // ── 7. O resumo separa o que NÃO gera recebimento ───────────────────────────────────────
     await page.getByLabel(/^competência$/i).selectOption("2026-08");
-    // 3 atendimentos, sendo 1 cortesia → 2 de convênio.
+    // 3 atendimentos: 1 consulta, 1 cortesia e 1 "sem vínculo com a agenda". Os dois últimos não
+    // geram recebimento e ficam FORA do "de convênio" — antes o sem vínculo entrava ali e o
+    // resumo dizia 2 (teste de set/2026, item #8).
     await expect(page.getByText("3", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText(/2 de convênio/i)).toBeVisible();
+    await expect(page.getByText(/1 de convênio · 1 cortesia\(s\) · 1 sem vínculo com agenda/i)).toBeVisible();
 
     // ── 8. O mesmo arquivo de novo é RECUSADO ───────────────────────────────────────────────
     await page.getByRole("button", { name: /importar produção/i }).click();
@@ -396,19 +398,27 @@ test.describe("Conciliação — a produção do mês entra pela tela", () => {
     // "— editar … está bloqueado" em outro, e `getByText` casa dentro de um elemento só.
     await expect(page.getByText(/editar cirurgia ou recurso deste mês está bloqueado/i)).toBeVisible({ timeout: 15_000 });
 
-    // ⚠️ O botão de editar CONTINUA na tela: a recusa explica, e tela que esconde não ensina.
+    // ⚠️ O botão de editar CONTINUA na tela, mas o diálogo abre SÓ LEITURA e explica por quê —
+    // antes ele abria editável e só reclamava no Salvar (teste de set/2026, item #13).
     await page
       .getByRole("button", { name: /conciliar a cirurgia/i })
       .first()
       .click();
     const modal = page.getByRole("dialog");
-    await modal.getByRole("button", { name: /^salvar$/i }).click();
-    await expect(page.getByText(/conferida e fechada/i).first()).toBeVisible({ timeout: 15_000 });
+    await expect(modal.getByText(/está fechado — conferido por/i)).toBeVisible();
+    await expect(modal.getByRole("button", { name: /^salvar$/i })).toBeDisabled();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
     await page.getByRole("button", { name: /reabrir/i }).click();
     await expect(page.getByRole("button", { name: /fechar o mês/i })).toBeVisible({ timeout: 15_000 });
+
+    // Reabrir NÃO apaga quem conferiu: o histórico continua na tela, com os dois eventos
+    // (teste de set/2026, item #4).
+    await page.getByRole("button", { name: /histórico de/i }).click();
+    const historico = page.getByRole("dialog");
+    await expect(historico.getByText(/fechado/i).first()).toBeVisible({ timeout: 15_000 });
+    await expect(historico.getByText(/reaberto/i).first()).toBeVisible();
   });
 
   test("trocar de aba não apaga os filtros da conciliação", async ({ page }) => {

@@ -93,7 +93,16 @@ export function Paginacao({
   );
 }
 
-export function ListaResumo({ titulo, itens }: { titulo: string; itens: { rotulo: string; atendimentos: number; pendente: boolean }[] }) {
+export function ListaResumo({
+  titulo,
+  itens,
+  rodape,
+}: {
+  titulo: string;
+  itens: { rotulo: string; atendimentos: number; pendente: boolean }[];
+  /** O que ficou FORA da lista, dito ao lado dela — senão a soma não fecha com o total e parece erro. */
+  rodape?: string;
+}) {
   return (
     <div className="rounded-lg bg-muted/40 p-3">
       <p className="text-xs font-medium uppercase text-muted-foreground">{titulo}</p>
@@ -114,7 +123,41 @@ export function ListaResumo({ titulo, itens }: { titulo: string; itens: { rotulo
           </li>
         ))}
       </ul>
+      {rodape && <p className="mt-1 text-xs text-muted-foreground">{rodape}</p>}
     </div>
+  );
+}
+
+/**
+ * O convênio de UMA linha (consulta ou cirurgia). Um lugar só para as duas tabelas: particular
+ * ligado também tem operadora nula, e quem decide que ele está LIGADO é o servidor
+ * (`convenioParticular`, a mesma régua do resumo) — senão a linha dizia "PARTICULAR (a ligar)"
+ * ao lado de um resumo que já o contava como "Particular".
+ */
+export function ConvenioDaLinha({
+  operadora,
+  plano,
+  convenioBruto,
+  convenioParticular,
+}: {
+  operadora: { nome: string } | null;
+  plano?: string | null;
+  convenioBruto: string;
+  convenioParticular: boolean;
+}) {
+  if (operadora) {
+    return (
+      <>
+        {operadora.nome}
+        {plano && <span className="text-muted-foreground"> · {plano}</span>}
+      </>
+    );
+  }
+  if (convenioParticular) return <span className="text-muted-foreground">Particular</span>;
+  return (
+    <span className="text-warning">
+      {convenioBruto} <span className="text-xs">(a ligar)</span>
+    </span>
   );
 }
 

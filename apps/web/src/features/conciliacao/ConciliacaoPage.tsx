@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useBuscaAdiada } from "../../lib/use-busca-adiada";
 import { AlertTriangle, FileSpreadsheet, Link2, Upload } from "lucide-react";
 import { trpc } from "../../lib/trpc";
@@ -13,13 +14,15 @@ import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { toast } from "../../components/ui/toast";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia, dataUTC } from "../../lib/format-date";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { ImportarProducaoDialog } from "./ImportarProducaoDialog";
 import { ImportarCirurgiasDialog } from "./ImportarCirurgiasDialog";
 import { CirurgiasPainel } from "./CirurgiasPainel";
 import { VisaoGeralConciliacao } from "./VisaoGeralConciliacao";
-import { ListaResumo, Paginacao } from "./partes";
+import { ConvenioDaLinha, ListaResumo, Paginacao } from "./partes";
+import type { AbaConciliacao, BuscaConciliacao } from "./busca-na-url";
+import { useBuscaConciliacao } from "./use-busca-conciliacao";
 
 /**
  * CONCILIAÇÃO — a produção de consultas do cliente, mês a mês.
@@ -40,14 +43,16 @@ const TIPO_LABEL: Record<string, string> = {
 };
 
 export function ConciliacaoPage() {
-  const [clienteId, setClienteId] = useState("");
-  const [competencia, setCompetencia] = useState("");
-  const [tipo, setTipo] = useState("");
-  const [operadoraId, setOperadoraId] = useState("");
-  const [busca, setBusca, buscaAdiada] = useBuscaAdiada();
+  // Cliente, aba e filtros das consultas moram na URL (ver `busca-na-url.ts`); a página fica em
+  // memória, porque todo filtro a devolve para 1 de qualquer jeito.
+  const [url, atualizar] = useBuscaConciliacao();
+  const competencia = url.mes ?? "";
+  const tipo = url.tipo ?? "";
+  const operadoraNaUrl = url.operadora ?? "";
+  const aba: AbaConciliacao = url.aba ?? "consultas";
+  const [busca, setBusca, buscaAdiada] = useBuscaAdiada(350, url.paciente ?? "");
   const [pagina, setPagina] = useState(1);
   const [importando, setImportando] = useState(false);
-  const [aba, setAba] = useState<"consultas" | "cirurgias">("consultas");
 
   const utils = trpc.useUtils();
   const disponivel = trpc.conciliacao.disponivel.useQuery();
@@ -56,12 +61,33 @@ export function ConciliacaoPage() {
   // dois cliques depois. A lista tem de ser a mesma que a trava do servidor aceita.
   const clientes = trpc.conciliacao.clientes.useQuery();
 
+  // ⚠️ O cliente da URL só vale DEPOIS de conferido contra a lista que o servidor aceita. Link
+  // velho, cliente que saiu da responsabilidade da pessoa, id digitado à mão: nenhuma consulta
+  // daquele cliente sai, e a tela cai no seletor em vez de mostrar erro de acesso.
+  const clienteDaUrlValido = !!url.cliente && !!clientes.data?.some((c) => c.id === url.cliente);
+  const clienteId = clienteDaUrlValido ? url.cliente! : "";
+  useEffect(() => {
+    if (url.cliente && clientes.data && !clienteDaUrlValido) atualizar({}, { substituirTudo: true });
+  }, [url.cliente, clientes.data, clienteDaUrlValido, atualizar]);
+
+  // A busca vai à URL só depois da pausa (uma navegação por tecla seria desperdício), e é a
+  // única chave escrita por aqui: quem limpa, limpa o CAMPO.
+  const buscaNaUrl = url.paciente ?? "";
+  useEffect(() => {
+    if (buscaAdiada !== buscaNaUrl) atualizar({ paciente: buscaAdiada || undefined });
+  }, [buscaAdiada, buscaNaUrl, atualizar]);
+
   const habilitado = !!clienteId;
   // As consultas da aba Consultas só rodam com ela aberta; as pendências valem para as duas.
   const naAbaConsultas = habilitado && aba === "consultas";
   const competencias = trpc.conciliacao.competencias.useQuery({ clienteId }, { enabled: naAbaConsultas });
   const pendencias = trpc.conciliacao.pendencias.useQuery({ clienteId }, { enabled: habilitado });
   const resumo = trpc.conciliacao.resumo.useQuery({ clienteId, competencia }, { enabled: naAbaConsultas && !!competencia });
+  // ⚠️ Operadora da URL só filtra com competência escolhida (é quando o campo fica habilitado) e
+  // se estiver entre as opções do mês. Fora disso o `<select>` mostraria "Todas" enquanto a lista
+  // filtraria por ela — o mesmo defeito que a troca de competência já limpa.
+  const operadoraId =
+    competencia && (!resumo.data || resumo.data.operadorasDoMes.some((o) => o.operadoraId === operadoraNaUrl)) ? operadoraNaUrl : "";
   const producao = trpc.conciliacao.producao.useQuery(
     {
       clienteId,
@@ -81,14 +107,18 @@ export function ConciliacaoPage() {
 
   const opcoesCliente = useMemo(() => (clientes.data ?? []).map((c) => ({ value: c.id, label: c.nome })), [clientes.data]);
 
-  function trocarCliente(id: string) {
-    setClienteId(id);
+  function trocarCliente(id: string, novaAba: AbaConciliacao = aba) {
     // Filtros de um cliente não fazem sentido no outro — zerar evita a tela dizer "nenhum
-    // resultado" por causa de um filtro invisível herdado.
-    setCompetencia("");
-    setTipo("");
-    setOperadoraId("");
+    // resultado" por causa de um filtro invisível herdado. Por isso `substituirTudo`: só cliente
+    // e aba sobrevivem. Entrada NOVA no histórico: "voltar" devolve a visão geral.
+    atualizar({ cliente: id || undefined, aba: novaAba }, { substituirTudo: true, novaEntrada: true });
     setBusca("");
+    setPagina(1);
+  }
+
+  /** Um filtro das consultas mudou: grava na URL e volta para a página 1. */
+  function filtrar(mudancas: BuscaConciliacao) {
+    atualizar(mudancas);
     setPagina(1);
   }
 
@@ -155,10 +185,10 @@ export function ConciliacaoPage() {
         // Sem cliente escolhido, a tela mostra todos — e escolher é clicar no nome.
         <VisaoGeralConciliacao
           onEscolher={(id, temCirurgia) => {
-            trocarCliente(id);
             // Cliente que só tem consultas importadas caía em "Nenhuma cirurgia importada" — e
             // isso se lê como "esse cliente não tem nada". A linha clicada já sabe o que existe.
-            setAba(temCirurgia ? "cirurgias" : "consultas");
+            // Cliente e aba na MESMA gravação da URL (duas seguidas podem se desfazer).
+            trocarCliente(id, temCirurgia ? "cirurgias" : "consultas");
           }}
         />
       ) : (
@@ -166,7 +196,7 @@ export function ConciliacaoPage() {
           {/* As pendências ficam FORA das abas: o de-para é o mesmo para consultas e cirurgias. */}
           {totalPendencias > 0 && <CardPendencias clienteId={clienteId} aoLigar={recarregar} />}
 
-          <Tabs value={aba} onValueChange={(v) => setAba(v as "consultas" | "cirurgias")} className="space-y-4">
+          <Tabs value={aba} onValueChange={(v) => atualizar({ aba: v as AbaConciliacao })} className="space-y-4">
             <TabsList aria-label="Tipo de produção">
               <TabsTrigger value="consultas">Consultas</TabsTrigger>
               <TabsTrigger value="cirurgias">Cirurgias (TASY)</TabsTrigger>
@@ -190,16 +220,14 @@ export function ConciliacaoPage() {
                 <ResumoDoMes
                   lotes={competencias.data}
                   competencia={competencia}
-                  setCompetencia={(c) => {
-                    setCompetencia(c);
+                  setCompetencia={(c) =>
                     // ⚠️ A lista de operadoras do filtro vem do RESUMO, que depende da
                     // competência. Trocar de mês sem limpar a operadora escolhida deixava o
                     // `<select>` mostrando "Todas" (a operadora sumiu das opções) enquanto o
                     // estado continuava filtrando por ela — a tela dizia "sem filtro" e mostrava
                     // uma operadora só. Números parciais lidos como o mês inteiro.
-                    setOperadoraId("");
-                    setPagina(1);
-                  }}
+                    filtrar({ mes: c || undefined, operadora: undefined })
+                  }
                   resumo={resumo.data ?? null}
                   erroDoResumo={resumo.error ? resumo.error.message : null}
                   recarregarResumo={() => void resumo.refetch()}
@@ -213,10 +241,7 @@ export function ConciliacaoPage() {
                     <Select
                       id="f-tipo"
                       value={tipo}
-                      onChange={(e) => {
-                        setTipo(e.target.value);
-                        setPagina(1);
-                      }}
+                      onChange={(e) => filtrar({ tipo: (e.target.value || undefined) as BuscaConciliacao["tipo"] })}
                     >
                       <option value="">Todos</option>
                       {Object.entries(TIPO_LABEL).map(([v, l]) => (
@@ -235,19 +260,14 @@ export function ConciliacaoPage() {
                       // escolhida. Sem ela o campo ficava com uma opção só ("Todas"), parecendo
                       // que a clínica não tem operadora nenhuma — em vez de dizer o que falta.
                       disabled={!competencia}
-                      onChange={(e) => {
-                        setOperadoraId(e.target.value);
-                        setPagina(1);
-                      }}
+                      onChange={(e) => filtrar({ operadora: e.target.value || undefined })}
                     >
                       <option value="">Todas</option>
-                      {(resumo.data?.porOperadora ?? [])
-                        .filter((o) => o.operadoraId)
-                        .map((o) => (
-                          <option key={o.operadoraId!} value={o.operadoraId!}>
-                            {o.rotulo}
-                          </option>
-                        ))}
+                      {(resumo.data?.operadorasDoMes ?? []).map((o) => (
+                        <option key={o.operadoraId} value={o.operadoraId}>
+                          {o.rotulo}
+                        </option>
+                      ))}
                     </Select>
                     {!competencia && <p className="text-xs text-muted-foreground">Escolha uma competência para filtrar por operadora.</p>}
                   </div>
@@ -267,10 +287,9 @@ export function ConciliacaoPage() {
                     <Button
                       variant="ghost"
                       onClick={() => {
-                        setTipo("");
-                        setOperadoraId("");
+                        // A busca sai pelo CAMPO; o efeito da busca leva o vazio à URL.
                         setBusca("");
-                        setPagina(1);
+                        filtrar({ tipo: undefined, operadora: undefined });
                       }}
                     >
                       Limpar
@@ -317,16 +336,12 @@ export function ConciliacaoPage() {
                             <TD className="font-medium">{l.pacienteNome}</TD>
                             <TD>{TIPO_LABEL[l.tipoAtendimento] ?? l.tipoAtendimentoBruto}</TD>
                             <TD>
-                              {l.operadora ? (
-                                <>
-                                  {l.operadora.nome}
-                                  {l.plano && <span className="text-muted-foreground"> · {l.plano}</span>}
-                                </>
-                              ) : (
-                                <span className="text-warning">
-                                  {l.convenioBruto} <span className="text-xs">(a ligar)</span>
-                                </span>
-                              )}
+                              <ConvenioDaLinha
+                                operadora={l.operadora}
+                                plano={l.plano}
+                                convenioBruto={l.convenioBruto}
+                                convenioParticular={l.convenioParticular}
+                              />
                             </TD>
                             <TD>
                               {l.profissional?.nome ?? (
@@ -383,6 +398,7 @@ type Lote = {
 type Resumo = {
   total: number;
   faturavel: number;
+  separacao: { convenio: number; particular: number; cortesia: number; semVinculo: number };
   porTipo: { CONSULTA: number; CORTESIA: number; SEM_VINCULO_AGENDA: number; OUTRO: number };
   porOperadora: { rotulo: string; atendimentos: number; pendente: boolean }[];
   porProfissional: { rotulo: string; atendimentos: number; pendente: boolean }[];
@@ -422,7 +438,7 @@ function ResumoDoMes({
         </div>
         {lote && (
           <p className="pb-2 text-xs text-muted-foreground">
-            Importado em {dataUTC(lote.createdAt)} por {lote.importadoPor?.nome ?? "—"} · {lote.nomeArquivo} ({lote.formato})
+            Importado em {dataBrasilia(lote.createdAt)} por {lote.importadoPor?.nome ?? "—"} · {lote.nomeArquivo} ({lote.formato})
             {lote.linhasIgnoradas > 0 && ` · ${lote.linhasIgnoradas} linha(s) ignorada(s)`}
           </p>
         )}
@@ -441,13 +457,34 @@ function ResumoDoMes({
           <div className="rounded-lg bg-muted/40 p-3">
             <p className="text-xs font-medium uppercase text-muted-foreground">Atendimentos</p>
             <p className="text-2xl font-semibold">{resumo.total}</p>
-            {/* Cortesia e particular não geram recebimento — separá-los evita inflar a
-                expectativa de receita, que é o número que este módulo existe para acertar. */}
+            {/* Só o de convênio gera recebimento — separar o resto evita inflar a expectativa de
+                receita, que é o número que este módulo existe para acertar. As quatro partes
+                somam o total (o servidor garante), e a de valor zero some para não virar ruído. */}
             <p className="mt-1 text-xs text-muted-foreground">
-              {resumo.faturavel} de convênio · {resumo.porTipo.CORTESIA} cortesia(s)
+              {[
+                `${resumo.separacao.convenio} de convênio`,
+                resumo.separacao.particular > 0 && `${resumo.separacao.particular} particular`,
+                resumo.separacao.cortesia > 0 && `${resumo.separacao.cortesia} cortesia(s)`,
+                resumo.separacao.semVinculo > 0 && `${resumo.separacao.semVinculo} sem vínculo com agenda`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           </div>
-          <ListaResumo titulo="Por operadora" itens={resumo.porOperadora} />
+          <ListaResumo
+            titulo="Por operadora"
+            itens={resumo.porOperadora}
+            rodape={
+              resumo.separacao.cortesia + resumo.separacao.semVinculo > 0
+                ? `Fora desta lista, por não gerarem recebimento: ${[
+                    resumo.separacao.cortesia > 0 && `${resumo.separacao.cortesia} cortesia(s)`,
+                    resumo.separacao.semVinculo > 0 && `${resumo.separacao.semVinculo} sem vínculo com agenda`,
+                  ]
+                    .filter(Boolean)
+                    .join(" e ")}.`
+                : undefined
+            }
+          />
           <ListaResumo titulo="Por profissional" itens={resumo.porProfissional} />
         </div>
       )}
@@ -508,6 +545,8 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
   if (!pendencias.data) return null;
   const { convenios, profissionais: profPendentes } = pendencias.data;
   if (convenios.length === 0 && profPendentes.length === 0) return null;
+  // Só depois de a consulta RESPONDER: carregando não é "sem cadastro" (erro já saiu acima).
+  const semCadastro = profissionais.data !== undefined && profissionais.data.length === 0;
 
   return (
     <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
@@ -531,7 +570,8 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
                   <span className="text-xs text-muted-foreground">({c.atendimentos})</span>
                   <Select
                     aria-label={`Operadora de ${c.textoBruto}`}
-                    className="h-8 w-48 text-xs"
+                    // h-11 (44px): alvo de toque mínimo — com 32px, no celular o dedo errava o campo.
+                    className="h-11 w-48 text-xs"
                     defaultValue=""
                     onChange={(e) => {
                       const v = e.target.value;
@@ -557,7 +597,32 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
           </div>
         )}
 
-        {profPendentes.length > 0 && (
+        {profPendentes.length > 0 && semCadastro && (
+          // ⚠️ A lista do "Ligar a…" é o cadastro de médicos do CLIENTE (o mesmo do credenciamento),
+          // não um catálogo da Med. Cliente que nunca teve médico cadastrado dava um `<select>`
+          // vazio, sem dizer por quê — lido como defeito da tela. Aqui a falta ganha nome e endereço.
+          // ⚠️ Não cadastramos o médico daqui de propósito: `Profissional.conselho` é obrigatório e o
+          // relatório não traz, e médico cadastrado liga a papelada de credenciamento no Portal
+          // (`emCurso` em credenciamento.service.ts) — decisão que cabe à ficha, não a um atalho.
+          <div>
+            <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Profissionais</p>
+            <p className="text-sm">
+              {profPendentes.length} nome(s) de profissional no relatório, e este cliente ainda não tem nenhum médico cadastrado para ligar.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Cadastre em{" "}
+              <Link to="/clientes/$clienteId" params={{ clienteId }} className="font-medium text-primary hover:underline">
+                ficha do cliente → Credenciamento → Novo profissional
+              </Link>{" "}
+              e volte aqui. O médico cadastrado também passa a aparecer na papelada de credenciamento do cliente.
+            </p>
+            <Button size="sm" variant="outline" className="mt-2" onClick={() => void profissionais.refetch()}>
+              Já cadastrei — atualizar
+            </Button>
+          </div>
+        )}
+
+        {profPendentes.length > 0 && !semCadastro && (
           <div>
             <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Profissionais</p>
             <ul className="space-y-2">
@@ -567,7 +632,8 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
                   <span className="text-xs text-muted-foreground">({p.atendimentos})</span>
                   <Select
                     aria-label={`Profissional de ${p.textoBruto}`}
-                    className="h-8 w-48 text-xs"
+                    // h-11 (44px): alvo de toque mínimo — com 32px, no celular o dedo errava o campo.
+                    className="h-11 w-48 text-xs"
                     defaultValue=""
                     onChange={(e) => {
                       const v = e.target.value;
@@ -578,12 +644,20 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
                     {(profissionais.data ?? []).map((pr) => (
                       <option key={pr.id} value={pr.id}>
                         {pr.nome}
+                        {!pr.ativo && " (inativo)"}
                       </option>
                     ))}
                   </Select>
                 </li>
               ))}
             </ul>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Não está na lista? Cadastre na{" "}
+              <Link to="/clientes/$clienteId" params={{ clienteId }} className="font-medium text-primary hover:underline">
+                ficha do cliente
+              </Link>{" "}
+              (card Credenciamento).
+            </p>
           </div>
         )}
       </div>

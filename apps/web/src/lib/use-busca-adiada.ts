@@ -15,9 +15,11 @@ import { useEffect, useState } from "react";
  * Devolve `[texto, setTexto, textoAdiado]`: o campo usa os dois primeiros (para responder na
  * hora), a consulta usa o terceiro.
  */
-export function useBuscaAdiada(pausaMs = 350): [string, (v: string) => void, string] {
-  const [texto, setTexto] = useState("");
-  const [adiado, setAdiado] = useState("");
+export function useBuscaAdiada(pausaMs = 350, inicial = ""): [string, (v: string) => void, string] {
+  // `inicial`: a busca que veio da URL. Nasce já "adiada" — ela não foi digitada agora, e esperar
+  // a pausa faria a lista abrir sem o filtro e piscar para o filtrado logo depois.
+  const [texto, setTexto] = useState(inicial);
+  const [adiado, setAdiado] = useState(inicial);
 
   useEffect(() => {
     // Campo limpo não espera: apagar a busca precisa devolver a lista cheia na hora, senão

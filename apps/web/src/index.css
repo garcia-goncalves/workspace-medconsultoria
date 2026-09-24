@@ -85,6 +85,16 @@
     }
   }
 
+  /* O selo "AMBIENTE LOCAL" é fixo no rodapé e cobria o fim da página (o último cartão, a
+     paginação) — no celular, justamente o que se estava conferindo. Enquanto ele existe (só
+     fora de produção; quem põe a classe é o próprio selo), a página ganha folga embaixo para
+     o conteúdo poder rolar ACIMA dele. ⚠️ Fica de fora o `<main>` de altura fixa
+     (`overflow-hidden`, as telas de chat/agenda): lá a folga viraria rolagem da janela
+     inteira, e quem rola é o conteúdo de dentro. */
+  :root.selo-local main:not(.overflow-hidden) {
+    padding-bottom: calc(3rem + var(--selo-recuo));
+  }
+
   /* (Tema escuro removido: era código morto — não havia toggle nem classes `dark:` no app.
      Se for reintroduzir dark mode no futuro, redefinir estas variáveis sob `.dark` e ligar o
      toggle. Ver decisão #10 da finalização.) */

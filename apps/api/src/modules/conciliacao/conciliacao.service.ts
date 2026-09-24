@@ -1,6 +1,7 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { isConciliacaoEnabled } from "../../config.js";
+import { dataBRT } from "../../lib/datas.js";
 import { hashBytes } from "../../lib/hash.js";
 import { apelidoCpf, cifrarDadoPaciente } from "../../lib/cripto-paciente.js";
 import { ErroDePlanilha, lerGrade, normalizarTexto, type Formato } from "./planilha/index.js";
@@ -224,7 +225,7 @@ export async function importarProducao(entrada: {
     throw new TRPCError({
       code: "CONFLICT",
       message:
-        `Este arquivo já foi importado em ${mesmoArquivo.createdAt.toLocaleDateString("pt-BR")} ` +
+        `Este arquivo já foi importado em ${dataBRT(mesmoArquivo.createdAt)} ` +
         `(competência ${mesmoArquivo.competencia}). Nada foi alterado.`,
     });
   }
@@ -252,7 +253,7 @@ export async function importarProducao(entrada: {
       code: "CONFLICT",
       message:
         `A competência ${entrada.competencia} já foi importada em ` +
-        `${vigente.createdAt.toLocaleDateString("pt-BR")} (${vigente.linhasImportadas} atendimentos). ` +
+        `${dataBRT(vigente.createdAt)} (${vigente.linhasImportadas} atendimentos). ` +
         "Confirme a substituição para trocar pelo arquivo novo.",
     });
   }

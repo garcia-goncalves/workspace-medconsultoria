@@ -8,7 +8,7 @@ import { Select } from "../../components/ui/select";
 import { Table, THead, TH, TR, TD } from "../../components/ui/table";
 import { UploadArquivo, type ArquivoEnviado } from "../../components/ui/upload-arquivo";
 import { toast } from "../../components/ui/toast";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia, dataUTC } from "../../lib/format-date";
 import { Aviso } from "./partes";
 
 /**
@@ -41,9 +41,15 @@ export function ImportarProducaoDialog({
   const [arquivo, setArquivo] = useState<ArquivoEnviado | null>(null);
   const [competencia, setCompetencia] = useState("");
 
+  // ⚠️ Sem toast aqui de propósito: um arquivo do relatório errado (ex.: cirurgias, no
+  // importador de consultas) é recusado com a dica de para onde levar o arquivo — e um toast
+  // some sozinho em ~5s, deixando o modal vazio sem explicação nenhuma. O erro fica visível e
+  // FIXO no corpo do modal (`previa.error` abaixo), até a pessoa trocar de arquivo ou fechar.
+  // ⚠️ O `onError` vazio NÃO é descuido: sem ele, a rede de segurança global de mutações
+  // (`main.tsx`) acende um toast com a MESMA frase que o aviso fixo do modal já mostra.
   const previa = trpc.conciliacao.previsualizar.useMutation({
     onSuccess: (p) => setCompetencia(p.competenciaSugerida ?? ""),
-    onError: (e) => toast(e.message),
+    onError: () => {},
   });
 
   const importar = trpc.conciliacao.importar.useMutation({
@@ -138,12 +144,13 @@ export function ImportarProducaoDialog({
         </div>
 
         {previa.isPending && <p className="text-sm text-muted-foreground">Lendo o arquivo…</p>}
+        {previa.error && <Aviso tom="erro">{previa.error.message}</Aviso>}
 
         {p && (
           <>
             {jaImportado && (
               <Aviso tom="atencao">
-                Este arquivo já foi importado em {dataUTC(jaImportado.em)} (competência {jaImportado.competencia}). Importar de novo será
+                Este arquivo já foi importado em {dataBrasilia(jaImportado.em)} (competência {jaImportado.competencia}). Importar de novo será
                 recusado.
               </Aviso>
             )}

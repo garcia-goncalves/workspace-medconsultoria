@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Table, THead, TH, TR, TD } from "../../components/ui/table";
 import { UploadArquivo, type ArquivoEnviado } from "../../components/ui/upload-arquivo";
 import { toast } from "../../components/ui/toast";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia, dataUTC } from "../../lib/format-date";
 import { Aviso } from "./partes";
 
 /**
@@ -32,7 +32,13 @@ export function ImportarCirurgiasDialog({
 }) {
   const [arquivo, setArquivo] = useState<ArquivoEnviado | null>(null);
 
-  const previa = trpc.conciliacao.previsualizarCirurgias.useMutation({ onError: (e) => toast(e.message) });
+  // ⚠️ Sem toast aqui de propósito: um arquivo do relatório errado (ex.: consultas, no
+  // importador de cirurgias) é recusado com a dica de para onde levar o arquivo — e um toast
+  // some sozinho em ~5s, deixando o modal vazio sem explicação nenhuma. O erro fica visível e
+  // FIXO no corpo do modal (`previa.error` abaixo), até a pessoa trocar de arquivo ou fechar.
+  // ⚠️ O `onError` vazio NÃO é descuido: sem ele, a rede de segurança global de mutações
+  // (`main.tsx`) acende um toast com a MESMA frase que o aviso fixo do modal já mostra.
+  const previa = trpc.conciliacao.previsualizarCirurgias.useMutation({ onError: () => {} });
   const importar = trpc.conciliacao.importarCirurgias.useMutation({
     onSuccess: (r) => {
       const extras = [
@@ -107,10 +113,11 @@ export function ImportarCirurgiasDialog({
         </div>
 
         {previa.isPending && <p className="text-sm text-muted-foreground">Lendo o arquivo…</p>}
+        {previa.error && <Aviso tom="erro">{previa.error.message}</Aviso>}
 
         {p && (
           <>
-            {p.jaImportado && <Aviso tom="erro">Este arquivo já foi importado em {dataUTC(p.jaImportado.em)}. Nada mudaria.</Aviso>}
+            {p.jaImportado && <Aviso tom="erro">Este arquivo já foi importado em {dataBrasilia(p.jaImportado.em)}. Nada mudaria.</Aviso>}
 
             <p className="text-sm">
               <strong>{p.totalLinhas}</strong> cirurgia(s)

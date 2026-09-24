@@ -280,6 +280,7 @@ export const conciliacaoRouter = router({
         clienteId,
         competencia: competencia.optional(),
         operadoraId: z.string().optional(),
+        particular: z.boolean().optional(),
         profissionalId: z.string().optional(),
         situacao: z.enum(["SEM_ATENDIMENTO", "AUTORIZACAO_PENDENTE", "NAO_EXECUTADA"]).optional(),
         statusConciliacao,
@@ -387,6 +388,15 @@ export const conciliacaoRouter = router({
     .query(({ input }) => financeira.competenciasFechadas(input.clienteId)),
 
   /**
+   * Quem fechou e quem reabriu aquele mês, e quando — inclusive depois de reaberto, que é quando
+   * `competenciasFechadas` já não o mostra. Leitura para quem concilia (o funcionário também
+   * precisa saber quem conferiu); ⚠️ não existe rota que edite ou apague evento, de propósito.
+   */
+  historicoFechamento: conciliacaoProcedure
+    .input(z.object({ clienteId, competencia }))
+    .query(({ input }) => financeira.historicoFechamento(input.clienteId, input.competencia)),
+
+  /**
    * ⚠️ Fechar e reabrir exigem ADMIN.
    *
    * O funcionário OPERA o mês — importa, concilia, recorre. **Declarar que ele está conferido** é
@@ -445,9 +455,16 @@ export const conciliacaoRouter = router({
       z.object({
         clienteId,
         competencia: competencia.optional(),
+        operadoraId: z.string().optional(),
+        particular: z.boolean().optional(),
+        // ⚠️ Os MESMOS filtros da lista (`cirurgias`), todos. Com situação e busca de fora, a tela
+        // dizia "No filtro: 12 cirurgias" e o botão "Exportar 12" entregava outra quantidade — o
+        // documento que sai tem de ser o que foi conferido na tela.
+        situacao: z.enum(["SEM_ATENDIMENTO", "AUTORIZACAO_PENDENTE", "NAO_EXECUTADA"]).optional(),
         statusConciliacao,
         soAtrasadas: z.boolean().optional(),
         recurso: recursoFiltro,
+        busca: z.string().trim().max(120).optional(),
       }),
     )
     .mutation(async ({ input }) => {

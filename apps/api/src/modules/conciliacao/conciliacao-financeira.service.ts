@@ -1,10 +1,13 @@
 import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
+import { dataBRT } from "../../lib/datas.js";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 import { normalizarTexto } from "./planilha/index.js";
+import { convenioEhParticular } from "./conciliacao-painel.service.js";
 import {
   DIAS_ATE_A_RESPOSTA_DO_RECURSO,
   diasEntre,
+  ehGlosaTotalPorAusencia,
   estaAtrasada,
   glosaDe,
   repartirRecebido,
@@ -47,6 +50,8 @@ export interface LinhaConciliada {
   categoriaConvenio: string;
   convenioBruto: string;
   operadora: { id: string; nome: string } | null;
+  /** O de-para marcou este convênio como particular (sem operadora) — o resumo o chama assim. */
+  convenioParticular: boolean;
   profissionalBruto: string;
   profissional: { id: string; nome: string } | null;
   codigo: string | null;
@@ -122,7 +127,7 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
   // UMA vez para a montagem inteira: com `new Date()` dentro do laço, duas linhas da mesma lista
   // poderiam cair em lados diferentes do limite de atraso.
   const agora = new Date();
-  const [cirurgias, mapeamentos, repasses, recursos] = await Promise.all([
+  const [cirurgias, mapeamentos, repasses, recursos, conveniosParticulares] = await Promise.all([
     prisma.producaoCirurgia.findMany({
       where: { clienteId },
       select: {
@@ -178,7 +183,11 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
         respondidoEm: true,
       },
     }),
+    // O mesmo de-para de convênio que a tela usa no resumo por operadora: o texto marcado como
+    // particular não tem operadora, e sem isto a exportação o mostraria como "a ligar".
+    prisma.mapeamentoConvenio.findMany({ where: { clienteId, particular: true }, select: { textoNormalizado: true } }),
   ]);
+  const ehParticular = new Set(conveniosParticulares.map((m) => m.textoNormalizado));
 
   // O mais recente de cada cirurgia: a ordenação acima põe a maior tentativa primeiro, então a
   // PRIMEIRA que chega de cada cirurgia é a que vale.
@@ -278,19 +287,39 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
     if (lista.length > 1) lista.forEach((b) => compartilhado.add(b.c.id));
   }
 
-  const linhas: LinhaConciliada[] = base.map(({ c, codigo, cobrado, cobradoOrigem }) => {
-    const manual = emReais(c.valorRecebido);
-    const doRepasse = parteDoRepasse.get(c.id);
+  // Segunda passada: o status de cada uma pelo que se SABE (digitado, repasse). É dela que sai
+  // quais competências o repasse já pagou — o que a glosa total por ausência precisa saber.
+  const calculadas = base.map((b) => {
+    const manual = emReais(b.c.valorRecebido);
+    const doRepasse = parteDoRepasse.get(b.c.id);
     const recebido = manual ?? doRepasse ?? null;
-    const rep = c.atendimento ? repassePorAtend.get(c.atendimento) : undefined;
-    const dataPagamento = c.dataPagamento ?? (doRepasse !== undefined ? (rep?.ultimaData ?? null) : null);
     const status = statusDaConciliacao({
-      statusTasy: c.status,
-      naoCobrar: c.naoCobrar,
-      atendimento: c.atendimento,
-      cobrado,
+      statusTasy: b.c.status,
+      naoCobrar: b.c.naoCobrar,
+      atendimento: b.c.atendimento,
+      cobrado: b.cobrado,
       recebido,
     });
+    return { ...b, manual, doRepasse, recebido, status };
+  });
+  const competenciasPagasPeloRepasse = new Set(
+    calculadas.filter((x) => x.doRepasse !== undefined && x.doRepasse > 0).map((x) => x.c.competencia),
+  );
+
+  const linhas: LinhaConciliada[] = calculadas.map(({ c, codigo, cobrado, cobradoOrigem, manual, doRepasse, recebido, status: sabido }) => {
+    const rep = c.atendimento ? repassePorAtend.get(c.atendimento) : undefined;
+    const dataPagamento = c.dataPagamento ?? (doRepasse !== undefined ? (rep?.ultimaData ?? null) : null);
+    // ⚠️ REGRA PROVISÓRIA (`ehGlosaTotalPorAusencia`): o atendimento que não veio no repasse de um
+    // mês que o repasse já pagou é glosa total. Só a LEITURA muda — o recebido continua nulo (não
+    // se inventa um "recebido 0" que a planilha exportada devolveria como digitado à mão), e a
+    // glosa passa a ser o cobrado inteiro.
+    const glosaPorAusencia = ehGlosaTotalPorAusencia({
+      status: sabido,
+      atendimentoNoRepasse: rep !== undefined,
+      atrasada: estaAtrasada(sabido, c.dataCirurgia, agora),
+      repassePagouOutrasDoMes: competenciasPagasPeloRepasse.has(c.competencia),
+    });
+    const status: StatusConciliacao = glosaPorAusencia ? "GLOSA_TOTAL" : sabido;
     return {
       id: c.id,
       numeroCirurgia: c.numeroCirurgia,
@@ -306,6 +335,9 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
       categoriaConvenio: c.categoriaConvenio,
       convenioBruto: c.convenioBruto,
       operadora: c.operadora,
+      // A MESMA régua das consultas e do resumo (`convenioEhParticular`) — duas leituras do mesmo
+      // estado são como a tela passa a dizer "Particular" num lugar e "(a ligar)" no outro.
+      convenioParticular: convenioEhParticular(c.operadora?.id ?? null, c.convenioBruto, ehParticular),
       profissionalBruto: c.profissionalBruto,
       profissional: c.profissional,
       codigo,
@@ -315,7 +347,7 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
       recebidoOrigem: manual !== null ? "MANUAL" : doRepasse !== undefined ? "REPASSE" : null,
       repasseCompartilhado: compartilhado.has(c.id),
       dataPagamento: dataPagamento ? dia(dataPagamento) : null,
-      glosa: glosaDe(cobrado, recebido),
+      glosa: glosaPorAusencia ? cobrado : glosaDe(cobrado, recebido),
       statusConciliacao: status,
       // ⚠️ O que separa "esperando" de "travado". Sem isto, uma cirurgia de um ano atrás e uma do
       // mês passado dizem a mesma coisa na tela ("a receber"), e a pergunta da manhã — "o que
@@ -431,34 +463,114 @@ export async function fecharCompetencia(clienteId: string, competencia: string, 
   const t = totalizar(doMes);
   const retrato = { cobrado: t.cobrado, recebido: t.recebido, glosa: t.glosa, aReceber: t.aReceber, cirurgias: doMes.length };
 
-  // Fechar de novo grava um retrato NOVO por cima e limpa a reabertura — mas a linha é a mesma,
-  // então "quem conferiu, e quando" continua sendo uma pergunta com resposta.
-  return prisma.competenciaFechada.upsert({
-    where: { clienteId_competencia: { clienteId, competencia } },
-    create: { clienteId, competencia, fechadoPorId: usuarioId, observacao: observacao?.trim() || null, ...retrato },
-    update: {
-      fechadoEm: new Date(),
-      fechadoPorId: usuarioId,
-      reabertoEm: null,
-      reabertoPorId: null,
-      observacao: observacao?.trim() || null,
-      ...retrato,
-    },
-    select: { id: true, competencia: true },
-  });
+  const obs = observacao?.trim() || null;
+  const em = new Date();
+  // O nome vai COPIADO para o evento: se a conta for excluída um dia, o histórico continua
+  // dizendo quem conferiu, em vez de "alguém".
+  const autor = await prisma.user.findUnique({ where: { id: usuarioId }, select: { nome: true } });
+
+  // ⚠️ ESTADO E EVENTO NA MESMA TRANSAÇÃO. Em dois passos, uma queda no meio deixaria o mês
+  // fechado sem registro de quem fechou — exatamente o defeito que o histórico veio fechar.
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // Mês REABERTO: fecha de novo na mesma linha (o estado é um só). O fechamento anterior não
+      // se perde mais — ele está no histórico.
+      const { count } = await tx.competenciaFechada.updateMany({
+        where: { clienteId, competencia, reabertoEm: { not: null } },
+        data: { fechadoEm: em, fechadoPorId: usuarioId, reabertoEm: null, reabertoPorId: null, observacao: obs, ...retrato },
+      });
+      // Mês nunca fechado: cria. ⚠️ Já FECHADO é recusado — antes, fechar de novo escrevia por
+      // cima de quem conferiu primeiro. A conferência abaixo existe para a MENSAGEM (e para não
+      // sujar o log com um erro de banco esperado); quem GARANTE, com duas gravações simultâneas,
+      // é o índice único, cujo P2002 o `catch` traduz na mesma frase.
+      if (count === 0) {
+        const jaFechada = await tx.competenciaFechada.findFirst({ where: { clienteId, competencia }, select: { id: true } });
+        if (jaFechada) throw jaFechadaErro(competencia);
+        await tx.competenciaFechada.create({
+          data: { clienteId, competencia, fechadoEm: em, fechadoPorId: usuarioId, observacao: obs, ...retrato },
+        });
+      }
+      await tx.competenciaFechamentoEvento.create({
+        data: { clienteId, competencia, tipo: "FECHOU", em, porId: usuarioId, porNome: autor?.nome ?? null, observacao: obs, ...retrato },
+      });
+      return { competencia };
+    });
+  } catch (e) {
+    if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") {
+      throw jaFechadaErro(competencia);
+    }
+    throw e;
+  }
 }
 
-export async function reabrirCompetencia(clienteId: string, competencia: string, usuarioId: string) {
-  // Posse no próprio WHERE, e `reabertoEm: null` para reabrir duas vezes não reescrever quem
-  // reabriu primeiro — o mesmo desenho da resposta ao recurso.
-  const { count } = await prisma.competenciaFechada.updateMany({
-    where: { clienteId, competencia, reabertoEm: null },
-    data: { reabertoEm: new Date(), reabertoPorId: usuarioId },
+const jaFechadaErro = (competencia: string) =>
+  new TRPCError({
+    code: "CONFLICT",
+    message: `A competência ${competencia} já está fechada. Para conferir de novo, reabra o mês primeiro.`,
   });
-  if (count === 0) {
-    throw new TRPCError({ code: "NOT_FOUND", message: `A competência ${competencia} não está fechada neste cliente.` });
-  }
+
+export async function reabrirCompetencia(clienteId: string, competencia: string, usuarioId: string) {
+  const autor = await prisma.user.findUnique({ where: { id: usuarioId }, select: { nome: true } });
+  await prisma.$transaction(async (tx) => {
+    // Posse no próprio WHERE, e `reabertoEm: null` para reabrir duas vezes não reescrever quem
+    // reabriu primeiro — o mesmo desenho da resposta ao recurso. É também o que garante UM evento
+    // REABRIU por reabertura, mesmo com dois cliques simultâneos: só um deles acha a linha.
+    const { count } = await tx.competenciaFechada.updateMany({
+      where: { clienteId, competencia, reabertoEm: null },
+      data: { reabertoEm: new Date(), reabertoPorId: usuarioId },
+    });
+    if (count === 0) {
+      throw new TRPCError({ code: "NOT_FOUND", message: `A competência ${competencia} não está fechada neste cliente.` });
+    }
+    await tx.competenciaFechamentoEvento.create({
+      data: { clienteId, competencia, tipo: "REABRIU", porId: usuarioId, porNome: autor?.nome ?? null },
+    });
+  });
   return { ok: true };
+}
+
+export interface EventoDeFechamentoNaTela {
+  id: number;
+  tipo: "FECHOU" | "REABRIU";
+  em: Date;
+  por: string | null;
+  observacao: string | null;
+  /** O retrato conferido — só no FECHOU. Memória do que se conferiu, nunca valor de hoje. */
+  retrato: { cobrado: number; glosa: number; cirurgias: number } | null;
+}
+
+/**
+ * O histórico de uma competência, do mais antigo ao mais recente.
+ *
+ * ⚠️ SÓ LEITURA, e não há par de escrita: evento não se edita nem se apaga (append-only). Quem
+ * precisar "corrigir" um fechamento reabre e fecha de novo — e isso também fica registrado.
+ */
+export async function historicoFechamento(clienteId: string, competencia: string): Promise<EventoDeFechamentoNaTela[]> {
+  const eventos = await prisma.competenciaFechamentoEvento.findMany({
+    where: { clienteId, competencia },
+    // `id` é autoincremento: a ordem de gravação, que desempata dois eventos no mesmo milissegundo.
+    orderBy: { id: "asc" },
+    select: {
+      id: true,
+      tipo: true,
+      em: true,
+      porNome: true,
+      observacao: true,
+      cobrado: true,
+      glosa: true,
+      cirurgias: true,
+      por: { select: { nome: true } },
+    },
+  });
+  return eventos.map((e) => ({
+    id: e.id,
+    tipo: e.tipo,
+    em: e.em,
+    // O nome gravado no evento é o de QUANDO se agiu; o da conta só entra se a cópia faltar.
+    por: e.porNome ?? e.por?.nome ?? null,
+    observacao: e.observacao,
+    retrato: e.tipo === "FECHOU" ? { cobrado: emReaisOu(e.cobrado), glosa: emReaisOu(e.glosa), cirurgias: e.cirurgias ?? 0 } : null,
+  }));
 }
 
 export interface CompetenciaFechadaNaTela {
@@ -536,7 +648,7 @@ async function assertCompetenciaAberta(clienteId: string, competencia: string) {
   throw new TRPCError({
     code: "PRECONDITION_FAILED",
     message:
-      `A competência ${competencia} foi conferida e fechada${quem} em ${f.fechadoEm.toLocaleDateString("pt-BR")}. ` +
+      `A competência ${competencia} foi conferida e fechada${quem} em ${dataBRT(f.fechadoEm)}. ` +
       "Reabra o mês para poder alterá-lo.",
   });
 }
@@ -664,8 +776,11 @@ export async function recursosDaCirurgia(clienteId: string, cirurgiaId: string) 
 // ─── De-para de procedimento ────────────────────────────────────────────────────────────────────
 
 export async function listarProcedimentos(clienteId: string) {
-  const [grupos, mapeamentos] = await Promise.all([
+  const [grupos, gruposPorOperadora, mapeamentos] = await Promise.all([
     prisma.producaoCirurgia.groupBy({ by: ["procedimento"], where: { clienteId }, _count: { _all: true } }),
+    // Contagem por operadora, na mesma chave — é dela que sai o "quantas cirurgias" da confirmação
+    // ao apagar/mudar um valor: sem isso a tela teria que adivinhar ou perguntar sem número.
+    prisma.producaoCirurgia.groupBy({ by: ["procedimento", "operadoraId"], where: { clienteId }, _count: { _all: true } }),
     prisma.mapeamentoProcedimento.findMany({
       where: { clienteId },
       select: {
@@ -688,6 +803,15 @@ export async function listarProcedimentos(clienteId: string) {
     else porChave.set(chave, { procedimento: g.procedimento, cirurgias: g._count._all });
   }
 
+  // Cirurgias por procedimento+operadora — só as com operadora conhecida: cirurgia sem operadora
+  // nunca usa um valor "por convênio", então não entra nesta contagem.
+  const cirurgiasPorOperadora = new Map<string, number>();
+  for (const g of gruposPorOperadora) {
+    if (!g.operadoraId) continue;
+    const chave = `${chaveDoProcedimento(g.procedimento)}|${g.operadoraId}`;
+    cirurgiasPorOperadora.set(chave, (cirurgiasPorOperadora.get(chave) ?? 0) + g._count._all);
+  }
+
   return [...porChave.entries()]
     .map(([chave, p]) => {
       const deste = mapeamentos.filter((m) => m.textoNormalizado === chave);
@@ -703,6 +827,7 @@ export async function listarProcedimentos(clienteId: string) {
             operadora: m.operadora?.nome ?? "",
             codigo: m.codigo,
             valor: emReais(m.valor),
+            cirurgias: cirurgiasPorOperadora.get(`${chave}|${m.operadoraId}`) ?? 0,
           })),
       };
     })

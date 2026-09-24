@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import { UploadArquivo, type ArquivoEnviado } from "../../components/ui/upload-arquivo";
 import { toast } from "../../components/ui/toast";
 import { formatBRL } from "../../lib/masks";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia, dataUTC } from "../../lib/format-date";
 import { Aviso } from "./partes";
 
 /**
@@ -33,8 +33,15 @@ export function ImportarRecebidoDialog({
   const [arquivo, setArquivo] = useState<ArquivoEnviado | null>(null);
   const titulo = tipo === "repasse" ? "Importar repasse (TASY)" : "Importar planilha de conciliação preenchida";
 
-  const previaRepasse = trpc.conciliacao.previsualizarRepasse.useMutation({ onError: (e) => toast(e.message) });
-  const previaPlanilha = trpc.conciliacao.previsualizarPlanilha.useMutation({ onError: (e) => toast(e.message) });
+  // ⚠️ Sem toast nas duas prévias, de propósito: um arquivo do relatório errado (ex.: a
+  // planilha modelo no importador de repasse) é recusado com a dica de para onde levar o
+  // arquivo — e um toast some sozinho em ~5s, deixando o modal vazio sem explicação nenhuma. O
+  // erro fica visível e FIXO no corpo do modal (`erroDaPrevia` abaixo), até a pessoa trocar de
+  // arquivo ou fechar.
+  // ⚠️ O `onError` vazio NÃO é descuido: sem ele, a rede de segurança global de mutações
+  // (`main.tsx`) acende um toast com a MESMA frase que o aviso fixo do modal já mostra.
+  const previaRepasse = trpc.conciliacao.previsualizarRepasse.useMutation({ onError: () => {} });
+  const previaPlanilha = trpc.conciliacao.previsualizarPlanilha.useMutation({ onError: () => {} });
   const importarRepasse = trpc.conciliacao.importarRepasse.useMutation({
     onSuccess: (r) => {
       toast(
@@ -71,6 +78,7 @@ export function ImportarRecebidoDialog({
   // A substituição do período só é oferecida quando o servidor recusou por conflito — a pessoa lê
   // o que vai trocar antes de confirmar.
   const conflito = importarRepasse.error?.data?.code === "CONFLICT" ? importarRepasse.error.message : null;
+  const erroDaPrevia = (tipo === "repasse" ? previaRepasse.error : previaPlanilha.error)?.message ?? null;
   const lendo = previaRepasse.isPending || previaPlanilha.isPending;
   const gravando = importarRepasse.isPending || importarPlanilha.isPending;
   const pode = !!arquivo && (tipo === "repasse" ? !!pr && pr.linhas > 0 && !pr.jaImportado : !!pp && pp.aplicaveis > 0);
@@ -132,10 +140,11 @@ export function ImportarRecebidoDialog({
         </div>
 
         {lendo && <p className="text-sm text-muted-foreground">Lendo o arquivo…</p>}
+        {erroDaPrevia && <Aviso tom="erro">{erroDaPrevia}</Aviso>}
 
         {tipo === "repasse" && pr && (
           <>
-            {pr.jaImportado && <Aviso tom="erro">Este repasse já foi importado em {dataUTC(pr.jaImportado.em)}. Nada mudaria.</Aviso>}
+            {pr.jaImportado && <Aviso tom="erro">Este repasse já foi importado em {dataBrasilia(pr.jaImportado.em)}. Nada mudaria.</Aviso>}
             <p className="text-sm">
               <strong>{pr.linhas}</strong> linha(s) · <strong>{formatBRL(pr.total)}</strong>
               {pr.periodoPagamento && (

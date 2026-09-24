@@ -73,7 +73,14 @@ export function ProcedimentosDialog({ clienteId, onClose, onSalvo }: { clienteId
               <LinhaDeValor
                 key={`padrao:${p.padrao?.codigo ?? ""}:${p.padrao?.valor ?? ""}`}
                 rotulo="Padrão"
+                procedimento={p.procedimento}
                 inicial={p.padrao}
+                // O padrão vale para quem NÃO tem valor específico por convênio — daí o total do
+                // procedimento menos o que já está coberto por operadora, não o total cru.
+                cirurgiasAfetadas={Math.max(
+                  p.cirurgias - p.porOperadora.reduce((soma, o) => soma + o.cirurgias, 0),
+                  0,
+                )}
                 pendente={salvar.isPending}
                 onSalvar={(codigo, valor) => salvar.mutate({ clienteId, textoBruto: p.procedimento, operadoraId: null, codigo, valor })}
               />
@@ -81,7 +88,9 @@ export function ProcedimentosDialog({ clienteId, onClose, onSalvo }: { clienteId
                 <LinhaDeValor
                   key={`${o.operadoraId}:${o.codigo ?? ""}:${o.valor ?? ""}`}
                   rotulo={o.operadora}
+                  procedimento={p.procedimento}
                   inicial={{ codigo: o.codigo, valor: o.valor }}
+                  cirurgiasAfetadas={o.cirurgias}
                   pendente={salvar.isPending}
                   onSalvar={(codigo, valor) =>
                     salvar.mutate({ clienteId, textoBruto: p.procedimento, operadoraId: o.operadoraId, codigo, valor })
@@ -106,13 +115,19 @@ export function ProcedimentosDialog({ clienteId, onClose, onSalvo }: { clienteId
 
 function LinhaDeValor({
   rotulo,
+  procedimento,
   inicial,
+  cirurgiasAfetadas,
   pendente,
   onSalvar,
   removivel,
 }: {
   rotulo: string;
+  /** Nome do procedimento — é ele que a confirmação precisa dizer, não só "Padrão". */
+  procedimento: string;
   inicial: { codigo: string | null; valor: number | null } | null;
+  /** Quantas cirurgias usam este valor hoje — é o número que aparece ao confirmar apagar/mudar. */
+  cirurgiasAfetadas: number;
   pendente: boolean;
   onSalvar: (codigo: string | null, valor: number | null) => void;
   removivel?: boolean;
@@ -121,6 +136,30 @@ function LinhaDeValor({
   const [valor, setValor] = useState<number | undefined>(inicial?.valor ?? undefined);
   const mudou = codigo !== (inicial?.codigo ?? "") || (valor ?? null) !== (inicial?.valor ?? null);
   const confirm = useConfirm();
+
+  const quantas = `${cirurgiasAfetadas} cirurgia${cirurgiasAfetadas === 1 ? "" : "s"}`;
+
+  async function salvarComConfirmacao() {
+    const codigoFinal = codigo.trim() || null;
+    const valorFinal = valor ?? null;
+    const valorAntes = inicial?.valor ?? null;
+    // Só o VALOR entra na conferência — é ele que vira o "cobrado" das cirurgias. Trocar só o
+    // código (referência do procedimento) não muda dinheiro nenhum, e mudar valor onde não havia
+    // nenhum (valorAntes null) não tira referência de ninguém: nenhum dos dois confirma.
+    if (valorAntes !== null && valorFinal !== valorAntes) {
+      const apagando = valorFinal === null;
+      const ok = await confirm({
+        title: `${apagando ? "Remover" : "Mudar"} o valor ${rotulo === "Padrão" ? "padrão" : `de ${rotulo}`} de "${procedimento}"`,
+        description: apagando
+          ? `${quantas} vão ficar sem valor de referência, e a glosa delas deixa de ser calculada.`
+          : `${quantas} vão passar a usar o valor novo na hora, sem retroação.`,
+        confirmText: apagando ? "Remover" : "Confirmar",
+        variant: apagando ? "destructive" : "default",
+      });
+      if (!ok) return;
+    }
+    onSalvar(codigoFinal, valorFinal);
+  }
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -134,7 +173,7 @@ function LinhaDeValor({
         onChange={(e) => setCodigo(e.target.value)}
       />
       <MoneyInput aria-label={`Valor — ${rotulo}`} className="h-9 w-40" value={valor} onChange={setValor} />
-      <Button size="sm" disabled={!mudou || pendente} onClick={() => onSalvar(codigo.trim() || null, valor ?? null)}>
+      <Button size="sm" disabled={!mudou || pendente} onClick={salvarComConfirmacao}>
         Salvar
       </Button>
       {removivel && (
@@ -153,7 +192,7 @@ function LinhaDeValor({
             // desta casa.
             const ok = await confirm({
               title: "Remover o valor deste convênio",
-              description: `As cirurgias de “${rotulo}” voltam a ficar sem valor de referência, e a glosa delas deixa de ser calculada.`,
+              description: `${quantas} de "${rotulo}" vão ficar sem valor de referência, e a glosa delas deixa de ser calculada.`,
               confirmText: "Remover",
               variant: "destructive",
             });
