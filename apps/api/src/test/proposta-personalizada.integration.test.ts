@@ -8,7 +8,6 @@ import { criarPropostaPersonalizada } from "../modules/documentos/proposta-perso
 import { habilitarAceite, responder } from "../modules/propostas/propostas.service.js";
 import { listStages } from "../modules/pipeline/pipeline.service.js";
 
-import { listStages } from "../modules/pipeline/pipeline.service.js";
 /**
  * A proposta PERSONALIZADA contra o MySQL de verdade (ADR-156).
  *
