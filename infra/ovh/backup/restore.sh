@@ -15,7 +15,7 @@
 # Uso:
 #   restore.sh                      o backup diário mais novo do bucket
 #   restore.sh <nome.tar.enc>       um backup específico de diario/ (ou semanal/<nome>, mensal/<nome>)
-#   restore.sh /caminho/local.tar.enc   um arquivo já baixado
+#   restore.sh /caminho/local.tar.enc   um arquivo já baixado (com o .hmac ao lado — obrigatório)
 # Saída: 0 = restaurou e conferiu; 1 = falhou (o motivo está na última linha "!!").
 #
 # ⚠️ RESTAURAR A PRODUÇÃO DE VERDADE NÃO É ISTO. É um procedimento manual, com janela e com a
@@ -53,7 +53,7 @@ trap terminar EXIT
 if [ -n "$ALVO" ] && [ -f "$ALVO" ]; then
   log "1/5 · arquivo local: $ALVO"
   cp "$ALVO" "$TMP/backup.tar.enc"
-  [ -f "$ALVO.sha256" ] && (cd "$TMP" && sed "s|  .*|  backup.tar.enc|" "$ALVO.sha256" > backup.tar.enc.sha256)
+  if [ -f "$ALVO.hmac" ]; then cp "$ALVO.hmac" "$TMP/backup.tar.enc.hmac"; fi
 else
   if [ -z "$ALVO" ]; then
     ALVO="$(rclone_ -- lsf --files-only "$DESTINO/diario/" | grep -E '^medconsultoria-[0-9]{8}-[0-9]{6}Z\.tar\.enc$' | sort | tail -n 1 || true)"
@@ -64,21 +64,18 @@ else
     || falhar "nome de backup inválido: '$ALVO'"
   log "1/5 · baixando $CAMINHO"
   rclone_ -v "$TMP:/dados" -- copyto "$DESTINO/$CAMINHO" /dados/backup.tar.enc
-  rclone_ -v "$TMP:/dados" -- copyto "$DESTINO/$CAMINHO.sha256" /dados/remoto.sha256 || true
-  if [ -f "$TMP/remoto.sha256" ]; then
-    sed "s|  .*|  backup.tar.enc|" "$TMP/remoto.sha256" > "$TMP/backup.tar.enc.sha256"
-  fi
+  # A falta do .hmac não é tratada aqui: quem decide é o conferir_hmac logo abaixo, e ele RECUSA.
+  rclone_ -v "$TMP:/dados" -- copyto "$DESTINO/$CAMINHO.hmac" /dados/backup.tar.enc.hmac || true
 fi
 
 # ── 2. Integridade e decifra ────────────────────────────────────────────────────────────────
-# O .sha256 é conferido ANTES de decifrar: `openssl enc` não autentica, então é aqui que um
-# arquivo corrompido ou adulterado é pego (ver o porquê em backup.sh, passo 4).
-if [ -f "$TMP/backup.tar.enc.sha256" ]; then
-  (cd "$TMP" && sha256sum -c --quiet backup.tar.enc.sha256) || falhar "o sha256 NÃO confere — arquivo corrompido ou adulterado"
-  log "2/5 · sha256 confere"
-else
-  log "2/5 · aviso: sem .sha256 ao lado do backup — integridade não conferida"
-fi
+# O HMAC é conferido ANTES de decifrar, em tempo constante: `openssl enc` não autentica, então é
+# aqui que um arquivo trocado, adulterado ou corrompido é pego (ver backup.sh, passo 4).
+# ⚠️ Sem .hmac, ou com .hmac que não bate, o script PARA — não existe "avisa e segue".
+# ⚠️ Backups feitos antes de 24/09/2026 levavam .sha256 (sem chave) e não são aceitos por este
+# script; nenhum chegou a ser feito em produção (o backup ainda não tinha sido instalado).
+conferir_hmac "$TMP/backup.tar.enc" "$TMP/backup.tar.enc.hmac"
+log "2/5 · HMAC confere"
 openssl enc -d "${CIFRA_ARGS[@]}" -pass "file:$CHAVE_ARQ" -in "$TMP/backup.tar.enc" | tar -C "$TMP" -xf - \
   || falhar "não decifrou — a chave instalada não é a que cifrou este backup, ou o arquivo está corrompido"
 rm -f "$TMP/backup.tar.enc"

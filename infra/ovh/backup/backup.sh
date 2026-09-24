@@ -10,7 +10,8 @@
 #   1. mysqldump CONSISTENTE (--single-transaction) do banco que o app usa de verdade
 #   2. contagem exata de linhas por tabela → manifesto (é contra ele que o ensaio confere)
 #   3. tar do volume de uploads (lido por um container descartável, sem precisar de root)
-#   4. junta tudo, cifra (AES-256 + PBKDF2, chave em arquivo 600 fora do repositório)
+#   4. junta tudo, cifra (AES-256 + PBKDF2, chave em arquivo 600 fora do repositório) e
+#      autentica (HMAC-SHA256 em <nome>.hmac, chave derivada da mesma)
 #   5. envia ao bucket S3-compatível (rclone em container: nada instalado na VPS)
 #   6. aplica a retenção NO DESTINO (diários / semanais / mensais)
 #
@@ -120,13 +121,16 @@ log "     $ARQUIVOS arquivos · $(du -h "$TMP/uploads.tar" | cut -f1)"
 # ── 4. Juntar e cifrar ──────────────────────────────────────────────────────────────────────
 # ⚠️ Por que openssl e não `age`: o openssl já existe em toda VPS Debian/Ubuntu (nada a
 # instalar), e o arquivo se decifra em qualquer máquina com OpenSSL >= 1.1.1 — inclusive a do
-# dono, no dia em que a VPS não existir mais. O custo conhecido: `openssl enc` não autentica
-# (CBC, sem MAC). A integridade vem do .sha256 enviado junto e conferido antes de decifrar, e
-# do próprio tar/gzip, que recusam arquivo adulterado. Documentado em docs/OPERACAO_OVH.md.
-log "4/6 · empacotar e cifrar"
+# dono, no dia em que a VPS não existir mais. `openssl enc` (CBC) não autentica, então a
+# integridade vem de um HMAC-SHA256 do arquivo cifrado, com chave derivada da chave do backup
+# (`<nome>.hmac`, ver hmac_do_arquivo em comum.sh). O restore confere o HMAC ANTES de decifrar e
+# RECUSA se ele faltar ou não bater. (Até 24/09/2026 era um .sha256 sem chave, que quem tem
+# escrita no bucket recalcula junto com o arquivo trocado.) Documentado em docs/OPERACAO_OVH.md.
+log "4/6 · empacotar, cifrar e autenticar (HMAC)"
 tar -C "$TMP" -cf - manifesto.txt banco.sql.gz uploads.tar \
   | openssl enc "${CIFRA_ARGS[@]}" -pass "file:$CHAVE_ARQ" -out "$TMP/$NOME"
-(cd "$TMP" && sha256sum "$NOME" > "$NOME.sha256")
+printf '%s  %s\n' "$(hmac_do_arquivo "$TMP/$NOME")" "$NOME" > "$TMP/$NOME.hmac"
+conferir_hmac "$TMP/$NOME" "$TMP/$NOME.hmac"
 # Prova de que o arquivo decifra com a chave instalada ANTES de mandá-lo embora — backup que
 # só se descobre ilegível no dia da restauração é o pior tipo.
 openssl enc -d "${CIFRA_ARGS[@]}" -pass "file:$CHAVE_ARQ" -in "$TMP/$NOME" | tar -tf - >/dev/null \
@@ -135,23 +139,26 @@ log "     $NOME · $(du -h "$TMP/$NOME" | cut -f1)"
 
 # ── 5. Enviar ───────────────────────────────────────────────────────────────────────────────
 log "5/6 · enviar para o bucket"
-rclone_ -v "$TMP:/dados:ro" -- copy /dados "$DESTINO/diario/" --include "$NOME" --include "$NOME.sha256"
+rclone_ -v "$TMP:/dados:ro" -- copy /dados "$DESTINO/diario/" --include "$NOME" --include "$NOME.hmac"
 # Domingo vira também semanal; dia 1º vira também mensal. Cópia DENTRO do provedor (o arquivo
 # não volta a passar pela VPS).
 if [ "$(date -u +%u)" = "7" ]; then
   rclone_ -- copyto "$DESTINO/diario/$NOME" "$DESTINO/semanal/$NOME"
-  rclone_ -- copyto "$DESTINO/diario/$NOME.sha256" "$DESTINO/semanal/$NOME.sha256"
+  rclone_ -- copyto "$DESTINO/diario/$NOME.hmac" "$DESTINO/semanal/$NOME.hmac"
   log "     cópia semanal feita"
 fi
 if [ "$(date -u +%d)" = "01" ]; then
   rclone_ -- copyto "$DESTINO/diario/$NOME" "$DESTINO/mensal/$NOME"
-  rclone_ -- copyto "$DESTINO/diario/$NOME.sha256" "$DESTINO/mensal/$NOME.sha256"
+  rclone_ -- copyto "$DESTINO/diario/$NOME.hmac" "$DESTINO/mensal/$NOME.hmac"
   log "     cópia mensal feita"
 fi
 # Conferência do que chegou, pelo NOME e pelo TAMANHO — "o rclone não reclamou" não é prova.
 TAM_LOCAL="$(stat -c %s "$TMP/$NOME")"
 TAM_REMOTO="$(rclone_ -- lsf --files-only --format s "$DESTINO/diario/" --include "$NOME")"
 [ "$TAM_REMOTO" = "$TAM_LOCAL" ] || falhar "o arquivo no bucket tem '$TAM_REMOTO' bytes; o local tem $TAM_LOCAL"
+# Sem o .hmac lá, o restore recusa este backup — então a falta dele é falha do backup, agora.
+[ -n "$(rclone_ -- lsf --files-only "$DESTINO/diario/" --include "$NOME.hmac")" ] \
+  || falhar "o $NOME.hmac não chegou ao bucket — sem ele este backup não é restaurável"
 log "     conferido no bucket: $TAM_REMOTO bytes"
 
 # ── 6. Retenção ─────────────────────────────────────────────────────────────────────────────
@@ -164,7 +171,7 @@ aplicar_retencao() { # $1 = pasta, $2 = quantos manter
   apagar="$(printf '%s\n' "$lista" | sed '/^$/d' | head -n "-$manter")"
   for a in $apagar; do
     rclone_ -- deletefile "$DESTINO/$pasta/$a"
-    rclone_ -- deletefile "$DESTINO/$pasta/$a.sha256" || true
+    rclone_ -- deletefile "$DESTINO/$pasta/$a.hmac" || true
     log "     retenção: apagado $pasta/$a"
   done
 }
