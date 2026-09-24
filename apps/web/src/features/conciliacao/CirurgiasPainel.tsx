@@ -3,7 +3,7 @@ import { hasRoleLevel } from "@app/shared";
 import { useAuth } from "../../lib/auth-context";
 import { useBuscaAdiada } from "../../lib/use-busca-adiada";
 import { Download, FileUp, ListChecks, Lock, Stethoscope, Upload } from "lucide-react";
-import { trpc } from "../../lib/trpc";
+import { trpc, type RouterOutputs } from "../../lib/trpc";
 import { EmptyState } from "../../components/ui/empty-state";
 import { Table, THead, TH, TR, TD } from "../../components/ui/table";
 import { Select } from "../../components/ui/select";
@@ -507,6 +507,8 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           <EmptyState icon={Stethoscope} title="Nenhuma cirurgia" description="Nenhuma cirurgia com esses filtros." />
         ) : (
           <>
+            {/* ≥md: a tabela de sempre. */}
+            <div className="hidden md:block">
             <Table rotulo="Cirurgias conciliadas">
               <THead>
                 <TR>
@@ -523,9 +525,8 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
               </THead>
               <tbody>
                 {lista.data.linhas.map((l) => {
-                  const st = STATUS_CONCILIACAO[l.statusConciliacao];
                   return (
-                    <TR key={l.id}>
+                    <TR key={l.id} data-linha>
                       <TD>
                         {dataUTC(l.dataCirurgia)}
                         {l.status !== "EXECUTADA" && <span className="block text-xs text-warning">{l.statusBruto}</span>}
@@ -564,37 +565,56 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
                       </TD>
                       <TD className={`whitespace-nowrap text-right ${l.glosa ? "text-destructive" : ""}`}>{brl(l.glosa)}</TD>
                       <TD>
-                        <Button
-                          variant="ghost"
-                          className={`min-h-11 px-2 ${st.cor}`}
-                          aria-label={`Conciliar a cirurgia ${l.numeroCirurgia} — ${st.rotulo}`}
-                          onClick={() => setEditando(l)}
-                        >
-                          {st.rotulo}
-                        </Button>
-                        {/* ⚠️ Glosa sem recurso é dinheiro perdido por OMISSÃO — o botão precisa
-                            estar na própria linha, não escondido num modal que ninguém abre. */}
-                        {"glosa" in st || l.recurso ? (
-                          <Button
-                            variant="ghost"
-                            className={`block min-h-11 px-2 text-xs ${l.recurso ? ROTULO_RECURSO[l.recurso.status].cor : "text-muted-foreground"}`}
-                            aria-label={
-                              l.recurso
-                                ? `Recurso da cirurgia ${l.numeroCirurgia} — ${ROTULO_RECURSO[l.recurso.status].rotulo}`
-                                : `Abrir recurso da glosa da cirurgia ${l.numeroCirurgia}`
-                            }
-                            onClick={() => setRecorrendo(l)}
-                          >
-                            {l.recurso ? ROTULO_RECURSO[l.recurso.status].rotulo : "Recorrer"}
-                            {l.recurso?.semResposta && <span className="block text-destructive">sem resposta</span>}
-                          </Button>
-                        ) : null}
+                        <AcoesDaCirurgia linha={l} onConciliar={() => setEditando(l)} onRecorrer={() => setRecorrendo(l)} />
                       </TD>
                     </TR>
                   );
                 })}
               </tbody>
             </Table>
+            </div>
+
+            {/* <md: um CARTÃO por cirurgia. A tabela de 9 colunas tinha ~1.150px dentro de ~300px
+                a 360px — conferir glosa virava rolar de lado e perder de qual paciente era a linha.
+                O cartão leva o essencial para decidir (data, paciente, convênio, os três valores,
+                status e a ação); atendimento, procedimento e médico continuam na tabela e no
+                diálogo de conciliar. `data-linha` nas DUAS formas: é a marca que os testes usam. */}
+            <ul aria-label="Cirurgias conciliadas" className="divide-y md:hidden">
+              {lista.data.linhas.map((l) => (
+                <li key={l.id} data-linha className="space-y-2 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{l.pacienteNome}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {dataUTC(l.dataCirurgia)} · cir. {l.numeroCirurgia}
+                      </p>
+                      {l.status !== "EXECUTADA" && <p className="text-xs text-warning">{l.statusBruto}</p>}
+                      {l.atrasada && <p className="text-xs font-medium text-destructive">passou do prazo</p>}
+                    </div>
+                    <div className="min-w-0 max-w-[45%] text-right text-sm">
+                      <ConvenioDaLinha operadora={l.operadora} convenioBruto={l.convenioBruto} convenioParticular={l.convenioParticular} />
+                    </div>
+                  </div>
+                  <dl className="grid grid-cols-3 gap-2 text-sm">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Cobrado</dt>
+                      <dd className="whitespace-nowrap">{brl(l.cobrado)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Recebido</dt>
+                      <dd className="whitespace-nowrap">{brl(l.recebido)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Glosa</dt>
+                      <dd className={`whitespace-nowrap ${l.glosa ? "text-destructive" : ""}`}>{brl(l.glosa)}</dd>
+                    </div>
+                  </dl>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <AcoesDaCirurgia linha={l} onConciliar={() => setEditando(l)} onRecorrer={() => setRecorrendo(l)} />
+                  </div>
+                </li>
+              ))}
+            </ul>
             <Paginacao pagina={lista.data.pagina} porPagina={lista.data.porPagina} total={lista.data.total} onPagina={setPagina} />
           </>
         )}
@@ -631,6 +651,45 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
       )}
       {dialogo === "semProducao" && <RecebidoSemProducaoDialog clienteId={clienteId} onClose={() => setDialogo(null)} />}
     </div>
+  );
+}
+
+type LinhaDaLista = RouterOutputs["conciliacao"]["cirurgias"]["linhas"][number];
+
+/**
+ * O status (que abre o diálogo de conciliar) e o recurso da glosa — o MESMO nas duas formas da
+ * lista (tabela e cartão), para o celular não ganhar uma versão com menos ação.
+ */
+function AcoesDaCirurgia({ linha: l, onConciliar, onRecorrer }: { linha: LinhaDaLista; onConciliar: () => void; onRecorrer: () => void }) {
+  const st = STATUS_CONCILIACAO[l.statusConciliacao];
+  return (
+    <>
+      <Button
+        variant="ghost"
+        className={`min-h-11 px-2 ${st.cor}`}
+        aria-label={`Conciliar a cirurgia ${l.numeroCirurgia} — ${st.rotulo}`}
+        onClick={onConciliar}
+      >
+        {st.rotulo}
+      </Button>
+      {/* ⚠️ Glosa sem recurso é dinheiro perdido por OMISSÃO — o botão precisa estar na própria
+          linha, não escondido num modal que ninguém abre. */}
+      {"glosa" in st || l.recurso ? (
+        <Button
+          variant="ghost"
+          className={`block min-h-11 px-2 text-xs ${l.recurso ? ROTULO_RECURSO[l.recurso.status].cor : "text-muted-foreground"}`}
+          aria-label={
+            l.recurso
+              ? `Recurso da cirurgia ${l.numeroCirurgia} — ${ROTULO_RECURSO[l.recurso.status].rotulo}`
+              : `Abrir recurso da glosa da cirurgia ${l.numeroCirurgia}`
+          }
+          onClick={onRecorrer}
+        >
+          {l.recurso ? ROTULO_RECURSO[l.recurso.status].rotulo : "Recorrer"}
+          {l.recurso?.semResposta && <span className="block text-destructive">sem resposta</span>}
+        </Button>
+      ) : null}
+    </>
   );
 }
 

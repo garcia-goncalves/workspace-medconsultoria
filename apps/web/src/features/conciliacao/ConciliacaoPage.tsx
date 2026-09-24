@@ -570,7 +570,8 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
                   <span className="text-xs text-muted-foreground">({c.atendimentos})</span>
                   <Select
                     aria-label={`Operadora de ${c.textoBruto}`}
-                    className="h-8 w-48 text-xs"
+                    // h-11 (44px): alvo de toque mínimo — com 32px, no celular o dedo errava o campo.
+                    className="h-11 w-48 text-xs"
                     defaultValue=""
                     onChange={(e) => {
                       const v = e.target.value;
@@ -631,7 +632,8 @@ function CardPendencias({ clienteId, aoLigar }: { clienteId: string; aoLigar: ()
                   <span className="text-xs text-muted-foreground">({p.atendimentos})</span>
                   <Select
                     aria-label={`Profissional de ${p.textoBruto}`}
-                    className="h-8 w-48 text-xs"
+                    // h-11 (44px): alvo de toque mínimo — com 32px, no celular o dedo errava o campo.
+                    className="h-11 w-48 text-xs"
                     defaultValue=""
                     onChange={(e) => {
                       const v = e.target.value;

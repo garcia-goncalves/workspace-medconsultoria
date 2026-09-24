@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 /**
  * Selo "AMBIENTE LOCAL" — o que impede confundir ensaio com realidade.
  *
@@ -21,6 +23,15 @@
  * consulta de mídia em `index.css`, onde a barra deixa de ser fixa.
  */
 export function SeloAmbienteLocal() {
+  // Enquanto o selo existe, a raiz ganha `selo-local` e o `index.css` dá folga no fim da página:
+  // sem isso o selo cobria o último cartão/paginação, e no celular o conteúdo não tinha como
+  // rolar acima dele. O efeito vem antes do `return` por causa da regra dos hooks.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    document.documentElement.classList.add("selo-local");
+    return () => document.documentElement.classList.remove("selo-local");
+  }, []);
+
   if (!import.meta.env.DEV) return null;
   return (
     <div

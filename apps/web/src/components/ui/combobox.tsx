@@ -139,7 +139,10 @@ export function Combobox({
               e.stopPropagation();
               onChange("");
             }}
-            className="ml-1 shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+            // Alvo de toque de 44×44 (era 20×20) com margem negativa compensando — a técnica do
+            // `HintIcon`: o "x" continua do mesmo tamanho e a caixa não cresce. `-mr-3` come o
+            // `px-3` da caixa, para o alvo encostar na borda em vez de empurrar o texto.
+            className="-my-3 -mr-3 ml-0 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
             aria-label="Limpar"
           >
             <X className="h-4 w-4" />
