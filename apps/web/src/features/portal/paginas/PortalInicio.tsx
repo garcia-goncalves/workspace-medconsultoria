@@ -13,9 +13,11 @@ import {
   CheckCircle2,
   MapPin,
   AlertTriangle,
+  Wallet,
 } from "lucide-react";
 import { trpc } from "../../../lib/trpc";
-import { dataHora, data } from "../../../lib/format-date";
+import { dataHora, data, dataUTC } from "../../../lib/format-date";
+import { formatBRL } from "../../../lib/masks";
 import { Card, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { Button } from "../../../components/ui/button";
@@ -104,6 +106,8 @@ function baixarIcs(ev: {
 
 export function PortalInicio() {
   const resumo = trpc.portal.resumo.useQuery();
+  // Só para o lembrete de pagamento (Onda 3B). A lista completa mora em "Meus serviços".
+  const pagamentos = trpc.portal.pagamentos.useQuery();
   const utils = trpc.useUtils();
   const confirm = useConfirm();
   const prompt = usePrompt();
@@ -203,7 +207,18 @@ export function PortalInicio() {
   const r = resumo.data;
   // Os três blocos de AÇÃO. Vazio aqui é boa notícia — e por isso eles somem em vez de
   // mostrarem "nenhum item": três caixas vazias fariam a tela parecer quebrada.
-  const nadaPendente = r.propostas.length === 0 && r.paraAssinar.length === 0 && r.aguardandoVoce.length === 0;
+  // Pagamento vencido também é pendência: "Está tudo em dia" ao lado de uma conta vencida seria
+  // a tela se contradizendo. E falha da consulta NÃO conta como "sem vencida" — sem o dado, a tela
+  // não afirma que está tudo em dia.
+  const pag = pagamentos.data;
+  const temVencida = !!pag && pag.quantidadeVencidas > 0;
+  const nadaPendente =
+    r.propostas.length === 0 && r.paraAssinar.length === 0 && r.aguardandoVoce.length === 0 && !temVencida && !pagamentos.isError;
+  const irParaPagamentos = (e: MouseEvent) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    navegar("/portal/servicos");
+  };
 
   const irParaOSuporte = (e: MouseEvent) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -324,6 +339,42 @@ export function PortalInicio() {
               className="inline-flex min-h-11 items-center text-xs font-medium text-primary underline-offset-2 hover:underline"
             >
               Fale com a gente pelo Suporte
+            </a>
+          </div>
+        </Card>
+      )}
+
+      {/* "Quanto eu devo e quando vence?" (Onda 3B) — o lembrete curto. Vencido pede ação (borda
+          de alerta); só o próximo vencimento é informação. O detalhe e o PIX ficam em Serviços. */}
+      {pag && (temVencida || pag.proximoVencimento) && (
+        <Card className={temVencida ? "border-destructive/40" : undefined}>
+          <div className="flex flex-wrap items-center gap-3 px-4 py-3.5 text-sm sm:px-5">
+            <span
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                temVencida ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+              }`}
+            >
+              <Wallet className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              {temVencida ? (
+                <p className="font-medium text-foreground">
+                  {pag.quantidadeVencidas === 1 ? "1 pagamento vencido" : `${pag.quantidadeVencidas} pagamentos vencidos`} ·{" "}
+                  {formatBRL(pag.totalVencido)}
+                </p>
+              ) : null}
+              {pag.proximoVencimento && (
+                <p className={temVencida ? "text-xs text-muted-foreground" : "font-medium text-foreground"}>
+                  Próximo vencimento: {dataUTC(pag.proximoVencimento.vencimento)} · {formatBRL(pag.proximoVencimento.valor)}
+                </p>
+              )}
+            </div>
+            <a
+              href="/portal/servicos"
+              onClick={irParaPagamentos}
+              className="inline-flex min-h-11 shrink-0 items-center text-xs font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Ver pagamentos
             </a>
           </div>
         </Card>

@@ -544,3 +544,64 @@ export const novaTentativaCredenciamentoSchema = z.object({
   motivo: z.string().trim().min(1, "Registre o acordo que autoriza a nova tentativa.").max(1000),
 });
 export type NovaTentativaCredenciamentoInput = z.infer<typeof novaTentativaCredenciamentoSchema>;
+
+// ── O andamento dito ao CLIENTE, no Portal (Onda 3B) ─────────────────────────
+
+/**
+ * "EM QUE PÉ ESTÁ MEU CREDENCIAMENTO NA OPERADORA X?" — a situação de cada cruzamento, na língua
+ * do cliente. É a pergunta que mais chega por WhatsApp, e a resposta já existia no banco: faltava
+ * dizê-la no Portal. O `Record` é exaustivo de propósito — estado novo no enum não compila sem
+ * alguém decidir a frase que o cliente vai ler.
+ *
+ * ⚠️ **O que NÃO entra, de propósito:**
+ * - **o motivo da negativa** (`Credenciamento.motivoNegativa`): texto livre que a equipe escreve
+ *   para a equipe, sem saber que o cliente leria. Mudar o público de um campo que já tem conteúdo
+ *   gravado expõe de uma vez tudo o que foi escrito antes. Negado vira "não aprovado nesta
+ *   tentativa", e a conversa sobre o porquê é da equipe, com contexto;
+ * - **as observações** e **o honorário** do cruzamento — interno e comercial;
+ * - **o veredito de triagem** ("inapto") — ferramenta da Thaís, não julgamento entregue ao cliente.
+ */
+export type TomDoAndamento = "preparando" | "andamento" | "sucesso" | "atencao" | "encerrado";
+
+const ANDAMENTO_PARA_O_CLIENTE: Record<
+  StatusCredenciamento,
+  { frase: (data: string | null) => string; tom: TomDoAndamento }
+> = {
+  A_PROTOCOLAR: { frase: () => "Preparando o protocolo", tom: "preparando" },
+  PROTOCOLADO: { frase: (d) => (d ? `Protocolado em ${d}` : "Protocolado"), tom: "andamento" },
+  EM_ANALISE: {
+    frase: (d) => (d ? `Em análise pela operadora desde ${d}` : "Em análise pela operadora"),
+    tom: "andamento",
+  },
+  APROVADO: { frase: (d) => (d ? `Aprovado em ${d}` : "Aprovado"), tom: "sucesso" },
+  NEGADO: { frase: () => "Não aprovado nesta tentativa", tom: "atencao" },
+  ENCERRADO: { frase: () => "Encerrado", tom: "encerrado" },
+};
+
+/**
+ * A frase e o tom de UMA situação. `dataFormatada` já vem pronta (dd/mm/aaaa, fuso de Brasília)
+ * de quem chama — formatar data é trabalho da tela, que tem o formatador central.
+ */
+export function andamentoParaOCliente(
+  status: StatusCredenciamento,
+  dataFormatada: string | null,
+): { frase: string; tom: TomDoAndamento } {
+  const a = ANDAMENTO_PARA_O_CLIENTE[status];
+  return { frase: a.frase(dataFormatada), tom: a.tom };
+}
+
+/**
+ * O marco que levou o cruzamento à situação atual, para acompanhar a frase. Negado e encerrado
+ * não levam data na frase do cliente (ela não fala de quando), então devolvem `null`.
+ */
+export function marcoDoAndamento(linha: {
+  status: StatusCredenciamento;
+  protocoladoEm: Date | null;
+  emAnaliseEm: Date | null;
+  aprovadoEm: Date | null;
+}): Date | null {
+  if (linha.status === "PROTOCOLADO") return linha.protocoladoEm;
+  if (linha.status === "EM_ANALISE") return linha.emAnaliseEm;
+  if (linha.status === "APROVADO") return linha.aprovadoEm;
+  return null;
+}

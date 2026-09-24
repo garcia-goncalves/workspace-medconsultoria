@@ -1,9 +1,29 @@
 import { useState } from "react";
-import { CheckCircle2, XCircle, ShieldCheck, AlertTriangle, Loader2, ThumbsUp, ThumbsDown } from "lucide-react";
+import { CheckCircle2, XCircle, ShieldCheck, AlertTriangle, Loader2, ThumbsUp, ThumbsDown, FileDown } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { Button } from "../../components/ui/button";
 import { Textarea } from "../../components/ui/textarea";
-import { DocumentoBranded } from "../documentos/DocumentoBranded";
+import { DocumentoBranded, imprimirDocumento, type DocumentoBrandedProps } from "../documentos/DocumentoBranded";
+
+/**
+ * "BAIXAR PDF" na página pública (Onda 3B). Reusa `imprimirDocumento` — o MESMO mecanismo do
+ * PDF interno, com a mesma paginação A4 da tela (ADR-129): o navegador abre a janela de impressão
+ * e o cliente escolhe "Salvar como PDF". Nada de segundo motor de PDF, que divergiria do papel que
+ * a Thaís conferiu.
+ *
+ * ⚠️ Só aparece onde o documento foi desenhado — link expirado ou inválido nem chega aqui (ADR-141:
+ * o servidor recusa o token e a página mostra a tela de expirado), então não imprime o que não abre.
+ * ⚠️ Sem `confirmarExportacao`: aquele aviso ("sobrou marcador no texto") é para a equipe antes de
+ * exportar; o cliente não tem o que corrigir.
+ */
+function BotaoBaixarPdf(props: DocumentoBrandedProps) {
+  return (
+    <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => imprimirDocumento(props)}>
+      <FileDown className="h-4 w-4" />
+      Baixar PDF
+    </Button>
+  );
+}
 
 function Casca({ children }: { children: React.ReactNode }) {
   return (
@@ -114,13 +134,21 @@ export function PropostaPublicaPage({ token }: { token: string }) {
   const decisao = responder.data?.decisao ?? (d.status !== "PENDENTE" ? d.status : null);
   const respondida = decisao === "ACEITA" || decisao === "RECUSADA";
 
+  const docProps: DocumentoBrandedProps = {
+    titulo: d.documento.titulo,
+    clienteNome: d.clienteNome,
+    conteudoMarkdown: d.documento.conteudo,
+  };
   const documento = (
     <div className="overflow-hidden rounded-xl border bg-muted/30 p-4 sm:p-6">
-      <DocumentoBranded
-        titulo={d.documento.titulo}
-        clienteNome={d.clienteNome}
-        conteudoMarkdown={d.documento.conteudo}
-      />
+      <DocumentoBranded {...docProps} />
+    </div>
+  );
+  // Proposta alterada depois do envio NÃO oferece o PDF: o papel mudou, e baixar a versão nova
+  // como se fosse a enviada é justamente o que o aviso de "peça um novo link" existe para evitar.
+  const baixar = (
+    <div className="flex justify-end">
+      <BotaoBaixarPdf {...docProps} />
     </div>
   );
 
@@ -143,6 +171,7 @@ export function PropostaPublicaPage({ token }: { token: string }) {
             </p>
           </div>
           {documento}
+          {baixar}
         </div>
       </Casca>
     );
@@ -173,6 +202,7 @@ export function PropostaPublicaPage({ token }: { token: string }) {
         </div>
 
         {documento}
+        {baixar}
 
         {responder.error && <p className="text-sm text-destructive">{responder.error.message}</p>}
 

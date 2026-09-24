@@ -8,6 +8,7 @@ import { Textarea } from "../../../components/ui/textarea";
 import { toast } from "../../../components/ui/toast";
 import { ServicosPicker } from "../../crm/leads/ServicosPicker";
 import { PortalServicos } from "../PortalServicos";
+import { PortalPagamentos } from "../PortalPagamentos";
 import { usePodeNoPortal } from "../permissoes";
 
 /**
@@ -56,6 +57,9 @@ export function PortalServicosPage() {
       </div>
 
       <PortalServicos />
+
+      {/* "Quanto eu devo e quando vence?" (Onda 3B): ao lado do que foi contratado. */}
+      <PortalPagamentos />
 
       {/* ⚠️ Esta consulta leva ~12 s em produção. Sem um lugar reservado, a tela parecia
           pronta e um card inteiro caía do céu doze segundos depois, empurrando o que o

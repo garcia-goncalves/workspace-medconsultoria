@@ -29,17 +29,29 @@ const limpo = (v: string | null | undefined) => (v ?? "").trim();
  * Ajustes; inventar número de conta não é trabalho de ninguém.
  */
 export function montarDadosPagamento(d: DadosParaPagamento): string {
-  const linhas: string[] = [];
-  const par = (rotulo: string, valor: string) => {
-    if (valor) linhas.push(`| ${rotulo} | ${valor} |`);
-  };
-  par("Banco", limpo(d.bancoNome));
-  par("Agência", limpo(d.bancoAgencia));
-  par("Conta", limpo(d.bancoConta));
-  par("Titular", limpo(d.bancoTitular));
-  par("Chave PIX", limpo(d.pixChave));
+  const linhas = linhasDadosPagamento(d).map((l) => `| ${l.rotulo} | ${l.valor} |`);
   if (!linhas.length) return "";
   return ["| | |", "| --- | --- |", ...linhas].join("\n");
+}
+
+/**
+ * As MESMAS linhas do bloco acima, como dado — para quem desenha o bloco em tela em vez de
+ * imprimi-lo em Markdown (a área "Pagamentos" do Portal do cliente).
+ *
+ * ⚠️ É daqui que `montarDadosPagamento` tira as linhas, e não uma cópia ao lado: a regra do
+ * vazio (campo em branco some; tudo em branco devolve lista vazia) precisa ser UMA só. Duas
+ * cópias fariam o Portal mostrar "Agência:" vazia enquanto a proposta a esconde — e o cliente
+ * compara os dois papéis justamente na hora de pagar.
+ */
+export function linhasDadosPagamento(d: DadosParaPagamento): { rotulo: string; valor: string }[] {
+  const pares: [string, string][] = [
+    ["Banco", limpo(d.bancoNome)],
+    ["Agência", limpo(d.bancoAgencia)],
+    ["Conta", limpo(d.bancoConta)],
+    ["Titular", limpo(d.bancoTitular)],
+    ["Chave PIX", limpo(d.pixChave)],
+  ];
+  return pares.filter(([, valor]) => !!valor).map(([rotulo, valor]) => ({ rotulo, valor }));
 }
 
 /**
