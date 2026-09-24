@@ -1,9 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
-import type { ChamadoStatus, ChamadoPrioridade } from "@app/shared";
+import { decidirEmailOperacional, type ChamadoStatus, type ChamadoPrioridade } from "@app/shared";
 import { notificationService } from "../../realtime/socket.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
-import { enviarEmailTemplate } from "../emails/enviados.service.js";
+import { renderTemplate } from "../emails/emails.service.js";
+import { enviarEmailTemplate, registrarEmailEnviado } from "../emails/enviados.service.js";
+import { enviarEmail } from "../../lib/email.js";
 import { destinatariosDaRespostaAoCliente } from "./aviso-de-resposta.js";
 import { config } from "../../config.js";
 
@@ -372,6 +374,108 @@ async function pushParaParticipantes(conversaId: string, evento: string, payload
   return parts;
 }
 
+const JANELA_ANTI_SPAM_MENSAGEM_MS = 30 * 60 * 1000;
+
+/**
+ * Mensagem em conversa INDIVIDUAL/GRUPO/PROJETO avisa os outros participantes — antes só emitia
+ * socket (`pushParaParticipantes`), e em produção o tempo real é polling (Socket.IO desligado),
+ * então nem isso chegava. Sininho SEMPRE (mesmo padrão de `notificar()`); e-mail conforme a
+ * preferência de cada um, com duas travas de anti-spam.
+ *
+ * O sino AGREGA: uma rajada de mensagens seguidas na mesma conversa atualiza a MESMA notificação
+ * não lida, em vez de criar uma por mensagem — quem chegar depois vê o texto da última.
+ *
+ * O e-mail nunca sai duas vezes em menos de 30 min para a mesma conversa/destinatário (olha o
+ * `emailEnviadoEm` da notificação MAIS RECENTE daquela conversa, lida ou não — o relógio não
+ * pode reiniciar só porque a pessoa dispensou o sino), e nunca sai se a pessoa já leu a conversa
+ * DEPOIS desta mensagem (`ultimaLeituraEm` do participante, comparado com `msg.createdAt`).
+ */
+async function notificarMensagemInterna(conversaId: string, autorId: string, msg: { conteudo: string; createdAt: Date }): Promise<void> {
+  const [conversa, autor, participantes] = await Promise.all([
+    prisma.conversa.findUnique({ where: { id: conversaId }, select: { nome: true, tipo: true } }),
+    prisma.user.findUnique({ where: { id: autorId }, select: { nome: true } }),
+    prisma.conversaParticipante.findMany({
+      where: { conversaId, userId: { not: autorId } },
+      select: {
+        userId: true,
+        ultimaLeituraEm: true,
+        silenciadoEm: true, // conversa silenciada por essa pessoa: nem sino, nem e-mail
+        user: { select: { nome: true, email: true, ativo: true, deletedAt: true, role: true } },
+      },
+    }),
+  ]);
+  if (!autor) return;
+
+  const nomeConversa = conversa?.nome?.trim() || (conversa?.tipo === "INDIVIDUAL" ? autor.nome : "Conversa interna");
+  const trecho = msg.conteudo.trim().slice(0, 160);
+
+  for (const p of participantes) {
+    if (p.silenciadoEm) continue;
+    if (!p.user || p.user.deletedAt || !p.user.ativo) continue;
+
+    const render = await renderTemplate("mensagem_interna", {
+      remetente: autor.nome,
+      conversa: nomeConversa,
+      mensagem: trecho,
+      nome: p.user.nome,
+      link: config.WEB_ORIGIN + "/mensagens",
+    });
+
+    // A mais recente de TODAS (lida ou não) é quem sabe a última vez que o e-mail saiu para esta
+    // conversa; só a NÃO LIDA é reaproveitada para o texto do sino.
+    const ultima = await prisma.notificacao.findFirst({
+      where: { userId: p.userId, tipo: "mensagem_interna", entidadeId: conversaId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, lida: true, emailEnviadoEm: true },
+    });
+
+    const notif =
+      ultima && !ultima.lida
+        ? await prisma.notificacao.update({
+            where: { id: ultima.id },
+            data: { titulo: render.titulo, corpo: render.corpo || null, createdAt: new Date() },
+          })
+        : await prisma.notificacao.create({
+            data: {
+              userId: p.userId,
+              tipo: "mensagem_interna",
+              titulo: render.titulo,
+              corpo: render.corpo || null,
+              entidadeTipo: "conversa",
+              entidadeId: conversaId,
+            },
+          });
+    notificationService.emitToUser(p.userId, "notificacao", notif);
+
+    if (p.ultimaLeituraEm && p.ultimaLeituraEm >= msg.createdAt) continue; // já leu depois desta mensagem
+    if (ultima?.emailEnviadoEm && Date.now() - ultima.emailEnviadoEm.getTime() < JANELA_ANTI_SPAM_MENSAGEM_MS) continue;
+
+    const pref = await prisma.preferenciaEmail.findUnique({
+      where: { userId_tipo: { userId: p.userId, tipo: "mensagem_interna" } },
+      select: { ativo: true },
+    });
+    const podeEmail = decidirEmailOperacional({
+      tipo: "mensagem_interna",
+      role: p.user.role,
+      email: p.user.email,
+      ativo: p.user.ativo,
+      excluido: !!p.user.deletedAt,
+      preferencia: pref ? pref.ativo : null,
+      emailDoSistema: config.ROOT_PROTEGIDO_EMAIL,
+    });
+    if (!podeEmail) continue;
+
+    const para = p.user.email!;
+    // Marca ANTES de disparar: a próxima mensagem da rajada precisa ver a janela já aberta,
+    // mesmo que o envio em si ainda esteja em voo. `await` (não `void`): a mensagem já foi
+    // gravada antes de chegar aqui, e o envio precisa ficar OBSERVÁVEL para o monitor de
+    // entregas — mesmo raciocínio do `allSettled` da resposta ao cliente (M8) mais abaixo.
+    await prisma.notificacao.update({ where: { id: notif.id }, data: { emailEnviadoEm: new Date() } });
+    const { enviado, erro } = await enviarEmail({ para, assunto: render.assunto, html: render.html, texto: render.texto });
+    await registrarEmailEnviado(para, render.assunto, render.texto ?? "", "mensagem_interna", enviado, erro);
+  }
+}
+
 export async function sendMensagem(conversaId: string, conteudo: string, userId: string) {
   await ensureParticipant(conversaId, userId);
   const conv = await prisma.conversa.findUnique({ where: { id: conversaId }, select: { tipo: true, clienteId: true } });
@@ -425,6 +529,13 @@ export async function sendMensagem(conversaId: string, conteudo: string, userId:
       }
     }
   }
+
+  // Conversa interna (INDIVIDUAL/GRUPO/PROJETO): avisa os outros participantes — sino + e-mail.
+  // CLIENTE fica de fora, os dois blocos acima já cobrem os dois lados dela.
+  if (conv?.tipo && conv.tipo !== "CLIENTE") {
+    await notificarMensagemInterna(conversaId, userId, { conteudo: msg.conteudo, createdAt: msg.createdAt });
+  }
+
   return msg;
 }
 

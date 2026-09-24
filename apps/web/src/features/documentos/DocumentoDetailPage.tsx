@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { TIPO_MODELO_LABEL, DOC_INTERACAO, situacaoDocumento } from "@app/shared";
 import { trpc } from "../../lib/trpc";
+import { BotaoIA } from "../../components/ia/BotaoIA";
 import { Button } from "../../components/ui/button";
 import { DocumentoEditor } from "./DocumentoEditor";
 import { Badge } from "../../components/ui/badge";
@@ -452,11 +453,11 @@ export function DocumentoDetailPage() {
           </>
         )}
 
-        {ia.data?.disponivel && !enviado && (
-          <Button
-            size="sm"
+        {!enviado && (
+          <BotaoIA
+            iaDisponivel={ia.data?.disponivel}
+            pendente={melhorarIA.isPending}
             variant="secondary"
-            disabled={melhorarIA.isPending}
             onClick={async () => {
               const instr = await prompt({
                 title: "Melhorar com IA",
@@ -470,13 +471,8 @@ export function DocumentoDetailPage() {
               if (instr && instr.trim()) melhorarIA.mutate({ id: d.id, instrucao: instr.trim() });
             }}
           >
-            {melhorarIA.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
             Melhorar com IA
-          </Button>
+          </BotaoIA>
         )}
 
         <div className="ml-auto flex items-center gap-2">

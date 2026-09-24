@@ -1164,6 +1164,11 @@ model Notificacao {
   entidadeId   String?
   lida         Boolean  @default(false)
   createdAt    DateTime @default(now())
+  /// Quando o e-mail desta notificação foi enviado (anti-spam de `mensagem_interna`: no máximo
+  /// 1 e-mail por conversa/destinatário a cada 30 min — ver `mensagens.service.ts`). Nulo até o
+  /// primeiro envio; a notificação AGREGADA (mesma linha reaproveitada enquanto não lida) guarda
+  /// aqui o instante do último e-mail, então uma rajada de mensagens não vira uma rajada de e-mail.
+  emailEnviadoEm DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

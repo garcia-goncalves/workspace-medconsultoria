@@ -9,7 +9,6 @@ import {
   ListChecks,
   X,
   ClipboardCheck,
-  Sparkles,
   Loader2,
   Settings2,
   FileText,
@@ -31,6 +30,7 @@ import {
 import { useForm, Controller, useWatch, type Control, type UseFormSetValue, type UseFormRegister } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
+import { BotaoIA } from "../../../components/ia/BotaoIA";
 import { PageHeader } from "../../../components/ui/page-header";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
@@ -631,18 +631,14 @@ function ExigenciasPanel({ servico }: { servico: ServicoRow }) {
         <p className="text-sm text-muted-foreground">
 <strong>O cliente envia:</strong> o que o cliente precisa entregar para este serviço. Tudo aparece no Portal do Cliente e chega na ficha.
         </p>
-        {ia.data?.disponivel && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 text-primary"
-            disabled={sugerir.isPending}
-            onClick={() => sugerir.mutate({ servicoId: servico.id })}
-          >
-            {sugerir.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            Sugerir com IA
-          </Button>
-        )}
+        <BotaoIA
+          iaDisponivel={ia.data?.disponivel}
+          pendente={sugerir.isPending}
+          className="shrink-0 text-primary"
+          onClick={() => sugerir.mutate({ servicoId: servico.id })}
+        >
+          Sugerir com IA
+        </BotaoIA>
       </div>
 
       {sugestoes.length > 0 && (
