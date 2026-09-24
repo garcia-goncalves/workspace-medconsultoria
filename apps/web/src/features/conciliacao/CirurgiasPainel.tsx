@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { hasRoleLevel } from "@app/shared";
 import { useAuth } from "../../lib/auth-context";
 import { useBuscaAdiada } from "../../lib/use-busca-adiada";
 import { Download, FileUp, ListChecks, Lock, Stethoscope, Upload } from "lucide-react";
-import { trpc } from "../../lib/trpc";
+import { trpc, type RouterOutputs } from "../../lib/trpc";
 import { EmptyState } from "../../components/ui/empty-state";
 import { Table, THead, TH, TR, TD } from "../../components/ui/table";
 import { Select } from "../../components/ui/select";
@@ -31,6 +31,8 @@ import { RecursoDeGlosaDialog } from "./RecursoDeGlosaDialog";
 import { ProcedimentosDialog } from "./ProcedimentosDialog";
 import { ImportarRecebidoDialog } from "./ImportarRecebidoDialog";
 import { HistoricoFechamento } from "./HistoricoFechamentoDialog";
+import type { BuscaConciliacao } from "./busca-na-url";
+import { useBuscaConciliacao } from "./use-busca-conciliacao";
 
 /**
  * As cirurgias do TASY de um cliente, CONCILIADAS: cada uma com cobrado (do de-para do
@@ -57,15 +59,44 @@ type Dialogo = null | "procedimentos" | "repasse" | "planilha" | "semProducao";
 
 const brl = (v: number | null) => (v === null ? "—" : formatBRL(v));
 
+/**
+ * O valor do `<select>` de operadora que quer dizer "Particular". ⚠️ Não é um id de operadora
+ * e NUNCA vai ao servidor como `operadoraId`: particular ligado tem operadora NULA, igual ao
+ * convênio que ninguém ligou — por isso vira o campo próprio `particular: true`.
+ */
+const OPCAO_PARTICULAR = "__particular__";
+
+/** O pedido de exportação levou algum recorte além do mês? (o mês é o escopo, não filtro) */
+function pedidoTemFiltro(p: Record<string, unknown>): boolean {
+  return Object.entries(p).some(([k, v]) => k !== "clienteId" && k !== "competencia" && v !== undefined);
+}
+
+/** Traduz o valor do `<select>` de operadora para o que o servidor entende. */
+function filtroDeOperadora(valor: string): { operadoraId?: string; particular?: true } {
+  if (!valor) return {};
+  return valor === OPCAO_PARTICULAR ? { particular: true } : { operadoraId: valor };
+}
+
 export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string; clienteNome: string }) {
-  const [competencia, setCompetencia] = useState("");
-  const [situacao, setSituacao] = useState<Situacao>("");
-  const [status, setStatus] = useState<StatusConciliacao | "">("");
-  const [operadoraId, setOperadoraId] = useState("");
-  const [busca, setBusca, buscaAdiada] = useBuscaAdiada();
-  const [soAtrasadas, setSoAtrasadas] = useState(false);
-  const [recurso, setRecurso] = useState<"" | "SEM_RECURSO" | "ABERTO" | "SEM_RESPOSTA" | "RESPONDIDO">("");
+  // Os filtros moram na URL (chaves `cir…`, ver `busca-na-url.ts`): recarregar volta no mesmo
+  // recorte, e trocar para "Consultas" e voltar não apaga nada. A página fica em memória — ela
+  // volta para 1 a cada filtro de qualquer jeito.
+  const [url, atualizar] = useBuscaConciliacao();
+  const competencia = url.cirMes ?? "";
+  const situacao: Situacao = url.cirSituacao ?? "";
+  const status: StatusConciliacao | "" = url.cirStatus ?? "";
+  const operadoraNaUrl = url.cirOperadora ?? "";
+  const soAtrasadas = url.cirPrazo === "atrasadas";
+  const recurso = url.cirRecurso ?? "";
+  const [busca, setBusca, buscaAdiada] = useBuscaAdiada(350, url.cirPaciente ?? "");
   const [pagina, setPagina] = useState(1);
+
+  // ⚠️ A busca é a ÚNICA chave escrita por aqui, e só depois da pausa: gravar a cada tecla faria
+  // uma navegação por letra. Quem limpa a busca limpa o CAMPO, e este efeito leva à URL.
+  const buscaNaUrl = url.cirPaciente ?? "";
+  useEffect(() => {
+    if (buscaAdiada !== buscaNaUrl) atualizar({ cirPaciente: buscaAdiada || undefined });
+  }, [buscaAdiada, buscaNaUrl, atualizar]);
   const [dialogo, setDialogo] = useState<Dialogo>(null);
   const [editando, setEditando] = useState<CirurgiaConciliada | null>(null);
   const [recorrendo, setRecorrendo] = useState<CirurgiaConciliada | null>(null);
@@ -78,13 +109,23 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
   const meses = trpc.conciliacao.mesesCirurgias.useQuery({ clienteId });
   const fechadas = trpc.conciliacao.competenciasFechadas.useQuery({ clienteId });
   const resumo = trpc.conciliacao.resumoCirurgias.useQuery({ clienteId, competencia: competencia || undefined });
+  // ⚠️ Operadora da URL que não está entre as opções do recorte (link antigo, mês trocado à mão
+  // no endereço) vira "sem filtro". Senão o `<select>` mostraria "Todas" enquanto a lista
+  // filtraria por ela — o mesmo defeito que a troca de mês já limpa.
+  const opcoesDeOperadora = resumo.data
+    ? new Set([
+        ...(resumo.data.porOperadora.some((o) => o.particular) ? [OPCAO_PARTICULAR] : []),
+        ...resumo.data.porOperadora.flatMap((o) => (o.operadoraId ? [o.operadoraId] : [])),
+      ])
+    : null;
+  const operadoraId = !opcoesDeOperadora || opcoesDeOperadora.has(operadoraNaUrl) ? operadoraNaUrl : "";
   const lista = trpc.conciliacao.cirurgias.useQuery(
     {
       clienteId,
       competencia: competencia || undefined,
       situacao: situacao || undefined,
       statusConciliacao: status || undefined,
-      operadoraId: operadoraId || undefined,
+      ...filtroDeOperadora(operadoraId),
       soAtrasadas: soAtrasadas || undefined,
       recurso: recurso || undefined,
       busca: buscaAdiada.trim() || undefined,
@@ -114,19 +155,45 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
   });
 
   const exportar = trpc.conciliacao.exportar.useMutation({
-    onSuccess: (r) => {
-      const sufixo = `${clienteNome.replace(/[^\p{L}\p{N}]+/gu, "_").toLowerCase()}${competencia ? `_${competencia}` : ""}`;
+    onSuccess: (r, pedido) => {
+      // O arquivo recortado leva "_filtro" no nome: sem isso, a planilha de 2 cirurgias e a do mês
+      // inteiro saem com o MESMO nome, e a pasta de Downloads não diz qual é qual.
+      const recortado = pedidoTemFiltro(pedido);
+      const sufixo = `${clienteNome.replace(/[^\p{L}\p{N}]+/gu, "_").toLowerCase()}${competencia ? `_${competencia}` : ""}${recortado ? "_filtro" : ""}`;
       baixarTexto(r.modelo, `conciliacao_${sufixo}.csv`);
       baixarTexto(r.porConvenio, `resumo_por_convenio_${sufixo}.csv`);
       baixarTexto(r.porMesMedico, `resumo_por_mes_medico_${sufixo}.csv`);
-      toast(`${r.linhas} cirurgia(s) exportada(s) em 3 planilhas.`, "success");
+      toast(`${r.linhas} cirurgia(s) exportada(s) em 3 planilhas${recortado ? ", só as do filtro" : ""}.`, "success");
     },
     onError: (e) => toast(e.message),
   });
 
+  /**
+   * ⚠️ As três planilhas saem do MESMO recorte da tabela. Com filtro ligado ("glosa sem recurso",
+   * por exemplo), exportar entregava 2 cirurgias sem avisar — e quem esperava o mês inteiro
+   * mandava à clínica um documento incompleto. Por isso, com filtro, o botão diz QUANTAS vão
+   * sair e existe o "Exportar tudo" ao lado. O mês escolhido vale nos dois: ele é o escopo da
+   * tela (os totais do topo também são dele), não um filtro.
+   */
+  const exportarPlanilhas = (comFiltro: boolean) =>
+    exportar.mutate({
+      clienteId,
+      competencia: competencia || undefined,
+      ...(comFiltro
+        ? {
+            ...filtroDeOperadora(operadoraId),
+            situacao: situacao || undefined,
+            statusConciliacao: status || undefined,
+            soAtrasadas: soAtrasadas || undefined,
+            recurso: recurso || undefined,
+            busca: buscaAdiada.trim() || undefined,
+          }
+        : {}),
+    });
+
   /** Todo filtro volta para a página 1 — senão a pessoa fica numa página que não existe mais. */
-  const filtrar = (f: () => void) => {
-    f();
+  const filtrar = (mudancas: BuscaConciliacao) => {
+    atualizar(mudancas);
     setPagina(1);
   };
   const recarregar = () => void utils.conciliacao.invalidate();
@@ -163,24 +230,28 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           <FileUp className="mr-1.5 h-4 w-4" />
           Importar planilha preenchida
         </Button>
-        <Button
-          variant="outline"
-          disabled={exportar.isPending}
-          onClick={() =>
-            exportar.mutate({
-              clienteId,
-              competencia: competencia || undefined,
-              statusConciliacao: status || undefined,
-              // A planilha leva o MESMO recorte que está na tela — exportar tudo quando a tela
-              // mostra só o atrasado seria entregar outro documento do que se conferiu.
-              soAtrasadas: soAtrasadas || undefined,
-              recurso: recurso || undefined,
-            })
-          }
-        >
-          <Download className="mr-1.5 h-4 w-4" />
-          {exportar.isPending ? "Exportando…" : "Exportar planilhas"}
-        </Button>
+        {temFiltro ? (
+          <>
+            <Button variant="outline" disabled={exportar.isPending} onClick={() => exportarPlanilhas(true)}>
+              <Download className="mr-1.5 h-4 w-4" />
+              {exportar.isPending
+                ? "Exportando…"
+                : // ⚠️ Sem número enquanto a lista do filtro NOVO não chega: o `placeholderData`
+                  // ainda mostra a contagem do filtro anterior, e o botão prometeria outra quantidade.
+                  lista.data && !lista.isPlaceholderData
+                  ? `Exportar ${lista.data.total} cirurgia(s) do filtro`
+                  : "Exportar o filtro"}
+            </Button>
+            <Button variant="ghost" disabled={exportar.isPending} onClick={() => exportarPlanilhas(false)}>
+              {competencia ? `Exportar tudo de ${competencia}` : "Exportar tudo"}
+            </Button>
+          </>
+        ) : (
+          <Button variant="outline" disabled={exportar.isPending} onClick={() => exportarPlanilhas(false)}>
+            <Download className="mr-1.5 h-4 w-4" />
+            {exportar.isPending ? "Exportando…" : "Exportar planilhas"}
+          </Button>
+        )}
       </div>
 
       {competencia && (
@@ -205,13 +276,14 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
               id="cir-mes"
               value={competencia}
               onChange={(e) =>
-                filtrar(() => {
-                  setCompetencia(e.target.value);
+                filtrar({
+                  cirMes: e.target.value || undefined,
                   // ⚠️ As opções de operadora vêm do RESUMO daquele mês. Trocar de mês sem
                   // limpar a operadora deixava o `<select>` mostrando "Todas" (a operadora sumiu
                   // das opções) enquanto o estado continuava filtrando por ela — a tela afirmava
-                  // não ter filtro e mostrava uma operadora só.
-                  setOperadoraId("");
+                  // não ter filtro e mostrava uma operadora só. Na MESMA chamada: duas seguidas
+                  // podem ler o mesmo endereço de partida e uma desfazer a outra.
+                  cirOperadora: undefined,
                 })
               }
             >
@@ -261,7 +333,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
               <button
                 type="button"
                 className="min-h-11 text-left font-medium text-destructive underline-offset-2 hover:underline"
-                onClick={() => filtrar(() => setRecurso("SEM_RECURSO"))}
+                onClick={() => filtrar({ cirRecurso: "SEM_RECURSO" })}
               >
                 {formatBRL(r.dinheiro.glosaSemRecurso)} de glosa sem recurso
               </button>
@@ -270,7 +342,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
               <button
                 type="button"
                 className="min-h-11 text-left text-primary underline-offset-2 hover:underline"
-                onClick={() => filtrar(() => setRecurso("ABERTO"))}
+                onClick={() => filtrar({ cirRecurso: "ABERTO" })}
               >
                 {formatBRL(r.dinheiro.emRecurso)} em recurso
                 {r.dinheiro.recursosSemResposta > 0 && ` · ${r.dinheiro.recursosSemResposta} sem resposta no prazo`}
@@ -330,7 +402,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
         <div className="flex flex-wrap items-end gap-3 border-b p-3">
           <div className="w-56 space-y-1">
             <Label htmlFor="cir-status">Conciliação</Label>
-            <Select id="cir-status" value={status} onChange={(e) => filtrar(() => setStatus(e.target.value as StatusConciliacao | ""))}>
+            <Select id="cir-status" value={status} onChange={(e) => filtrar({ cirStatus: (e.target.value || undefined) as BuscaConciliacao["cirStatus"] })}>
               <option value="">Todas</option>
               {(Object.keys(STATUS_CONCILIACAO) as StatusConciliacao[]).map((s) => (
                 <option key={s} value={s}>
@@ -342,7 +414,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           </div>
           <div className="w-56 space-y-1">
             <Label htmlFor="cir-situacao">Situação no TASY</Label>
-            <Select id="cir-situacao" value={situacao} onChange={(e) => filtrar(() => setSituacao(e.target.value as Situacao))}>
+            <Select id="cir-situacao" value={situacao} onChange={(e) => filtrar({ cirSituacao: (e.target.value || undefined) as BuscaConciliacao["cirSituacao"] })}>
               <option value="">Todas</option>
               <option value="SEM_ATENDIMENTO">Sem número de atendimento</option>
               <option value="AUTORIZACAO_PENDENTE">Autorização pendente</option>
@@ -351,8 +423,11 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           </div>
           <div className="w-56 space-y-1">
             <Label htmlFor="cir-operadora">Operadora</Label>
-            <Select id="cir-operadora" value={operadoraId} onChange={(e) => filtrar(() => setOperadoraId(e.target.value))}>
+            <Select id="cir-operadora" value={operadoraId} onChange={(e) => filtrar({ cirOperadora: e.target.value || undefined })}>
               <option value="">Todas</option>
+              {/* Particular não tem operadora (é nula, como o convênio pendente de ligação), então
+                  a lista de ids abaixo nunca o incluiria. Só aparece se o recorte tiver particular. */}
+              {r?.porOperadora.some((o) => o.particular) && <option value={OPCAO_PARTICULAR}>Particular</option>}
               {(r?.porOperadora ?? [])
                 .filter((o) => o.operadoraId)
                 .map((o) => (
@@ -364,7 +439,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           </div>
           <div className="w-56 space-y-1">
             <Label htmlFor="cir-recurso">Recurso de glosa</Label>
-            <Select id="cir-recurso" value={recurso} onChange={(e) => filtrar(() => setRecurso(e.target.value as typeof recurso))}>
+            <Select id="cir-recurso" value={recurso} onChange={(e) => filtrar({ cirRecurso: (e.target.value || undefined) as BuscaConciliacao["cirRecurso"] })}>
               <option value="">Todos</option>
               {/* Primeiro da lista de propósito: é a pergunta que custa dinheiro. */}
               <option value="SEM_RECURSO">Glosa sem recurso (ninguém cuidou)</option>
@@ -379,7 +454,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
             <Select
               id="cir-atraso"
               value={soAtrasadas ? "sim" : ""}
-              onChange={(e) => filtrar(() => setSoAtrasadas(e.target.value === "sim"))}
+              onChange={(e) => filtrar({ cirPrazo: e.target.value === "sim" ? "atrasadas" : undefined })}
             >
               <option value="">Todos os prazos</option>
               <option value="sim">Só o que passou do prazo</option>
@@ -388,21 +463,26 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
 
           <div className="w-56 space-y-1">
             <Label htmlFor="cir-busca">Paciente</Label>
-            <Input id="cir-busca" value={busca} placeholder="Buscar pelo nome…" onChange={(e) => filtrar(() => setBusca(e.target.value))} />
+            <Input id="cir-busca" value={busca} placeholder="Buscar pelo nome…" onChange={(e) => {
+                setBusca(e.target.value);
+                setPagina(1);
+              }}
+            />
           </div>
           {temFiltro && (
             <Button
               variant="ghost"
-              onClick={() =>
-                filtrar(() => {
-                  setSituacao("");
-                  setStatus("");
-                  setOperadoraId("");
-                  setSoAtrasadas(false);
-                  setRecurso("");
-                  setBusca("");
-                })
-              }
+              onClick={() => {
+                // A busca sai pelo CAMPO; o efeito da busca leva o vazio à URL.
+                setBusca("");
+                filtrar({
+                  cirSituacao: undefined,
+                  cirStatus: undefined,
+                  cirOperadora: undefined,
+                  cirPrazo: undefined,
+                  cirRecurso: undefined,
+                });
+              }}
             >
               Limpar
             </Button>
@@ -427,6 +507,8 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
           <EmptyState icon={Stethoscope} title="Nenhuma cirurgia" description="Nenhuma cirurgia com esses filtros." />
         ) : (
           <>
+            {/* ≥md: a tabela de sempre. */}
+            <div className="hidden md:block">
             <Table rotulo="Cirurgias conciliadas">
               <THead>
                 <TR>
@@ -443,9 +525,8 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
               </THead>
               <tbody>
                 {lista.data.linhas.map((l) => {
-                  const st = STATUS_CONCILIACAO[l.statusConciliacao];
                   return (
-                    <TR key={l.id}>
+                    <TR key={l.id} data-linha>
                       <TD>
                         {dataUTC(l.dataCirurgia)}
                         {l.status !== "EXECUTADA" && <span className="block text-xs text-warning">{l.statusBruto}</span>}
@@ -484,37 +565,56 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
                       </TD>
                       <TD className={`whitespace-nowrap text-right ${l.glosa ? "text-destructive" : ""}`}>{brl(l.glosa)}</TD>
                       <TD>
-                        <Button
-                          variant="ghost"
-                          className={`min-h-11 px-2 ${st.cor}`}
-                          aria-label={`Conciliar a cirurgia ${l.numeroCirurgia} — ${st.rotulo}`}
-                          onClick={() => setEditando(l)}
-                        >
-                          {st.rotulo}
-                        </Button>
-                        {/* ⚠️ Glosa sem recurso é dinheiro perdido por OMISSÃO — o botão precisa
-                            estar na própria linha, não escondido num modal que ninguém abre. */}
-                        {"glosa" in st || l.recurso ? (
-                          <Button
-                            variant="ghost"
-                            className={`block min-h-11 px-2 text-xs ${l.recurso ? ROTULO_RECURSO[l.recurso.status].cor : "text-muted-foreground"}`}
-                            aria-label={
-                              l.recurso
-                                ? `Recurso da cirurgia ${l.numeroCirurgia} — ${ROTULO_RECURSO[l.recurso.status].rotulo}`
-                                : `Abrir recurso da glosa da cirurgia ${l.numeroCirurgia}`
-                            }
-                            onClick={() => setRecorrendo(l)}
-                          >
-                            {l.recurso ? ROTULO_RECURSO[l.recurso.status].rotulo : "Recorrer"}
-                            {l.recurso?.semResposta && <span className="block text-destructive">sem resposta</span>}
-                          </Button>
-                        ) : null}
+                        <AcoesDaCirurgia linha={l} onConciliar={() => setEditando(l)} onRecorrer={() => setRecorrendo(l)} />
                       </TD>
                     </TR>
                   );
                 })}
               </tbody>
             </Table>
+            </div>
+
+            {/* <md: um CARTÃO por cirurgia. A tabela de 9 colunas tinha ~1.150px dentro de ~300px
+                a 360px — conferir glosa virava rolar de lado e perder de qual paciente era a linha.
+                O cartão leva o essencial para decidir (data, paciente, convênio, os três valores,
+                status e a ação); atendimento, procedimento e médico continuam na tabela e no
+                diálogo de conciliar. `data-linha` nas DUAS formas: é a marca que os testes usam. */}
+            <ul aria-label="Cirurgias conciliadas" className="divide-y md:hidden">
+              {lista.data.linhas.map((l) => (
+                <li key={l.id} data-linha className="space-y-2 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{l.pacienteNome}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {dataUTC(l.dataCirurgia)} · cir. {l.numeroCirurgia}
+                      </p>
+                      {l.status !== "EXECUTADA" && <p className="text-xs text-warning">{l.statusBruto}</p>}
+                      {l.atrasada && <p className="text-xs font-medium text-destructive">passou do prazo</p>}
+                    </div>
+                    <div className="min-w-0 max-w-[45%] text-right text-sm">
+                      <ConvenioDaLinha operadora={l.operadora} convenioBruto={l.convenioBruto} convenioParticular={l.convenioParticular} />
+                    </div>
+                  </div>
+                  <dl className="grid grid-cols-3 gap-2 text-sm">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Cobrado</dt>
+                      <dd className="whitespace-nowrap">{brl(l.cobrado)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Recebido</dt>
+                      <dd className="whitespace-nowrap">{brl(l.recebido)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Glosa</dt>
+                      <dd className={`whitespace-nowrap ${l.glosa ? "text-destructive" : ""}`}>{brl(l.glosa)}</dd>
+                    </div>
+                  </dl>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <AcoesDaCirurgia linha={l} onConciliar={() => setEditando(l)} onRecorrer={() => setRecorrendo(l)} />
+                  </div>
+                </li>
+              ))}
+            </ul>
             <Paginacao pagina={lista.data.pagina} porPagina={lista.data.porPagina} total={lista.data.total} onPagina={setPagina} />
           </>
         )}
@@ -551,6 +651,45 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
       )}
       {dialogo === "semProducao" && <RecebidoSemProducaoDialog clienteId={clienteId} onClose={() => setDialogo(null)} />}
     </div>
+  );
+}
+
+type LinhaDaLista = RouterOutputs["conciliacao"]["cirurgias"]["linhas"][number];
+
+/**
+ * O status (que abre o diálogo de conciliar) e o recurso da glosa — o MESMO nas duas formas da
+ * lista (tabela e cartão), para o celular não ganhar uma versão com menos ação.
+ */
+function AcoesDaCirurgia({ linha: l, onConciliar, onRecorrer }: { linha: LinhaDaLista; onConciliar: () => void; onRecorrer: () => void }) {
+  const st = STATUS_CONCILIACAO[l.statusConciliacao];
+  return (
+    <>
+      <Button
+        variant="ghost"
+        className={`min-h-11 px-2 ${st.cor}`}
+        aria-label={`Conciliar a cirurgia ${l.numeroCirurgia} — ${st.rotulo}`}
+        onClick={onConciliar}
+      >
+        {st.rotulo}
+      </Button>
+      {/* ⚠️ Glosa sem recurso é dinheiro perdido por OMISSÃO — o botão precisa estar na própria
+          linha, não escondido num modal que ninguém abre. */}
+      {"glosa" in st || l.recurso ? (
+        <Button
+          variant="ghost"
+          className={`block min-h-11 px-2 text-xs ${l.recurso ? ROTULO_RECURSO[l.recurso.status].cor : "text-muted-foreground"}`}
+          aria-label={
+            l.recurso
+              ? `Recurso da cirurgia ${l.numeroCirurgia} — ${ROTULO_RECURSO[l.recurso.status].rotulo}`
+              : `Abrir recurso da glosa da cirurgia ${l.numeroCirurgia}`
+          }
+          onClick={onRecorrer}
+        >
+          {l.recurso ? ROTULO_RECURSO[l.recurso.status].rotulo : "Recorrer"}
+          {l.recurso?.semResposta && <span className="block text-destructive">sem resposta</span>}
+        </Button>
+      ) : null}
+    </>
   );
 }
 

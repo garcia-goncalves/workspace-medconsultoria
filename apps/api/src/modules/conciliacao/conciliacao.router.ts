@@ -280,6 +280,7 @@ export const conciliacaoRouter = router({
         clienteId,
         competencia: competencia.optional(),
         operadoraId: z.string().optional(),
+        particular: z.boolean().optional(),
         profissionalId: z.string().optional(),
         situacao: z.enum(["SEM_ATENDIMENTO", "AUTORIZACAO_PENDENTE", "NAO_EXECUTADA"]).optional(),
         statusConciliacao,
@@ -454,9 +455,16 @@ export const conciliacaoRouter = router({
       z.object({
         clienteId,
         competencia: competencia.optional(),
+        operadoraId: z.string().optional(),
+        particular: z.boolean().optional(),
+        // ⚠️ Os MESMOS filtros da lista (`cirurgias`), todos. Com situação e busca de fora, a tela
+        // dizia "No filtro: 12 cirurgias" e o botão "Exportar 12" entregava outra quantidade — o
+        // documento que sai tem de ser o que foi conferido na tela.
+        situacao: z.enum(["SEM_ATENDIMENTO", "AUTORIZACAO_PENDENTE", "NAO_EXECUTADA"]).optional(),
         statusConciliacao,
         soAtrasadas: z.boolean().optional(),
         recurso: recursoFiltro,
+        busca: z.string().trim().max(120).optional(),
       }),
     )
     .mutation(async ({ input }) => {
