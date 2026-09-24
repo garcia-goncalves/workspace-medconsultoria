@@ -262,6 +262,14 @@ export async function ativarServicoCliente(
   // regra. A guarda é a MESMA de `provisionarUpsellAceito`, chamada de propósito: inventar uma
   // segunda régua para a mesma pergunta é como as duas respostas começam a divergir.
   const valorContratado = emReaisOu(cs.valor);
+  // ⚠️ NÃO É "SILÊNCIO OU FALHA" — é "MELHOR ESFORÇO, MAS NUNCA CALADO" (achado desta rodada).
+  // Contratar não pode cair porque o Financeiro tropeçou (banco fora do ar, categoria sumida,
+  // qualquer coisa): por isso continua best-effort. O que NÃO podia continuar era o `catch`
+  // vazio de antes — o serviço ficava contratado, a conta simplesmente não nascia, e nem a
+  // tela nem o painel de erros do ROOT diziam uma palavra. "Vendi e não lancei no Financeiro"
+  // só apareceria meses depois, se alguém cruzasse a ficha com as contas — o mesmo modo de
+  // falha que a ADR-140 já tinha corrigido na automação pós-aceite da proposta.
+  let avisoFinanceiro: string | null = null;
   if (
     !jaContratado &&
     (opts.origem ?? "MANUAL") === "MANUAL" &&
@@ -299,8 +307,18 @@ export async function ativarServicoCliente(
       await prisma.activityLog.create({
         data: { userId: ator.id, acao: "conta.criada", entidadeTipo: "cliente", entidadeId: clienteId, dados: { origem: "contratou_servico", servicoId } },
       });
-    } catch {
-      /* provisão financeira é best-effort — não bloqueia a contratação */
+    } catch (e) {
+      avisoFinanceiro =
+        "Serviço contratado, mas a conta a receber não foi lançada — lance em Financeiro.";
+      const { registrarErro } = await import("../sistema/sistema.service.js");
+      await registrarErro({
+        rota: "servicosCliente.ativarServicoCliente",
+        mensagem:
+          `O serviço ${servicoId} foi contratado para o cliente ${clienteId}, mas a provisão da ` +
+          `conta a receber falhou: a conta pode NÃO ter sido criada. Confira a ficha do cliente. ` +
+          `Causa: ${(e as Error)?.message ?? String(e)}`,
+        stack: (e as Error)?.stack ?? null,
+      }).catch(() => {});
     }
   }
 
@@ -325,7 +343,9 @@ export async function ativarServicoCliente(
   }
   // Dinheiro sai em número, nunca em Decimal (ADR-118) — a resposta desta mutation vai
   // direto para a tela (e, no cancelamento, também para o Portal do cliente).
-  return { ...cs, valor: emReais(cs.valor), percentual: emReais(cs.percentual) };
+  // `avisoFinanceiro` é o que a tela mostra se a provisão acima tiver tropeçado — sem ele a
+  // Thaís via "Contratado" e não fazia ideia de que precisava lançar a conta à mão.
+  return { ...cs, valor: emReais(cs.valor), percentual: emReais(cs.percentual), avisoFinanceiro };
 }
 
 /**
@@ -504,9 +524,24 @@ async function provisionarUpsellAceito(
         },
       });
     }
-  } catch {
-    /* Provisão é best-effort: o aceite do cliente não cai porque o Financeiro tropeçou. A falha
-       chega ao painel de erros pelo `catch` de quem chamou (`propostas.service`). */
+  } catch (e) {
+    // ⚠️ O COMENTÁRIO ANTIGO AQUI PROMETIA ALGO QUE ESTE PRÓPRIO `catch` IMPEDIA: dizia que "a
+    // falha chega ao painel de erros pelo `catch` de quem chamou" (`propostas.service`), mas
+    // engolir o erro AQUI, sem relançar, é exatamente o que barra essa chegada — o chamador
+    // nunca fica sabendo que algo deu errado. Continua best-effort de propósito (o aceite da
+    // proposta não pode cair porque o Financeiro tropeçou, e um upsell que falhasse aqui
+    // derrubaria também a geração do contrato, que roda DEPOIS na mesma automação) — só que
+    // agora a falha é registrada diretamente, em vez de depender de uma propagação que não
+    // acontecia.
+    const { registrarErro } = await import("../sistema/sistema.service.js");
+    await registrarErro({
+      rota: "servicosCliente.provisionarUpsellAceito",
+      mensagem:
+        `O cliente ${clienteId} aceitou uma proposta (upsell), mas a provisão da conta a ` +
+        `receber falhou: a conta pode NÃO ter sido criada. Confira a ficha do cliente. ` +
+        `Causa: ${(e as Error)?.message ?? String(e)}`,
+      stack: (e as Error)?.stack ?? null,
+    }).catch(() => {});
   }
 }
 
@@ -562,7 +597,12 @@ export async function cancelarServicoCliente(
   // serviço. E a linha ficando onde está é o que segura a data no índice único
   // `(recorrenteId, vencimento)`, impedindo que a parcela volte por outro caminho.
   //
-  // Best-effort: o cancelamento do cliente não cai porque o Financeiro tropeçou.
+  // Best-effort: o cancelamento do cliente não cai porque o Financeiro tropeçou. ⚠️ MAS, achado
+  // desta rodada: se ESTE passo falhar em silêncio, o efeito é o OPOSTO do pretendido — o
+  // serviço já consta cancelado na ficha e no Portal, e a mensalidade segue sendo cobrada todo
+  // mês, sem ninguém saber que precisa parar à mão. Por isso registra e avisa, igual à provisão
+  // de `ativarServicoCliente`.
+  let avisoFinanceiro: string | null = null;
   try {
     const plano = await levantarCobrancaDoServico(clienteId, servicoId);
     if (plano.series.length) {
@@ -586,8 +626,19 @@ export async function cancelarServicoCliente(
         },
       });
     }
-  } catch {
-    /* encerrar a cobrança é best-effort — o serviço já consta como cancelado. */
+  } catch (e) {
+    avisoFinanceiro =
+      "Serviço cancelado, mas o encerramento das cobranças futuras falhou — a mensalidade pode " +
+      "continuar sendo gerada. Confira em Financeiro.";
+    const { registrarErro } = await import("../sistema/sistema.service.js");
+    await registrarErro({
+      rota: "servicosCliente.cancelarServicoCliente",
+      mensagem:
+        `O serviço ${servicoId} do cliente ${clienteId} foi cancelado, mas encerrar a cobrança ` +
+        `futura falhou: a mensalidade pode continuar sendo gerada. Confira o Financeiro do ` +
+        `cliente. Causa: ${(e as Error)?.message ?? String(e)}`,
+      stack: (e as Error)?.stack ?? null,
+    }).catch(() => {});
   }
 
   if (porTipo === "CLIENTE") {
@@ -607,7 +658,7 @@ export async function cancelarServicoCliente(
   }
   // Dinheiro sai em número, nunca em Decimal (ADR-118) — a resposta desta mutation vai
   // direto para a tela (e, no cancelamento, também para o Portal do cliente).
-  return { ...cs, valor: emReais(cs.valor), percentual: emReais(cs.percentual) };
+  return { ...cs, valor: emReais(cs.valor), percentual: emReais(cs.percentual), avisoFinanceiro };
 }
 
 /** Edita o preço/cobrança de um serviço CONTRATADO (o que o cliente realmente paga). */
