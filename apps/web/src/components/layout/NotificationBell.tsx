@@ -47,6 +47,7 @@ const META: Record<string, { icon: LucideIcon; tom: string }> = {
   tarefa_atribuida: { icon: ClipboardList, tom: "bg-brand-blueLight/10 text-brand-blueLight" },
   projeto_participante: { icon: UserPlus, tom: "bg-brand-blueLight/10 text-brand-blueLight" },
   tarefa_atrasada: { icon: AlertTriangle, tom: "bg-destructive/10 text-destructive" },
+  tarefa_vencida: { icon: AlertTriangle, tom: "bg-destructive/10 text-destructive" },
   projeto_parado: { icon: FolderKanban, tom: "bg-warning/10 text-warning" },
   projeto_sem_responsavel: { icon: FolderKanban, tom: "bg-warning/10 text-warning" },
   conta_vencida: { icon: Wallet, tom: "bg-warning/10 text-warning" },

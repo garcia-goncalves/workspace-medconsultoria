@@ -118,6 +118,18 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   },
   { tipo: "incidente", label: "Alertas do sistema", descricao: "Incidentes técnicos detectados na aplicação.", grupo: "Sistema", minRole: "ROOT" },
   { tipo: "erro", label: "Erros do sistema", descricao: "Novos erros registrados na aplicação.", grupo: "Sistema", minRole: "ROOT" },
+  // ── TAREFA (não Card/Kanban) QUE VENCEU SOZINHA, SEM NINGUÉM PERCEBER ────────────────
+  //
+  // Nasce da varredura proativa, com `unico: true` por entidade — o aviso não se repete a
+  // cada rodada do scan. Uma tarefa delegada com prazo vencido não gritava sozinha: só
+  // aparecia se alguém abrisse a página e olhasse a coluna "Prazo". Por isso nasce LIGADA
+  // (mesmo padrão dos outros avisos do scan, acima): o risco aqui é avisar de MENOS.
+  {
+    tipo: "tarefa_vencida",
+    label: "Tarefa individual venceu",
+    descricao: "Uma tarefa sua (ou que você delegou) passou do prazo sem ser concluída.",
+    grupo: "Agenda e tarefas",
+  },
 ];
 
 /** Conjunto de tipos que disparam e-mail (usado no back para filtrar). */

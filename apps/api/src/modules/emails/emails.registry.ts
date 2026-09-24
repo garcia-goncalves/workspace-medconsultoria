@@ -373,6 +373,23 @@ export const EMAIL_TEMPLATES = {
       ctaTexto: "Ver tarefa",
     },
   },
+  tarefa_vencida: {
+    label: "Tarefa individual venceu",
+    descricao: "Quando uma tarefa (não um cartão do Kanban) passa do prazo sem ser concluída.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "tarefa", rotulo: "Tarefa", descricao: "O que precisa ser feito", exemplo: "Ligar para o contador da clínica" },
+      { chave: "prazo", rotulo: "Prazo", descricao: "A data combinada, que já passou", exemplo: "20/09/2026" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "Uma tarefa passou do prazo",
+      titulo: "Tarefa vencida: {{tarefa}}",
+      corpo: "A tarefa \"{{tarefa}}\" venceu em {{prazo}} e ainda não foi concluída.",
+      ctaTexto: "Ver tarefa",
+    },
+  },
   projeto_participante: {
     label: "Adicionado a um projeto",
     descricao: "Quando você é incluído na equipe de um projeto.",
