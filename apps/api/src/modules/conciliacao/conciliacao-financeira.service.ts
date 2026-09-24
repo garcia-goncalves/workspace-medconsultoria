@@ -2,7 +2,7 @@ import { prisma } from "@app/db";
 import { TRPCError } from "@trpc/server";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 import { normalizarTexto } from "./planilha/index.js";
-import { chaveDoConvenio } from "./producao-consultas.js";
+import { convenioEhParticular } from "./conciliacao-painel.service.js";
 import {
   DIAS_ATE_A_RESPOSTA_DO_RECURSO,
   diasEntre,
@@ -334,7 +334,9 @@ export async function montarConciliacao(clienteId: string): Promise<{ linhas: Li
       categoriaConvenio: c.categoriaConvenio,
       convenioBruto: c.convenioBruto,
       operadora: c.operadora,
-      convenioParticular: !c.operadora && ehParticular.has(chaveDoConvenio(c.convenioBruto)),
+      // A MESMA régua das consultas e do resumo (`convenioEhParticular`) — duas leituras do mesmo
+      // estado são como a tela passa a dizer "Particular" num lugar e "(a ligar)" no outro.
+      convenioParticular: convenioEhParticular(c.operadora?.id ?? null, c.convenioBruto, ehParticular),
       profissionalBruto: c.profissionalBruto,
       profissional: c.profissional,
       codigo,

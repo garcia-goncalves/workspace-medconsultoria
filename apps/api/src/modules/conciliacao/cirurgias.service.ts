@@ -13,8 +13,6 @@ import {
 } from "./conciliacao-financeira.service.js";
 import { carregarDePara, exigirModuloLigado } from "./conciliacao.service.js";
 import {
-  convenioEhParticular,
-  particularesDoCliente,
   somarPorOperadora,
   somarPorProfissional,
   type SomaOperadora,
@@ -417,13 +415,11 @@ function passaNoFiltro(l: LinhaConciliada, f: FiltroCirurgias): boolean {
  */
 export async function listarCirurgias(filtro: FiltroCirurgias) {
   const pagina = Math.max(1, filtro.pagina ?? 1);
-  const [{ linhas }, particulares] = await Promise.all([montarConciliacao(filtro.clienteId), particularesDoCliente(filtro.clienteId)]);
+  const { linhas } = await montarConciliacao(filtro.clienteId);
   const filtradas = linhas.filter((l) => passaNoFiltro(l, filtro));
   return {
-    // A mesma régua do resumo e das consultas: particular ligado não é "(a ligar)".
-    linhas: filtradas
-      .slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA)
-      .map((l) => ({ ...l, convenioParticular: convenioEhParticular(l.operadora?.id ?? null, l.convenioBruto, particulares) })),
+    // `convenioParticular` já vem de `montarConciliacao`, pela mesma régua do resumo e das consultas.
+    linhas: filtradas.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA),
     total: filtradas.length,
     pagina,
     porPagina: POR_PAGINA,
