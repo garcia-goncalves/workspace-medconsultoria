@@ -11,6 +11,7 @@ import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { templateDeBoasVindas } from "../emails/boas-vindas-por-publico.js";
 import { avancarLeadPorClienteAuto } from "../leads/leads.service.js";
 import { config } from "../../config.js";
+import { linhaDeLinkNaoEnviado } from "../../lib/log-de-link.js";
 
 /** Link de redefinição de senha válido por 1 hora. */
 const RESET_TTL_MS = 60 * 60 * 1000;
@@ -481,7 +482,9 @@ export async function solicitarReset(email: string): Promise<{ ok: true }> {
     const { enviado } = await enviarEmailTemplate("reset_senha", user.email, { nome: user.nome, link: url });
     // Em modo dev (não enviado) o link nunca vai ao navegador do solicitante
     // (endpoint anônimo) — vai só para o log do servidor, para testes.
-    if (!enviado) console.info(`[reset:dev] link para ${user.email}: ${url}`);
+    // ⚠️ Em PRODUÇÃO o link não vai nem ao log: `enviado: false` ali é SMTP falhando, e o token
+    // pararia no `docker logs` da VPS compartilhada (ver `linhaDeLinkNaoEnviado`).
+    if (!enviado) console.info(linhaDeLinkNaoEnviado("reset", user.email, url, config.NODE_ENV));
   }
   return { ok: true };
 }
