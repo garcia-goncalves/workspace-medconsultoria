@@ -14,12 +14,7 @@
  * ⚠️ Em produção a linha continua existindo — sem o link. Sumir com ela esconderia que o
  * e-mail não saiu, e é essa linha que faz alguém ir olhar o monitor de e-mails.
  */
-export function linhaDeLinkNaoEnviado(
-  tipo: string,
-  email: string,
-  url: string,
-  nodeEnv: string | undefined,
-): string {
+export function linhaDeLinkNaoEnviado(tipo: string, email: string, url: string, nodeEnv: string | undefined): string {
   if (nodeEnv === "production") {
     return `[${tipo}] o e-mail para ${email} NÃO saiu — o link não é registrado em produção. Veja o monitor de e-mails.`;
   }

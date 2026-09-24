@@ -37,10 +37,7 @@ export async function bancoResponde(
 ): Promise<{ ok: true } | { ok: false; erro: unknown }> {
   let relogio: NodeJS.Timeout | undefined;
   const estourou = new Promise<never>((_, rejeitar) => {
-    relogio = setTimeout(
-      () => rejeitar(new Error(`o banco não respondeu em ${tempoMaximoMs} ms`)),
-      tempoMaximoMs,
-    );
+    relogio = setTimeout(() => rejeitar(new Error(`o banco não respondeu em ${tempoMaximoMs} ms`)), tempoMaximoMs);
   });
   try {
     await Promise.race([sonda(), estourou]);
