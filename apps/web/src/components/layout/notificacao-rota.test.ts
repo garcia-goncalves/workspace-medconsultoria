@@ -38,6 +38,12 @@ describe("decidirRotaDaNotificacao", () => {
     expect(decidirRotaDaNotificacao(notif({ entidadeTipo: "conta", entidadeId: "cta1" }))).toEqual({ destino: "conta" });
   });
 
+  it("honorário a lançar: vai à aba do honorário daquele cliente na Conciliação", () => {
+    expect(
+      decidirRotaDaNotificacao(notif({ tipo: "honorario_a_lancar", entidadeTipo: "honorario", entidadeId: "c1:2026-05" })),
+    ).toEqual({ destino: "honorario", clienteId: "c1" });
+  });
+
   it("lead: vai para o funil de vendas", () => {
     expect(decidirRotaDaNotificacao(notif({ entidadeTipo: "lead", entidadeId: "l1" }))).toEqual({ destino: "lead" });
   });
