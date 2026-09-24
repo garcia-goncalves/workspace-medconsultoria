@@ -19,7 +19,7 @@ import { caminhoAbsoluto, removerArquivo } from "../lib/storage.js";
  * `registrarErro` é espionado: além de provar que o erro chega a SISTEMA → Erros, evita que o
  * teste avise ROOTs reais por e-mail.
  */
-const registrarErro = vi.hoisted(() => vi.fn(async () => undefined));
+const registrarErro = vi.hoisted(() => vi.fn(async (_dados: { rota?: string | null; mensagem: string }) => undefined));
 vi.mock("../modules/sistema/sistema.service.js", async (original) => ({
   ...(await original<typeof import("../modules/sistema/sistema.service.js")>()),
   registrarErro,
