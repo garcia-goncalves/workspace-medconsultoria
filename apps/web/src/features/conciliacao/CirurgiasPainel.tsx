@@ -18,6 +18,7 @@ import { dataUTC } from "../../lib/format-date";
 import { formatBRL } from "../../lib/masks";
 import {
   baixarTexto,
+  ConvenioDaLinha,
   ListaResumo,
   Paginacao,
   ROTULO_RECURSO,
@@ -467,13 +468,7 @@ export function CirurgiasPainel({ clienteId, clienteNome }: { clienteId: string;
                         {l.codigo && <span className="block text-xs text-muted-foreground">{l.codigo}</span>}
                       </TD>
                       <TD>
-                        {l.operadora ? (
-                          l.operadora.nome
-                        ) : (
-                          <span className="text-warning">
-                            {l.convenioBruto} <span className="text-xs">(a ligar)</span>
-                          </span>
-                        )}
+                        <ConvenioDaLinha operadora={l.operadora} convenioBruto={l.convenioBruto} convenioParticular={l.convenioParticular} />
                       </TD>
                       <TD className="whitespace-nowrap text-right">
                         {brl(l.cobrado)}

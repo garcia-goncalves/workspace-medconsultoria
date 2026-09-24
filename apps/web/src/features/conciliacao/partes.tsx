@@ -118,6 +118,39 @@ export function ListaResumo({ titulo, itens }: { titulo: string; itens: { rotulo
   );
 }
 
+/**
+ * O convênio de UMA linha (consulta ou cirurgia). Um lugar só para as duas tabelas: particular
+ * ligado também tem operadora nula, e quem decide que ele está LIGADO é o servidor
+ * (`convenioParticular`, a mesma régua do resumo) — senão a linha dizia "PARTICULAR (a ligar)"
+ * ao lado de um resumo que já o contava como "Particular".
+ */
+export function ConvenioDaLinha({
+  operadora,
+  plano,
+  convenioBruto,
+  convenioParticular,
+}: {
+  operadora: { nome: string } | null;
+  plano?: string | null;
+  convenioBruto: string;
+  convenioParticular: boolean;
+}) {
+  if (operadora) {
+    return (
+      <>
+        {operadora.nome}
+        {plano && <span className="text-muted-foreground"> · {plano}</span>}
+      </>
+    );
+  }
+  if (convenioParticular) return <span className="text-muted-foreground">Particular</span>;
+  return (
+    <span className="text-warning">
+      {convenioBruto} <span className="text-xs">(a ligar)</span>
+    </span>
+  );
+}
+
 export function Aviso({ tom, children }: { tom: "atencao" | "erro"; children: ReactNode }) {
   const cor = tom === "erro" ? "border-destructive/30 bg-destructive/5" : "border-warning/30 bg-warning/5";
   // Aviso de atenção NÃO leva ✓: um check se lê como "tudo certo" justamente onde há algo a olhar.

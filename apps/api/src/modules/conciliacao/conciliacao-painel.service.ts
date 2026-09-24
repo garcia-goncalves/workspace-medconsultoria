@@ -33,6 +33,26 @@ const CAMPOS_VISIVEIS = {
 const POR_PAGINA = 50;
 
 /**
+ * As chaves de convênio que este cliente ligou como PARTICULAR ("não é convênio").
+ *
+ * ⚠️ Particular ligado tem `operadoraId` NULO nas linhas — igual a convênio que ninguém ligou.
+ * Ler "sem operadora" como "a ligar" faz a linha dizer "PARTICULAR (a ligar)" depois de ligada.
+ * A régua é uma só, `convenioEhParticular`, e resumo, consultas e cirurgias leem por ela.
+ */
+export async function particularesDoCliente(clienteId: string): Promise<Set<string>> {
+  const m = await prisma.mapeamentoConvenio.findMany({
+    where: { clienteId, particular: true },
+    select: { textoNormalizado: true },
+  });
+  return new Set(m.map((x) => x.textoNormalizado));
+}
+
+/** A linha foi ligada como particular? (Com operadora, nunca é.) */
+export function convenioEhParticular(operadoraId: string | null, convenioBruto: string, particulares: Set<string>): boolean {
+  return !operadoraId && particulares.has(chaveDoConvenio(convenioBruto));
+}
+
+/**
  * Lê do disco o arquivo enviado, conferindo que ele é DESTE cliente.
  *
  * A conferência de posse mora aqui, e não só na tela: um `arquivoId` vindo do navegador é dado do
@@ -98,7 +118,7 @@ export async function listarProducao(filtro: FiltroProducao) {
     ...(filtro.busca ? { pacienteNome: { contains: filtro.busca } } : {}),
   };
 
-  const [linhas, total] = await Promise.all([
+  const [linhas, total, particulares] = await Promise.all([
     prisma.producaoConsulta.findMany({
       where,
       select: CAMPOS_VISIVEIS,
@@ -107,11 +127,13 @@ export async function listarProducao(filtro: FiltroProducao) {
       take: POR_PAGINA,
     }),
     prisma.producaoConsulta.count({ where }),
+    particularesDoCliente(filtro.clienteId),
   ]);
 
   return {
     linhas: linhas.map((l) => ({
       ...l,
+      convenioParticular: convenioEhParticular(l.operadora?.id ?? null, l.convenioBruto, particulares),
       // Data como texto de 10 caracteres: deixa explícito que é DIA, sem hora e sem fuso — a
       // mesma disciplina do leitor de planilha e do banco (`@db.Date`).
       dataAgenda: l.dataAgenda ? l.dataAgenda.toISOString().slice(0, 10) : null,
@@ -214,11 +236,11 @@ export async function somarPorOperadora(
   const ids = [...new Set(grupos.map((g) => g.operadoraId).filter((x): x is string => !!x))];
   const operadoras = await prisma.operadora.findMany({ where: { id: { in: ids } }, select: { id: true, nome: true } });
   const nomeOperadora = new Map(operadoras.map((o) => [o.id, o.nome]));
-  const ehParticular = new Map(mapeamentos.map((m) => [m.textoNormalizado, m.particular]));
+  const particulares = new Set(mapeamentos.filter((m) => m.particular).map((m) => m.textoNormalizado));
 
   const soma = new Map<string, SomaOperadora>();
   for (const g of grupos) {
-    const particular = ehParticular.get(chaveDoConvenio(g.convenioBruto)) ?? false;
+    const particular = convenioEhParticular(g.operadoraId, g.convenioBruto, particulares);
     const chave = g.operadoraId ?? (particular ? "__particular__" : `bruto:${chaveDoConvenio(g.convenioBruto)}`);
     const atual = soma.get(chave);
     if (atual) {

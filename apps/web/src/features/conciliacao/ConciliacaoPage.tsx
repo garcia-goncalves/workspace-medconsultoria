@@ -20,7 +20,7 @@ import { ImportarProducaoDialog } from "./ImportarProducaoDialog";
 import { ImportarCirurgiasDialog } from "./ImportarCirurgiasDialog";
 import { CirurgiasPainel } from "./CirurgiasPainel";
 import { VisaoGeralConciliacao } from "./VisaoGeralConciliacao";
-import { ListaResumo, Paginacao } from "./partes";
+import { ConvenioDaLinha, ListaResumo, Paginacao } from "./partes";
 
 /**
  * CONCILIAÇÃO — a produção de consultas do cliente, mês a mês.
@@ -318,16 +318,12 @@ export function ConciliacaoPage() {
                             <TD className="font-medium">{l.pacienteNome}</TD>
                             <TD>{TIPO_LABEL[l.tipoAtendimento] ?? l.tipoAtendimentoBruto}</TD>
                             <TD>
-                              {l.operadora ? (
-                                <>
-                                  {l.operadora.nome}
-                                  {l.plano && <span className="text-muted-foreground"> · {l.plano}</span>}
-                                </>
-                              ) : (
-                                <span className="text-warning">
-                                  {l.convenioBruto} <span className="text-xs">(a ligar)</span>
-                                </span>
-                              )}
+                              <ConvenioDaLinha
+                                operadora={l.operadora}
+                                plano={l.plano}
+                                convenioBruto={l.convenioBruto}
+                                convenioParticular={l.convenioParticular}
+                              />
                             </TD>
                             <TD>
                               {l.profissional?.nome ?? (
