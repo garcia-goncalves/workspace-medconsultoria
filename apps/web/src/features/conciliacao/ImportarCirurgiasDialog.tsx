@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Table, THead, TH, TR, TD } from "../../components/ui/table";
 import { UploadArquivo, type ArquivoEnviado } from "../../components/ui/upload-arquivo";
 import { toast } from "../../components/ui/toast";
-import { dataUTC } from "../../lib/format-date";
+import { data as dataBrasilia, dataUTC } from "../../lib/format-date";
 import { Aviso } from "./partes";
 
 /**
@@ -110,7 +110,7 @@ export function ImportarCirurgiasDialog({
 
         {p && (
           <>
-            {p.jaImportado && <Aviso tom="erro">Este arquivo já foi importado em {dataUTC(p.jaImportado.em)}. Nada mudaria.</Aviso>}
+            {p.jaImportado && <Aviso tom="erro">Este arquivo já foi importado em {dataBrasilia(p.jaImportado.em)}. Nada mudaria.</Aviso>}
 
             <p className="text-sm">
               <strong>{p.totalLinhas}</strong> cirurgia(s)
