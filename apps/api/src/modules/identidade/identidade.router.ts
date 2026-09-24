@@ -41,6 +41,11 @@ export const identidadeRouter = router({
         // acervo, que é o limite de guarda fiscal com folga.
         retencaoCorpoEmailDias: z.number().int().min(30).max(3650),
         retencaoAcervoAnos: z.number().int().min(1).max(10),
+        // Dado de PACIENTE da Conciliação. Mínimo de 1 ano: abaixo disso a rotina diária
+        // anonimizaria o mês que a clínica ainda está conciliando (o repasse chega ~3,5 meses
+        // depois do atendimento). Teto de 20 anos, que cobre com folga o prazo de guarda de
+        // prontuário (CFM, 20 anos) caso a casa decida se alinhar a ele.
+        retencaoPacienteAnos: z.number().int().min(1).max(20),
         encarregadoNome: juridico,
         encarregadoEmail: juridico,
       }),

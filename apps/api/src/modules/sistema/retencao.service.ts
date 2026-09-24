@@ -1,6 +1,7 @@
 import { prisma } from "@app/db";
 import { CORPO_EXPURGADO, dataLimiteDeGuarda } from "@app/shared";
 import { expurgarIdempotenciasVencidas } from "../agente/criar-tarefa-do-agente.service.js";
+import { expurgarDadoDePacienteVencido } from "../conciliacao/retencao-paciente.service.js";
 
 /**
  * PRAZO DE GUARDA — o expurgo automático (LGPD, ADR-141).
@@ -90,6 +91,10 @@ export async function expurgarDadosVencidos(agora = new Date()) {
   // sempre — uma linha por tarefa criada pelo agente. É a lição do `ActivityLog` na ADR-148.
   const idempotencias = await expurgarIdempotenciasVencidas();
 
+  // O dado de PACIENTE da Conciliação, com prazo próprio (`retencaoPacienteAnos`, 5 anos) e
+  // regra própria (anonimiza a linha, apaga o arquivo original) — ver o módulo.
+  const pacientes = await expurgarDadoDePacienteVencido(agora);
+
   return {
     dias,
     limite,
@@ -97,6 +102,7 @@ export async function expurgarDadosVencidos(agora = new Date()) {
     erros: erros.count,
     atividade: atividade.count,
     idempotencias,
+    pacientes,
   };
 }
 
