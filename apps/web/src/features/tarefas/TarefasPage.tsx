@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { Plus, Pencil, Trash2, CheckCircle2, Circle, Inbox, Building2, FolderKanban, CalendarClock } from "lucide-react";
 import { cn } from "@app/ui";
 import {
@@ -46,8 +46,14 @@ export function TarefasPage() {
   const confirm = useConfirm();
   const utils = trpc.useUtils();
 
-  const [aba, setAba] = useState<Aba>("COMIGO");
-  const [filtro, setFiltro] = useState<Filtro>("ABERTAS");
+  // Vindo de um aviso do sininho: a aba já chega certa, e "abrir" é a tarefa a editar assim
+  // que ela aparecer na lista (ver `busca-na-url.ts` e `NotificationBell`).
+  const busca = useSearch({ from: "/tarefas" });
+  const navigate = useNavigate({ from: "/tarefas" });
+
+  const [aba, setAba] = useState<Aba>(() => (busca.aba === "EQUIPE" && !podeVerEquipe ? "COMIGO" : (busca.aba ?? "COMIGO")));
+  // Com uma tarefa específica para abrir, "Todas" garante achá-la mesmo concluída ou fora do filtro padrão.
+  const [filtro, setFiltro] = useState<Filtro>(() => (busca.abrir ? "TODAS" : "ABERTAS"));
   const [novo, setNovo] = useState(false);
   const [editar, setEditar] = useState<TarefaEditavel | null>(null);
 
@@ -85,6 +91,17 @@ export function TarefasPage() {
       clienteId: t.cliente?.id ?? null,
       projetoId: t.projeto?.id ?? null,
     });
+
+  // Assim que a tarefa pedida pelo aviso aparecer na lista, abre a edição e limpa a URL —
+  // recarregar a página não pode reabrir o modal sozinho.
+  useEffect(() => {
+    if (!busca.abrir || !tarefas.data) return;
+    const alvo = tarefas.data.find((t) => t.id === busca.abrir);
+    if (!alvo) return;
+    abrirEdicao(alvo);
+    void navigate({ search: (s) => ({ ...s, abrir: undefined }), replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busca.abrir, tarefas.data]);
 
   const ABAS: { chave: Aba; label: string; badge?: number }[] = [
     { chave: "COMIGO", label: "Comigo", badge: contagem.data?.comigo },
