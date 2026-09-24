@@ -4,6 +4,7 @@ import { prisma } from "@app/db";
 import { APROVACAO_CREDENCIAMENTO_SO_ADMIN } from "@app/shared";
 import { mudarStatusCredenciamento, salvarGrade } from "../modules/servicos/credenciamento-grade.service.js";
 import { hashPassword } from "../lib/password.js";
+import { criarProposta } from "../modules/documentos/documentos.service.js";
 
 /**
  * ONDA 1, ITEM A — APROVAR CREDENCIAMENTO PASSA A SER SÓ DE ADMIN+.
@@ -49,6 +50,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.credenciamento.deleteMany({ where: { clienteId } });
+  await prisma.documento.deleteMany({ where: { clienteId } });
   await prisma.conta.deleteMany({ where: { clienteId } });
   await prisma.profissional.deleteMany({ where: { clienteId } });
   await prisma.operadora.deleteMany({ where: { id: operadoraId } });
@@ -130,5 +132,26 @@ describe("aprovar credenciamento exige ADMIN+", () => {
     expect(Number(depois.valor), "a tentativa recusada não altera o valor").toBe(0);
     expect(depois.contaId).toBeNull();
     expect(await contasDoCliente()).toHaveLength(totalAntes);
+  });
+
+  it("funcionário gerando PROPOSTA com esse cruzamento é recusado ANTES de o documento nascer", async () => {
+    // Terceira porta para o mesmo acerto: o construtor da proposta chama `salvarGrade` depois de
+    // criar o documento. Recusando lá, ficava uma proposta órfã, com número queimado e sem as
+    // linhas de acompanhamento. Agora a carga é conferida antes do `documento.create`.
+    const aprovadaZerada = await prisma.credenciamento.findFirstOrThrow({ where: { clienteId, tentativa: 3 } });
+    const docsAntes = await prisma.documento.count({ where: { clienteId } });
+    const contasAntes = (await contasDoCliente()).length;
+
+    await expect(
+      criarProposta(
+        { clienteId, itens: [], grade: [{ profissionalId, operadoraId: aprovadaZerada.operadoraId, valor: 1200 }] } as never,
+        funcionario.id,
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN", message: APROVACAO_CREDENCIAMENTO_SO_ADMIN });
+
+    expect(await prisma.documento.count({ where: { clienteId } }), "nenhum documento órfão").toBe(docsAntes);
+    const depois = await prisma.credenciamento.findUniqueOrThrow({ where: { id: aprovadaZerada.id } });
+    expect(Number(depois.valor)).toBe(0);
+    expect(await contasDoCliente()).toHaveLength(contasAntes);
   });
 });

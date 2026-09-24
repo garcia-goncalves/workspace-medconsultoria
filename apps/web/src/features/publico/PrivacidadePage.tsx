@@ -119,8 +119,8 @@ export function PrivacidadePage() {
             </li>
             <li>
               <strong>Como protegemos:</strong> CPF, telefone e e-mail do paciente ficam cifrados e
-              não aparecem em nenhuma tela. Só a equipe responsável por aquela clínica acessa os
-              dados dela.
+              não aparecem em nenhuma tela. Só acessam os dados de uma clínica a equipe responsável
+              por ela e a administração da MedConsultoria.
             </li>
             <li>
               <strong>O que não guardamos:</strong> o sistema não lê nem grava prontuário, código
@@ -128,9 +128,17 @@ export function PrivacidadePage() {
               recebido, com o mesmo acesso restrito, e cada download fica registrado.
             </li>
             <li>
-              <strong>Por quanto tempo:</strong> {prazoPacienteAnos} anos, contados da data do atendimento.
-              Depois disso, o nome e os contatos do paciente são apagados, e a planilha original sai do
-              acervo; ficam só os números da conferência, sem ninguém identificado.
+              <strong>Por quanto tempo:</strong> {prazoPacienteAnos} anos. Para os dados de cada
+              atendimento, o prazo conta da data do atendimento; para a planilha original, conta da
+              data em que ela nos foi enviada. Depois disso, o nome e os contatos do paciente são
+              apagados, e a planilha original sai do acervo; ficam só os números da conferência, sem
+              ninguém identificado.
+            </li>
+            <li>
+              <strong>Cópias de segurança:</strong> guardamos cópias de segurança cifradas fora do
+              servidor por até 12 meses, e depois as apagamos. Por isso, um dado que já saiu do
+              sistema pode continuar nessas cópias até o fim desse prazo — elas servem só para
+              recuperar o sistema em caso de falha, não para consulta.
             </li>
           </ul>
         </Bloco>

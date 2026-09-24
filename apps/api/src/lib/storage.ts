@@ -142,3 +142,24 @@ export async function removerArquivo(rel: string): Promise<void> {
     /* arquivo já removido — ok */
   }
 }
+
+/**
+ * Remove o arquivo físico e RECLAMA se não conseguir — ao contrário de `removerArquivo`, que
+ * engole qualquer erro. Só "o arquivo já não está lá" (`ENOENT`) conta como sucesso; o resto
+ * (permissão, disco somente leitura, caminho recusado por `caminhoAbsoluto`) é relançado.
+ *
+ * ⚠️ Existe para quem APAGA A LINHA DO BANCO DEPOIS e usa isso como prova de eliminação (o
+ * expurgo LGPD da Conciliação, a anonimização de cliente). Com `removerArquivo`, uma falha de
+ * disco virava "apagado": a linha sumia, a planilha com o paciente em claro ficava no disco sem
+ * nada que levasse a ela, e o `ActivityLog` contava como eliminado o que não foi. Os demais
+ * chamadores seguem com `removerArquivo`: lá o pior caso é espaço em disco, não dado pessoal
+ * esquecido.
+ */
+export async function removerArquivoOuFalhar(rel: string): Promise<void> {
+  try {
+    await unlink(caminhoAbsoluto(rel));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return;
+    throw e;
+  }
+}

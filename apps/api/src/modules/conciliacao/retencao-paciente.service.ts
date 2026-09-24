@@ -1,6 +1,7 @@
 import { prisma, type Prisma } from "@app/db";
 import { MARCADOR_ANONIMIZADO } from "@app/shared";
-import { removerArquivo } from "../../lib/storage.js";
+import { removerArquivoOuFalhar } from "../../lib/storage.js";
+import { registrarErro } from "../sistema/sistema.service.js";
 
 /**
  * PRAZO DE GUARDA DO DADO DE PACIENTE DA CONCILIAÇÃO (LGPD — Onda 1, decisão do dono: 5 anos,
@@ -144,15 +145,34 @@ export async function apagarArquivosOriginais({ clienteId, antesDe }: { clienteI
   });
 
   let apagados = 0;
+  let falhas = 0;
   for (const a of arquivos) {
     // Disco primeiro: se o banco falhar depois, a próxima varredura acha a linha de novo e
-    // `removerArquivo` não reclama do arquivo que já não está lá. Na ordem inversa, uma falha
-    // no disco deixaria o arquivo em claro sem nenhuma linha que leve a ele.
-    await removerArquivo(a.caminho);
+    // `removerArquivoOuFalhar` aceita o arquivo que já não está lá (ENOENT). Na ordem inversa,
+    // uma falha no disco deixaria o arquivo em claro sem nenhuma linha que leve a ele.
+    try {
+      await removerArquivoOuFalhar(a.caminho);
+    } catch (e) {
+      // ⚠️ O disco recusou (permissão, caminho fora da pasta, disco somente leitura): a LINHA
+      // FICA, para a próxima varredura tentar de novo e para a planilha continuar achável — e o
+      // erro vai para SISTEMA → Erros, porque "não apagou" calado é exatamente o que este
+      // expurgo existe para impedir. Não para o laço: um arquivo teimoso não pode segurar a
+      // eliminação dos outros. E NÃO conta em `apagados`, que vira a prova no ActivityLog.
+      const err = e instanceof Error ? e : new Error(String(e));
+      await registrarErro({
+        rota: "conciliacao.expurgo.arquivo",
+        mensagem: `Não foi possível apagar do disco o arquivo original da Conciliação (${a.id}): ${err.message}`,
+        stack: err.stack ?? null,
+      }).catch(() => {});
+      falhas++;
+      continue;
+    }
     await prisma.arquivo.delete({ where: { id: a.id } });
     apagados++;
   }
-  return apagados;
+  // `falhas` volta separado para quem chama decidir: o expurgo diário só registra (a próxima
+  // varredura tenta de novo); a anonimização a pedido recusa marcar o cliente como anonimizado.
+  return { apagados, falhas };
 }
 
 /**
@@ -168,7 +188,7 @@ export async function expurgarDadoDePacienteVencido(agora = new Date()) {
   const limite = limiteDoDadoDePaciente(anos, agora);
 
   const linhas = await anonimizarPacientesDaConciliacao({ antesDe: limite, marcador: MARCADOR_PACIENTE_EXPURGADO });
-  const arquivos = await apagarArquivosOriginais({ antesDe: limite });
+  const { apagados: arquivos } = await apagarArquivosOriginais({ antesDe: limite });
 
   const total = linhas.consultas + linhas.cirurgias + linhas.recursos + arquivos;
   // Registra SÓ quando fez alguma coisa — um registro por dia dizendo "zero" enterraria os que

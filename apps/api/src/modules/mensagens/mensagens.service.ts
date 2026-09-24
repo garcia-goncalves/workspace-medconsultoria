@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
-import { decidirEmailOperacional, type ChamadoStatus, type ChamadoPrioridade } from "@app/shared";
+import { decidirEmailOperacional, redigirDadoPessoal, type ChamadoStatus, type ChamadoPrioridade } from "@app/shared";
 import { notificationService } from "../../realtime/socket.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { renderTemplate } from "../emails/emails.service.js";
@@ -8,6 +8,7 @@ import { enviarEmailTemplate, registrarEmailEnviado } from "../emails/enviados.s
 import { enviarEmail } from "../../lib/email.js";
 import { destinatariosDaRespostaAoCliente } from "./aviso-de-resposta.js";
 import { config } from "../../config.js";
+import { registrarErro } from "../sistema/sistema.service.js";
 
 async function ensureParticipant(conversaId: string, userId: string) {
   const p = await prisma.conversaParticipante.findUnique({ where: { conversaId_userId: { conversaId, userId } } });
@@ -377,6 +378,21 @@ async function pushParaParticipantes(conversaId: string, evento: string, payload
 const JANELA_ANTI_SPAM_MENSAGEM_MS = 30 * 60 * 1000;
 
 /**
+ * O trecho que aparece no SININHO (nunca no e-mail). Passa pela mesma peneira que protege o que
+ * vai para a IA (`redigirDadoPessoal`, ADR-141): conversa interna fala de paciente da Conciliação,
+ * e CPF/telefone/e-mail colados numa mensagem não precisam ficar replicados em cada notificação.
+ * ⚠️ Peneira ANTES de cortar: cortar primeiro pode partir um CPF ao meio e deixar a metade que a
+ * expressão já não reconhece. A etiqueta `[[CPF-1]]` vira `[CPF]` — ninguém vai restaurar nada
+ * aqui, e o colchete duplo se lê como defeito.
+ * ⚠️ Nome não tem forma e a peneira não o pega (ver o cabeçalho de dado-pessoal.ts) — por isso o
+ * trecho ficou só no sino, que é interno, e saiu do e-mail.
+ */
+export function trechoParaOSino(conteudo: string): string {
+  const { texto } = redigirDadoPessoal(conteudo.trim());
+  return texto.replace(/\[\[([A-Z]+)-\d+\]\]/g, "[$1]").slice(0, 160);
+}
+
+/**
  * Mensagem em conversa INDIVIDUAL/GRUPO/PROJETO avisa os outros participantes — antes só emitia
  * socket (`pushParaParticipantes`), e em produção o tempo real é polling (Socket.IO desligado),
  * então nem isso chegava. Sininho SEMPRE (mesmo padrão de `notificar()`); e-mail conforme a
@@ -407,19 +423,21 @@ async function notificarMensagemInterna(conversaId: string, autorId: string, msg
   if (!autor) return;
 
   const nomeConversa = conversa?.nome?.trim() || (conversa?.tipo === "INDIVIDUAL" ? autor.nome : "Conversa interna");
-  const trecho = msg.conteudo.trim().slice(0, 160);
+  const trecho = trechoParaOSino(msg.conteudo);
 
   for (const p of participantes) {
     if (p.silenciadoEm) continue;
     if (!p.user || p.user.deletedAt || !p.user.ativo) continue;
 
+    // O template NÃO leva o trecho (ver `mensagem_interna` em emails.registry.ts): o e-mail só
+    // diz quem escreveu e onde. O trecho vai só no corpo do SINO, montado aqui embaixo.
     const render = await renderTemplate("mensagem_interna", {
       remetente: autor.nome,
       conversa: nomeConversa,
-      mensagem: trecho,
       nome: p.user.nome,
       link: config.WEB_ORIGIN + "/mensagens",
     });
+    const corpoDoSino = [render.corpo, trecho ? `"${trecho}"` : ""].filter(Boolean).join("\n\n") || null;
 
     // A mais recente de TODAS (lida ou não) é quem sabe a última vez que o e-mail saiu para esta
     // conversa; só a NÃO LIDA é reaproveitada para o texto do sino.
@@ -433,14 +451,14 @@ async function notificarMensagemInterna(conversaId: string, autorId: string, msg
       ultima && !ultima.lida
         ? await prisma.notificacao.update({
             where: { id: ultima.id },
-            data: { titulo: render.titulo, corpo: render.corpo || null, createdAt: new Date() },
+            data: { titulo: render.titulo, corpo: corpoDoSino, createdAt: new Date() },
           })
         : await prisma.notificacao.create({
             data: {
               userId: p.userId,
               tipo: "mensagem_interna",
               titulo: render.titulo,
-              corpo: render.corpo || null,
+              corpo: corpoDoSino,
               entidadeTipo: "conversa",
               entidadeId: conversaId,
             },
@@ -474,6 +492,41 @@ async function notificarMensagemInterna(conversaId: string, autorId: string, msg
     const { enviado, erro } = await enviarEmail({ para, assunto: render.assunto, html: render.html, texto: render.texto });
     await registrarEmailEnviado(para, render.assunto, render.texto ?? "", "mensagem_interna", enviado, erro);
   }
+}
+
+/**
+ * Fila de avisos POR CONVERSA. O aviso saiu da requisição (não bloqueia quem escreveu), mas
+ * não pode virar vários avisos correndo em paralelo: a agregação do sino ("reaproveita a não
+ * lida") e a janela de 30 min do e-mail são "lê e depois grava" — duas mensagens seguidas, com
+ * os avisos disputando, criariam DOIS sininhos e mandariam DOIS e-mails, exatamente a rajada que
+ * essas travas existem para impedir. Encadear por conversa mantém a ordem e a regra; conversas
+ * diferentes seguem em paralelo.
+ */
+const filaDeAvisos = new Map<string, Promise<void>>();
+
+function enfileirarAvisoDeMensagem(conversaId: string, autorId: string, msg: { conteudo: string; createdAt: Date }) {
+  const anterior = filaDeAvisos.get(conversaId) ?? Promise.resolve();
+  const proximo = anterior
+    .then(() => notificarMensagemInterna(conversaId, autorId, msg))
+    .catch((e: unknown) => {
+      const err = e instanceof Error ? e : new Error(String(e));
+      return registrarErro({ rota: "mensagens.aviso_interno", mensagem: err.message, stack: err.stack ?? null, userId: autorId })
+        .then(() => undefined)
+        .catch(() => undefined);
+    })
+    .finally(() => {
+      // Só limpa se ninguém entrou na fila depois — senão apagaria o elo do aviso seguinte.
+      if (filaDeAvisos.get(conversaId) === proximo) filaDeAvisos.delete(conversaId);
+    });
+  filaDeAvisos.set(conversaId, proximo);
+}
+
+/**
+ * Espera os avisos de mensagem que ainda estão na fila. Existe para os TESTES (e para um
+ * desligamento limpo): o caminho real nunca espera por isto.
+ */
+export async function aguardarAvisosDeMensagem(): Promise<void> {
+  while (filaDeAvisos.size > 0) await Promise.all([...filaDeAvisos.values()]);
 }
 
 export async function sendMensagem(conversaId: string, conteudo: string, userId: string) {
@@ -532,8 +585,11 @@ export async function sendMensagem(conversaId: string, conteudo: string, userId:
 
   // Conversa interna (INDIVIDUAL/GRUPO/PROJETO): avisa os outros participantes — sino + e-mail.
   // CLIENTE fica de fora, os dois blocos acima já cobrem os dois lados dela.
+  // ⚠️ FORA DO CAMINHO DA REQUISIÇÃO: a mensagem já está gravada, e quem a escreveu não pode
+  // esperar (nem receber erro) por causa de sininho e SMTP de outra pessoa. Vai para a fila da
+  // conversa (`enfileirarAvisoDeMensagem`), que falha sozinha para SISTEMA → Erros.
   if (conv?.tipo && conv.tipo !== "CLIENTE") {
-    await notificarMensagemInterna(conversaId, userId, { conteudo: msg.conteudo, createdAt: msg.createdAt });
+    enfileirarAvisoDeMensagem(conversaId, userId, { conteudo: msg.conteudo, createdAt: msg.createdAt });
   }
 
   return msg;

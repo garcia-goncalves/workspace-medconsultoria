@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
 import { exigirBancoDeTeste } from "./guarda-banco-de-teste.js";
-import { sendMensagem, silenciar } from "../modules/mensagens/mensagens.service.js";
+import { aguardarAvisosDeMensagem, sendMensagem, silenciar } from "../modules/mensagens/mensagens.service.js";
 
 /**
  * MENSAGEM INTERNA NÃO AVISAVA NINGUÉM FORA DO SISTEMA (W5, Onda 1).
@@ -46,6 +46,7 @@ afterAll(async () => {
 describe("mensagem em conversa interna notifica os outros, nunca o autor", () => {
   it("cria notificação de sino para os dois colegas e nenhuma para o autor", async () => {
     await sendMensagem(conversaId, "Bom dia! Vamos alinhar a proposta hoje?", autorId);
+    await aguardarAvisosDeMensagem();
 
     const doAutor = await prisma.notificacao.count({ where: { userId: autorId, tipo: "mensagem_interna", entidadeId: conversaId } });
     expect(doAutor).toBe(0);
@@ -74,6 +75,9 @@ describe("rajada de mensagens na mesma conversa", () => {
     for (let i = 0; i < 5; i++) {
       await sendMensagem(conversaId, `Mensagem ${i} da rajada`, autorId);
     }
+    // Os avisos saem FORA da requisição, mas em fila por conversa — a rajada inteira já está
+    // enfileirada aqui, e a agregação tem de valer mesmo sem ninguém esperar entre uma e outra.
+    await aguardarAvisosDeMensagem();
 
     const notificacoes = await prisma.notificacao.findMany({ where: { userId: colegaAId, tipo: "mensagem_interna", entidadeId: conversaId } });
     expect(notificacoes).toHaveLength(1);
@@ -91,6 +95,7 @@ describe("quem silenciou a conversa não recebe nem sino nem e-mail", () => {
     await prisma.emailEnviado.deleteMany({ where: { template: "mensagem_interna", para: `${PFX}-colega-b@teste.local` } });
 
     await sendMensagem(conversaId, "Mensagem depois de silenciar", autorId);
+    await aguardarAvisosDeMensagem();
 
     const notif = await prisma.notificacao.count({ where: { userId: colegaBId, tipo: "mensagem_interna", entidadeId: conversaId } });
     expect(notif).toBe(0);
@@ -98,5 +103,39 @@ describe("quem silenciou a conversa não recebe nem sino nem e-mail", () => {
     expect(email).toBe(0);
 
     await silenciar(conversaId, colegaBId, false);
+  });
+});
+
+describe("o trecho da mensagem não sai por e-mail, e no sino passa pela peneira", () => {
+  it("e-mail diz só quem escreveu e onde; o sino mostra o trecho com o CPF trocado por [CPF]", async () => {
+    // Conversa própria: a janela anti-spam de 30 min da conversa acima já está aberta.
+    const conversa = await prisma.conversa.create({ data: { tipo: "GRUPO", nome: `${PFX}-grupo-trecho`, criadoPorId: autorId } });
+    await prisma.conversaParticipante.createMany({
+      data: [{ conversaId: conversa.id, userId: autorId }, { conversaId: conversa.id, userId: colegaAId }],
+    });
+    try {
+      await sendMensagem(conversa.id, "Paciente Maria Souza, CPF 123.456.789-09, glosa na Unimed", autorId);
+      await aguardarAvisosDeMensagem();
+
+      const email = await prisma.emailEnviado.findFirst({
+        where: { template: "mensagem_interna", para: `${PFX}-colega-a@teste.local` },
+        orderBy: { createdAt: "desc" },
+      });
+      expect(email).not.toBeNull();
+      expect(email?.corpo).toContain(`${PFX}-grupo-trecho`);
+      expect(email?.corpo).not.toContain("Maria Souza");
+      expect(email?.corpo).not.toContain("123.456.789-09");
+      expect(email?.corpo).not.toContain("glosa");
+
+      const sino = await prisma.notificacao.findFirst({ where: { userId: colegaAId, tipo: "mensagem_interna", entidadeId: conversa.id } });
+      expect(sino?.corpo).toContain("[CPF]");
+      expect(sino?.corpo).not.toContain("123.456.789-09");
+      expect(sino?.corpo).toContain("glosa na Unimed");
+    } finally {
+      await prisma.notificacao.deleteMany({ where: { entidadeId: conversa.id } });
+      await prisma.mensagem.deleteMany({ where: { conversaId: conversa.id } });
+      await prisma.conversaParticipante.deleteMany({ where: { conversaId: conversa.id } });
+      await prisma.conversa.delete({ where: { id: conversa.id } });
+    }
   });
 });

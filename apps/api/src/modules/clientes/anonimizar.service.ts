@@ -58,7 +58,21 @@ export async function anonimizarCliente(id: string, userId: string) {
   // ordem inversa, a trava "já foi anonimizado" acima impediria para sempre de terminar o
   // serviço. As duas funções são idempotentes, então repetir não estraga nada.
   const pacientes = await anonimizarPacientesDaConciliacao({ clienteId: id, marcador: MARCADOR_ANONIMIZADO });
-  const arquivosDaConciliacao = await apagarArquivosOriginais({ clienteId: id });
+  const { apagados: arquivosDaConciliacao, falhas } = await apagarArquivosOriginais({ clienteId: id });
+  // ⚠️ Planilha que o disco recusou apagar continua lá, com o paciente em claro. Marcar o
+  // cliente como anonimizado agora trancaria o botão para sempre (a trava "já foi anonimizado"
+  // acima) e a eliminação ficaria pela metade SEM ninguém saber. Então para aqui, antes da
+  // ficha: o erro já foi para SISTEMA → Erros, e apertar de novo depois de resolver termina o
+  // serviço (tudo acima é idempotente). PRECONDITION_FAILED e não INTERNAL para não registrar
+  // o mesmo erro duas vezes (o onError do tRPC só grava INTERNAL_SERVER_ERROR).
+  if (falhas > 0) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        `Não foi possível apagar do disco ${falhas} planilha(s) da Conciliação deste cliente. ` +
+        "O erro foi registrado em SISTEMA → Erros. A ficha ainda NÃO foi anonimizada: resolva e tente de novo.",
+    });
+  }
 
   await prisma.$transaction([
     // A ficha

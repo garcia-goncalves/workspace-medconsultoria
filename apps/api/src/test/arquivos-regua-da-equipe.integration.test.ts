@@ -147,6 +147,35 @@ describe("download /arquivos/:id", () => {
     const logs = await logsDe(chefe, arquivoId);
     expect(logs.some((l) => (l.dados as { viaSuporte?: boolean }).viaSuporte === true)).toBe(true);
   });
+
+  it("se o registro do download falhar, o download segue — e a falha vai para SISTEMA → Erros", async () => {
+    // ⚠️ Salvar/repor À MÃO, nunca `vi.spyOn`: nem `mockRestore` nem deixar o spy de pé
+    // devolvem o delegate do Prisma — visto quebrando `activityLog.create` nos ARQUIVOS SEGUINTES
+    // do mesmo fork (ADR-149).
+    const original = prisma.activityLog.create;
+    let recusou = false;
+    (prisma.activityLog as { create: unknown }).create = (...args: unknown[]) => {
+      if (!recusou) {
+        recusou = true;
+        return Promise.reject(new Error(`${PFX} banco recusou o registro`));
+      }
+      return (original as (...a: unknown[]) => unknown)(...args);
+    };
+    let r;
+    try {
+      r = await baixar("chefe", arquivoId);
+    } finally {
+      (prisma.activityLog as { create: unknown }).create = original;
+    }
+    expect(recusou).toBe(true);
+    expect(r.statusCode, "o download não pode cair por causa do registro").toBe(200);
+
+    const erro = await prisma.errorLog.findFirst({
+      where: { rota: "arquivos.download.registro", mensagem: { contains: arquivoId } },
+    });
+    expect(erro, "a falha do registro fica visível no painel de erros").not.toBeNull();
+    await prisma.errorLog.deleteMany({ where: { rota: "arquivos.download.registro", mensagem: { contains: PFX } } });
+  });
 });
 
 describe("lista clientes.arquivos", () => {

@@ -19,6 +19,7 @@ import {
 } from "../lib/storage.js";
 import { registrarUpload, getArquivo } from "../modules/arquivos/arquivos.service.js";
 import { isAiEnabled } from "../config.js";
+import { registrarErro } from "../modules/sistema/sistema.service.js";
 import { aiService } from "../lib/ai.js";
 
 const CONTENT_TYPE_POR_EXT: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp" };
@@ -270,9 +271,21 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
             dados: { clienteId: arquivo.clienteId, viaSuporte: user.role === "CLIENTE" },
           },
         })
-        // O registro não pode impedir a equipe de trabalhar; se ele falhar, a falha é do banco,
-        // e o painel de erros já a mostra por outro caminho (mesma escolha de `link-de-assinatura`).
-        .catch(() => {});
+        // O registro não pode impedir a equipe de trabalhar — o download segue. Mas a falha NÃO
+        // pode ser calada: um acesso a dado pessoal sem a linha de prova é justamente o buraco
+        // que este registro existe para fechar, e sem aviso ninguém saberia que ele se abriu.
+        // Vai para SISTEMA → Erros com o arquivo e quem baixou (ids, nunca conteúdo).
+        .catch((e: unknown) => {
+          const err = e instanceof Error ? e : new Error(String(e));
+          return registrarErro({
+            rota: "arquivos.download.registro",
+            mensagem: `Download do arquivo ${arquivo.id} não ficou registrado (arquivo.baixado): ${err.message}`,
+            stack: err.stack ?? null,
+            userId: leitorDaEquipe,
+          })
+            .then(() => undefined)
+            .catch(() => undefined);
+        });
     }
 
     let stream;
