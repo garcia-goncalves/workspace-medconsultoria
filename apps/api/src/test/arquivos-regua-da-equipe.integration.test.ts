@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -146,6 +146,23 @@ describe("download /arquivos/:id", () => {
     expect((await baixar("suporte", arquivoId)).statusCode).toBe(200);
     const logs = await logsDe(chefe, arquivoId);
     expect(logs.some((l) => (l.dados as { viaSuporte?: boolean }).viaSuporte === true)).toBe(true);
+  });
+
+  it("se o registro do download falhar, o download segue — e a falha vai para SISTEMA → Erros", async () => {
+    // ⚠️ `mockImplementationOnce` e SEM `mockRestore`: restaurar um spy num delegate do Prisma
+    // não devolve o original (visto quebrando testes seguintes, ADR-149). Depois da 1ª chamada o
+    // spy volta a chamar o original sozinho.
+    vi.spyOn(prisma.activityLog, "create").mockImplementationOnce((() =>
+      Promise.reject(new Error(`${PFX} banco recusou o registro`))) as never);
+
+    const r = await baixar("chefe", arquivoId);
+    expect(r.statusCode, "o download não pode cair por causa do registro").toBe(200);
+
+    const erro = await prisma.errorLog.findFirst({
+      where: { rota: "arquivos.download.registro", mensagem: { contains: arquivoId } },
+    });
+    expect(erro, "a falha do registro fica visível no painel de erros").not.toBeNull();
+    await prisma.errorLog.deleteMany({ where: { rota: "arquivos.download.registro", mensagem: { contains: PFX } } });
   });
 });
 
