@@ -52,6 +52,11 @@ export function PrivacidadePage() {
   }
 
   const d = q.data;
+  // TODO(W7): trocar por `d.retencaoPacienteAnos` quando o campo existir em
+  // IdentidadeInstitucional (editável em Ajustes → Dados da empresa) e sair em
+  // `identidade.privacidade`. Até lá, 5 é o prazo decidido pelo dono — mas a regra desta página
+  // é ler do banco, igual aos outros prazos, para o que ela promete ser o que o expurgo cumpre.
+  const prazoPacienteAnos: number = 5;
 
   return (
     <Casca>
@@ -90,10 +95,45 @@ export function PrivacidadePage() {
               demais documentos exigidos pela operadora — para protocolar o credenciamento.
             </li>
           </ul>
-          <p className="mt-2">
-            Não tratamos prontuário, diagnóstico nem qualquer dado de paciente. Este sistema é
-            administrativo.
+        </Bloco>
+
+        {/* ⚠️ ESTA SEÇÃO SUBSTITUI UMA FRASE FALSA. A página dizia "não tratamos prontuário,
+            diagnóstico nem qualquer dado de paciente" — e a Conciliação (ADR-153/155) guarda o nome
+            do paciente em claro, CPF/telefone/e-mail cifrados, e data e procedimento de cirurgia,
+            que é dado de saúde (dado sensível, LGPD art. 5º, II). Aviso de privacidade que promete
+            menos do que o sistema faz é pior do que não ter aviso. */}
+        <Bloco titulo="Dados de pacientes das clínicas que atendemos">
+          <p>
+            Quando uma clínica nos contrata para conferir o que ela produziu e o que recebeu dos
+            convênios, ela nos envia os relatórios do sistema dela. Deles guardamos, por paciente:
+            o nome, a data do atendimento ou da cirurgia, o procedimento, o convênio e o
+            profissional — e, quando o relatório traz, CPF, telefone e e-mail.
           </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li>
+              <strong>Para quê:</strong> só para conferir a produção e o repasse daquela clínica —
+              o que foi cobrado, o que foi pago e o que foi glosado.
+            </li>
+            <li>
+              <strong>Em nome de quem:</strong> a clínica é a controladora desses dados; a
+              MedConsultoria atua como operadora, tratando-os apenas segundo as instruções dela e
+              para essa finalidade. Se você é paciente e quer exercer os seus direitos sobre esses
+              dados, fale com a clínica; nós a ajudamos a atender o pedido.
+            </li>
+            <li>
+              <strong>Como protegemos:</strong> CPF, telefone e e-mail do paciente ficam cifrados e
+              não aparecem em nenhuma tela. Só a equipe responsável por aquela clínica acessa os
+              dados dela.
+            </li>
+            <li>
+              <strong>O que não guardamos:</strong> o sistema não lê nem grava prontuário, código
+              de pessoa ou leito. O arquivo original enviado pela clínica fica arquivado como foi
+              recebido, com o mesmo acesso restrito, e cada download fica registrado.
+            </li>
+            <li>
+              <strong>Por quanto tempo:</strong> {prazoPacienteAnos} anos, e depois são apagados.
+            </li>
+          </ul>
         </Bloco>
 
         <Bloco titulo="Com que base legal">
