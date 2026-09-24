@@ -138,6 +138,10 @@ describe("NENHUMA rota do router devolve dado pessoal do paciente", () => {
     exigirSemPII("pendencias", await caller.conciliacao.pendencias({ clienteId }));
   });
 
+  it("conciliacao.honorario", async () => {
+    exigirSemPII("honorario", await caller.conciliacao.honorario({ clienteId }));
+  });
+
   it("conciliacao.producao com busca por nome", async () => {
     const r = await caller.conciliacao.producao({ clienteId, busca: "WILMA" });
     expect(r.total).toBe(1);

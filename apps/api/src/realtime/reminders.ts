@@ -3,6 +3,7 @@ import { notificar } from "../modules/notificacoes/notificacoes.service.js";
 import { enviarEmailTemplate } from "../modules/emails/enviados.service.js";
 import { garantirProximasRecorrencias } from "../modules/financeiro/contas.service.js";
 import { hojeBRT } from "../lib/datas.js";
+import { honorariosALembrar } from "../modules/conciliacao/honorario.service.js";
 
 const JANELA_MIN = 15;
 const SCAN_MIN = 10;
@@ -369,6 +370,24 @@ export async function scanProativo(): Promise<void> {
       const destinatarios = new Set<string>([t.criadoPorId, ...t.responsaveis.map((r) => r.userId)]);
       for (const uid of destinatarios) {
         await notificar(uid, "tarefa_vencida", { tarefa: t.titulo, prazo }, { entidadeTipo: "tarefa", entidadeId: t.id, unico: true }).catch(() => {});
+      }
+    }
+  } catch {
+    /* isola a falha */
+  }
+
+  // 10) Honorário do faturamento a lançar — mês encerrado, repasse importado, conta não criada.
+  //     Só os dois últimos meses encerrados (ver `honorariosALembrar`), um aviso por cliente +
+  //     mês, para a gestão (quem lança conta no Financeiro).
+  try {
+    for (const h of await honorariosALembrar()) {
+      for (const uid of idAdmins) {
+        await notificar(
+          uid,
+          "honorario_a_lancar",
+          { cliente: h.cliente, mes: h.rotulo, valor: brl.format(h.valor) },
+          { entidadeTipo: "honorario", entidadeId: `${h.clienteId}:${h.mes}`, unico: true },
+        ).catch(() => {});
       }
     }
   } catch {
