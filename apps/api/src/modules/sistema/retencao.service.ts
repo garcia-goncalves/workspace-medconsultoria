@@ -69,6 +69,9 @@ export async function expurgarDadosVencidos(agora = new Date()) {
     "documento.assinatura_solicitada",
     "documento.assinado",
     "arquivo.removido",
+    // Quem da equipe BAIXOU documento de cliente (e, na Conciliação, dado de paciente). É registro
+    // de acesso a dado pessoal — a pergunta "quem viu isto?" chega bem depois de 180 dias.
+    "arquivo.baixado",
     "conta.criada",
     "cliente.anonimizado",
     // ⚠️ Escrita feita por um PROGRAMA em nome de uma pessoa (ADR-150). É a única prova de que a

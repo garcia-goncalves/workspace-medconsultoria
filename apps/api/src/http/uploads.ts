@@ -5,7 +5,8 @@ import { extname } from "node:path";
 import { prisma } from "@app/db";
 import type { SessionUser } from "@app/shared";
 import { getUserFromSession, SESSION_COOKIE } from "../lib/session.js";
-import { SUPORTE_SO_LEITURA } from "../modules/auth/painel-cliente.service.js";
+import { TRPCError } from "@trpc/server";
+import { SUPORTE_SO_LEITURA, assertClienteSobSuaResponsabilidade } from "../modules/auth/painel-cliente.service.js";
 import {
   salvarArquivo,
   salvarAvatar,
@@ -32,11 +33,38 @@ export async function usuarioDaRequest(req: FastifyRequest): Promise<SessionUser
 }
 
 /**
+ * A EQUIPE só mexe nos arquivos dos clientes que pode ver — a MESMA régua do Painel do Cliente
+ * e da Conciliação (ADR-128): ADMIN+ sempre, funcionário só nos clientes sob a responsabilidade
+ * dele.
+ *
+ * ⚠️ Antes, "equipe acessa qualquer um": qualquer funcionário baixava qualquer arquivo de
+ * qualquer clínica — inclusive o relatório ORIGINAL do TASY importado na Conciliação, que traz
+ * prontuário e Cód. Pessoa, justamente o que a tela se recusa a mostrar (ADR-141). A tela
+ * fechada e o download aberto eram a "segunda porta" da ADR-140.
+ *
+ * ⚠️ A régua NÃO é reescrita aqui: `assertClienteSobSuaResponsabilidade` é a mesma função que o
+ * Painel e a Conciliação chamam. Uma cópia divergiria na primeira mudança (ADR-133). Esta função
+ * só traduz o `TRPCError` para a resposta HTTP, porque estas rotas não passam pelo tRPC.
+ *
+ * Devolve a frase da recusa, ou `null` quando pode.
+ */
+async function recusaDaEquipe(user: SessionUser, clienteId: string, oQue: string): Promise<string | null> {
+  try {
+    await assertClienteSobSuaResponsabilidade(user, clienteId, oQue);
+    return null;
+  } catch (e) {
+    if (e instanceof TRPCError && e.code === "FORBIDDEN") return e.message;
+    throw e;
+  }
+}
+
+/**
  * Rotas de arquivo (fora do tRPC, que não lida com multipart):
  *  - POST /upload            recebe um arquivo (campos ANTES do arquivo no FormData)
  *  - GET  /arquivos/:id      baixa um arquivo (com checagem de posse)
  *
- * Autenticação por cookie. CLIENTE (Portal) só grava/baixa no PRÓPRIO cadastro.
+ * Autenticação por cookie. CLIENTE (Portal) só grava/baixa no PRÓPRIO cadastro; a EQUIPE só nos
+ * clientes que pode ver (`recusaDaEquipe`).
  */
 export async function registrarRotasArquivos(app: FastifyInstance) {
   await app.register(multipart, { limits: { fileSize: TAMANHO_MAX, files: 1 } });
@@ -75,6 +103,15 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
       if (!clienteId) {
         part.file.resume();
         return reply.code(400).send({ error: "Cliente não informado." });
+      }
+      // A equipe informa o cliente-destino no formulário — é dado do pedido, então passa pela
+      // régua ANTES de qualquer byte ir para o disco.
+      if (!isCliente) {
+        const recusa = await recusaDaEquipe(user, clienteId, "enviar documentos");
+        if (recusa) {
+          part.file.resume();
+          return reply.code(403).send({ error: recusa });
+        }
       }
       const { caminho, tamanho } = await salvarArquivo(clienteId, part.filename, part.file);
       if (part.file.truncated) {
@@ -205,9 +242,37 @@ export async function registrarRotasArquivos(app: FastifyInstance) {
     if (!user) return reply.code(401).send({ error: "Não autenticado." });
 
     const arquivo = await getArquivo(req.params.id);
-    // CLIENTE só acessa arquivos do próprio cadastro; equipe acessa qualquer um.
+    // CLIENTE só acessa arquivos do próprio cadastro.
     if (user.role === "CLIENTE" && arquivo.clienteId !== user.clienteId) {
       return reply.code(403).send({ error: "Sem acesso a este arquivo." });
+    }
+    // EQUIPE só nos clientes que pode ver (ver `recusaDaEquipe`).
+    if (user.role !== "CLIENTE") {
+      const recusa = await recusaDaEquipe(user, arquivo.clienteId, "baixar os documentos");
+      if (recusa) return reply.code(403).send({ error: recusa });
+    }
+
+    // QUEM DA EQUIPE BAIXOU QUAL ARQUIVO fica registrado — é documento pessoal de médico e, na
+    // Conciliação, dado de paciente. Inclui a sessão de suporte (a equipe vendo o Portal como o
+    // cliente, ADR-128): ali quem lê é o OPERADOR, e é no nome dele que a linha entra.
+    // ⚠️ A leitura do PRÓPRIO cliente não entra: é o dono do dado lendo o que é dele.
+    // ⚠️ `arquivo.baixado` está na lista do expurgo que NÃO expira (`retencao.service.ts`) — é
+    // prova de acesso a dado pessoal, e a pergunta "quem viu isto?" chega anos depois.
+    const leitorDaEquipe = user.role !== "CLIENTE" ? user.id : (user.operador?.id ?? null);
+    if (leitorDaEquipe) {
+      await prisma.activityLog
+        .create({
+          data: {
+            userId: leitorDaEquipe,
+            acao: "arquivo.baixado",
+            entidadeTipo: "arquivo",
+            entidadeId: arquivo.id,
+            dados: { clienteId: arquivo.clienteId, viaSuporte: user.role === "CLIENTE" },
+          },
+        })
+        // O registro não pode impedir a equipe de trabalhar; se ele falhar, a falha é do banco,
+        // e o painel de erros já a mostra por outro caminho (mesma escolha de `link-de-assinatura`).
+        .catch(() => {});
     }
 
     let stream;

@@ -42,6 +42,11 @@ export function DocumentosClienteCard({ clienteId }: { clienteId: string }) {
   const podeExcluirArquivo = hasRoleLevel(user.role, "ADMIN");
 
   const arquivos = q.data ?? [];
+  // ⚠️ Documento de cliente segue a régua do Painel (ADR-128): funcionário só vê os clientes sob a
+  // responsabilidade dele. A recusa NÃO pode cair no "Nenhum documento do cliente ainda" — isso
+  // diria que o cliente não mandou nada, quando o acervo só está fechado para esta pessoa. E falha
+  // de rede também não é "não há nada" (a lição da ADR-140).
+  const semAcesso = q.error?.data?.code === "FORBIDDEN";
 
   const onRemover = async (id: string, nome: string) => {
     if (
@@ -64,9 +69,19 @@ export function DocumentosClienteCard({ clienteId }: { clienteId: string }) {
         <span className="text-xs text-muted-foreground">Enviados pelo cliente ou anexados por você</span>
       </CardHeader>
       <CardContent className="space-y-3">
-        <UploadArquivo label="Anexar documento" campos={{ clienteId }} onDone={invalidate} />
+        {semAcesso ? (
+          <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+            {q.error?.message}
+          </p>
+        ) : q.error ? (
+          <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-destructive">
+            Não consegui carregar os documentos. Recarregue a página para tentar de novo.
+          </p>
+        ) : (
+          <UploadArquivo label="Anexar documento" campos={{ clienteId }} onDone={invalidate} />
+        )}
 
-        {arquivos.length === 0 ? (
+        {q.error ? null : arquivos.length === 0 ? (
           <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
             Nenhum documento do cliente ainda. O cliente pode enviar pelo Portal, ou você anexa aqui.
           </p>
