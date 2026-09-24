@@ -215,7 +215,7 @@ jobs:
           done
           echo "NO AR: https://$DOMINIO"
 
-      # A VOLTA AUTOMÁTICA. Roda só se algo falhou DEPOIS que o `.env` foi trocado (o passo
+      # A VOLTA AUTOMÁTICA. Roda só se algo falhou (ou o run foi cancelado) DEPOIS que o `.env` foi trocado (o passo
       # `troca` deu certo) e havia imagem anterior para onde voltar.
       #
       # ⚠️ `--no-deps`, sempre — pelo mesmo motivo dos passos 4/5 e 5/5: sem ele o `up -d`
@@ -227,8 +227,12 @@ jobs:
       # renomeie coluna precisa de plano próprio antes de publicar.
       # ⚠️ Termina VERMELHO de propósito, mesmo quando a volta dá certo: a publicação falhou, e o
       # que está no ar é a versão anterior — ninguém pode ler "verde" aqui.
-      - name: Voltar para a imagem anterior (a publicação falhou)
-        if: failure() && steps.troca.outcome == 'success' && env.APP_IMAGE_ANTERIOR != ''
+      # ⚠️ `cancelled()` TAMBÉM dispara a volta: cancelar o run (ou estourar o tempo) depois da
+      # troca deixaria o `.env` apontando para uma imagem que talvez nem tenha subido — e o próximo
+      # `up -d` de qualquer pessoa a subiria sem smoke test. Se o cancelamento veio antes do 5/5,
+      # voltar a linha deixa o `app` igual ao que está no ar e o `up -d` não faz nada.
+      - name: Voltar para a imagem anterior (a publicação falhou ou foi cancelada)
+        if: (failure() || cancelled()) && steps.troca.outcome == 'success' && env.APP_IMAGE_ANTERIOR != ''
         run: |
           set -euo pipefail
           echo "voltando APP_IMAGE para $APP_IMAGE_ANTERIOR"
