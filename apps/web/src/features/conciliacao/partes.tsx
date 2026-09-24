@@ -93,7 +93,16 @@ export function Paginacao({
   );
 }
 
-export function ListaResumo({ titulo, itens }: { titulo: string; itens: { rotulo: string; atendimentos: number; pendente: boolean }[] }) {
+export function ListaResumo({
+  titulo,
+  itens,
+  rodape,
+}: {
+  titulo: string;
+  itens: { rotulo: string; atendimentos: number; pendente: boolean }[];
+  /** O que ficou FORA da lista, dito ao lado dela — senão a soma não fecha com o total e parece erro. */
+  rodape?: string;
+}) {
   return (
     <div className="rounded-lg bg-muted/40 p-3">
       <p className="text-xs font-medium uppercase text-muted-foreground">{titulo}</p>
@@ -114,6 +123,7 @@ export function ListaResumo({ titulo, itens }: { titulo: string; itens: { rotulo
           </li>
         ))}
       </ul>
+      {rodape && <p className="mt-1 text-xs text-muted-foreground">{rodape}</p>}
     </div>
   );
 }

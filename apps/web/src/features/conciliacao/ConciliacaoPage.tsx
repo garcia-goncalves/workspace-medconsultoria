@@ -242,13 +242,11 @@ export function ConciliacaoPage() {
                       }}
                     >
                       <option value="">Todas</option>
-                      {(resumo.data?.porOperadora ?? [])
-                        .filter((o) => o.operadoraId)
-                        .map((o) => (
-                          <option key={o.operadoraId!} value={o.operadoraId!}>
-                            {o.rotulo}
-                          </option>
-                        ))}
+                      {(resumo.data?.operadorasDoMes ?? []).map((o) => (
+                        <option key={o.operadoraId} value={o.operadoraId}>
+                          {o.rotulo}
+                        </option>
+                      ))}
                     </Select>
                     {!competencia && <p className="text-xs text-muted-foreground">Escolha uma competência para filtrar por operadora.</p>}
                   </div>
@@ -380,6 +378,7 @@ type Lote = {
 type Resumo = {
   total: number;
   faturavel: number;
+  separacao: { convenio: number; particular: number; cortesia: number; semVinculo: number };
   porTipo: { CONSULTA: number; CORTESIA: number; SEM_VINCULO_AGENDA: number; OUTRO: number };
   porOperadora: { rotulo: string; atendimentos: number; pendente: boolean }[];
   porProfissional: { rotulo: string; atendimentos: number; pendente: boolean }[];
@@ -438,13 +437,34 @@ function ResumoDoMes({
           <div className="rounded-lg bg-muted/40 p-3">
             <p className="text-xs font-medium uppercase text-muted-foreground">Atendimentos</p>
             <p className="text-2xl font-semibold">{resumo.total}</p>
-            {/* Cortesia e particular não geram recebimento — separá-los evita inflar a
-                expectativa de receita, que é o número que este módulo existe para acertar. */}
+            {/* Só o de convênio gera recebimento — separar o resto evita inflar a expectativa de
+                receita, que é o número que este módulo existe para acertar. As quatro partes
+                somam o total (o servidor garante), e a de valor zero some para não virar ruído. */}
             <p className="mt-1 text-xs text-muted-foreground">
-              {resumo.faturavel} de convênio · {resumo.porTipo.CORTESIA} cortesia(s)
+              {[
+                `${resumo.separacao.convenio} de convênio`,
+                resumo.separacao.particular > 0 && `${resumo.separacao.particular} particular`,
+                resumo.separacao.cortesia > 0 && `${resumo.separacao.cortesia} cortesia(s)`,
+                resumo.separacao.semVinculo > 0 && `${resumo.separacao.semVinculo} sem vínculo com agenda`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           </div>
-          <ListaResumo titulo="Por operadora" itens={resumo.porOperadora} />
+          <ListaResumo
+            titulo="Por operadora"
+            itens={resumo.porOperadora}
+            rodape={
+              resumo.separacao.cortesia + resumo.separacao.semVinculo > 0
+                ? `Fora desta lista, por não gerarem recebimento: ${[
+                    resumo.separacao.cortesia > 0 && `${resumo.separacao.cortesia} cortesia(s)`,
+                    resumo.separacao.semVinculo > 0 && `${resumo.separacao.semVinculo} sem vínculo com agenda`,
+                  ]
+                    .filter(Boolean)
+                    .join(" e ")}.`
+                : undefined
+            }
+          />
           <ListaResumo titulo="Por profissional" itens={resumo.porProfissional} />
         </div>
       )}

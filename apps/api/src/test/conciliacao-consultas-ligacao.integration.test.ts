@@ -6,7 +6,7 @@ process.env.PACIENTE_CRYPTO_KEY ??= randomBytes(32).toString("base64");
 
 const { prisma } = await import("@app/db");
 const { ligarConvenio, ligarProfissional } = await import("../modules/conciliacao/conciliacao.service.js");
-const { listarProducao, pendenciasDePara, resumoDaCompetencia } = await import("../modules/conciliacao/conciliacao-painel.service.js");
+const { listarProducao, parteDoAtendimento, pendenciasDePara, resumoDaCompetencia } = await import("../modules/conciliacao/conciliacao-painel.service.js");
 const { listarCirurgias } = await import("../modules/conciliacao/cirurgias.service.js");
 
 /**
@@ -76,6 +76,9 @@ beforeAll(async () => {
   // Particular, com caixa diferente em cada produção.
   await consulta(3, "CONSULTA", "PARTICULAR", "DR. RAFAEL FICTÍCIO MENDES");
   await cirurgia(2, "Particular", "DR. RAFAEL FICTICIO MENDES");
+  // Cortesia de paciente particular e sem vínculo de convênio: o TIPO decide a parte.
+  await consulta(4, "CORTESIA", "PARTICULAR", "DR. RAFAEL FICTÍCIO MENDES");
+  await consulta(5, "SEM_VINCULO_AGENDA", "AMIL 400", "DR. RAFAEL FICTÍCIO MENDES");
 });
 
 afterAll(async () => {
@@ -88,14 +91,14 @@ describe("#3 — ligar profissional", () => {
     // É o estado que deixava o "Ligar a…" vazio na tela: não é filtro errado, é cadastro vazio.
     const p = await pendenciasDePara(clienteId);
     expect(p.profissionais).toHaveLength(1);
-    expect(p.profissionais[0]!.atendimentos).toBe(5);
+    expect(p.profissionais[0]!.atendimentos).toBe(7);
     expect(await prisma.profissional.count({ where: { clienteId } })).toBe(0);
   });
 
   it("depois de cadastrar e ligar, retroage em consultas E cirurgias, de qualquer caixa", async () => {
     const prof = await prisma.profissional.create({ data: { clienteId, nome: "Rafael Fictício Mendes", conselho: "CRM" } });
     const r = await ligarProfissional({ clienteId, textoBruto: "DR. RAFAEL FICTÍCIO MENDES", profissionalId: prof.id });
-    expect(r.linhasAtualizadas).toBe(5);
+    expect(r.linhasAtualizadas).toBe(7);
 
     expect(await prisma.producaoConsulta.count({ where: { clienteId, profissionalId: null } })).toBe(0);
     expect(await prisma.producaoCirurgia.count({ where: { clienteId, profissionalId: null } })).toBe(0);
@@ -127,5 +130,31 @@ describe("#7 — particular ligado não é \"(a ligar)\"", () => {
     const linhaParticular = r.porOperadora.find((o) => o.particular)!;
     expect(linhaParticular.rotulo).toBe("Particular");
     expect(linhaParticular.pendente).toBe(false);
+  });
+});
+
+describe("#8 — o resumo separa o que gera recebimento, e fecha com o total", () => {
+  it("o tipo fala antes do convênio", () => {
+    expect(parteDoAtendimento("CORTESIA", true)).toBe("cortesia");
+    expect(parteDoAtendimento("SEM_VINCULO_AGENDA", false)).toBe("semVinculo");
+    expect(parteDoAtendimento("CONSULTA", true)).toBe("particular");
+    expect(parteDoAtendimento("CONSULTA", false)).toBe("convenio");
+    expect(parteDoAtendimento("OUTRO", false)).toBe("convenio");
+  });
+
+  it("as quatro partes somam o total, e a lista por operadora conta só consulta", async () => {
+    // (O particular já foi ligado no bloco #7.)
+    const r = await resumoDaCompetencia(clienteId, COMPETENCIA);
+    expect(r.total).toBe(5);
+    expect(r.separacao).toEqual({ convenio: 2, particular: 1, cortesia: 1, semVinculo: 1 });
+    expect(r.separacao.convenio + r.separacao.particular + r.separacao.cortesia + r.separacao.semVinculo).toBe(r.total);
+    expect(r.faturavel).toBe(2);
+
+    // Lista por operadora: AMIL com as 2 consultas (sem o sem-vínculo) e Particular com 1 (sem a cortesia).
+    const somaLista = r.porOperadora.reduce((s, o) => s + o.atendimentos, 0);
+    expect(somaLista).toBe(r.separacao.convenio + r.separacao.particular);
+    expect(r.porOperadora.find((o) => o.rotulo === "AMIL 400")!.atendimentos).toBe(2);
+    expect(r.porOperadora.find((o) => o.particular)!.atendimentos).toBe(1);
+    expect(r.porTipo).toEqual({ CONSULTA: 3, CORTESIA: 1, SEM_VINCULO_AGENDA: 1, OUTRO: 0 });
   });
 });

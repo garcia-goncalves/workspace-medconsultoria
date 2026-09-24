@@ -161,27 +161,51 @@ export interface SomaProfissional {
   pendente: boolean;
 }
 
+type TipoAtendimento = "CONSULTA" | "CORTESIA" | "SEM_VINCULO_AGENDA" | "OUTRO";
+
+/** As quatro partes, que SOMAM o total do mês — nenhum atendimento em duas, nenhum fora. */
+export interface SeparacaoDoMes {
+  /** Consulta de convênio: é a que pode virar recebimento. */
+  convenio: number;
+  /** Consulta cujo convênio foi ligado como particular. */
+  particular: number;
+  cortesia: number;
+  semVinculo: number;
+}
+
+/**
+ * Em qual parte do mês cai UM atendimento. A ordem importa e é a regra: o TIPO fala primeiro —
+ * uma cortesia de paciente particular é cortesia, não particular —, senão o mesmo atendimento
+ * sairia de duas partes e a conta não fecharia com o arquivo.
+ *
+ * ⚠️ "Sem vínculo com a agenda" fica FORA do que gera recebimento por decisão desta tela, não por
+ * regra da operadora: é atendimento real, mas sem agendamento o relatório não diz se foi faturado.
+ * Se a clínica cobra esses do convênio, é aqui (e só aqui) que muda.
+ */
+export function parteDoAtendimento(tipo: TipoAtendimento, particular: boolean): keyof SeparacaoDoMes {
+  if (tipo === "CORTESIA") return "cortesia";
+  if (tipo === "SEM_VINCULO_AGENDA") return "semVinculo";
+  return particular ? "particular" : "convenio";
+}
+
 /**
  * O resumo do mês: quantos atendimentos por operadora, por profissional e por tipo.
  *
- * `Cortesia` e `Particular` são contados à parte porque **não geram recebimento** — somá-los ao
- * total de convênio inflaria a expectativa de receita, que é justamente o número que este módulo
- * existe para acertar.
+ * O total é repartido em convênio · particular · cortesia · sem vínculo (`separacao`), e a lista
+ * por operadora conta **só consulta** (convênio + particular, que aparece marcado) — somar ali a
+ * cortesia e o sem vínculo inflaria a expectativa de receita, que é justamente o número que este
+ * módulo existe para acertar. O que fica de fora da lista aparece ao lado dela, para a conta
+ * fechar com o arquivo.
  */
 export async function resumoDaCompetencia(clienteId: string, competencia: string) {
-  const [porOperadora, porProfissional, porTipo, mapeamentos] = await Promise.all([
+  const [porConvenioETipo, porProfissional, mapeamentos] = await Promise.all([
     prisma.producaoConsulta.groupBy({
-      by: ["operadoraId", "convenioBruto"],
+      by: ["operadoraId", "convenioBruto", "tipoAtendimento"],
       where: { clienteId, competencia },
       _count: { _all: true },
     }),
     prisma.producaoConsulta.groupBy({
       by: ["profissionalId", "profissionalBruto"],
-      where: { clienteId, competencia },
-      _count: { _all: true },
-    }),
-    prisma.producaoConsulta.groupBy({
-      by: ["tipoAtendimento"],
       where: { clienteId, competencia },
       _count: { _all: true },
     }),
@@ -191,33 +215,44 @@ export async function resumoDaCompetencia(clienteId: string, competencia: string
     }),
   ]);
 
-  const [somaPorOperadora, somaPorProfissional] = await Promise.all([
+  const particulares = new Set(mapeamentos.filter((m) => m.particular).map((m) => m.textoNormalizado));
+  const separacao: SeparacaoDoMes = { convenio: 0, particular: 0, cortesia: 0, semVinculo: 0 };
+  const porTipo: Record<TipoAtendimento, number> = { CONSULTA: 0, CORTESIA: 0, SEM_VINCULO_AGENDA: 0, OUTRO: 0 };
+  const grupos = porConvenioETipo.map((g) => ({
+    operadoraId: g.operadoraId,
+    convenioBruto: g.convenioBruto,
+    n: g._count._all,
+    parte: parteDoAtendimento(g.tipoAtendimento, convenioEhParticular(g.operadoraId, g.convenioBruto, particulares)),
+  }));
+  for (const [i, g] of grupos.entries()) {
+    separacao[g.parte] += g.n;
+    porTipo[porConvenioETipo[i]!.tipoAtendimento] += g.n;
+  }
+
+  const [somaPorOperadora, todasAsOperadoras, somaPorProfissional] = await Promise.all([
     somarPorOperadora(
-      porOperadora.map((g) => ({ operadoraId: g.operadoraId, convenioBruto: g.convenioBruto, n: g._count._all })),
+      grupos.filter((g) => g.parte === "convenio" || g.parte === "particular"),
       mapeamentos,
     ),
+    // O filtro de operadora da tabela alcança o mês INTEIRO: uma operadora só com cortesias
+    // continua filtrável, mesmo sem aparecer na lista do que gera recebimento.
+    somarPorOperadora(grupos, mapeamentos),
     somarPorProfissional(
       porProfissional.map((g) => ({ profissionalId: g.profissionalId, profissionalBruto: g.profissionalBruto, n: g._count._all })),
     ),
   ]);
 
-  const tipos = Object.fromEntries(porTipo.map((t) => [t.tipoAtendimento, t._count._all]));
-  const total = porTipo.reduce((s, t) => s + t._count._all, 0);
-  const cortesias = tipos.CORTESIA ?? 0;
-  const particulares = somaPorOperadora.filter((o) => o.particular).reduce((s, o) => s + o.atendimentos, 0);
-
   return {
     competencia,
-    total,
-    /** O que pode virar recebimento de convênio: fora cortesia e particular. */
-    faturavel: total - cortesias - particulares,
-    porTipo: {
-      CONSULTA: tipos.CONSULTA ?? 0,
-      CORTESIA: cortesias,
-      SEM_VINCULO_AGENDA: tipos.SEM_VINCULO_AGENDA ?? 0,
-      OUTRO: tipos.OUTRO ?? 0,
-    },
+    total: separacao.convenio + separacao.particular + separacao.cortesia + separacao.semVinculo,
+    /** O que pode virar recebimento de convênio (= `separacao.convenio`). */
+    faturavel: separacao.convenio,
+    separacao,
+    porTipo,
     porOperadora: somaPorOperadora,
+    operadorasDoMes: todasAsOperadoras
+      .filter((o): o is SomaOperadora & { operadoraId: string } => !!o.operadoraId)
+      .map((o) => ({ operadoraId: o.operadoraId, rotulo: o.rotulo })),
     porProfissional: somaPorProfissional,
   };
 }
