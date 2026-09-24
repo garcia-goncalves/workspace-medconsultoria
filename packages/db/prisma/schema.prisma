@@ -135,6 +135,7 @@ model User {
   recursosDeGlosaCriados RecursoDeGlosa[]       @relation("RecursosDeGlosaCriados")
   competenciasFechadas   CompetenciaFechada[]   @relation("CompetenciasFechadas")
   eventosDeFechamento    CompetenciaFechamentoEvento[] @relation("EventosDeFechamento")
+  honorariosLancados     HonorarioFaturamento[]        @relation("HonorariosLancados")
 
   @@index([role])
   @@index([clienteId])
@@ -318,6 +319,7 @@ model Cliente {
   recursosDeGlosa         RecursoDeGlosa[]
   competenciasFechadas    CompetenciaFechada[]
   eventosDeFechamento     CompetenciaFechamentoEvento[]
+  honorariosFaturamento   HonorarioFaturamento[]
   mapeamentosConvenio     MapeamentoConvenio[]
   mapeamentosProfissional MapeamentoProfissional[]
   mapeamentosProcedimento MapeamentoProcedimento[]
@@ -1275,6 +1277,8 @@ model Conta {
   cliente         Cliente?         @relation(fields: [clienteId], references: [id], onDelete: SetNull)
   dono            User?            @relation("ContaDono", fields: [donoId], references: [id], onDelete: Cascade)
   credenciamentos Credenciamento[]
+  /// O retrato do honorário do faturamento que originou esta conta (Onda 2), se houver.
+  honorariosFaturamento HonorarioFaturamento[]
 
   // Uma série não pode ter DUAS parcelas no mesmo vencimento. Vale para toda a tabela,
   // inclusive linhas soft-deletadas — por isso a geração ressuscita a apagada em vez de
@@ -2138,6 +2142,47 @@ model CompetenciaFechamentoEvento {
 
   @@index([clienteId, competencia])
   @@index([porId])
+}
+
+/// O HONORÁRIO DO FATURAMENTO lançado num mês (Onda 2).
+///
+/// O serviço de Faturamento é cobrado SÓ por percentual mensal do que a clínica RECEBE dos
+/// convênios (ADR-125/127/145). Nenhuma conta a receber nascia para ele — conversão, aceite e
+/// ficha pulam o percentual de propósito, porque não há número a lançar antes de o dinheiro
+/// entrar. O número passou a existir quando a Conciliação começou a importar o REPASSE: a soma de
+/// `RepasseLinha.valor` com crédito naquele mês é a base, e o percentual é o da contratação.
+///
+/// ⚠️ É um RETRATO, como `CompetenciaFechada`: o valor de hoje é sempre RECALCULADO do repasse.
+/// Estas colunas guardam o que foi lançado, para a tela poder dizer "lançado sobre R$ X; hoje o
+/// repasse do mês soma R$ Y" — nunca são exibidas como valor corrente.
+///
+/// ⚠️ `@@unique([clienteId, mes])` é a trava contra lançar o mesmo mês duas vezes (duas abas, dois
+/// cliques): a conta e o retrato nascem na MESMA transação, e quem perde a corrida leva `P2002` e
+/// desfaz a conta que criou.
+model HonorarioFaturamento {
+  id           String    @id @default(cuid())
+  clienteId    String
+  /// Mês do CRÉDITO (a data de pagamento do repasse), `AAAA-MM` — não o mês do atendimento.
+  mes          String    @db.Char(7)
+  base         Decimal   @db.Decimal(12, 2)
+  percentual   Decimal   @db.Decimal(12, 2)
+  valor        Decimal   @db.Decimal(12, 2)
+  /// A conta a receber criada no Financeiro. `SetNull` se ela for apagada de verdade; a exclusão
+  /// comum do Financeiro é soft-delete (`Conta.deletedAt`), e o serviço trata as duas iguais.
+  contaId      String?
+  lancadoPorId String?
+  lancadoEm    DateTime  @default(now())
+  /// Quando o valor foi atualizado depois do lançamento (repasse novo, conta ainda em aberto).
+  atualizadoEm DateTime?
+  observacao   String?   @db.Text
+
+  cliente    Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  conta      Conta?  @relation(fields: [contaId], references: [id], onDelete: SetNull)
+  lancadoPor User?   @relation("HonorariosLancados", fields: [lancadoPorId], references: [id], onDelete: SetNull)
+
+  @@unique([clienteId, mes])
+  @@index([contaId])
+  @@index([lancadoPorId])
 }
 
 /// Fase 2c: o que a clínica fez DEPOIS de descobrir a glosa.
