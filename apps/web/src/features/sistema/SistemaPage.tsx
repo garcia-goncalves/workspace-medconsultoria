@@ -1290,7 +1290,9 @@ function AbaPrivacidade() {
             {expurgo.data && (
               <span className="text-xs text-muted-foreground">
                 Prazo de {expurgo.data.dias} dias · {expurgo.data.emails} e-mails, {expurgo.data.erros} erros e{" "}
-                {expurgo.data.atividade} registros de atividade limpos nesta passada.
+                {expurgo.data.atividade} registros de atividade limpos nesta passada · pacientes da Conciliação
+                (prazo de {expurgo.data.pacientes.anos} anos): {expurgo.data.pacientes.consultas + expurgo.data.pacientes.cirurgias}{" "}
+                anonimizados e {expurgo.data.pacientes.arquivos} planilhas apagadas.
               </span>
             )}
             {expurgo.error && <span className="text-xs text-destructive">{expurgo.error.message}</span>}
@@ -1382,9 +1384,11 @@ function AbaPrivacidade() {
                         title: "Anonimizar a pedido do titular",
                         description:
                           `SAI para sempre: nome, CNPJ, e-mail, telefone e observações de "${c.nome}", ` +
-                          "os dados dos contatos e dos médicos, e o acesso ao Portal (as sessões abertas caem). " +
+                          "os dados dos contatos e dos médicos, o acesso ao Portal (as sessões abertas caem), " +
+                          "os nomes e contatos dos pacientes na Conciliação e as planilhas importadas lá. " +
                           "FICA, por obrigação legal de guarda: os contratos e propostas já emitidos, que " +
-                          "continuam com o nome dentro, as contas do financeiro e o registro de auditoria. " +
+                          "continuam com o nome dentro, as contas do financeiro, os valores da Conciliação " +
+                          "e o registro de auditoria. " +
                           "Não há como desfazer.",
                         confirmText: "Anonimizar",
                         variant: "destructive",
