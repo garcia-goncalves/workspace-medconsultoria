@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { recorrenciaEnum } from "./evento";
 
 const textoOpcional = z.string().trim().max(4000).optional().or(z.literal(""));
 const idOpcional = z.string().optional().or(z.literal(""));
@@ -32,6 +33,11 @@ export const createTarefaSchema = z.object({
   prioridade: tarefaPrioridadeEnum.default("NORMAL"),
   clienteId: idOpcional,
   projetoId: idOpcional,
+  // Tarefa que se repete: ao CONCLUIR, nasce a próxima ocorrência da série. Exige prazo — a
+  // conferência mora no servidor (sobre o ANTES + o DEPOIS), porque a edição é parcial.
+  recorrencia: recorrenciaEnum.default("NENHUMA"),
+  // Último dia em que a série ainda gera ocorrência (vazio = sem fim).
+  recorrenciaAte: z.preprocess((v) => (v === "" ? null : v), z.coerce.date().nullable().optional()),
 });
 export type CreateTarefaInput = z.infer<typeof createTarefaSchema>;
 

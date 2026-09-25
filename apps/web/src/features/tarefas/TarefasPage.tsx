@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { Plus, Pencil, Trash2, CheckCircle2, Circle, Inbox, Building2, FolderKanban, CalendarClock } from "lucide-react";
+import { Plus, Pencil, Trash2, CheckCircle2, Circle, Inbox, Building2, FolderKanban, CalendarClock, Repeat } from "lucide-react";
 import { cn } from "@app/ui";
 import {
   TAREFA_PRIORIDADE_LABEL,
   TAREFA_STATUS_LABEL,
+  RECORRENCIA_LABEL,
   hasRoleLevel,
   tarefaStatusEnum,
   type TarefaStatus,
@@ -90,6 +91,8 @@ export function TarefasPage() {
       prioridade: t.prioridade as TarefaPrioridade,
       clienteId: t.cliente?.id ?? null,
       projetoId: t.projeto?.id ?? null,
+      recorrencia: t.recorrencia,
+      recorrenciaAte: t.recorrenciaAte,
     });
 
   // Assim que a tarefa pedida pelo aviso aparecer na lista, abre a edição e limpa a URL —
@@ -159,6 +162,13 @@ export function TarefasPage() {
               <span className={cn("ml-2 inline-block rounded-full px-2 py-0.5 align-middle text-xs font-medium", PRIORIDADE_STYLE[t.prioridade as TarefaPrioridade])}>
                 {TAREFA_PRIORIDADE_LABEL[t.prioridade as TarefaPrioridade]}
               </span>
+              {t.recorrencia !== "NENHUMA" && (
+                <span
+                  className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 align-middle text-xs font-medium text-muted-foreground">
+                  <Repeat className="h-3 w-3" aria-hidden />
+                  {RECORRENCIA_LABEL[t.recorrencia]}
+                </span>
+              )}
               {t.descricao && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{t.descricao}</p>}
             </div>
           </div>
