@@ -21,7 +21,7 @@ import { cn } from "@app/ui";
 import { EVENTO_TIPO_LABEL, type EventoTipo } from "@app/shared";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@app/api/router";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { trpc } from "../../lib/trpc";
 import { hora, data, dataExtenso, diaSemana } from "../../lib/format-date";
 
@@ -167,8 +167,12 @@ function layoutColunas(evs: Occ[]) {
 }
 
 export function AgendaPage() {
+  // Vindo da busca global: a agenda abre no dia do compromisso, e "abrir" é o evento a editar
+  // assim que uma ocorrência dele aparecer na visão (ver `busca-na-url.ts`).
+  const buscaUrl = useSearch({ from: "/agenda" });
+  const navigate = useNavigate({ from: "/agenda" });
   const [modo, setModo] = useState<Modo>("semana");
-  const [ref, setRef] = useState(() => new Date());
+  const [ref, setRef] = useState(() => (buscaUrl.data ? new Date(buscaUrl.data) : new Date()));
   const [novo, setNovo] = useState(false);
   const [novoInicio, setNovoInicio] = useState<Date | undefined>(undefined);
   const [editar, setEditar] = useState<EventoEditavel | null>(null);
@@ -308,6 +312,20 @@ export function AgendaPage() {
       participanteIds: ev.participantes.map((p) => p.id),
       ocorrenciaClicada: ev.inicio,
     });
+  // Assim que o evento pedido pela busca aparecer na visão, abre a edição e limpa a URL —
+  // recarregar a página não pode reabrir o modal sozinho.
+  // A busca pode ser usada com a agenda já aberta: aí o dia muda sem remontar a página.
+  useEffect(() => {
+    if (buscaUrl.data) setRef(new Date(buscaUrl.data));
+  }, [buscaUrl.data]);
+  useEffect(() => {
+    if (!buscaUrl.abrir || !eventos.data) return;
+    const alvo = eventos.data.find((e) => e.eventoId === buscaUrl.abrir);
+    if (alvo) abrirEdicao(alvo);
+    void navigate({ search: {}, replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buscaUrl.abrir, eventos.data]);
+
   const criarEm = (d: Date) => {
     setNovoInicio(d);
     setNovo(true);
