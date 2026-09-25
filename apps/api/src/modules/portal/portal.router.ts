@@ -20,6 +20,7 @@ import {
   devolverAcessoDaPessoa,
   reenviarConviteDaPessoa,
 } from "./pessoas.service.js";
+import { acessosDaEquipeAoPortal } from "./acessos-da-equipe.service.js";
 
 export const portalRouter = router({
   resumo: portalProcedure.query(({ ctx }) => service.resumo(ctx.clienteId, ctx.user)),
@@ -123,6 +124,10 @@ export const portalRouter = router({
         reenviarConviteDaPessoa({ ...input, clienteId: ctx.clienteId, autorId: ctx.user.id }),
       ),
   }),
+
+  // QUEM DA MEDCONSULTORIA ENTROU NESTE PORTAL (onda 4C): as sessões de suporte (ADR-128) dos
+  // últimos 90 dias, vistas pelo dono do dado. Leitura pura, `clienteId` da sessão.
+  acessosDaEquipe: portalProcedure.query(({ ctx }) => acessosDaEquipeAoPortal(ctx.clienteId, ctx.user)),
 
   // Suporte = helpdesk de chamados/tickets. Sempre escopado ao clienteId da sessão.
   suporte: router({

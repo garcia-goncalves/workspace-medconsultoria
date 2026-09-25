@@ -24,6 +24,7 @@ import { AvatarUpload } from "../../components/ui/avatar";
 import { Skeleton } from "../../components/ui/skeleton";
 import { QueryError } from "../../components/ui/query-error";
 import { EmailsEnviadosList } from "../../components/EmailsEnviadosList";
+import { SegundoFatorCard } from "./SegundoFatorCard";
 
 /** Aviso de sucesso efêmero. */
 function Sucesso({ children }: { children: string }) {
@@ -384,6 +385,8 @@ export function ConfiguracoesPage() {
         <PerfilCard />
         <SenhaCard />
       </div>
+      {/* Só aparece para ADMIN/ROOT (ou para quem já tem o 2FA ligado) — o cartão decide sozinho. */}
+      <SegundoFatorCard />
       <EmailsCard />
       <MeusEmailsCard />
       {podeGerirEquipe && <EquipeCard />}

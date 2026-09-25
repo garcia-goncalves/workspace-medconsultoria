@@ -45,6 +45,14 @@ const schema = z.object({
   // EMAIL_CRYPTO_KEY de propósito: rotacionar uma não pode tornar ilegível a outra.
   // Ausente → o módulo de Conciliação fica DESLIGADO e o resto da app segue normal.
   PACIENTE_CRYPTO_KEY: z.string().optional(),
+  // Chave de cifra do SEGREDO TOTP da verificação em duas etapas (32 bytes em base64, gerada
+  // como as de cima). Separada das outras pelo mesmo motivo: rotacionar a do e-mail não pode
+  // trancar ninguém fora do login.
+  // Ausente → ninguém consegue ATIVAR o 2FA (a tela diz por quê). Quem já tinha ativado continua
+  // entrando pelos CÓDIGOS DE RECUPERAÇÃO, que são hash e não dependem desta chave.
+  // ⚠️ Trocar esta chave invalida todo segredo já guardado: cada pessoa entra com um código de
+  // recuperação e ativa de novo.
+  TOTP_CRYPTO_KEY: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -98,3 +106,5 @@ export const isEmailAppEnabled = chaveValida(config.EMAIL_CRYPTO_KEY);
  * Desligar o módulo é preferível a importar sem cifra.
  */
 export const isConciliacaoEnabled = chaveValida(config.PACIENTE_CRYPTO_KEY);
+/** Verificação em duas etapas pode ser ATIVADA só com a chave do segredo TOTP presente e válida. */
+export const isSegundoFatorEnabled = chaveValida(config.TOTP_CRYPTO_KEY);

@@ -9,11 +9,19 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { sincronizarAutofill } from "../../lib/form-autofill";
 import { AuthShell } from "./AuthShell";
+import { SegundoFatorEtapa } from "./SegundoFatorEtapa";
 
 export function LoginPage() {
   const utils = trpc.useUtils();
+  // VERIFICAÇÃO EM DUAS ETAPAS (onda 4C): com o 2FA ativo, a senha certa não abre sessão — o
+  // servidor devolve um desafio e esta tela troca para a etapa do código.
+  const [desafio, setDesafio] = useState<string | null>(null);
   const login = trpc.auth.login.useMutation({
-    onSuccess: () => {
+    onSuccess: (r) => {
+      if (r.segundoFator) {
+        setDesafio(r.desafio);
+        return;
+      }
       // Entrou estando em `/login`? Tira a URL de login do caminho ANTES de a sessão existir,
       // senão a rota `/login` (agora "Você já está conectado") aparece no lugar do painel.
       if (window.location.pathname === "/login") window.history.replaceState({}, "", "/");
@@ -59,6 +67,20 @@ export function LoginPage() {
       avisarBloqueio.mutate({ email: email.slice(0, 200), motivo: motivo.slice(0, 200) });
     },
   );
+
+  if (desafio) {
+    return (
+      <AuthShell>
+        <SegundoFatorEtapa
+          desafio={desafio}
+          onVoltar={() => {
+            setDesafio(null);
+            setValue("password", "");
+          }}
+        />
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell>
