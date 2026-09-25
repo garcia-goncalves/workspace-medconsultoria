@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { Plus, Pencil, Trash2, CheckCircle2, Circle, Inbox, Building2, FolderKanban, CalendarClock } from "lucide-react";
+import { Plus, Pencil, Trash2, CheckCircle2, Circle, Inbox, Building2, FolderKanban, CalendarClock, Repeat } from "lucide-react";
 import { cn } from "@app/ui";
 import {
   TAREFA_PRIORIDADE_LABEL,
   TAREFA_STATUS_LABEL,
+  RECORRENCIA_LABEL,
   hasRoleLevel,
   tarefaStatusEnum,
   type TarefaStatus,
@@ -23,6 +24,7 @@ import { QueryError } from "../../components/ui/query-error";
 import { DataTable, type Coluna } from "../../components/ui/data-table";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { TarefaFormDialog, type TarefaEditavel } from "./TarefaFormDialog";
+import { RelatorioEntregas } from "./RelatorioEntregas";
 
 type Aba = ListTarefasInput["aba"];
 type Filtro = ListTarefasInput["filtro"];
@@ -54,10 +56,12 @@ export function TarefasPage() {
   const [aba, setAba] = useState<Aba>(() => (busca.aba === "EQUIPE" && !podeVerEquipe ? "COMIGO" : (busca.aba ?? "COMIGO")));
   // Com uma tarefa específica para abrir, "Todas" garante achá-la mesmo concluída ou fora do filtro padrão.
   const [filtro, setFiltro] = useState<Filtro>(() => (busca.abrir ? "TODAS" : "ABERTAS"));
+  // "Relatório" (ADMIN+) é uma visão à parte: não é uma aba da lista, então vive fora de `aba`.
+  const [verRelatorio, setVerRelatorio] = useState(false);
   const [novo, setNovo] = useState(false);
   const [editar, setEditar] = useState<TarefaEditavel | null>(null);
 
-  const tarefas = trpc.tarefas.list.useQuery({ aba, filtro });
+  const tarefas = trpc.tarefas.list.useQuery({ aba, filtro }, { enabled: !verRelatorio });
   const contagem = trpc.tarefas.contar.useQuery();
 
   const invalidate = () => {
@@ -90,6 +94,8 @@ export function TarefasPage() {
       prioridade: t.prioridade as TarefaPrioridade,
       clienteId: t.cliente?.id ?? null,
       projetoId: t.projeto?.id ?? null,
+      recorrencia: t.recorrencia,
+      recorrenciaAte: t.recorrenciaAte,
     });
 
   // Assim que a tarefa pedida pelo aviso aparecer na lista, abre a edição e limpa a URL —
@@ -159,6 +165,12 @@ export function TarefasPage() {
               <span className={cn("ml-2 inline-block rounded-full px-2 py-0.5 align-middle text-xs font-medium", PRIORIDADE_STYLE[t.prioridade as TarefaPrioridade])}>
                 {TAREFA_PRIORIDADE_LABEL[t.prioridade as TarefaPrioridade]}
               </span>
+              {t.recorrencia !== "NENHUMA" && (
+                <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 align-middle text-xs font-medium text-muted-foreground">
+                  <Repeat className="h-3 w-3" aria-hidden />
+                  {RECORRENCIA_LABEL[t.recorrencia]}
+                </span>
+              )}
               {t.descricao && <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{t.descricao}</p>}
             </div>
           </div>
@@ -265,12 +277,12 @@ export function TarefasPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="inline-flex flex-wrap gap-0.5 rounded-lg border p-0.5">
           {ABAS.map((t) => {
-            const on = aba === t.chave;
+            const on = !verRelatorio && aba === t.chave;
             return (
               <button
                 key={t.chave}
                 type="button"
-                onClick={() => setAba(t.chave)}
+                onClick={() => (setAba(t.chave), setVerRelatorio(false))}
                 className={cn(
                   "flex min-h-11 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                   on ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
@@ -290,29 +302,45 @@ export function TarefasPage() {
               </button>
             );
           })}
+          {podeVerEquipe && (
+            <button
+              type="button"
+              onClick={() => setVerRelatorio(true)}
+              className={cn(
+                "flex min-h-11 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                verRelatorio ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Relatório
+            </button>
+          )}
         </div>
-        <div className="inline-flex flex-wrap gap-0.5 rounded-lg border p-0.5">
-          {FILTROS.map((f) => {
-            const on = filtro === f.chave;
-            return (
-              <button
-                key={f.chave}
-                type="button"
-                onClick={() => setFiltro(f.chave)}
-                className={cn(
-                  "min-h-11 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                  on ? "border-primary bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {f.label}
-              </button>
-            );
-          })}
-        </div>
+        {!verRelatorio && (
+          <div className="inline-flex flex-wrap gap-0.5 rounded-lg border p-0.5">
+            {FILTROS.map((f) => {
+              const on = filtro === f.chave;
+              return (
+                <button
+                  key={f.chave}
+                  type="button"
+                  onClick={() => setFiltro(f.chave)}
+                  className={cn(
+                    "min-h-11 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                    on ? "border-primary bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Lista */}
-      {tarefas.isError ? (
+      {/* Lista (ou o relatório de entregas, para ADMIN+) */}
+      {verRelatorio && podeVerEquipe ? (
+        <RelatorioEntregas />
+      ) : tarefas.isError ? (
         <QueryError onRetry={() => tarefas.refetch()} />
       ) : (
         <DataTable

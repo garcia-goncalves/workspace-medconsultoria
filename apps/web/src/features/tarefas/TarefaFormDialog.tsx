@@ -2,7 +2,16 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { X } from "lucide-react";
-import { createTarefaSchema, TAREFA_PRIORIDADE_LABEL, tarefaPrioridadeEnum, type CreateTarefaInput, type TarefaPrioridade } from "@app/shared";
+import {
+  createTarefaSchema,
+  TAREFA_PRIORIDADE_LABEL,
+  tarefaPrioridadeEnum,
+  recorrenciaEnum,
+  RECORRENCIA_LABEL,
+  type CreateTarefaInput,
+  type TarefaPrioridade,
+  type Recorrencia,
+} from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { Modal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
@@ -22,6 +31,8 @@ export interface TarefaEditavel {
   prioridade: TarefaPrioridade;
   clienteId: string | null;
   projetoId: string | null;
+  recorrencia: Recorrencia;
+  recorrenciaAte: Date | string | null;
 }
 
 /** Contexto pré-preenchido ao delegar a partir de uma ficha/projeto. */
@@ -33,6 +44,7 @@ export interface TarefaDefaults {
 
 const toDateInput = (d?: Date | string | null): string => (d ? new Date(d).toISOString().slice(0, 10) : "");
 const PRIORIDADES = tarefaPrioridadeEnum.options;
+const RECORRENCIAS = recorrenciaEnum.options;
 
 export function TarefaFormDialog({
   open,
@@ -57,7 +69,7 @@ export function TarefaFormDialog({
     formState: { errors },
   } = useForm<CreateTarefaInput>({
     resolver: zodResolver(createTarefaSchema),
-    defaultValues: { prioridade: "NORMAL", responsavelIds: [] },
+    defaultValues: { prioridade: "NORMAL", responsavelIds: [], recorrencia: "NENHUMA" },
   });
 
   const equipe = trpc.usuarios.equipe.useQuery(undefined, { enabled: open });
@@ -73,6 +85,8 @@ export function TarefaFormDialog({
       prioridade: tarefa?.prioridade ?? "NORMAL",
       clienteId: tarefa?.clienteId ?? defaults?.clienteId ?? "",
       projetoId: tarefa?.projetoId ?? defaults?.projetoId ?? "",
+      recorrencia: tarefa?.recorrencia ?? "NENHUMA",
+      recorrenciaAte: toDateInput(tarefa?.recorrenciaAte) as unknown as CreateTarefaInput["recorrenciaAte"],
     });
   }, [open, tarefa, defaults, reset]);
 
@@ -91,6 +105,7 @@ export function TarefaFormDialog({
   };
 
   const selecionados = watch("responsavelIds") ?? [];
+  const repete = (watch("recorrencia") ?? "NENHUMA") !== "NENHUMA";
   const toggleResponsavel = (id: string) => {
     const atual = watch("responsavelIds") ?? [];
     setValue("responsavelIds", atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id], { shouldDirty: true });
@@ -170,6 +185,29 @@ export function TarefaFormDialog({
               ))}
             </Select>
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="recorrencia" hint="Ao concluir, a próxima vez nasce sozinha, com o mesmo título e responsáveis. Precisa de prazo.">
+              Repetir
+            </Label>
+            <Select id="recorrencia" {...register("recorrencia")}>
+              {RECORRENCIAS.map((r) => (
+                <option key={r} value={r}>
+                  {RECORRENCIA_LABEL[r]}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {repete && (
+            <div className="space-y-1">
+              <Label htmlFor="recorrenciaAte" hint="Depois desta data a tarefa para de se repetir. Em branco = sem fim.">
+                Repetir até (opcional)
+              </Label>
+              <Input id="recorrenciaAte" type="date" autoComplete="off" {...register("recorrenciaAte")} />
+            </div>
+          )}
         </div>
 
         <div className="space-y-1">

@@ -8,6 +8,7 @@ import { RoleGuard } from "../components/RoleGuard";
 import { JaConectadoPage } from "../features/auth/JaConectadoPage";
 import { lerBuscaDaConciliacao } from "../features/conciliacao/busca-na-url";
 import { lerBuscaDeTarefas } from "../features/tarefas/busca-na-url";
+import { lerBuscaDaAgenda } from "../features/agenda/busca-na-url";
 import { lerBuscaDoFinanceiro } from "../features/financeiro/busca-na-url";
 
 // Páginas carregadas sob demanda (um chunk por rota) — só o Dashboard (landing) é eager.
@@ -133,6 +134,8 @@ const agendaRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/agenda",
   component: AgendaPage,
+  // Dia e evento a abrir chegam pela URL quando o clique vem da busca global.
+  validateSearch: lerBuscaDaAgenda,
 });
 
 const tarefasRoute = createRoute({

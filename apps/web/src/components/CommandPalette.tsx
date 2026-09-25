@@ -1,19 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { useNavigate } from "@tanstack/react-router";
-import { Users, Filter, FolderKanban, FileText, Sparkles, Loader2, Search, SendHorizontal, type LucideIcon } from "lucide-react";
+import {
+  Users,
+  Filter,
+  FolderKanban,
+  FileText,
+  ClipboardList,
+  CalendarDays,
+  MessageSquare,
+  Sparkles,
+  Loader2,
+  Search,
+  SendHorizontal,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "@app/ui";
 import { hasRoleLevel } from "@app/shared";
-import { trpc } from "../lib/trpc";
+import { trpc, type RouterOutputs } from "../lib/trpc";
 import { useAuth } from "../lib/auth-context";
 import { PAGINAS, paginaCasa } from "../lib/paginas";
 
-interface Hit {
-  tipo: "cliente" | "lead" | "projeto" | "documento";
-  id: string;
-  titulo: string;
-  subtitulo: string | null;
-}
+type Hit = RouterOutputs["busca"]["global"][number];
 
 interface Msg {
   autor: "user" | "ia";
@@ -25,7 +33,11 @@ const TIPO_META: Record<Hit["tipo"], { icon: LucideIcon; grupo: string }> = {
   lead: { icon: Filter, grupo: "Leads" },
   projeto: { icon: FolderKanban, grupo: "Projetos" },
   documento: { icon: FileText, grupo: "Documentos" },
+  tarefa: { icon: ClipboardList, grupo: "Tarefas" },
+  evento: { icon: CalendarDays, grupo: "Agenda" },
+  conversa: { icon: MessageSquare, grupo: "Conversas" },
 };
+const ORDEM_GRUPOS: Hit["tipo"][] = ["cliente", "lead", "tarefa", "evento", "projeto", "documento", "conversa"];
 
 const SUGESTOES_IA = [
   "Como converto um lead em cliente?",
@@ -91,7 +103,17 @@ export function CommandPalette({
     else if (hit.tipo === "projeto") navigate({ to: "/projetos/$projetoId", params: { projetoId: hit.id } });
     else if (hit.tipo === "documento")
       navigate({ to: "/documentos/$documentoId", params: { documentoId: hit.id } });
-    else navigate({ to: "/funil-de-vendas" });
+    else if (hit.tipo === "tarefa") navigate({ to: "/tarefas", search: { aba: hit.aba, abrir: hit.id } });
+    else if (hit.tipo === "evento") navigate({ to: "/agenda", search: { data: hit.data, abrir: hit.id } });
+    else if (hit.tipo === "conversa") {
+      // Mesmo deep-link que a ficha do cliente usa ("Abrir no Mensagens").
+      try {
+        sessionStorage.setItem("abrirConversa", hit.id);
+      } catch {
+        /* sem sessionStorage a página só abre a lista */
+      }
+      navigate({ to: "/mensagens" });
+    } else navigate({ to: "/funil-de-vendas" });
   };
 
   const enviarIA = (texto: string) => {
@@ -109,9 +131,7 @@ export function CommandPalette({
   };
 
   const hits = busca.data ?? [];
-  const grupos = (["cliente", "lead", "projeto", "documento"] as Hit["tipo"][])
-    .map((tipo) => ({ tipo, itens: hits.filter((h) => h.tipo === tipo) }))
-    .filter((g) => g.itens.length > 0);
+  const grupos = ORDEM_GRUPOS.map((tipo) => ({ tipo, itens: hits.filter((h) => h.tipo === tipo) })).filter((g) => g.itens.length > 0);
 
   if (!open) return null;
 
@@ -161,7 +181,7 @@ export function CommandPalette({
                 autoFocus
                 value={q}
                 onValueChange={setQ}
-                placeholder="Buscar clientes, projetos, leads, documentos…"
+                placeholder="Buscar clientes, leads, tarefas, agenda, conversas…"
                 className="w-full bg-transparent py-3.5 text-sm outline-none placeholder:text-muted-foreground"
               />
             </div>

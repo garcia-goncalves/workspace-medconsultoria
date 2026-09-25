@@ -1430,6 +1430,12 @@ model Tarefa {
   clienteId   String?
   projetoId   String?
   concluidaEm DateTime?
+  // Tarefa que se repete (Onda 4B). Ao CONCLUIR uma ocorrência, nasce a próxima da série,
+  // com prazo = próximo da série (mensal no dia 31 → último dia do mês; mesma `proximo` do
+  // Financeiro). `recorrenteId` é o id da 1ª tarefa da série (nulo na própria 1ª).
+  recorrencia    Recorrencia @default(NENHUMA)
+  recorrenciaAte DateTime?
+  recorrenteId   String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   deletedAt   DateTime?
@@ -1442,6 +1448,11 @@ model Tarefa {
   // Reserva de idempotência da API do agente (CORA-003). Some junto se a tarefa for apagada.
   idempotencias AgentIdempotency[]
 
+  // Uma série não pode ter DUAS ocorrências no mesmo prazo — é o que torna a geração da
+  // próxima idempotente (concluir duas vezes, ou duas pessoas ao mesmo tempo, não cria duas).
+  // Mesmo molde de `Conta @@unique([recorrenteId, vencimento])` (ADR-92). Tarefa fora de série
+  // tem `recorrenteId` nulo e fica de fora (o MySQL trata NULL como distinto em índice único).
+  @@unique([recorrenteId, prazo])
   @@index([criadoPorId, status])
   @@index([clienteId])
   @@index([projetoId])

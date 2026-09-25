@@ -1,7 +1,17 @@
 import { TRPCError } from "@trpc/server";
-import { prisma } from "@app/db";
-import { hasRoleLevel, type CreateTarefaInput, type UpdateTarefaInput, type ListTarefasInput, type TarefaStatus } from "@app/shared";
+import { Prisma, prisma } from "@app/db";
+import {
+  hasRoleLevel,
+  type CreateTarefaInput,
+  type UpdateTarefaInput,
+  type ListTarefasInput,
+  type TarefaStatus,
+  type Recorrencia,
+} from "@app/shared";
 import { notificar } from "../notificacoes/notificacoes.service.js";
+// A MESMA regra de "próxima data da série" do Financeiro (mensal no dia 31 → último dia do mês,
+// com âncora para voltar ao 31 em março). Reusada, não copiada: duas cópias divergiriam.
+import { proximo } from "../financeiro/contas.service.js";
 
 /** Contexto do usuário logado. */
 export type Ctx = { userId: string; role: string };
@@ -150,6 +160,9 @@ export async function montarTarefa(
     clienteId?: string | null;
     projetoId?: string | null;
     responsavelIds: string[];
+    /** Só a porta humana manda; a API do agente cria sempre tarefa avulsa. */
+    recorrencia?: Recorrencia;
+    recorrenciaAte?: Date | null;
   },
 ) {
   return db.tarefa.create({
@@ -162,13 +175,118 @@ export async function montarTarefa(
       clienteId: clean(dados.clienteId),
       projetoId: clean(dados.projetoId),
       responsaveis: { create: dados.responsavelIds.map((userId) => ({ userId })) },
+      ...(dados.recorrencia && dados.recorrencia !== "NENHUMA"
+        ? { recorrencia: dados.recorrencia, recorrenciaAte: dados.recorrenciaAte ?? null }
+        : {}),
     },
     include,
   });
 }
 
-export async function createTarefa(input: CreateTarefaInput, ctx: Ctx) {
+// ── Recorrência ───────────────────────────────────────────
+
+/** Tarefa recorrente sem prazo não tem "próxima" — a série não teria de onde contar. */
+function exigirPrazoSeRecorrente(recorrencia: Recorrencia, prazo: Date | null) {
+  if (recorrencia !== "NENHUMA" && !prazo)
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Para a tarefa se repetir, informe o prazo da primeira vez." });
+}
+
+/**
+ * Prazo da próxima ocorrência. A data vem de `proximo` (Financeiro); a HORA do prazo original
+ * é mantida — `proximo` devolve meia-noite UTC no mensal, e o prazo que chega pela API do agente
+ * pode ter hora.
+ */
+export function proximoPrazoDaSerie(prazo: Date, recorrencia: Recorrencia, diaAncora: number): Date {
+  const prox = proximo(prazo, recorrencia, diaAncora);
+  prox.setUTCHours(prazo.getUTCHours(), prazo.getUTCMinutes(), prazo.getUTCSeconds(), prazo.getUTCMilliseconds());
+  return prox;
+}
+
+type TarefaDaSerie = {
+  id: string;
+  titulo: string;
+  descricao: string | null;
+  criadoPorId: string;
+  prazo: Date | null;
+  prioridade: CreateTarefaInput["prioridade"];
+  clienteId: string | null;
+  projetoId: string | null;
+  recorrencia: Recorrencia;
+  recorrenciaAte: Date | null;
+  recorrenteId: string | null;
+  responsaveis: { userId: string }[];
+};
+
+/**
+ * Ao CONCLUIR uma tarefa recorrente, cria a próxima ocorrência da série. Devolve o id da nova,
+ * ou `null` quando não há o que criar.
+ *
+ * ⚠️ **IDEMPOTENTE, e quem garante é o índice único `(recorrenteId, prazo)`, não a leitura.**
+ * Duas conclusões ao mesmo tempo passam as duas pela conferência abaixo; a segunda esbarra no
+ * índice (`P2002`) e é lida como "alguém já criou" — o mesmo molde do Financeiro (ADR-92).
+ *
+ * ⚠️ **A série não empilha.** Se já existe ocorrência DEPOIS desta (viva ou excluída), não cria
+ * nada: concluir, reabrir, mudar o prazo e concluir de novo não gera uma segunda "próxima"; e a
+ * ocorrência que alguém excluiu de propósito não é recriada por outro caminho.
+ */
+export async function gerarProximaOcorrencia(tarefa: TarefaDaSerie): Promise<string | null> {
+  if (tarefa.recorrencia === "NENHUMA" || !tarefa.prazo) return null;
+  const serie = tarefa.recorrenteId ?? tarefa.id;
+
+  // Âncora = dia do prazo da 1ª da série (se ela sumiu, o da própria tarefa).
+  const origem = tarefa.recorrenteId
+    ? await prisma.tarefa.findUnique({ where: { id: tarefa.recorrenteId }, select: { prazo: true } })
+    : null;
+  const diaAncora = (origem?.prazo ?? tarefa.prazo).getUTCDate();
+
+  const prazo = proximoPrazoDaSerie(tarefa.prazo, tarefa.recorrencia, diaAncora);
+  if (tarefa.recorrenciaAte && prazo > tarefa.recorrenciaAte) return null; // fim da série.
+
+  const adiante = await prisma.tarefa.findFirst({
+    where: { recorrenteId: serie, prazo: { gt: tarefa.prazo } },
+    select: { id: true },
+  });
+  if (adiante) return null;
+
+  try {
+    const nova = await prisma.tarefa.create({
+      data: {
+        titulo: tarefa.titulo,
+        descricao: tarefa.descricao,
+        criadoPorId: tarefa.criadoPorId,
+        prazo,
+        prioridade: tarefa.prioridade,
+        clienteId: tarefa.clienteId,
+        projetoId: tarefa.projetoId,
+        recorrencia: tarefa.recorrencia,
+        recorrenciaAte: tarefa.recorrenciaAte,
+        recorrenteId: serie,
+        responsaveis: { create: [...new Set(tarefa.responsaveis.map((r) => r.userId))].map((userId) => ({ userId })) },
+      },
+      select: { id: true },
+    });
+    return nova.id;
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return null; // já existe.
+    throw e;
+  }
+}
+
+/** A tarefa da série trocou de prazo para um já ocupado por outra ocorrência da mesma série. */
+function traduzirColisaoDePrazo(e: unknown): never {
+  if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")
+    throw new TRPCError({ code: "CONFLICT", message: "Já existe outra ocorrência desta tarefa recorrente com esse prazo." });
+  throw e;
+}
+
+/** O que a tela e o router mandam; os campos de recorrência podem faltar (ex.: testes antigos). */
+type NovaTarefa = Omit<CreateTarefaInput, "recorrencia" | "recorrenciaAte"> &
+  Partial<Pick<CreateTarefaInput, "recorrencia" | "recorrenciaAte">>;
+
+export async function createTarefa(input: NovaTarefa, ctx: Ctx) {
   const responsaveis = normalizarResponsaveis(input.responsavelIds, ctx);
+  const recorrencia = input.recorrencia ?? "NENHUMA";
+  exigirPrazoSeRecorrente(recorrencia, input.prazo ?? null);
   const tarefa = await montarTarefa(prisma, {
     titulo: input.titulo,
     descricao: input.descricao,
@@ -178,6 +296,8 @@ export async function createTarefa(input: CreateTarefaInput, ctx: Ctx) {
     clienteId: input.clienteId,
     projetoId: input.projetoId,
     responsavelIds: responsaveis,
+    recorrencia,
+    recorrenciaAte: input.recorrenciaAte ?? null,
   });
   await avisarDelegacao(tarefa, responsaveis);
   return tarefa;
@@ -194,34 +314,51 @@ export async function updateTarefa(input: UpdateTarefaInput, ctx: Ctx) {
   const prazoDepois = input.prazo !== undefined ? (input.prazo ? input.prazo.getTime() : null) : prazoAntes;
   const prazoMudou = input.prazo !== undefined && prazoAntes !== prazoDepois;
 
+  // Recorrência: a conferência olha o ANTES + o DEPOIS — a edição é parcial, e tirar só o prazo
+  // de uma tarefa que já se repete também deixaria a série sem de onde contar.
+  const recorrenciaDepois = input.recorrencia ?? atual.recorrencia;
+  exigirPrazoSeRecorrente(recorrenciaDepois, prazoDepois === null ? null : new Date(prazoDepois));
+
   // Concluir grava a data; reabrir limpa.
   let concluidaEm = atual.concluidaEm;
   if (input.status && input.status !== atual.status) {
     concluidaEm = input.status === "CONCLUIDA" ? new Date() : null;
   }
 
-  const tarefa = await prisma.tarefa.update({
-    where: { id: input.id },
-    data: {
-      ...(input.titulo !== undefined ? { titulo: input.titulo.trim() } : {}),
-      ...(input.descricao !== undefined ? { descricao: clean(input.descricao) } : {}),
-      ...(input.prazo !== undefined ? { prazo: input.prazo ?? null } : {}),
-      ...(input.prioridade !== undefined ? { prioridade: input.prioridade } : {}),
-      ...(input.clienteId !== undefined ? { clienteId: clean(input.clienteId) } : {}),
-      ...(input.projetoId !== undefined ? { projetoId: clean(input.projetoId) } : {}),
-      ...(input.status !== undefined ? { status: input.status } : {}),
-      concluidaEm,
-      ...(trocaResponsaveis ? { responsaveis: { deleteMany: {}, create: novosIds.map((userId) => ({ userId })) } } : {}),
-    },
-    include,
-  });
+  const tarefa = await prisma.tarefa
+    .update({
+      where: { id: input.id },
+      data: {
+        ...(input.titulo !== undefined ? { titulo: input.titulo.trim() } : {}),
+        ...(input.descricao !== undefined ? { descricao: clean(input.descricao) } : {}),
+        ...(input.prazo !== undefined ? { prazo: input.prazo ?? null } : {}),
+        ...(input.prioridade !== undefined ? { prioridade: input.prioridade } : {}),
+        ...(input.clienteId !== undefined ? { clienteId: clean(input.clienteId) } : {}),
+        ...(input.projetoId !== undefined ? { projetoId: clean(input.projetoId) } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.recorrencia !== undefined ? { recorrencia: input.recorrencia } : {}),
+        // Sem repetição, a data de fim não significa nada: some junto.
+        ...(recorrenciaDepois === "NENHUMA"
+          ? { recorrenciaAte: null }
+          : input.recorrenciaAte !== undefined
+            ? { recorrenciaAte: input.recorrenciaAte ?? null }
+            : {}),
+        concluidaEm,
+        ...(trocaResponsaveis ? { responsaveis: { deleteMany: {}, create: novosIds.map((userId) => ({ userId })) } } : {}),
+      },
+      include,
+    })
+    .catch(traduzirColisaoDePrazo);
 
   // Avisa só os responsáveis recém-adicionados; avisa quem pediu se acabou de concluir.
   if (trocaResponsaveis) {
     const adicionados = novosIds.filter((uid) => !idsAntes.includes(uid));
     await avisarDelegacao(tarefa, adicionados);
   }
-  if (input.status === "CONCLUIDA" && atual.status !== "CONCLUIDA") await avisarConclusao(tarefa, ctx.userId);
+  if (input.status === "CONCLUIDA" && atual.status !== "CONCLUIDA") {
+    await avisarConclusao(tarefa, ctx.userId);
+    await gerarProximaOcorrencia(tarefa);
+  }
   if (prazoMudou) await avisarMudancaDePrazo(tarefa, novosIds, ctx.userId);
   return tarefa;
 }
@@ -233,7 +370,10 @@ export async function setStatus(id: string, status: TarefaStatus, ctx: Ctx) {
     data: { status, concluidaEm: status === "CONCLUIDA" ? new Date() : null },
     include,
   });
-  if (status === "CONCLUIDA" && atual.status !== "CONCLUIDA") await avisarConclusao(tarefa, ctx.userId);
+  if (status === "CONCLUIDA" && atual.status !== "CONCLUIDA") {
+    await avisarConclusao(tarefa, ctx.userId);
+    await gerarProximaOcorrencia(tarefa);
+  }
   return tarefa;
 }
 
