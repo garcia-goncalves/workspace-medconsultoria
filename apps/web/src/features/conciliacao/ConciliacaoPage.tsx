@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/ta
 import { ImportarProducaoDialog } from "./ImportarProducaoDialog";
 import { ImportarCirurgiasDialog } from "./ImportarCirurgiasDialog";
 import { CirurgiasPainel } from "./CirurgiasPainel";
+import { HonorarioPainel } from "./HonorarioPainel";
 import { VisaoGeralConciliacao } from "./VisaoGeralConciliacao";
 import { ConvenioDaLinha, ListaResumo, Paginacao } from "./partes";
 import type { AbaConciliacao, BuscaConciliacao } from "./busca-na-url";
@@ -139,7 +140,8 @@ export function ConciliacaoPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Conciliação" subtitle="A produção do cliente — consultas e cirurgias — que entra todo mês.">
-        {habilitado && !!nomeDoCliente && disponivel.data?.ligado && (
+        {/* Na aba do honorário não há o que importar: a base é o repasse, que entra por Cirurgias. */}
+        {habilitado && !!nomeDoCliente && disponivel.data?.ligado && aba !== "honorario" && (
           <Button onClick={() => setImportando(true)}>
             <Upload className="mr-1.5 h-4 w-4" />
             {aba === "cirurgias" ? "Importar cirurgias" : "Importar produção"}
@@ -200,6 +202,7 @@ export function ConciliacaoPage() {
             <TabsList aria-label="Tipo de produção">
               <TabsTrigger value="consultas">Consultas</TabsTrigger>
               <TabsTrigger value="cirurgias">Cirurgias (TASY)</TabsTrigger>
+              <TabsTrigger value="honorario">Honorário da Med</TabsTrigger>
             </TabsList>
 
             {/* `manterMontado`: trocar para "Consultas" e voltar zerava competência, status,
@@ -209,6 +212,10 @@ export function ConciliacaoPage() {
               {/* `key`: trocar de cliente recria o painel e zera os filtros — filtro herdado de outra
                   clínica faria a tela dizer "nenhuma cirurgia" sem motivo visível. */}
               <CirurgiasPainel key={clienteId} clienteId={clienteId} clienteNome={nomeDoCliente} />
+            </TabsContent>
+
+            <TabsContent value="honorario">
+              <HonorarioPainel key={clienteId} clienteId={clienteId} />
             </TabsContent>
 
             <TabsContent value="consultas" className="space-y-4">

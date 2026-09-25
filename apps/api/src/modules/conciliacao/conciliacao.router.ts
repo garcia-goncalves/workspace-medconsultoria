@@ -12,6 +12,7 @@ import * as cirurgias from "./cirurgias.service.js";
 import * as financeira from "./conciliacao-financeira.service.js";
 import * as recebido from "./recebido.service.js";
 import * as exportacao from "./exportacao.js";
+import * as honorario from "./honorario.service.js";
 
 /**
  * CONCILIAÇÃO — Fase 1: a produção de consultas, vista pela EQUIPE.
@@ -133,6 +134,22 @@ function assertPodeFecharCompetencia(papel: Role) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Fechar e reabrir uma competência é de quem responde pela conta (ADMIN). Você pode conciliar o mês normalmente.",
+    });
+  }
+}
+
+/**
+ * Quem LANÇA o honorário do faturamento no Financeiro.
+ *
+ * ⚠️ Criar conta a receber é ato do Financeiro, que é `adminProcedure` inteiro — o funcionário VÊ o
+ * honorário (ele concilia o repasse que é a base), mas não emite cobrança. A régua de cliente
+ * continua vindo do `conciliacaoProcedure`; as duas valem.
+ */
+function assertPodeLancarHonorario(papel: Role) {
+  if (!hasRoleLevel(papel, "ADMIN")) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Lançar ou atualizar o honorário no Financeiro é de quem responde pela conta (ADMIN). Você pode conferir os valores normalmente.",
     });
   }
 }
@@ -449,6 +466,33 @@ export const conciliacaoRouter = router({
       }),
     )
     .mutation(({ input }) => financeira.responderRecurso(input.clienteId, input.recursoId, input)),
+
+  // ─── Onda 2: o honorário do faturamento (o recebido do repasse × o percentual contratado) ───
+
+  honorario: conciliacaoProcedure.input(z.object({ clienteId })).query(({ input }) => honorario.honorariosDoCliente(input.clienteId)),
+
+  lancarHonorario: conciliacaoProcedure
+    .input(
+      z.object({
+        clienteId,
+        mes: competencia,
+        vencimento: dataISO,
+        /** O honorário que a pessoa viu na tela — o servidor recusa se o de hoje for outro. */
+        valorConferido: dinheiro,
+        observacao: z.string().trim().max(2000).nullable().optional(),
+      }),
+    )
+    .mutation(({ input, ctx }) => {
+      assertPodeLancarHonorario(ctx.user.role);
+      return honorario.lancarHonorario({ ...input, usuarioId: ctx.user.id });
+    }),
+
+  atualizarHonorario: conciliacaoProcedure
+    .input(z.object({ clienteId, mes: competencia, valorConferido: dinheiro }))
+    .mutation(({ input, ctx }) => {
+      assertPodeLancarHonorario(ctx.user.role);
+      return honorario.atualizarHonorario({ ...input, usuarioId: ctx.user.id });
+    }),
 
   exportar: conciliacaoProcedure
     .input(

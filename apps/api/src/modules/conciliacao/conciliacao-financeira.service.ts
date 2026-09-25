@@ -4,6 +4,7 @@ import { dataBRT } from "../../lib/datas.js";
 import { emReais, emReaisOu } from "../../lib/dinheiro.js";
 import { normalizarTexto } from "./planilha/index.js";
 import { convenioEhParticular } from "./conciliacao-painel.service.js";
+import { honorariosDoCliente } from "./honorario.service.js";
 import {
   DIAS_ATE_A_RESPOSTA_DO_RECURSO,
   diasEntre,
@@ -892,6 +893,8 @@ export interface LinhaDaVisaoGeral {
   semAtendimento: number;
   /** Cirurgias com convênio ou médico ainda sem de-para. */
   pendenciasDePara: number;
+  /** Honorário do faturamento dos meses encerrados ainda não lançados no Financeiro (Onda 2). */
+  honorarioALancar: number;
   ultimaImportacao: { em: Date; origem: string } | null;
 }
 
@@ -927,6 +930,9 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null) {
       prisma.producaoCirurgia.count({ where: { clienteId: cl.id, profissionalId: null } }),
     ]);
     const t = totalizar(linhas);
+    // Depois do lote acima, não junto: o honorário abre as próprias consultas, e somá-las às ~8 de
+    // cima estouraria o pool de 13 (a mesma razão de ir um cliente por vez).
+    const { aLancarTotal } = await honorariosDoCliente(cl.id);
     saida.push({
       clienteId: cl.id,
       nome: cl.nome,
@@ -947,6 +953,7 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null) {
       semAtendimento: t.porStatus.SEM_ATENDIMENTO ?? 0,
       /** Cirurgias com convênio ou médico ainda sem de-para. */
       pendenciasDePara: convPend + profPend,
+      honorarioALancar: aLancarTotal,
       ultimaImportacao: ultima ? { em: ultima.createdAt, origem: ultima.origem } : null,
     });
   }
@@ -958,7 +965,7 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null) {
    * ganhasse paginação ou um teto, o cabeçalho viraria uma soma PARCIAL apresentada como total,
    * sem sinal nenhum. Somando aqui, ele acompanha o que a consulta de fato devolveu.
    */
-  const total = (k: "cobrado" | "recebido" | "glosa" | "aReceber" | "aReceberAtrasado" | "glosaSemRecurso") =>
+  const total = (k: "cobrado" | "recebido" | "glosa" | "aReceber" | "aReceberAtrasado" | "glosaSemRecurso" | "honorarioALancar") =>
     saida.reduce((s, l) => somar(s, l[k]), 0);
   return {
     clientes: saida,
@@ -969,6 +976,7 @@ export async function visaoGeral(soDestes: { responsavelId: string } | null) {
       aReceber: total("aReceber"),
       aReceberAtrasado: total("aReceberAtrasado"),
       glosaSemRecurso: total("glosaSemRecurso"),
+      honorarioALancar: total("honorarioALancar"),
     },
   };
 }

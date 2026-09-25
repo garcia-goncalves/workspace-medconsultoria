@@ -3,6 +3,7 @@ import { notificar } from "../modules/notificacoes/notificacoes.service.js";
 import { enviarEmailTemplate } from "../modules/emails/enviados.service.js";
 import { garantirProximasRecorrencias } from "../modules/financeiro/contas.service.js";
 import { hojeBRT } from "../lib/datas.js";
+import { honorariosALembrar } from "../modules/conciliacao/honorario.service.js";
 import { avisarPendenciasNovasAosClientes } from "../modules/portal/aviso-de-pendencias.js";
 
 const JANELA_MIN = 15;
@@ -376,6 +377,23 @@ export async function scanProativo(): Promise<void> {
     /* isola a falha */
   }
 
+  // 10) Honorário do faturamento a lançar — mês encerrado, repasse importado, conta não criada.
+  //     Só os dois últimos meses encerrados (ver `honorariosALembrar`), um aviso por cliente +
+  //     mês, para a gestão (quem lança conta no Financeiro).
+  try {
+    for (const h of await honorariosALembrar()) {
+      for (const uid of idAdmins) {
+        await notificar(
+          uid,
+          "honorario_a_lancar",
+          { cliente: h.cliente, mes: h.rotulo, valor: brl.format(h.valor) },
+          { entidadeTipo: "honorario", entidadeId: `${h.clienteId}:${h.mes}`, unico: true },
+        ).catch(() => {});
+      }
+    }
+  } catch {
+    /* isola a falha */
+  }
   // ── PENDÊNCIA NOVA DE DOCUMENTO, AVISADA AO CLIENTE (Onda 3B) ────────────────────────
   //    Resumo diário por clínica, só quando surgiu algo novo desde o último aviso. A régua do
   //    "no máximo um por dia" e da "primeira vez calada" mora em `aviso-de-pendencias.ts`; aqui

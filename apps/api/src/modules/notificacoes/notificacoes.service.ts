@@ -26,6 +26,12 @@ function rotaEntidade(tipo?: string | null, id?: string | null): string {
       return "/financeiro";
     case "lead":
       return "/leads";
+    // Honorário do faturamento a lançar: o id é `<clienteId>:<AAAA-MM>` (um aviso por cliente +
+    // mês, `unico`), e o botão abre a aba do honorário daquele cliente na Conciliação.
+    case "honorario": {
+      const clienteId = id?.split(":")[0];
+      return clienteId ? `/conciliacao?cliente=${encodeURIComponent(clienteId)}&aba=honorario` : "/conciliacao";
+    }
     case "incidente":
     case "erro":
       return "/sistema";

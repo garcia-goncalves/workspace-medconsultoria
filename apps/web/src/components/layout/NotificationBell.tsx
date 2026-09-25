@@ -52,6 +52,7 @@ const META: Record<string, { icon: LucideIcon; tom: string }> = {
   projeto_sem_responsavel: { icon: FolderKanban, tom: "bg-warning/10 text-warning" },
   conta_vencida: { icon: Wallet, tom: "bg-warning/10 text-warning" },
   conta_a_vencer: { icon: Clock, tom: "bg-warning/10 text-warning" },
+  honorario_a_lancar: { icon: Wallet, tom: "bg-warning/10 text-warning" },
   documento_revisao: { icon: FileText, tom: "bg-primary/10 text-primary" },
   documento_cliente_enviado: { icon: Paperclip, tom: "bg-primary/10 text-primary" },
   suporte: { icon: LifeBuoy, tom: "bg-success/10 text-success" },
@@ -126,6 +127,9 @@ export function NotificationBell() {
         break;
       case "sistema":
         navigate({ to: "/sistema" });
+        break;
+      case "honorario":
+        navigate({ to: "/conciliacao", search: { cliente: decisao.clienteId, aba: "honorario" } });
         break;
     }
   };

@@ -52,6 +52,10 @@ describe("estado da Conciliação na URL", () => {
     ).toEqual({ cliente: "c1" });
   });
 
+  it("a aba do honorário sobrevive ao recarregar (é o destino do lembrete por e-mail)", () => {
+    expect(lerBuscaDaConciliacao({ cliente: "c1", aba: "honorario" })).toEqual({ cliente: "c1", aba: "honorario" });
+  });
+
   it("sem cliente, nenhum filtro sobra (a URL da visão geral fica limpa)", () => {
     expect(lerBuscaDaConciliacao({ mes: "2026-05", aba: "cirurgias" })).toEqual({});
     expect(lerBuscaDaConciliacao({ cliente: "../../etc" })).toEqual({});

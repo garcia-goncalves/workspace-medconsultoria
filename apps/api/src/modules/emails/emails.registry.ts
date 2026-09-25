@@ -883,6 +883,31 @@ export const EMAIL_TEMPLATES = {
     },
   },
 
+  // ── HONORÁRIO DO FATURAMENTO A LANÇAR (Onda 2) ─────────────────────────────────────────
+  //
+  // O Faturamento é cobrado sobre o que a clínica RECEBE, e nenhuma conta a receber nasce
+  // sozinha para ele. Sem este aviso, o mês com repasse importado e honorário calculado ficava
+  // esperando alguém lembrar de abrir a Conciliação. Uma vez por cliente + mês.
+  honorario_a_lancar: {
+    label: "Honorário do faturamento a lançar",
+    descricao:
+      "Mês encerrado com repasse importado na Conciliação e honorário do faturamento calculado, mas ainda não lançado no Financeiro. Vai para a gestão.",
+    grupo: "Notificações",
+    notificacao: true,
+    variaveis: [
+      { chave: "cliente", rotulo: "Nome do cliente", descricao: "A clínica ou PJ", exemplo: "Clínica Bem-Estar" },
+      { chave: "mes", rotulo: "Mês do crédito", descricao: "Mês em que o repasse caiu na conta da clínica", exemplo: "mai/2026" },
+      { chave: "valor", rotulo: "Honorário", descricao: "Percentual contratado sobre o recebido no mês", exemplo: "R$ 3.500,00" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "Honorário de {{mes}} a lançar — {{cliente}}",
+      titulo: "Honorário do faturamento a lançar",
+      corpo: "O repasse de {{mes}} de {{cliente}} já está na Conciliação: o honorário é {{valor}} e ainda não foi lançado no Financeiro.",
+      ctaTexto: "Conferir e lançar",
+    },
+  },
+
   // ── MENSAGEM INTERNA (W5, Onda 1) ─────────────────────────────────────────────────────
   //
   // Conversa INDIVIDUAL/GRUPO/PROJETO só emitia socket (que em produção nem existe — tempo
