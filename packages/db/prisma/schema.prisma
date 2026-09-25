@@ -136,10 +136,57 @@ model User {
   competenciasFechadas   CompetenciaFechada[]   @relation("CompetenciasFechadas")
   eventosDeFechamento    CompetenciaFechamentoEvento[] @relation("EventosDeFechamento")
   honorariosLancados     HonorarioFaturamento[]        @relation("HonorariosLancados")
+  // VERIFICAÇÃO EM DUAS ETAPAS (onda 4C): o segredo TOTP e os códigos de recuperação.
+  segundoFator           SegundoFator?
+  codigosRecuperacao     CodigoRecuperacao[]
 
   @@index([role])
   @@index([clienteId])
   @@index([convidadoPorId])
+}
+
+/// VERIFICAÇÃO EM DUAS ETAPAS (TOTP, RFC 6238) — uma linha por pessoa que começou a ativar.
+///
+/// Existe porque, sem ela, uma senha roubada de ADMIN/ROOT dava acesso total por 30 dias (a vida
+/// do cookie). Com ela, o login com senha certa só devolve um DESAFIO; a sessão nasce depois do
+/// código do aplicativo.
+///
+/// ⚠️ `ativadoEm` NULO = ativação COMEÇADA e não confirmada (a chave foi mostrada, ninguém
+/// digitou um código ainda). Nesse estado o login NÃO pede código — senão quem abrisse a tela de
+/// ativação e desistisse ficaria trancado fora com um segredo que nunca chegou ao celular.
+model SegundoFator {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  /// Segredo TOTP CIFRADO (AES-256-GCM, `TOTP_CRYPTO_KEY`). Nunca em claro, nunca no retorno
+  /// do tRPC depois da ativação.
+  segredoCifrado String    @db.Text
+  ativadoEm      DateTime?
+  /// ANTI-REPLAY: o passo de 30 s do último código aceito. Código de passo igual ou anterior é
+  /// recusado — quem viu o código por cima do ombro não o reusa dentro da janela de ±30 s.
+  ultimoPasso    Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Códigos de recuperação do 2FA — 10 por ativação, de USO ÚNICO, guardados só como HASH.
+///
+/// São a saída de quem perdeu o celular. Por isso NÃO dependem da `TOTP_CRYPTO_KEY`: se a chave
+/// sumir do servidor, o TOTP para de conferir, mas o código de recuperação continua entrando.
+/// ⚠️ `hash` é `utf8mb4_bin` na migração (a lição da ADR-147; o Prisma não expressa `COLLATE` —
+/// nunca rode `migrate diff` para "consertar" isso).
+model CodigoRecuperacao {
+  id        String    @id @default(cuid())
+  userId    String
+  /// SHA-256 (hex) do código normalizado. 80 bits sorteados — ver `segundo-fator.service.ts`.
+  hash      String    @db.VarChar(64)
+  usadoEm   DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, hash])
 }
 
 /// Personalização (override) do conteúdo de um e-mail transacional. Ausência = usa o padrão do código.

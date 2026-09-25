@@ -24,3 +24,4 @@ export * from "./dado-pessoal.js";
 export * from "./consentimento-assinatura.js";
 export * from "./link-publico.js";
 export * from "./honorario-faturamento.js";
+export * from "./segundo-fator.js";
