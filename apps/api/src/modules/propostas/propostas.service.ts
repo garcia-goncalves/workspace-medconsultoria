@@ -182,8 +182,14 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
   }
 
   const aceita = input.decisao === "ACEITA";
-  await prisma.documento.update({
-    where: { id: doc.id },
+  // ⚠️ GRAVAÇÃO CONDICIONAL (achado M2 da revisão da onda 4). A conferência "PENDENTE" acima é
+  // uma LEITURA: aceitar e recusar ao mesmo tempo (duas abas, o e-mail e o Portal) passavam os
+  // dois por ela, e a automação do aceite — que cria a conta a receber das linhas avulsas — rodava
+  // numa proposta que terminava RECUSADA; dois aceites rodavam a automação duas vezes. Com
+  // `propostaStatus: "PENDENTE"` no filtro, só UMA resposta grava; a outra é recusada e não
+  // dispara nada (molde da reserva atômica do credenciamento, ADR-148).
+  const gravou = await prisma.documento.updateMany({
+    where: { id: doc.id, propostaStatus: "PENDENTE" },
     data: {
       propostaStatus: aceita ? "ACEITA" : "RECUSADA",
       propostaRespondidaEm: new Date(),
@@ -193,6 +199,9 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
       propostaMotivoRecusa: aceita ? null : input.motivo?.trim() || null,
     },
   });
+  if (gravou.count !== 1) {
+    throw new TRPCError({ code: "CONFLICT", message: "Esta proposta já foi respondida." });
+  }
   await prisma.activityLog.create({
     data: {
       userId: respondidoPorId ?? null,

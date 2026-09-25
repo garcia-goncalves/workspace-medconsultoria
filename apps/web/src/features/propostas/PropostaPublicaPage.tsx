@@ -44,7 +44,9 @@ function Casca({ children }: { children: React.ReactNode }) {
 export function PropostaPublicaPage({ token }: { token: string }) {
   const utils = trpc.useUtils();
   const q = trpc.propostas.porToken.useQuery({ token });
-  const responder = trpc.propostas.responder.useMutation({ onSuccess: () => utils.propostas.porToken.invalidate({ token }) });
+  // `onSettled`, e não só `onSuccess`: quem perde a corrida com outra aba recebe "já foi
+  // respondida" (M2), e a página precisa recarregar para mostrar a resposta que venceu.
+  const responder = trpc.propostas.responder.useMutation({ onSettled: () => utils.propostas.porToken.invalidate({ token }) });
   // Fluxo em passos p/ evitar aceite/recusa por engano: "acao" → confirma "aceitar" ou informa "recusar".
   const [modo, setModo] = useState<"acao" | "aceitar" | "recusar">("acao");
   const [motivo, setMotivo] = useState("");

@@ -1007,7 +1007,29 @@ export async function gerarPropostaAutoParaLead(leadId: string, userId: string) 
  * contrato para o cliente, sai. `opts.leadId` só liga o passo do funil e serve de fallback
  * (gerador genérico) quando o cliente ainda não tem serviços estruturados. Ver ADR-81.
  */
-export async function gerarContratoAutoParaCliente(
+export function gerarContratoAutoParaCliente(
+  clienteId: string,
+  userId: string,
+  opts?: { leadId?: string; linhasAvulsas?: LinhaAvulsaDoContrato[] },
+) {
+  // ⚠️ EM FILA POR CLIENTE (achado M2 da revisão da onda 4). O "já tem contrato?" abaixo é
+  // leitura-então-gravação: duas automações simultâneas para o mesmo cliente (dois aceites de
+  // propostas diferentes, ou o aceite junto com a conversão do lead) passavam as duas pela leitura
+  // e geravam DOIS contratos. Processo único (ADR-2), então uma fila em memória basta: a segunda
+  // chamada só começa depois da primeira, e aí já enxerga o contrato criado.
+  const anterior = contratoAutoEmAndamento.get(clienteId) ?? Promise.resolve();
+  const esta = anterior.catch(() => {}).then(() => gerarContratoAutoParaClienteAgora(clienteId, userId, opts));
+  const fim = esta.catch(() => {});
+  contratoAutoEmAndamento.set(clienteId, fim);
+  void fim.then(() => {
+    if (contratoAutoEmAndamento.get(clienteId) === fim) contratoAutoEmAndamento.delete(clienteId);
+  });
+  return esta;
+}
+
+const contratoAutoEmAndamento = new Map<string, Promise<unknown>>();
+
+async function gerarContratoAutoParaClienteAgora(
   clienteId: string,
   userId: string,
   opts?: { leadId?: string; linhasAvulsas?: LinhaAvulsaDoContrato[] },
