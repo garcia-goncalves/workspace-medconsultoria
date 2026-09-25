@@ -144,6 +144,16 @@ describe("buscaGlobal — tarefa, compromisso e conversa respeitam quem busca", 
     expect(conversasA.find((h) => h.id === ids.cDireta)?.titulo).toBe(`Bruno ${PFX}`);
   });
 
+  it("`%` e `_` são texto, não coringa do LIKE: '%%' não vira 'liste tudo'", async () => {
+    // Sem o escape, `contains: "%%"` vira `LIKE '%%%%'` e casa QUALQUER título — a busca deixava de
+    // ser busca e virava a listagem das tarefas, compromissos e conversas de quem pergunta.
+    const fixture = Object.values(ids);
+    for (const termo of ["%%", "__"]) {
+      const hits = await buscaGlobal(termo, { userId: bId, role: "FUNCIONARIO" });
+      expect(hits.filter((h) => fixture.includes(h.id)), `termo ${termo}`).toEqual([]);
+    }
+  });
+
   it("termo curto não consulta nada", async () => {
     expect(await buscaGlobal("a", { userId: aId, role: "FUNCIONARIO" })).toEqual([]);
   });

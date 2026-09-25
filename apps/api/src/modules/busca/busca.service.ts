@@ -1,6 +1,7 @@
 import { prisma } from "@app/db";
 import { hasRoleLevel } from "@app/shared";
 import { dataBRT } from "../../lib/datas.js";
+import { escaparCoringas } from "../../lib/like.js";
 
 export type SearchTipo = "cliente" | "lead" | "projeto" | "documento" | "tarefa" | "evento" | "conversa";
 
@@ -35,6 +36,9 @@ export type BuscaCtx = { userId: string; role: string };
 export async function buscaGlobal(termo: string, ctx: BuscaCtx): Promise<SearchHit[]> {
   const s = termo.trim();
   if (s.length < 2) return [];
+  // `%` e `_` são coringas do LIKE e o `contains` do Prisma não os escapa: sem isto, "%%" casaria
+  // qualquer título e a busca viraria a listagem de tudo o que a pessoa pode ver.
+  const like = escaparCoringas(s);
   const { userId } = ctx;
   const admin = hasRoleLevel(ctx.role as never, "ADMIN");
 
@@ -42,7 +46,7 @@ export async function buscaGlobal(termo: string, ctx: BuscaCtx): Promise<SearchH
     prisma.cliente.findMany({
       where: {
         deletedAt: null,
-        OR: [{ nome: { contains: s } }, { email: { contains: s } }, { cnpj: { contains: s } }],
+        OR: [{ nome: { contains: like } }, { email: { contains: like } }, { cnpj: { contains: like } }],
       },
       take: 5,
       orderBy: { nome: "asc" },
@@ -51,20 +55,20 @@ export async function buscaGlobal(termo: string, ctx: BuscaCtx): Promise<SearchH
     prisma.lead.findMany({
       where: {
         deletedAt: null,
-        OR: [{ nome: { contains: s } }, { empresa: { contains: s } }, { email: { contains: s } }],
+        OR: [{ nome: { contains: like } }, { empresa: { contains: like } }, { email: { contains: like } }],
       },
       take: 5,
       orderBy: { updatedAt: "desc" },
       select: { id: true, nome: true, empresa: true },
     }),
     prisma.projeto.findMany({
-      where: { deletedAt: null, nome: { contains: s } },
+      where: { deletedAt: null, nome: { contains: like } },
       take: 5,
       orderBy: { updatedAt: "desc" },
       select: { id: true, nome: true, cliente: { select: { nome: true } } },
     }),
     prisma.documento.findMany({
-      where: { deletedAt: null, titulo: { contains: s } },
+      where: { deletedAt: null, titulo: { contains: like } },
       take: 5,
       orderBy: { updatedAt: "desc" },
       select: { id: true, titulo: true, cliente: { select: { nome: true } } },
@@ -72,7 +76,7 @@ export async function buscaGlobal(termo: string, ctx: BuscaCtx): Promise<SearchH
     prisma.tarefa.findMany({
       where: {
         deletedAt: null,
-        titulo: { contains: s },
+        titulo: { contains: like },
         ...(admin ? {} : { OR: [{ criadoPorId: userId }, { responsaveis: { some: { userId } } }] }),
       },
       take: 5,
@@ -91,7 +95,7 @@ export async function buscaGlobal(termo: string, ctx: BuscaCtx): Promise<SearchH
     prisma.evento.findMany({
       where: {
         deletedAt: null,
-        titulo: { contains: s },
+        titulo: { contains: like },
         OR: [{ escopo: "EMPRESA" }, { donoId: userId }, { participantes: { some: { userId } } }],
       },
       take: 5,
@@ -105,11 +109,11 @@ export async function buscaGlobal(termo: string, ctx: BuscaCtx): Promise<SearchH
         conversa: {
           deletedAt: null,
           OR: [
-            { nome: { contains: s } },
-            { assunto: { contains: s } },
-            { cliente: { nome: { contains: s } } },
+            { nome: { contains: like } },
+            { assunto: { contains: like } },
+            { cliente: { nome: { contains: like } } },
             // Conversa direta não tem nome: ela se chama pela OUTRA pessoa.
-            { tipo: "INDIVIDUAL", participantes: { some: { userId: { not: userId }, user: { nome: { contains: s } } } } },
+            { tipo: "INDIVIDUAL", participantes: { some: { userId: { not: userId }, user: { nome: { contains: like } } } } },
           ],
         },
       },
