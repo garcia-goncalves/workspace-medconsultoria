@@ -146,10 +146,82 @@ function registrarAcerto(userId: string, ip: string | undefined): void {
   if (reg && reg.count > 0) reg.count -= 1;
 }
 
-/** Só para teste: zera os freios entre casos. */
+/** Só para teste: zera os freios (e as marcas de aviso) entre casos. */
 export function _limparFreiosSegundoFator(): void {
   errosPorPessoa.clear();
   errosPorIp.clear();
+  freioRegistradoAte.clear();
+  ultimoAvisoAoDono.clear();
+}
+
+// ─── Rastro e aviso ao dono (achado B1 da revisão da onda 4) ────────────────
+//
+// Só chega a digitar código quem ACERTOU a senha (o desafio do login, ou a sessão aberta mais a
+// senha, no desativar). Código errado ali é a prova de que a senha está com alguém — e o dono da
+// conta não ficava sabendo: o freio segurava calado. Agora fica rastro (`seguranca.*`, que o
+// expurgo preserva) e o dono recebe aviso (sininho + e-mail) no máximo UMA vez por hora.
+//
+// ⚠️ O rastro NUNCA grava o código digitado: um código errado é um palpite, e palpite guardado é
+// insumo para o próximo.
+
+const AVISO_AO_DONO_A_CADA_MS = 60 * 60 * 1000;
+/** Até quando o freio desta pessoa já está registrado — um registro por janela, não um por recusa. */
+const freioRegistradoAte = new Map<string, number>();
+const ultimoAvisoAoDono = new Map<string, number>();
+
+type OrigemDoCodigo = "login" | "desativar";
+
+/** Rastro e aviso nunca derrubam a resposta: o erro que importa é o do código. */
+async function registrarCodigoErrado(userId: string, ip: string | undefined, origem: OrigemDoCodigo): Promise<void> {
+  try {
+    await prisma.activityLog.create({
+      data: { userId, acao: "seguranca.2fa_codigo_errado", dados: { origem, ip: ip ?? null } },
+    });
+    await avisarDonoDaConta(userId, ip);
+  } catch {
+    /* best-effort — ver acima */
+  }
+}
+
+async function registrarFreio(userId: string, ip: string | undefined, origem: OrigemDoCodigo): Promise<void> {
+  const agora = Date.now();
+  if ((freioRegistradoAte.get(userId) ?? 0) > agora) return;
+  freioRegistradoAte.set(userId, agora + JANELA_MS);
+  try {
+    await prisma.activityLog.create({ data: { userId, acao: "seguranca.2fa_freio", dados: { origem, ip: ip ?? null } } });
+    await avisarDonoDaConta(userId, ip);
+  } catch {
+    /* best-effort */
+  }
+}
+
+async function avisarDonoDaConta(userId: string, ip: string | undefined): Promise<void> {
+  const agora = Date.now();
+  // Marca ANTES do `await`: duas recusas simultâneas não mandam dois avisos.
+  if (agora - (ultimoAvisoAoDono.get(userId) ?? 0) < AVISO_AO_DONO_A_CADA_MS) return;
+  ultimoAvisoAoDono.set(userId, agora);
+  const quando = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(agora));
+  const { notificar } = await import("../notificacoes/notificacoes.service.js");
+  await notificar(
+    userId,
+    "seguranca_2fa_codigo_errado",
+    { quando, ip: ip ?? "desconhecido" },
+    { entidadeTipo: "seguranca", entidadeId: userId },
+  );
+}
+
+/** `reservarTentativa` que, ao recusar, deixa o rastro do freio. */
+function reservarOuRegistrarFreio(userId: string, ip: string | undefined, origem: OrigemDoCodigo): void {
+  try {
+    reservarTentativa(userId, ip);
+  } catch (e) {
+    void registrarFreio(userId, ip, origem);
+    throw e;
+  }
 }
 
 const MUITAS_TENTATIVAS = () =>
@@ -181,10 +253,14 @@ export async function conferirSegundoFator(
   userId: string,
   codigo: string,
   ip: string | undefined,
+  origem: OrigemDoCodigo = "login",
 ): Promise<"totp" | "recuperacao"> {
-  reservarTentativa(userId, ip);
+  reservarOuRegistrarFreio(userId, ip, origem);
   const via = await conferirCodigoSemFreio(userId, codigo);
-  if (!via) throw CODIGO_INVALIDO(); // a tentativa já foi cobrada na entrada
+  if (!via) {
+    await registrarCodigoErrado(userId, ip, origem);
+    throw CODIGO_INVALIDO(); // a tentativa já foi cobrada na entrada
+  }
   registrarAcerto(userId, ip);
   return via;
 }
@@ -440,13 +516,17 @@ export async function desativarSegundoFator(
   recusarSessaoDeSuporte(user);
   // UMA tentativa para a operação inteira (senha + código): a senha errada conta no mesmo freio,
   // e a senha CERTA não devolve nada — só o código certo zera (M1).
-  reservarTentativa(user.id, ip);
+  reservarOuRegistrarFreio(user.id, ip, "desativar");
   const u = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { passwordHash: true } });
   if (!u.passwordHash || !(await verifyPassword(u.passwordHash, senha))) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Senha ou código incorretos." });
   }
   const via = await conferirCodigoSemFreio(user.id, codigo);
-  if (!via) throw new TRPCError({ code: "BAD_REQUEST", message: "Senha ou código incorretos." });
+  if (!via) {
+    // Senha CERTA e código errado — o mesmo sinal do login (B1).
+    await registrarCodigoErrado(user.id, ip, "desativar");
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Senha ou código incorretos." });
+  }
   registrarAcerto(user.id, ip);
   await prisma.$transaction([
     prisma.codigoRecuperacao.deleteMany({ where: { userId: user.id } }),

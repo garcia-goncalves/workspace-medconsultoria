@@ -971,6 +971,28 @@ export const EMAIL_TEMPLATES = {
       ctaTexto: "Ver no Sistema",
     },
   },
+  // Onda 4 (B1): código errado depois da SENHA CERTA é a prova de que alguém tem a senha — o
+  // dono da conta precisa saber para trocá-la. No máximo um aviso por hora por conta.
+  seguranca_2fa_codigo_errado: {
+    label: "Código de verificação errado na sua conta",
+    descricao: "Alguém acertou a sua senha e errou o código da verificação em duas etapas.",
+    grupo: "Sistema",
+    notificacao: true,
+    variaveis: [
+      { chave: "quando", rotulo: "Quando", descricao: "Data e hora da tentativa", exemplo: "25/09/2026 14:32" },
+      { chave: "ip", rotulo: "IP", descricao: "De onde veio a tentativa", exemplo: "203.0.113.7" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "Alguém acertou a sua senha e errou o código de verificação",
+      titulo: "Tentativa de entrada na sua conta",
+      // ⚠️ Curto de propósito: o corpo também vai para `Notificacao.corpo` (VARCHAR 191), e com um
+      // IPv6 inteiro esta frase dá 181 caracteres. Texto maior faz o aviso inteiro falhar.
+      corpo:
+        "Em {{quando}}, alguém acertou a sua senha e errou o código de verificação (IP {{ip}}). A entrada foi barrada. Se não foi você, troque a senha.",
+      ctaTexto: "Trocar minha senha",
+    },
+  },
 } satisfies Record<string, TemplateMeta>;
 
 /** União literal das chaves de template — use em quem DECLARA um tipo de aviso no código. */

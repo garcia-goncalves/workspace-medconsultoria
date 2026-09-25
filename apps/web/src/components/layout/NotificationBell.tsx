@@ -187,6 +187,9 @@ export function NotificationBell() {
       case "sistema":
         navigate({ to: "/sistema" });
         break;
+      case "configuracoes":
+        navigate({ to: "/configuracoes" });
+        break;
       case "honorario":
         navigate({ to: "/conciliacao", search: { cliente: decisao.clienteId, aba: "honorario" } });
         break;

@@ -23,6 +23,7 @@ export type DecisaoRotaNotificacao =
   | { destino: "conta" }
   | { destino: "lead" }
   | { destino: "sistema" }
+  | { destino: "configuracoes" }
   | { destino: "honorario"; clienteId: string }
   | null;
 
@@ -44,6 +45,8 @@ export function decidirRotaDaNotificacao(n: NotifParaRota): DecisaoRotaNotificac
   if (t === "conta") return { destino: "conta" };
   if (t === "lead") return { destino: "lead" };
   if (t === "incidente" || t === "erro") return { destino: "sistema" };
+  // Aviso de segurança da própria conta (código de 2FA errado): é em Configurações que se troca a senha.
+  if (t === "seguranca") return { destino: "configuracoes" };
   // Honorário do faturamento a lançar: o id é `<clienteId>:<AAAA-MM>` (um aviso por cliente + mês).
   if (t === "honorario" && id) return { destino: "honorario", clienteId: id.split(":")[0]! };
   return null;

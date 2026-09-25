@@ -35,6 +35,10 @@ function rotaEntidade(tipo?: string | null, id?: string | null): string {
     case "incidente":
     case "erro":
       return "/sistema";
+    // Aviso de segurança da própria conta (código de 2FA errado): leva a Configurações, onde se
+    // troca a senha.
+    case "seguranca":
+      return "/configuracoes";
     default:
       return "/";
   }

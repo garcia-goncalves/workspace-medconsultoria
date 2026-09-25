@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
 import type { SessionUser } from "@app/shared";
@@ -70,6 +70,9 @@ afterAll(async () => {
   await prisma.session.deleteMany({ where: onde });
   await prisma.token.deleteMany({ where: onde });
   await prisma.activityLog.deleteMany({ where: onde });
+  const ids = (await prisma.user.findMany({ where: { email: { startsWith: PFX } }, select: { id: true } })).map((u) => u.id);
+  await prisma.notificacao.deleteMany({ where: { userId: { in: ids } } });
+  await prisma.emailEnviado.deleteMany({ where: { userId: { in: ids } } });
   await prisma.user.deleteMany({ where: { email: { startsWith: PFX } } });
   await prisma.$disconnect();
 });
@@ -377,6 +380,47 @@ describe("2FA — o freio por pessoa não zera com a senha certa (M1)", () => {
     await expect(concluirEntradaComSegundoFator(desafio!, certo, "ua", ip())).rejects.toThrow(/Muitas tentativas/);
     await expect(desativarSegundoFator(sessao, SENHA, certo, ip())).rejects.toThrow(/Muitas tentativas/);
     expect(await sessoesDe(u.id)).toBe(0);
+  });
+});
+
+describe("2FA — código errado deixa rastro e avisa o dono (B1)", () => {
+  const avisos = (userId: string) =>
+    prisma.notificacao.count({ where: { userId, tipo: "seguranca_2fa_codigo_errado" } });
+
+  it("código errado na 2ª etapa grava o rastro SEM o código e avisa o dono uma vez; o freio também fica registrado", async () => {
+    const { u, sessao } = await criarUsuario("b1-login");
+    const { segredo, passo } = await ativar(sessao);
+    const { desafio } = await login({ email: u.email, password: SENHA }, "ua", ip());
+    const errado = codigoDoPasso(segredo, passo + 1) === "111111" ? "222222" : "111111";
+
+    for (let i = 0; i < 5; i++) {
+      await expect(concluirEntradaComSegundoFator(desafio!, errado, "ua", ip())).rejects.toThrow(/Código inválido/);
+    }
+    await expect(concluirEntradaComSegundoFator(desafio!, errado, "ua", ip())).rejects.toThrow(/Muitas tentativas/);
+    await expect(concluirEntradaComSegundoFator(desafio!, errado, "ua", ip())).rejects.toThrow(/Muitas tentativas/);
+
+    const errados = await prisma.activityLog.findMany({ where: { userId: u.id, acao: "seguranca.2fa_codigo_errado" } });
+    expect(errados).toHaveLength(5);
+    expect(JSON.stringify(errados)).not.toContain(errado);
+    expect(errados[0]!.dados).toMatchObject({ origem: "login" });
+    await vi.waitFor(async () => {
+      // Um registro por janela do freio, não um por recusa.
+      expect(await prisma.activityLog.count({ where: { userId: u.id, acao: "seguranca.2fa_freio" } })).toBe(1);
+    });
+    // Sete recusas, UM aviso: o teto é de um por hora.
+    expect(await avisos(u.id)).toBe(1);
+  });
+
+  it("desativar com a senha certa e o código errado também avisa", async () => {
+    const { u, sessao } = await criarUsuario("b1-desativa");
+    const { segredo, passo } = await ativar(sessao);
+    const errado = codigoDoPasso(segredo, passo + 1) === "111111" ? "222222" : "111111";
+    await expect(desativarSegundoFator(sessao, SENHA, errado, ip())).rejects.toThrow(/incorretos/);
+    expect(await prisma.activityLog.count({ where: { userId: u.id, acao: "seguranca.2fa_codigo_errado" } })).toBe(1);
+    expect(await avisos(u.id)).toBe(1);
+    // Senha ERRADA não é o sinal (não prova que a senha vazou): não grava nem avisa de novo.
+    await expect(desativarSegundoFator(sessao, "senha-errada", errado, ip())).rejects.toThrow(/incorretos/);
+    expect(await prisma.activityLog.count({ where: { userId: u.id, acao: "seguranca.2fa_codigo_errado" } })).toBe(1);
   });
 });
 
