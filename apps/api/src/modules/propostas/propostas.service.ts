@@ -8,6 +8,7 @@ import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { avancarLeadPorClienteAuto } from "../leads/leads.service.js";
 import { config } from "../../config.js";
+import { lerLinhasAvulsas, provisionarLinhasAvulsasAceitas } from "./linhas-avulsas.service.js";
 
 const linkProposta = (token: string) => `${config.WEB_ORIGIN}/proposta/${token}`;
 
@@ -165,7 +166,7 @@ export async function getPorToken(token: string) {
 export async function responder(input: ResponderPropostaInput, ip?: string, respondidoPorId?: string | null) {
   const doc = await prisma.documento.findFirst({
     where: { propostaToken: input.token, deletedAt: null },
-    select: { id: true, titulo: true, conteudo: true, propostaStatus: true, propostaHash: true, propostaSolicitadaEm: true, propostaRespondidaEm: true, clienteId: true, criadoPorId: true, itens: true, cliente: { select: { nome: true } } },
+    select: { id: true, titulo: true, conteudo: true, propostaStatus: true, propostaHash: true, propostaSolicitadaEm: true, propostaRespondidaEm: true, clienteId: true, criadoPorId: true, itens: true, linhasAvulsas: true, cliente: { select: { nome: true } } },
   });
   if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Link de proposta inválido." });
   if (doc.propostaStatus !== "PENDENTE") {
@@ -216,8 +217,9 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
       //
       // ⚠️ SÓ LINHA DO CATÁLOGO VIRA SERVIÇO CONTRATADO (ADR-156). A proposta personalizada tem
       // linhas avulsas ("Treinamento da recepção"), combinadas naquele papel e sem cadastro por
-      // trás. Hoje ela grava em `itens` só as do catálogo; o filtro aqui é a segunda tranca, para
-      // uma linha sem `servicoId` que chegue por outro caminho nunca virar `ClienteServico`.
+      // trás. Ela grava em `itens` só as do catálogo; o filtro aqui é a segunda tranca, para uma
+      // linha sem `servicoId` que chegue por outro caminho nunca virar `ClienteServico`. As
+      // avulsas moram em `linhasAvulsas` e viram CONTA A RECEBER logo abaixo (Onda 4A).
       const itensAceitos = Array.isArray(doc.itens)
         ? (doc.itens as {
             servicoId: string;
@@ -228,6 +230,8 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
             conveniosIds?: string[];
           }[]).filter((i) => typeof i?.servicoId === "string" && i.servicoId.length > 0)
         : [];
+      const linhasAvulsas = lerLinhasAvulsas(doc.linhasAvulsas);
+      const documentoId = doc.id;
       void (async () => {
         // Ator das automações: quem criou a proposta; se o criador foi removido (criadoPorId nulo),
         // cai no responsável do cliente e, por fim, num ADMIN/ROOT ativo (para a atribuição/FK valer).
@@ -243,6 +247,24 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
           const { sincronizarServicosContratados } = await import("../servicos/servicos-cliente.service.js");
           await sincronizarServicosContratados(clienteId, itensAceitos, { id: atorId });
         }
+        // 1b) As LINHAS AVULSAS da proposta personalizada viram conta a receber (Onda 4A). Tem o
+        // próprio `try`: o Financeiro tropeçar não pode impedir o contrato, que vem a seguir — e a
+        // falha precisa aparecer em SISTEMA → Erros, não sumir.
+        if (linhasAvulsas.length) {
+          try {
+            await provisionarLinhasAvulsasAceitas(documentoId, clienteId, linhasAvulsas, { id: atorId });
+          } catch (e) {
+            const { registrarErro } = await import("../sistema/sistema.service.js");
+            await registrarErro({
+              rota: "propostas.responder/linhas-avulsas",
+              mensagem:
+                `A proposta do documento ${documentoId} foi ACEITA, mas a cobrança das linhas avulsas ` +
+                `falhou: a conta a receber pode NÃO ter sido criada. Confira o Financeiro do cliente ` +
+                `${clienteId}. Causa: ${(e as Error)?.message ?? String(e)}`,
+              stack: (e as Error)?.stack ?? null,
+            }).catch(() => {});
+          }
+        }
         // 2) Gera o CONTRATO automaticamente (EM_REVISÃO) já com esses serviços/valores + cláusulas.
         // Por CLIENTE (não exige lead ativo) → funciona também para cliente já convertido.
         const lead = await prisma.lead.findFirst({
@@ -251,7 +273,7 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
           select: { id: true },
         });
         const { gerarContratoAutoParaCliente } = await import("../documentos/documentos.service.js");
-        await gerarContratoAutoParaCliente(clienteId, atorId, { leadId: lead?.id });
+        await gerarContratoAutoParaCliente(clienteId, atorId, { leadId: lead?.id, linhasAvulsas });
       })().catch(async (e) => {
         // ⚠️ AQUI ESTAVA UM `catch(() => {})` — o silêncio mais caro da aplicação.
         //

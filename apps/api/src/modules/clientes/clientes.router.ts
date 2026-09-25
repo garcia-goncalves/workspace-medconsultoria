@@ -12,6 +12,7 @@ import {
   convidarPessoaPortalSchema,
   papelDaPessoaPortalSchema,
   pessoaPortalSchema,
+  SITUACOES_CLIENTE,
 } from "@app/shared";
 import { router, funcionarioProcedure, adminProcedure, rootProcedure } from "../../trpc/trpc.js";
 import { anonimizarCliente } from "./anonimizar.service.js";
@@ -36,6 +37,20 @@ export const clientesRouter = router({
   list: funcionarioProcedure
     .input(z.object({ search: z.string().optional() }).optional())
     .query(({ input }) => service.listClientes(input?.search)),
+
+  // Planilha da lista com o filtro da tela (Onda 4A). A MESMA permissão de ver a lista: quem vê a
+  // página Clientes pode levá-la para a planilha — o conteúdo é exatamente o que ela já mostra.
+  exportar: funcionarioProcedure
+    .input(
+      z
+        .object({
+          search: z.string().max(200).optional(),
+          situacao: z.enum(SITUACOES_CLIENTE).optional(),
+          responsavelId: z.string().min(1).optional(),
+        })
+        .optional(),
+    )
+    .mutation(({ input }) => service.exportarClientes(input ?? {})),
 
   // KPIs da base (topo da lista de clientes).
   resumo: funcionarioProcedure.query(() => service.resumoClientes()),

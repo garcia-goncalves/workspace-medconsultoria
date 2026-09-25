@@ -19,7 +19,8 @@ function formCheio(): PersonalizadaForm {
   f.itens = [
     { ...novaLinha({ id: "s1", valor: 3500, valorRecorrencia: "MENSAL" }) },
     { ...novaLinha(), descricao: "  Treinamento  ", valor: 400, quantidade: 3 },
-    { ...novaLinha(), descricao: "Repasse", cobranca: "PERCENTUAL", valor: 999, percentual: 5 },
+    // O serviço de faturamento (do catálogo), cobrado por percentual e com convênios.
+    { ...novaLinha({ id: "s2", valor: null, valorRecorrencia: "MENSAL" }), cobranca: "PERCENTUAL", valor: 999, percentual: 5, conveniosIds: ["op1", "op2"] },
     { ...novaLinha(), descricao: "   " }, // linha avulsa sem nome: não vai
   ];
   f.clausulas = [{ chave: "c1", texto: " Sigilo. " }, { chave: "c2", texto: "   " }];
@@ -46,6 +47,20 @@ describe("o que a tela manda ao servidor", () => {
     expect(p.itens[2]).toMatchObject({ valor: 0, percentual: 5, recorrencia: "MENSAL" });
   });
 
+  it("os convênios viajam dentro do item do catálogo (ADR-126)", () => {
+    expect(p.itens[2]!.conveniosIds).toEqual(["op1", "op2"]);
+    expect(p.itens[0]).not.toHaveProperty("conveniosIds");
+  });
+
+  it("linha avulsa é SEMPRE valor fixo, mesmo que a forma tenha ficado em percentual", () => {
+    const f = novaPersonalizada();
+    f.itens = [{ ...novaLinha(), descricao: "Avulsa", cobranca: "PERCENTUAL", valor: 300, percentual: 5, conveniosIds: ["op1"] }];
+    const item = payloadDaPersonalizada(f).itens[0]!;
+    expect(item).toMatchObject({ valor: 300, percentual: null });
+    expect(item).not.toHaveProperty("conveniosIds");
+    expect(criarPropostaPersonalizadaSchema.safeParse({ clienteId: "c1", ...payloadDaPersonalizada(f) }).success).toBe(true);
+  });
+
   it("descarta linha avulsa sem nome e cláusula vazia, e apara os textos", () => {
     expect(p.itens).toHaveLength(3);
     expect(p.itens[1]!.descricao).toBe("Treinamento");
@@ -67,5 +82,13 @@ describe("a prévia usa a mesma regra de nome do servidor", () => {
     expect(r.itens[0]).toMatchObject({ nome: "Gestão Operacional", detalhe: "Rotina", valor: 3500 });
     expect(r.itens[1]!.nome).toBe("Treinamento");
     expect(r.fraseRepasse).toBeTruthy();
+  });
+
+  it("a prévia mostra os NOMES dos convênios escolhidos", () => {
+    const r = resolverParaPrevia(formCheio(), catalogo, [
+      { id: "op1", nome: "Unimed" },
+      { id: "op9", nome: "Outra" },
+    ]);
+    expect(r.itens[2]!.convenios).toEqual(["Unimed"]);
   });
 });

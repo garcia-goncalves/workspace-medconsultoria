@@ -16,7 +16,7 @@ import { listStages } from "../modules/pipeline/pipeline.service.js";
  *     aceite, o funil e a ficha tratarem o documento como proposta;
  *  2. a numeração é a MESMA sequência das outras propostas;
  *  3. no ACEITE, só a linha do catálogo vira `ClienteServico` — a linha avulsa, que não tem
- *     cadastro, fica só no papel;
+ *     cadastro, vira conta a receber (Onda 4A, provado em `propostas-onda-4a.integration.test.ts`);
  *  4. para um LEAD, o documento cai no `Cliente` PROSPECT por trás dele, sem converter ninguém.
  */
 

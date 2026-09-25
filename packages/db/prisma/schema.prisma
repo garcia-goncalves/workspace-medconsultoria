@@ -1266,6 +1266,14 @@ model Conta {
   // duplicata para ninguém. Nulo nas contas anteriores a esta coluna e nas que não vêm de um
   // serviço (aluguel, imposto): por isso a conferência olha as DUAS coisas.
   origemServicoId String?
+  // QUE LINHA AVULSA DE QUE PROPOSTA originou esta cobrança (Onda 4A). A linha avulsa não tem
+  // serviço — então `origemServicoId` não serve de chave — e a proposta pode ser aceita de novo
+  // (reenviar para aceite reinicia a resposta). O índice único abaixo é o que impede a segunda
+  // conta: a atomicidade é do banco, não de um "confere e grava" que duas requisições atravessam.
+  // Sem FK de propósito, como `origemServicoId`: documento é apagado por soft-delete, e a
+  // cobrança não pode sumir junto. Nulo em toda conta que não nasceu de linha avulsa.
+  origemDocumentoId String?
+  origemLinha       Int?
   recorrenciaAte  DateTime? // limite opcional da série recorrente
   recorrenteId    String? // id da 1ª conta da série (herdado pelas geradas); agrupa a série
   observacoes     String?     @db.Text
@@ -1285,6 +1293,9 @@ model Conta {
   // criar outra (ADR-92). Conta não-recorrente tem recorrenteId nulo e fica de fora
   // (o MySQL trata NULL como distinto em índice único).
   @@unique([recorrenteId, vencimento])
+  // Uma conta por linha avulsa aceita. O MySQL trata NULL como distinto no índice único, então
+  // as contas comuns (as duas colunas nulas) ficam de fora.
+  @@unique([origemDocumentoId, origemLinha])
   @@index([tipo, pago])
   @@index([vencimento])
   @@index([clienteId])
@@ -1536,6 +1547,11 @@ model Documento {
   // Fonte da verdade estruturada por trás do Markdown — permite o aceite sincronizar
   // ClienteServico e o contrato refletir exatamente o que foi proposto/aceito. Ver ADR-81.
   itens                  Json?
+  /// LINHAS AVULSAS da proposta personalizada (Onda 4A): "Treinamento da recepção", sem serviço
+  /// do catálogo por trás. Coluna PRÓPRIA, e não dentro de `itens`, porque o contrato automático
+  /// relê `itens` com `safeParse` do array inteiro — uma linha sem `servicoId` ali reprovaria a
+  /// lista toda. No aceite, cada linha com valor vira conta a receber (`Conta.origemDocumentoId`).
+  linhasAvulsas          Json?
   createdAt              DateTime        @default(now())
   updatedAt              DateTime        @updatedAt
   deletedAt              DateTime?

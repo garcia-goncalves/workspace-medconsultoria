@@ -406,10 +406,11 @@ export function NovoDocumentoDialog({
     { enabled: open && ePropostaDeCredenciamento && !!clienteId },
   );
 
-  // Os NOMES dos convênios para a prévia (o mesmo cache que o ConveniosPicker usa).
+  // Os NOMES dos convênios para a prévia (o mesmo cache que o ConveniosPicker usa). A Personalizada
+  // também os usa quando tem o serviço de faturamento entre os itens (Onda 4A).
   const catalogoConvenios = trpc.documentos.operadoras.list.useQuery(
     { uso: "FATURAMENTO" },
-    { enabled: open && ePropostaDeFaturamento },
+    { enabled: open && (ePropostaDeFaturamento || ePropostaPersonalizada) },
   );
 
   // Preview ao vivo: injeta os valores já preenchidos no corpo antes de exibir.
@@ -418,7 +419,11 @@ export function NovoDocumentoDialog({
     // PROPOSTA PERSONALIZADA: o MESMO gerador do servidor (`@app/shared`), para a prévia e o
     // papel gravado serem o mesmo texto (ADR-156).
     if (ePropostaPersonalizada) {
-      const { itens, fraseRepasse: frase } = resolverParaPrevia(personalizada, servicosAtivos.data ?? []);
+      const { itens, fraseRepasse: frase } = resolverParaPrevia(
+        personalizada,
+        servicosAtivos.data ?? [],
+        catalogoConvenios.data ?? [],
+      );
       const p = payloadDaPersonalizada(personalizada);
       const bloco = montarBlocoPersonalizado({
         secoes: p.secoes,

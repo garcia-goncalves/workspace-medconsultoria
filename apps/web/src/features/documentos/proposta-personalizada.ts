@@ -21,6 +21,8 @@ export type LinhaForm = {
   quantidade: number;
   recorrencia: "AVULSO" | "MENSAL";
   percentual: number | null;
+  /** Convênios atendidos (ids) — só no item do serviço de faturamento (ADR-126). */
+  conveniosIds: string[];
 };
 export type SecaoForm = { chave: string; titulo: string; corpo: string };
 export type ClausulaForm = { chave: string; texto: string };
@@ -63,6 +65,7 @@ export function novaLinha(servico?: { id: string; valor: number | null; valorRec
     quantidade: 1,
     recorrencia: servico?.valorRecorrencia ?? "AVULSO",
     percentual: null,
+    conveniosIds: [],
   };
 }
 
@@ -75,9 +78,12 @@ export function mover<T>(lista: T[], i: number, delta: -1 | 1): T[] {
   return nova;
 }
 
-/** A linha como ela é COBRADA: valor fixo zera o percentual e vice-versa (nunca os dois). */
+/**
+ * A linha como ela é COBRADA: valor fixo zera o percentual e vice-versa (nunca os dois). Linha
+ * avulsa é SEMPRE valor fixo: percentual é só do serviço de faturamento (Onda 4A).
+ */
 function precoDaLinha(l: LinhaForm) {
-  return l.cobranca === "PERCENTUAL"
+  return l.cobranca === "PERCENTUAL" && l.servicoId
     ? { valor: 0, quantidade: 1, recorrencia: "MENSAL" as const, percentual: l.percentual ?? null }
     : { valor: l.valor || 0, quantidade: Math.max(1, l.quantidade || 1), recorrencia: l.recorrencia, percentual: null };
 }
@@ -86,16 +92,29 @@ type ServicoDaTela = { id: string; nome: string; descricao?: string | null; cond
 
 /**
  * As linhas com nome resolvido, para a PRÉVIA — a mesma regra do servidor: o texto digitado vale
- * como nome; senão o nome do catálogo.
+ * como nome; senão o nome do catálogo. `convenios` traz os NOMES das operadoras (o mesmo cache do
+ * `ConveniosPicker`); id sem nome conhecido some da prévia, como o servidor faz.
  */
-export function resolverParaPrevia(form: PersonalizadaForm, servicos: ServicoDaTela[]) {
+export function resolverParaPrevia(
+  form: PersonalizadaForm,
+  servicos: ServicoDaTela[],
+  convenios: { id: string; nome: string }[] = [],
+) {
   const itens: ItemPersonalizadoResolvido[] = [];
   const condicoes: (string | null)[] = [];
   for (const l of form.itens) {
     const sv = l.servicoId ? servicos.find((s) => s.id === l.servicoId) : undefined;
     const preco = precoDaLinha(l);
     if (ehServicoSomentePercentual({ valor: preco.valor, percentual: preco.percentual })) condicoes.push(sv?.condicaoPagamento ?? null);
-    itens.push({ nome: l.descricao.trim() || sv?.nome || "Serviço", detalhe: sv?.descricao ?? null, ...preco });
+    const nomesConvenios = l.servicoId
+      ? convenios.filter((o) => l.conveniosIds.includes(o.id)).map((o) => o.nome)
+      : [];
+    itens.push({
+      nome: l.descricao.trim() || sv?.nome || "Serviço",
+      detalhe: sv?.descricao ?? null,
+      ...preco,
+      convenios: nomesConvenios,
+    });
   }
   return { itens, fraseRepasse: condicoes.length ? fraseDoRepasse(condicoes) : null };
 }
@@ -108,7 +127,13 @@ export function payloadDaPersonalizada(
     itens: form.itens
       // Linha avulsa sem nome não vai: o servidor a recusaria e a pessoa não saberia qual.
       .filter((l) => l.servicoId || l.descricao.trim())
-      .map((l) => ({ servicoId: l.servicoId ?? undefined, descricao: l.descricao.trim() || undefined, ...precoDaLinha(l) })),
+      .map((l) => ({
+        servicoId: l.servicoId ?? undefined,
+        descricao: l.descricao.trim() || undefined,
+        ...precoDaLinha(l),
+        // Convênio só viaja no item do catálogo — o schema recusa em linha avulsa.
+        ...(l.servicoId && l.conveniosIds.length ? { conveniosIds: l.conveniosIds } : {}),
+      })),
     secoes: form.secoes
       .filter((s) => s.titulo.trim() || s.corpo.trim())
       .map((s) => ({ titulo: s.titulo.trim() || "Seção", corpo: s.corpo.trim() })),
