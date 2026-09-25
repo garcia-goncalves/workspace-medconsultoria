@@ -153,6 +153,7 @@ export function _limparFreiosSegundoFator(): void {
   errosPorIp.clear();
   freioRegistradoAte.clear();
   ultimoAvisoAoDono.clear();
+  totpIndisponivelRegistrado.clear();
 }
 
 // ─── Rastro e aviso ao dono (achado B1 da revisão da onda 4) ────────────────
@@ -231,6 +232,45 @@ const MUITAS_TENTATIVAS = () =>
     message: "Muitas tentativas de código. Aguarde alguns minutos e tente novamente.",
   });
 
+/**
+ * O servidor não consegue ler o segredo (TOTP_CRYPTO_KEY ausente ou trocada) — achado B3 da
+ * revisão da onda 4. Antes a pessoa via só "Código inválido" e digitava código certo em laço sem
+ * saber que nenhum conferiria. `PRECONDITION_FAILED` (estado esperado, não bug do código — ADR-135)
+ * e uma frase que aponta a saída: o código de recuperação não depende da chave.
+ *
+ * ⚠️ Não vaza nada a quem não tem a senha: só se chega aqui DEPOIS da senha certa (o desafio do
+ * login, ou a sessão + a senha no desativar).
+ */
+const TOTP_INDISPONIVEL = () =>
+  new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message:
+      "O código do aplicativo não pode ser conferido neste servidor agora. Entre com um código de recuperação e avise o administrador do sistema.",
+  });
+
+/**
+ * Registra em SISTEMA → Erros UMA vez por pessoa por processo — sem o freio, cada tentativa
+ * viraria uma ocorrência, e o painel do ROOT se encheria do mesmo recado.
+ */
+const totpIndisponivelRegistrado = new Set<string>();
+async function sinalizarTotpIndisponivel(userId: string): Promise<void> {
+  if (totpIndisponivelRegistrado.has(userId)) return;
+  totpIndisponivelRegistrado.add(userId);
+  try {
+    const { registrarErro } = await import("../sistema/sistema.service.js");
+    await registrarErro({
+      rota: "auth.segundoFator/totp-indisponivel",
+      mensagem:
+        "Uma conta com verificação em duas etapas ativa tentou entrar e o segredo TOTP não pôde ser lido: " +
+        "a TOTP_CRYPTO_KEY está ausente ou foi trocada no .env do servidor. Enquanto isso, só os códigos " +
+        "de recuperação abrem a porta. Reponha a chave original (trocá-la torna ilegível todo segredo já guardado).",
+      userId,
+    });
+  } catch {
+    /* best-effort: o recado ao usuário é o que importa */
+  }
+}
+
 /** Mensagem ÚNICA para código errado, antigo, reusado ou inexistente — não ensina nada. */
 const CODIGO_INVALIDO = () => new TRPCError({ code: "UNAUTHORIZED", message: "Código inválido ou expirado." });
 
@@ -279,7 +319,11 @@ async function conferirCodigoSemFreio(userId: string, codigo: string): Promise<"
 
   if (/^\d{3}\s?\d{3}$/.test(digitado)) {
     const segredo = decifrarSegredo(sf.segredoCifrado);
-    const passo = segredo ? conferirCodigoTotp(segredo, digitado, Date.now(), sf.ultimoPasso) : null;
+    if (!segredo) {
+      await sinalizarTotpIndisponivel(userId);
+      throw TOTP_INDISPONIVEL();
+    }
+    const passo = conferirCodigoTotp(segredo, digitado, Date.now(), sf.ultimoPasso);
     if (passo !== null) {
       const r = await prisma.segundoFator.updateMany({
         where: { userId, OR: [{ ultimoPasso: null }, { ultimoPasso: { lt: passo } }] },

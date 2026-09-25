@@ -446,6 +446,36 @@ describe("2FA — código errado deixa rastro e avisa o dono (B1)", () => {
   });
 });
 
+describe("2FA — segredo ilegível no servidor (B3)", () => {
+  const ROTA = "auth.segundoFator/totp-indisponivel";
+
+  it("diz para usar o código de recuperação, registra em SISTEMA → Erros uma vez só, e a recuperação ainda abre", async () => {
+    const { u, sessao } = await criarUsuario("b3");
+    const { segredo, passo, codigosRecuperacao } = await ativar(sessao);
+    // Simula a TOTP_CRYPTO_KEY trocada: o segredo guardado deixa de ser legível com a chave atual.
+    await prisma.segundoFator.update({ where: { userId: u.id }, data: { segredoCifrado: "v1:AAAA:BBBB:CCCC" } });
+    await prisma.errorLog.deleteMany({ where: { rota: ROTA } });
+    try {
+      const { desafio } = await login({ email: u.email, password: SENHA }, "ua", ip());
+      const certo = codigoDoPasso(segredo, passo + 1);
+      for (let i = 0; i < 2; i++) {
+        const e = await concluirEntradaComSegundoFator(desafio!, certo, "ua", ip()).catch((x: unknown) => x);
+        expect((e as { code?: string }).code).toBe("PRECONDITION_FAILED");
+        expect(String((e as Error).message)).toMatch(/código de recuperação/);
+      }
+      const erros = await prisma.errorLog.findMany({ where: { rota: ROTA } });
+      expect(erros).toHaveLength(1);
+      expect(erros[0]!.ocorrencias).toBe(1);
+      // Não conta como "código errado" (não é palpite errado — é o servidor sem chave).
+      expect(await prisma.activityLog.count({ where: { userId: u.id, acao: "seguranca.2fa_codigo_errado" } })).toBe(0);
+      const ok = await concluirEntradaComSegundoFator(desafio!, codigosRecuperacao[0]!, "ua", ip());
+      expect(ok.sid).toBeTruthy();
+    } finally {
+      await prisma.errorLog.deleteMany({ where: { rota: ROTA } });
+    }
+  });
+});
+
 describe("2FA — pelo router (o que vai ao navegador)", () => {
   it("login com 2FA NÃO põe cookie; confirmarSegundoFator põe", async () => {
     const { u, sessao } = await criarUsuario("router");

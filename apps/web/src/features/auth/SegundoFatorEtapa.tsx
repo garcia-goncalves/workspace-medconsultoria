@@ -27,7 +27,14 @@ export function SegundoFatorEtapa({ desafio, onVoltar }: { desafio: string; onVo
       if (window.location.pathname !== "/") window.history.replaceState({}, "", "/");
       void utils.auth.me.invalidate();
     },
-    onError: () => setCodigo(""),
+    onError: (e) => {
+      setCodigo("");
+      // O servidor não consegue conferir o código do aplicativo (chave do servidor ausente —
+      // achado B3). A frase dele já diz o que fazer; aqui a caixa troca sozinha para o código de
+      // recuperação, que é o único que abre a porta nesse estado. Só chega aqui quem acertou a
+      // senha, então não há o que esconder.
+      if (e.data?.code === "PRECONDITION_FAILED") setUsarRecuperacao(true);
+    },
   });
   // Desafio vencido (5 min): não adianta outro código, é preciso digitar a senha de novo. O
   // servidor diz isso com uma frase própria — a de código errado é outra.
