@@ -145,7 +145,10 @@ export async function listarPreferenciasEmail(userId: string, role: Role) {
     prisma.user.findUnique({ where: { id: userId }, select: { email: true, ativo: true, deletedAt: true } }),
   ]);
   const map = new Map(rows.map((r) => [r.tipo, r.ativo]));
-  return EMAIL_CATEGORIAS.filter((c) => !c.minRole || hasRoleLevel(role, c.minRole)).map((c) => ({
+  // `soParaCliente` some da tela da equipe: seria um interruptor que não liga nada para ela.
+  return EMAIL_CATEGORIAS.filter(
+    (c) => (!c.minRole || hasRoleLevel(role, c.minRole)) && (!c.soParaCliente || role === "CLIENTE"),
+  ).map((c) => ({
     tipo: c.tipo,
     label: c.label,
     descricao: c.descricao,

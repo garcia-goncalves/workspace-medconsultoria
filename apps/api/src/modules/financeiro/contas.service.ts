@@ -1,6 +1,14 @@
 import { TRPCError } from "@trpc/server";
-import { prisma } from "@app/db";
-import type { CreateContaInput, UpdateContaInput, ListContasInput, Carteira, Recorrencia } from "@app/shared";
+import { prisma, type Prisma } from "@app/db";
+import { SEM_CATEGORIA } from "@app/shared";
+import type {
+  CreateContaInput,
+  UpdateContaInput,
+  ListContasInput,
+  FiltroContasInput,
+  Carteira,
+  Recorrencia,
+} from "@app/shared";
 import { hojeBRT, somarDiasUTC, inicioDoMesBRT, inicioDoProximoMesBRT } from "../../lib/datas.js";
 
 /** Contexto do usuário logado (para escopar a carteira PESSOAL). */
@@ -58,7 +66,7 @@ async function diaAncoraDaSerie(conta: ContaSerie): Promise<number> {
  * Filtro de carteira: EMPRESA (compartilhada), PESSOAL (só do dono logado) ou TUDO
  * (empresa + a pessoal do próprio usuário). NUNCA expõe a carteira pessoal de outro.
  */
-function whereCarteira(carteira: Carteira, ctx: Ctx) {
+export function whereCarteira(carteira: Carteira, ctx: Ctx) {
   if (carteira === "PESSOAL") return { escopo: "PESSOAL" as const, donoId: ctx.userId };
   if (carteira === "TUDO")
     return { OR: [{ escopo: "EMPRESA" as const }, { escopo: "PESSOAL" as const, donoId: ctx.userId }] };
@@ -74,22 +82,66 @@ async function contaComPosse(id: string, ctx: Ctx) {
   return conta;
 }
 
+// ── Filtro (lista e exportação) ──────────────────────────
+/** Dia "AAAA-MM-DD" → meia-noite UTC, o mesmo formato em que o vencimento é gravado. */
+const diaUTC = (dia: string) => new Date(`${dia}T00:00:00.000Z`);
+
+/**
+ * ⚠️ `%` e `_` são coringas do `LIKE`, e o `contains` do Prisma NÃO os escapa: buscar "10%"
+ * casaria "10 parcelas". Mesma armadilha já registrada na API do agente (ADR-150).
+ */
+const escaparCoringas = (t: string) => t.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+/**
+ * O `where` do recorte — UM só para a lista e para a exportação ao contador (ver o comentário de
+ * `filtroContasSchema`). A carteira entra sempre, e é ela que impede ver a PESSOAL de outro.
+ */
+export function whereDoFiltro(input: FiltroContasInput, ctx: Ctx): Prisma.ContaWhereInput {
+  const vencimento: Prisma.DateTimeFilter = {};
+  if (input.vencimentoDe) vencimento.gte = diaUTC(input.vencimentoDe);
+  // "Até" é INCLUSIVE na tela; no banco vira "antes do dia seguinte".
+  if (input.vencimentoAte) vencimento.lt = somarDiasUTC(diaUTC(input.vencimentoAte), 1);
+  const busca = input.busca?.trim();
+  return {
+    deletedAt: null,
+    ...whereCarteira(input.carteira, ctx),
+    ...(input.tipo ? { tipo: input.tipo } : {}),
+    ...(input.status === "PENDENTES" ? { pago: false } : input.status === "PAGAS" ? { pago: true } : {}),
+    ...(input.clienteId ? { clienteId: input.clienteId } : {}),
+    ...(input.categoriaId ? { categoriaId: input.categoriaId === SEM_CATEGORIA ? null : input.categoriaId } : {}),
+    ...(vencimento.gte || vencimento.lt ? { vencimento } : {}),
+    ...(busca ? { descricao: { contains: escaparCoringas(busca) } } : {}),
+  };
+}
+
 // ── CRUD ─────────────────────────────────────────────────
+/**
+ * A lista, paginada no servidor. Devolve também o TOTAL e a SOMA do recorte inteiro (não só da
+ * página): "12 contas, R$ 8.400" é a resposta que a pessoa procura ao filtrar um cliente.
+ */
 export async function listContas(input: ListContasInput, ctx: Ctx) {
-  const contas = await prisma.conta.findMany({
-    where: {
-      deletedAt: null,
-      ...whereCarteira(input.carteira, ctx),
-      ...(input.tipo ? { tipo: input.tipo } : {}),
-      ...(input.status === "PENDENTES" ? { pago: false } : input.status === "PAGAS" ? { pago: true } : {}),
-    },
-    orderBy: [{ pago: "asc" }, { vencimento: "asc" }],
-    include: {
-      categoria: { select: { nome: true, cor: true } },
-      cliente: { select: { nome: true } },
-    },
-  });
-  return contas.map(mapConta);
+  const where = whereDoFiltro(input, ctx);
+  const [contas, total, soma] = await Promise.all([
+    prisma.conta.findMany({
+      where,
+      orderBy: [{ pago: "asc" }, { vencimento: "asc" }, { id: "asc" }],
+      skip: (input.pagina - 1) * input.porPagina,
+      take: input.porPagina,
+      include: {
+        categoria: { select: { nome: true, cor: true } },
+        cliente: { select: { nome: true } },
+      },
+    }),
+    prisma.conta.count({ where }),
+    prisma.conta.aggregate({ _sum: { valor: true }, where }),
+  ]);
+  return {
+    itens: contas.map(mapConta),
+    total,
+    pagina: input.pagina,
+    porPagina: input.porPagina,
+    somaValor: soma._sum.valor?.toNumber() ?? 0,
+  };
 }
 
 export async function createConta(input: CreateContaInput, ctx: Ctx) {

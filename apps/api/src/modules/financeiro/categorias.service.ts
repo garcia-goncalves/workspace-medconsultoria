@@ -41,7 +41,14 @@ export async function listCategorias(escopo: Escopo, ctx: Ctx) {
       data: sementes.map((s) => ({ ...s, escopo, donoId: escopo === "PESSOAL" ? ctx.userId : null })),
     });
   }
-  return prisma.categoria.findMany({ where: filtro, orderBy: [{ tipo: "asc" }, { nome: "asc" }] });
+  const lista = await prisma.categoria.findMany({
+    where: filtro,
+    orderBy: [{ tipo: "asc" }, { nome: "asc" }],
+    // Quantas contas VIVAS usam cada categoria — é o número que a confirmação de excluir precisa
+    // dizer ("12 contas ficarão sem categoria"). Sem ele, excluir parecia não custar nada.
+    include: { _count: { select: { contas: { where: { deletedAt: null } } } } },
+  });
+  return lista.map(({ _count, ...c }) => ({ ...c, contasVinculadas: _count.contas }));
 }
 
 async function categoriaComPosse(id: string, ctx: Ctx) {
@@ -77,7 +84,11 @@ export async function updateCategoria(input: UpdateCategoriaInput, ctx: Ctx) {
   });
 }
 
-/** Remove a categoria. As contas vinculadas ficam sem categoria (onDelete: SetNull). */
+/**
+ * Remove a categoria. As contas vinculadas ficam sem categoria (onDelete: SetNull) — a tela
+ * mostra quantas ANTES de confirmar (`contasVinculadas`), e o filtro "Sem categoria" da lista
+ * existe para achá-las depois e reclassificar.
+ */
 export async function removeCategoria(id: string, ctx: Ctx) {
   await categoriaComPosse(id, ctx);
   return prisma.categoria.delete({ where: { id } });

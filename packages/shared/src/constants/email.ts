@@ -31,6 +31,13 @@ export interface EmailCategoria {
    * dentro do sistema (o sininho) continua para todos; só o e-mail é que nasce fechado.
    */
   padraoDesligadoPara?: Role[];
+  /**
+   * Aviso que só existe para quem é CLIENTE do Portal (o médico, a secretária da clínica).
+   * Some da tela de preferências da equipe — lá seria um interruptor que não liga nada — e a
+   * régua (`decidirEmailOperacional`) recusa mandá-lo a qualquer outro papel, para um engano de
+   * destinatário não despejar na equipe um e-mail escrito para o cliente.
+   */
+  soParaCliente?: boolean;
 }
 
 /**
@@ -160,6 +167,20 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
     descricao: "Uma tarefa sua (ou que você delegou) passou do prazo sem ser concluída.",
     grupo: "Agenda e tarefas",
   },
+  // ── PENDÊNCIA NOVA DE DOCUMENTO, AVISADA AO CLIENTE (Onda 3B) ────────────────────────
+  //
+  // Até aqui o cliente só descobria que faltava um documento ENTRANDO no Portal — e quem não
+  // entra não descobre, então a papelada parava e a equipe cobrava por WhatsApp. O aviso é um
+  // RESUMO DIÁRIO (no máximo um e-mail por clínica por dia, só quando surgiu algo novo — ver
+  // `modules/portal/aviso-de-pendencias.ts`), e vai para as pessoas do Portal daquela clínica.
+  // Nasce LIGADO: é exatamente o aviso que ninguém vai buscar sozinho.
+  {
+    tipo: "pendencia_documentos_cliente",
+    label: "Documentos novos pedidos (cliente)",
+    descricao: "Resumo diário, para as pessoas do Portal da clínica, quando passamos a precisar de um documento ou formulário novo.",
+    grupo: "Clientes e Portal",
+    soParaCliente: true,
+  },
 ];
 
 /** Conjunto de tipos que disparam e-mail (usado no back para filtrar). */
@@ -206,5 +227,9 @@ export function decidirEmailOperacional(p: DecisaoDeEmail): boolean {
   if (!p.ativo || p.excluido) return false;
   if (!p.email || p.email.startsWith("deleted+")) return false;
   if (ehContaDeSistema(p.email, p.emailDoSistema)) return false;
+  // Aviso escrito para o cliente nunca vai para a equipe (e vice-versa não precisa de trava: as
+  // categorias da equipe já passam pelo `minRole` na tela, e o envio delas nasce de gatilhos que
+  // só miram gente da casa).
+  if (EMAIL_CATEGORIAS.find((c) => c.tipo === p.tipo)?.soParaCliente && p.role !== "CLIENTE") return false;
   return p.preferencia ?? emailLigadoPorPadrao(p.tipo, p.role);
 }

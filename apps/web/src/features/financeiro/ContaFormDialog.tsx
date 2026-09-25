@@ -94,6 +94,7 @@ export function ContaFormDialog({
     utils.financeiro.contas.resumo.invalidate();
     utils.financeiro.contas.agenda.invalidate();
     utils.financeiro.contas.porCategoria.invalidate();
+    utils.financeiro.relatorios.invalidate();
   };
   const create = trpc.financeiro.contas.create.useMutation({ onSuccess: () => (invalidate(), onClose()) });
   const update = trpc.financeiro.contas.update.useMutation({ onSuccess: () => (invalidate(), onClose()) });

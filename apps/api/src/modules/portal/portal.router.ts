@@ -2,6 +2,7 @@ import { z } from "zod";
 import { convidarPessoaPortalSchema, papelDaPessoaPortalSchema, pessoaPortalSchema, solicitarServicosSchema, salvarRespostaSchema, portalAbrirChamadoSchema, portalEnviarChamadoSchema, portalMeusDadosSchema } from "@app/shared";
 import { router, portalProcedure } from "../../trpc/trpc.js";
 import * as service from "./portal.service.js";
+import { pagamentosDoCliente } from "./pagamentos.service.js";
 import { desistenciaPeloCliente, retomarPeloCliente, solicitarServicosPeloCliente } from "../leads/leads.service.js";
 import { listServicosAtivos } from "../servicos/servicos.service.js";
 import { confirmarPresencaCliente } from "../agenda/agenda.service.js";
@@ -28,6 +29,11 @@ export const portalRouter = router({
   atualizarMeusDados: portalProcedure
     .input(portalMeusDadosSchema)
     .mutation(({ input, ctx }) => service.atualizarMeusDados(ctx.clienteId, ctx.user.id, input)),
+
+  // "Quanto eu devo e quando vence?" (Onda 3B): as contas a receber da Med que são DESTA clínica,
+  // com o PIX para pagar. Leitura — liberada para RESPONSAVEL, EQUIPE e sessão de suporte (o
+  // guarda do `portalProcedure` só barra mutação). Sem `input`: o `clienteId` é o da sessão.
+  pagamentos: portalProcedure.query(({ ctx }) => pagamentosDoCliente(ctx.clienteId)),
 
   // E-mails que o cliente recebeu — para ele acompanhar tudo pelo Portal.
   emails: portalProcedure.query(({ ctx }) => listPorCliente(ctx.clienteId)),

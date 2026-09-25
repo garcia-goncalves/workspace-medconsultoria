@@ -253,6 +253,42 @@ export const EMAIL_TEMPLATES = {
     },
   },
 
+  // ── PENDÊNCIA NOVA DE DOCUMENTO (Onda 3B) ─────────────────────────────────────────────
+  // Resumo diário ao cliente. `notificacao: false` de propósito: o cliente não tem sininho no
+  // Portal, e o que falta enviar já aparece na tela dele — o e-mail existe para quem NÃO entrou.
+  // ⚠️ A lista (`{{pendencias}}`) leva só o NOME do documento e do médico: nada de observação
+  // interna, nada de veredito de triagem. É o mesmo recorte que o Portal já mostra.
+  pendencia_documentos_cliente: {
+    label: "Documentos novos pedidos (cliente)",
+    descricao:
+      "Resumo diário enviado às pessoas do Portal da clínica quando passamos a precisar de algum documento ou formulário novo. No máximo um por dia, e só quando há algo novo.",
+    grupo: "Transacionais",
+    notificacao: false,
+    variaveis: [
+      { chave: "nome", rotulo: "Nome da pessoa", descricao: "Quem recebe", exemplo: "Maria Silva" },
+      { chave: "clinica", rotulo: "Nome da clínica", descricao: "A clínica a que a pendência pertence", exemplo: "Clínica Vida Plena" },
+      {
+        chave: "pendencias",
+        rotulo: "O que é novo",
+        // Um PARÁGRAFO por item (separados por linha em branco): quebra simples vira espaço no
+        // HTML do e-mail, e a lista chegaria como uma linha corrida só.
+        descricao: "Lista do que passamos a pedir desde o último aviso (um item por parágrafo)",
+        exemplo: "• Diploma — Dra. Helena Prado (frente)\n\n• Alvará de funcionamento",
+      },
+      { chave: "total", rotulo: "Total pendente", descricao: "Quantos itens obrigatórios ainda faltam, somando tudo", exemplo: "5" },
+      { chave: "link", rotulo: "Link do Portal", descricao: "Página do Portal onde se envia", exemplo: "(link do Portal)" },
+    ],
+    temCta: true,
+    default: {
+      assunto: "Precisamos de alguns documentos — {{clinica}}",
+      titulo: "Temos documentos novos para você enviar 📎",
+      corpo:
+        "Para dar sequência ao trabalho da {{clinica}}, passamos a precisar de:\n\n{{pendencias}}\n\nAo todo, faltam {{total}} item(ns). Você envia tudo pelo Portal do Cliente, em poucos cliques.",
+      ctaTexto: "Enviar pelo Portal",
+      nota: "Mandamos este resumo no máximo uma vez por dia, e só quando surge algo novo.",
+    },
+  },
+
   // ───────── Notificações (sino + e-mail; respeitam preferências) ─────────
   presenca_confirmada: {
     label: "Presença confirmada (cliente)",

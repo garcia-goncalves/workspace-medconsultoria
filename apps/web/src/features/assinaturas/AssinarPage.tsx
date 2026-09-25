@@ -1,11 +1,31 @@
 import { useState } from "react";
-import { FileSignature, CheckCircle2, ShieldCheck, AlertTriangle, Loader2, Circle } from "lucide-react";
+import { FileSignature, CheckCircle2, ShieldCheck, AlertTriangle, Loader2, Circle, FileDown } from "lucide-react";
 import { trpc } from "../../lib/trpc";
 import { dataHora } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
 import { SignaturePad, type AssinaturaValor } from "./SignaturePad";
 import { TEXTO_CONSENTIMENTO_ASSINATURA } from "@app/shared";
-import { DocumentoBranded } from "../documentos/DocumentoBranded";
+import { DocumentoBranded, imprimirDocumento, type DocumentoBrandedProps } from "../documentos/DocumentoBranded";
+
+/**
+ * "BAIXAR PDF" na página pública (Onda 3B). Reusa `imprimirDocumento` — o MESMO mecanismo do
+ * PDF interno, com a mesma paginação A4 da tela (ADR-129): o navegador abre a janela de impressão
+ * e o cliente escolhe "Salvar como PDF". Nada de segundo motor de PDF, que divergiria do papel que
+ * a Thaís conferiu.
+ *
+ * ⚠️ Só aparece onde o documento foi desenhado — link expirado ou inválido nem chega aqui (ADR-141:
+ * o servidor recusa o token e a página mostra a tela de expirado), então não imprime o que não abre.
+ * ⚠️ Sem `confirmarExportacao`: aquele aviso ("sobrou marcador no texto") é para a equipe antes de
+ * exportar; o cliente não tem o que corrigir.
+ */
+function BotaoBaixarPdf(props: DocumentoBrandedProps) {
+  return (
+    <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => imprimirDocumento(props)}>
+      <FileDown className="h-4 w-4" />
+      Baixar PDF
+    </Button>
+  );
+}
 
 function Casca({ children }: { children: React.ReactNode }) {
   return (
@@ -113,6 +133,7 @@ export function AssinarPage({ token }: { token: string }) {
 
   const d = q.data;
   const assinado = d.status === "ASSINADO" || assinar.data?.ok;
+  const docProps: DocumentoBrandedProps = { titulo: d.documento.titulo, conteudoMarkdown: d.documento.conteudo };
   const preenchido = valor.metodo === "DESENHO" ? !!valor.imagem : !!valor.nomeDigitado?.trim();
 
   const listaSignatarios = (
@@ -149,6 +170,12 @@ export function AssinarPage({ token }: { token: string }) {
               data, hora e código de integridade.
             </p>
           </div>
+          {/* Depois de assinar, o PDF é a cópia que o cliente guarda — só se o conteúdo não mudou. */}
+          {!d.conteudoAlterado && (
+            <div className="flex justify-end">
+              <BotaoBaixarPdf {...docProps} />
+            </div>
+          )}
           {listaSignatarios}
         </div>
       </Casca>
@@ -177,7 +204,10 @@ export function AssinarPage({ token }: { token: string }) {
                 no PDF — antes esta página mostrava o Markdown cru (`**negrito**`, `# título`)
                 para quem assina deslogado, achado da auditoria de 04/09. */}
             <div className="max-h-[45vh] overflow-y-auto rounded-xl border bg-muted/30 p-2">
-              <DocumentoBranded titulo={d.documento.titulo} conteudoMarkdown={d.documento.conteudo} />
+              <DocumentoBranded {...docProps} />
+            </div>
+            <div className="flex justify-end">
+              <BotaoBaixarPdf {...docProps} />
             </div>
 
             {listaSignatarios}

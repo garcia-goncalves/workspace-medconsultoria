@@ -1,25 +1,38 @@
-import { useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import {
   Plus, AlertTriangle, Check, Pencil, Trash2, Wallet, Tags, ArrowDownCircle, ArrowUpCircle,
-  Building2, User, Layers, CalendarClock, PartyPopper, Repeat,
+  Building2, User, Layers, CalendarClock, PartyPopper, Repeat, Download, Search, X,
 } from "lucide-react";
 import { cn } from "@app/ui";
 import { hasRoleLevel, type ContaTipo, type Carteira, type Escopo } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { useAuth } from "../../lib/auth-context";
 import { formatBRL } from "../../lib/masks";
-import { dataUTC } from "../../lib/format-date";
+import { dataUTC, hojeEmBrasiliaISO } from "../../lib/format-date";
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Select } from "../../components/ui/select";
 import { PageHeader } from "../../components/ui/page-header";
 import { EmptyState } from "../../components/ui/empty-state";
 import { QueryError } from "../../components/ui/query-error";
+import { toast } from "../../components/ui/toast";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { DataTable, type Coluna } from "../../components/ui/data-table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
+// Reuso (sem alterar) das peças da Conciliação: o mesmo download e a mesma paginação.
+import { baixarTexto, Paginacao } from "../conciliacao/partes";
 import { ContaFormDialog, type ContaEditavel } from "./ContaFormDialog";
 import { CategoriasDialog } from "./CategoriasDialog";
+import { RelatoriosFinanceiro } from "./RelatoriosFinanceiro";
+import { PADRAO_FINANCEIRO, SEM_CATEGORIA_URL, temFiltroExtra, type BuscaFinanceiro } from "./busca-na-url";
+import { useBuscaFinanceiro } from "./use-busca-financeiro";
+import { diaAnterior, nomeDoArquivo, rotuloExportar } from "./relatorios-formato";
 import type { RouterOutputs } from "../../lib/trpc";
 
-type ContaLinha = RouterOutputs["financeiro"]["contas"]["list"][number];
+type ContaLinha = RouterOutputs["financeiro"]["contas"]["list"]["itens"][number];
+
+/** Contas por página. A recorrência faz a lista crescer sozinha; o servidor pagina. */
+const POR_PAGINA = 50;
 
 const hojeInicio = () => {
   const d = new Date();
@@ -52,9 +65,23 @@ export function FinanceiroPage() {
   const { user } = useAuth();
   const podeVer = hasRoleLevel(user.role, "ADMIN");
 
-  const [carteira, setCarteira] = useState<Carteira>("EMPRESA");
-  const [aba, setAba] = useState<ContaTipo>("RECEBER");
-  const [status, setStatus] = useState<FiltroStatus>("PENDENTES");
+  // Carteira, aba, lado, situação e filtros moram na URL (ver `busca-na-url.ts`).
+  const [url, atualizar] = useBuscaFinanceiro();
+  const carteira: Carteira = url.carteira ?? PADRAO_FINANCEIRO.carteira;
+  const abaPagina = url.aba ?? PADRAO_FINANCEIRO.aba;
+  const aba: ContaTipo = url.tipo ?? PADRAO_FINANCEIRO.tipo;
+  const status: FiltroStatus = url.status ?? PADRAO_FINANCEIRO.status;
+  const pagina = url.pagina ?? 1;
+
+  /** Todo filtro volta para a página 1 — senão a pessoa fica numa página que não existe mais. */
+  const filtrar = (mudancas: BuscaFinanceiro) => atualizar({ ...mudancas, pagina: undefined });
+
+  // A busca tem texto LOCAL (o campo não pode pular o cursor esperando a URL) e vai para a URL a
+  // cada tecla; a consulta usa o valor ADIADO, para não disparar uma ida ao servidor por letra.
+  const [buscaTexto, setBuscaTexto] = useState(url.busca ?? "");
+  useEffect(() => setBuscaTexto(url.busca ?? ""), [url.busca]);
+  const buscaAdiada = useDeferredValue(url.busca);
+
   const [nova, setNova] = useState<Escopo | null>(null);
   const [editar, setEditar] = useState<ContaEditavel | null>(null);
   const [gerirCategorias, setGerirCategorias] = useState(false);
@@ -72,16 +99,55 @@ export function FinanceiroPage() {
   );
   const agenda = trpc.financeiro.contas.agenda.useQuery({ carteira }, { enabled: podeVer });
   const porCat = trpc.financeiro.contas.porCategoria.useQuery({ carteira }, { enabled: podeVer });
-  const contas = trpc.financeiro.contas.list.useQuery({ carteira, tipo: aba, status }, { enabled: podeVer });
+
+  /** O recorte da lista — o MESMO objeto vai para a exportação (sem a paginação). */
+  const filtro = {
+    carteira,
+    tipo: aba,
+    status,
+    clienteId: url.cliente,
+    categoriaId: url.categoria,
+    vencimentoDe: url.de,
+    vencimentoAte: url.ate,
+    busca: buscaAdiada,
+  };
+  const contas = trpc.financeiro.contas.list.useQuery(
+    { ...filtro, pagina, porPagina: POR_PAGINA },
+    // Mantém a página anterior enquanto a nova chega: a tabela não pisca a cada filtro.
+    { enabled: podeVer, placeholderData: (anterior) => anterior },
+  );
+
+  // Opções dos filtros. Categoria é por carteira — em "Tudo", as duas listas juntas.
+  const clientes = trpc.clientes.list.useQuery(undefined, { enabled: podeVer && carteira !== "PESSOAL" });
+  const catEmpresa = trpc.financeiro.categorias.list.useQuery({ escopo: "EMPRESA" }, { enabled: podeVer && carteira !== "PESSOAL" });
+  const catPessoal = trpc.financeiro.categorias.list.useQuery({ escopo: "PESSOAL" }, { enabled: podeVer && carteira !== "EMPRESA" });
+  const categorias = [
+    ...(carteira !== "PESSOAL" ? (catEmpresa.data ?? []).map((c) => ({ ...c, rotulo: carteira === "TUDO" ? `${c.nome} (Empresa)` : c.nome })) : []),
+    ...(carteira !== "EMPRESA" ? (catPessoal.data ?? []).map((c) => ({ ...c, rotulo: carteira === "TUDO" ? `${c.nome} (Pessoal)` : c.nome })) : []),
+  ];
 
   const invalidate = () => {
     utils.financeiro.contas.list.invalidate();
     utils.financeiro.contas.resumo.invalidate();
     utils.financeiro.contas.agenda.invalidate();
     utils.financeiro.contas.porCategoria.invalidate();
+    utils.financeiro.relatorios.invalidate();
   };
   const marcarPaga = trpc.financeiro.contas.marcarPaga.useMutation({ onSuccess: invalidate });
   const remove = trpc.financeiro.contas.remove.useMutation({ onSuccess: invalidate });
+
+  const recortado = temFiltroExtra(url);
+  const exportar = trpc.financeiro.contas.exportar.useMutation({
+    onSuccess: (r, pedido) => {
+      const hoje = hojeEmBrasiliaISO();
+      baixarTexto(
+        r.csv,
+        nomeDoArquivo({ carteira, de: pedido.vencimentoDe, ate: pedido.vencimentoAte, recortado, hoje }),
+      );
+      toast(`${r.linhas} conta(s) exportada(s) para o contador.`, "success");
+    },
+    onError: (e) => toast(e.message),
+  });
 
   if (!podeVer) {
     return <EmptyState icon={Wallet} title="Acesso restrito" description="O Financeiro é visível apenas para administradores." />;
@@ -97,6 +163,36 @@ export function FinanceiroPage() {
     { id: "PESSOAL", label: "Pessoal", icon: User },
     { id: "TUDO", label: "Tudo", icon: Layers },
   ];
+
+  /**
+   * Trocar de carteira limpa cliente e categoria: categoria é POR carteira (a "Aluguel" da empresa
+   * não existe na pessoal), e manter o filtro faria a lista nova abrir vazia sem explicar por quê.
+   */
+  const trocarCarteira = (c: Carteira) => filtrar({ carteira: c, cliente: undefined, categoria: undefined });
+
+  /** Da lista de inadimplência para as contas vencidas daquele cliente, já filtradas. */
+  const verContasDoCliente = (clienteId: string) =>
+    atualizar(
+      {
+        aba: undefined,
+        tipo: undefined, // padrão = a receber
+        status: undefined, // padrão = pendentes
+        cliente: clienteId,
+        categoria: undefined,
+        de: undefined,
+        ate: diaAnterior(hojeEmBrasiliaISO()),
+        busca: undefined,
+        pagina: undefined,
+      },
+      { novaEntrada: true },
+    );
+
+  const limparFiltros = () =>
+    filtrar({ cliente: undefined, categoria: undefined, de: undefined, ate: undefined, busca: undefined });
+
+  // ⚠️ Sem número enquanto a lista do filtro NOVO não chega: o `placeholderData` ainda mostra a
+  // contagem do filtro anterior, e o botão prometeria outra quantidade.
+  const totalConfiavel = contas.data && !contas.isPlaceholderData ? contas.data.total : null;
 
   const abrirEdicao = (c: ContaLinha) =>
     setEditar({
@@ -226,7 +322,7 @@ export function FinanceiroPage() {
             return (
               <button
                 key={c.id}
-                onClick={() => setCarteira(c.id)}
+                onClick={() => trocarCarteira(c.id)}
                 className={cn(
                   "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                   ativa ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
@@ -244,113 +340,244 @@ export function FinanceiroPage() {
       </div>
 
       {/* Conteúdo rola por dentro (página rica, como o Dashboard). */}
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-        {/* ── PRECISA DE VOCÊ (o herói) ── */}
-        <PrecisaDeVoce
-          agenda={agenda.data}
-          carregando={agenda.isLoading}
-          erro={agenda.isError}
-          mostrarCarteira={carteira === "TUDO"}
-          onRefetch={() => agenda.refetch()}
-          onMarcar={(id, pago) => marcarPaga.mutate({ id, pago })}
-        />
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <Tabs
+          value={abaPagina}
+          onValueChange={(v) => atualizar({ aba: v as BuscaFinanceiro["aba"] }, { novaEntrada: true })}
+          className="space-y-4"
+        >
+          <TabsList aria-label="Seções do Financeiro">
+            <TabsTrigger value="contas">Contas</TabsTrigger>
+            <TabsTrigger value="relatorios">Relatórios</TabsTrigger>
+          </TabsList>
 
-        {/* ── KPIs por carteira ── */}
-        <div className="space-y-2">
-          {carteira !== "PESSOAL" && resumoEmpresa.data && (
-            <KpiStrip r={resumoEmpresa.data} titulo={carteira === "TUDO" ? "Empresa" : undefined} icon={Building2} />
-          )}
-          {carteira !== "EMPRESA" && resumoPessoal.data && (
-            <KpiStrip r={resumoPessoal.data} titulo={carteira === "TUDO" ? "Pessoal" : undefined} icon={User} />
-          )}
-        </div>
+          <TabsContent value="relatorios">
+            <RelatoriosFinanceiro carteira={carteira} onVerContasDoCliente={verContasDoCliente} />
+          </TabsContent>
 
-        {/* ── Para onde vai o dinheiro (categorias do mês) ── */}
-        {porCat.data && (porCat.data.despesas.length > 0 || porCat.data.receitas.length > 0) && (
-          <ParaOndeVai despesas={porCat.data.despesas} receitas={porCat.data.receitas} />
-        )}
+          <TabsContent value="contas" className="space-y-4">
+            {/* ── PRECISA DE VOCÊ (o herói) ── */}
+            <PrecisaDeVoce
+              agenda={agenda.data}
+              carregando={agenda.isLoading}
+              erro={agenda.isError}
+              mostrarCarteira={carteira === "TUDO"}
+              onRefetch={() => agenda.refetch()}
+              onMarcar={(id, pago) => marcarPaga.mutate({ id, pago })}
+            />
 
-        {/* ── Lista completa (abas + filtro) ── */}
-        <div className="rounded-xl border bg-card p-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="inline-flex rounded-lg border p-0.5">
-              {(["RECEBER", "PAGAR"] as ContaTipo[]).map((t) => {
-                const on = aba === t;
-                const verde = t === "RECEBER";
-                return (
-                  <button
-                    key={t}
-                    onClick={() => setAba(t)}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                      on
-                        ? verde
-                          ? "bg-success/10 text-success"
-                          : "bg-destructive/10 text-destructive"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {verde ? <ArrowDownCircle className="h-4 w-4" /> : <ArrowUpCircle className="h-4 w-4" />}
-                    {verde ? "A receber" : "A pagar"}
-                  </button>
-                );
-              })}
+            {/* ── KPIs por carteira ── */}
+            <div className="space-y-2">
+              {carteira !== "PESSOAL" && resumoEmpresa.data && (
+                <KpiStrip r={resumoEmpresa.data} titulo={carteira === "TUDO" ? "Empresa" : undefined} icon={Building2} />
+              )}
+              {carteira !== "EMPRESA" && resumoPessoal.data && (
+                <KpiStrip r={resumoPessoal.data} titulo={carteira === "TUDO" ? "Pessoal" : undefined} icon={User} />
+              )}
             </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {(["PENDENTES", "PAGAS", "TODAS"] as FiltroStatus[]).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setStatus(s)}
-                  className={cn(
-                    "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-                    status === s
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-input bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                >
-                  {s === "TODAS" ? "Todas" : s === "PENDENTES" ? "Pendentes" : receber ? "Recebidas" : "Pagas"}
-                </button>
-              ))}
-            </div>
-          </div>
 
-          <div className="mt-3">
-            {contas.isError ? (
-              <QueryError onRetry={() => contas.refetch()} />
-            ) : (
-              <DataTable
-                dados={contas.data ?? []}
-                colunas={colunas}
-                chaveLinha={(c) => c.id}
-                carregando={contas.isLoading}
-                linhasEsqueleto={5}
-                vazio={
-                  <EmptyState
-                    icon={receber ? ArrowDownCircle : ArrowUpCircle}
-                    title={`Nenhuma conta ${receber ? "a receber" : "a pagar"} ${status === "PENDENTES" ? "pendente" : status === "PAGAS" ? (receber ? "recebida" : "paga") : ""}`.trim()}
-                    description="Lance uma nova conta pelo botão acima."
-                  />
-                }
-                acoes={(c) => (
-                  <>
-                    <Button variant="ghost" size="icon" aria-label={`Editar conta "${c.descricao}"`} onClick={() => abrirEdicao(c)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remover conta "${c.descricao}"`}
-                      className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => confirmarRemover(c)}
+            {/* ── Para onde vai o dinheiro (categorias do mês) ── */}
+            {porCat.data && (porCat.data.despesas.length > 0 || porCat.data.receitas.length > 0) && (
+              <ParaOndeVai despesas={porCat.data.despesas} receitas={porCat.data.receitas} />
+            )}
+
+            {/* ── Lista completa (abas + filtro) ── */}
+            <div className="rounded-xl border bg-card p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex rounded-lg border p-0.5">
+                  {(["RECEBER", "PAGAR"] as ContaTipo[]).map((t) => {
+                    const on = aba === t;
+                    const verde = t === "RECEBER";
+                    return (
+                      <button
+                        key={t}
+                        onClick={() => filtrar({ tipo: t })}
+                        className={cn(
+                          "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                          on
+                            ? verde
+                              ? "bg-success/10 text-success"
+                              : "bg-destructive/10 text-destructive"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {verde ? <ArrowDownCircle className="h-4 w-4" /> : <ArrowUpCircle className="h-4 w-4" />}
+                        {verde ? "A receber" : "A pagar"}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(["PENDENTES", "PAGAS", "TODAS"] as FiltroStatus[]).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => filtrar({ status: s })}
+                      className={cn(
+                        "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                        status === s
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-input bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+                      )}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      {s === "TODAS" ? "Todas" : s === "PENDENTES" ? "Pendentes" : receber ? "Recebidas" : "Pagas"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Filtros do recorte ── */}
+              <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="relative lg:col-span-2">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    aria-label="Buscar na descrição"
+                    placeholder="Buscar na descrição"
+                    className="pl-9"
+                    value={buscaTexto}
+                    maxLength={120}
+                    onChange={(e) => {
+                      setBuscaTexto(e.target.value);
+                      filtrar({ busca: e.target.value });
+                    }}
+                  />
+                </div>
+                {carteira !== "PESSOAL" && (
+                  <Select
+                    aria-label="Cliente"
+                    value={url.cliente ?? ""}
+                    onChange={(e) => filtrar({ cliente: e.target.value || undefined })}
+                  >
+                    <option value="">Todos os clientes</option>
+                    {/* O cliente do link pode não estar na lista (ex.: prospect): sem esta opção, o
+                        seletor mostraria "Todos" enquanto a lista filtra por ele. */}
+                    {url.cliente && !clientes.data?.some((c) => c.id === url.cliente) && (
+                      <option value={url.cliente}>Cliente selecionado</option>
+                    )}
+                    {(clientes.data ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+                <Select
+                  aria-label="Categoria"
+                  value={url.categoria ?? ""}
+                  onChange={(e) => filtrar({ categoria: e.target.value || undefined })}
+                >
+                  <option value="">Todas as categorias</option>
+                  <option value={SEM_CATEGORIA_URL}>Sem categoria</option>
+                  {categorias.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.rotulo}
+                    </option>
+                  ))}
+                </Select>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    type="date"
+                    aria-label="Vencimento de"
+                    title="Vencimento de"
+                    value={url.de ?? ""}
+                    onChange={(e) => filtrar({ de: e.target.value || undefined })}
+                  />
+                  <Input
+                    type="date"
+                    aria-label="Vencimento até"
+                    title="Vencimento até"
+                    value={url.ate ?? ""}
+                    onChange={(e) => filtrar({ ate: e.target.value || undefined })}
+                  />
+                </div>
+              </div>
+
+              {/* ── O que o recorte soma, e a saída para o contador ── */}
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div className="text-muted-foreground">
+                  {contas.data ? (
+                    <>
+                      {contas.data.total === 1 ? "1 conta" : `${contas.data.total} contas`} ·{" "}
+                      <span className={cn("font-semibold tabular-nums", receber ? "text-success" : "text-destructive")}>
+                        {formatBRL(contas.data.somaValor)}
+                      </span>
+                    </>
+                  ) : null}
+                  {recortado && (
+                    <Button variant="ghost" className="ml-1 min-h-11 md:min-h-0" onClick={limparFiltros}>
+                      <X className="h-3.5 w-3.5" />
+                      Limpar filtros
                     </Button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={exportar.isPending || totalConfiavel === 0}
+                    onClick={() => exportar.mutate(filtro)}
+                  >
+                    <Download className="h-4 w-4" />
+                    {exportar.isPending ? "Exportando…" : rotuloExportar(totalConfiavel)}
+                  </Button>
+                  {/* O contador costuma querer os DOIS lados do período; a lista mostra um de cada vez. */}
+                  <Button
+                    variant="ghost"
+                    disabled={exportar.isPending}
+                    onClick={() => exportar.mutate({ ...filtro, tipo: undefined })}
+                  >
+                    A receber e a pagar
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                {contas.isError ? (
+                  <QueryError onRetry={() => contas.refetch()} />
+                ) : (
+                  <>
+                    <DataTable
+                      dados={contas.data?.itens ?? []}
+                      colunas={colunas}
+                      chaveLinha={(c) => c.id}
+                      carregando={contas.isLoading}
+                      linhasEsqueleto={5}
+                      vazio={
+                        <EmptyState
+                          icon={receber ? ArrowDownCircle : ArrowUpCircle}
+                          title={`Nenhuma conta ${receber ? "a receber" : "a pagar"} ${status === "PENDENTES" ? "pendente" : status === "PAGAS" ? (receber ? "recebida" : "paga") : ""}`.trim()}
+                          description={recortado ? "Nenhuma conta neste filtro. Limpe os filtros para ver todas." : "Lance uma nova conta pelo botão acima."}
+                        />
+                      }
+                      acoes={(c) => (
+                        <>
+                          <Button variant="ghost" size="icon" aria-label={`Editar conta "${c.descricao}"`} onClick={() => abrirEdicao(c)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Remover conta "${c.descricao}"`}
+                            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => confirmarRemover(c)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    />
+                    {contas.data && (
+                      <Paginacao
+                        pagina={pagina}
+                        porPagina={POR_PAGINA}
+                        total={contas.data.total}
+                        onPagina={(p) => atualizar({ pagina: p })}
+                      />
+                    )}
                   </>
                 )}
-              />
-            )}
-          </div>
-        </div>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       <ContaFormDialog open={nova !== null} onClose={() => setNova(null)} tipoPadrao={aba} escopoPadrao={nova ?? "EMPRESA"} />

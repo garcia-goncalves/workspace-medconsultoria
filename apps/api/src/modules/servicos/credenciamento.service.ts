@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import {
   ESCOPO_REQUISITO_LABEL,
   ESCOPOS_REQUISITO,
+  marcoDoAndamento,
   motivosParaOCliente,
   progressoCredenciamento,
   triarCredenciamento,
@@ -715,5 +716,55 @@ export async function credenciamentoParaOPortal(clienteId: string) {
     progresso: v.progresso,
     grupos: v.grupos,
     porProfissional: v.porProfissional,
+    andamento: await andamentoNaOperadoraParaOPortal(clienteId),
   };
+}
+
+/**
+ * "EM QUE PÉ ESTÁ NA OPERADORA X?" — uma linha por médico × operadora, a tentativa MAIS RECENTE.
+ *
+ * ⚠️ **`select` fechado, campo por campo, e é a trava que importa aqui.** A linha de
+ * `Credenciamento` carrega o honorário (`valor`), a conta a receber (`contaId`), a proposta
+ * (`documentoId`), o motivo da negativa e as observações internas — nenhum deles pode chegar ao
+ * cliente (ver `andamentoParaOCliente` em `@app/shared`). Com `include` ou sem `select`, um campo
+ * novo na tabela passaria a sair pelo Portal sem ninguém decidir isso; há teste varrendo o JSON.
+ *
+ * Só a última tentativa de cada par: a 1ª negada e a 2ª em análise são a MESMA pergunta do
+ * cliente ("e a Unimed da Dra. Helena?"), e mostrar as duas faria o "não aprovado" antigo parecer
+ * a resposta atual. Médico desativado fica de fora — a papelada do Portal já só mostra quem está
+ * na clínica, e o andamento acompanha o mesmo recorte.
+ */
+async function andamentoNaOperadoraParaOPortal(clienteId: string) {
+  const linhas = await prisma.credenciamento.findMany({
+    where: { clienteId, profissional: { ativo: true } },
+    orderBy: [{ tentativa: "desc" }],
+    select: {
+      profissionalId: true,
+      operadoraId: true,
+      tentativa: true,
+      status: true,
+      protocoladoEm: true,
+      emAnaliseEm: true,
+      aprovadoEm: true,
+      profissional: { select: { nome: true } },
+      operadora: { select: { nome: true } },
+    },
+  });
+  const vistos = new Set<string>();
+  const ultimas = linhas.filter((l) => {
+    const chave = `${l.profissionalId}:${l.operadoraId}`;
+    if (vistos.has(chave)) return false;
+    vistos.add(chave);
+    return true;
+  });
+  return ultimas
+    .map((l) => ({
+      profissionalId: l.profissionalId,
+      profissional: l.profissional.nome,
+      operadora: l.operadora.nome,
+      status: l.status,
+      // Só a data do marco da situação atual — as outras datas não entram na frase do cliente.
+      desde: marcoDoAndamento(l),
+    }))
+    .sort((a, b) => a.profissional.localeCompare(b.profissional, "pt-BR") || a.operadora.localeCompare(b.operadora, "pt-BR"));
 }

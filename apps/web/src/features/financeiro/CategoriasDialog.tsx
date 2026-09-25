@@ -9,6 +9,7 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Select } from "../../components/ui/select";
 import { Badge } from "../../components/ui/badge";
+import { useConfirm } from "../../components/ui/confirm-dialog";
 
 const COR_PADRAO = "#30AD73";
 
@@ -22,6 +23,7 @@ type LocalCat = { id: string; nome: string; tipo: CategoriaTipo; cor: string; _n
  */
 export function CategoriasDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const utils = trpc.useUtils();
+  const confirm = useConfirm();
 
   const [escopo, setEscopo] = useState<Escopo>("EMPRESA");
   const categorias = trpc.financeiro.categorias.list.useQuery({ escopo }, { enabled: open });
@@ -72,8 +74,21 @@ export function CategoriasDialog({ open, onClose }: { open: boolean; onClose: ()
     limpar();
   };
 
-  const excluirLocal = (id: string) => {
+  const excluirLocal = async (id: string) => {
     const c = local.find((x) => x.id === id);
+    // ⚠️ Excluir a categoria deixa as contas dela SEM categoria (o banco solta o vínculo). Antes
+    // isto acontecia calado; agora a conta de quantas ficam órfãs aparece antes do clique.
+    const vinculadas = categorias.data?.find((o) => o.id === id)?.contasVinculadas ?? 0;
+    if (
+      vinculadas > 0 &&
+      !(await confirm({
+        title: "Excluir categoria",
+        description: `${vinculadas === 1 ? "1 conta ficará" : `${vinculadas} contas ficarão`} sem categoria ao salvar. Dá para achá-las depois pelo filtro "Sem categoria" da lista.`,
+        confirmText: "Excluir",
+        variant: "destructive",
+      }))
+    )
+      return;
     setLocal((l) => l.filter((x) => x.id !== id));
     if (c && !c._novo) setRemovidos((r) => [...r, id]);
     if (editId === id) limpar();
@@ -188,7 +203,7 @@ export function CategoriasDialog({ open, onClose }: { open: boolean; onClose: ()
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
                 <button
-                  onClick={() => excluirLocal(c.id)}
+                  onClick={() => void excluirLocal(c.id)}
                   className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                   title="Remover"
                 >

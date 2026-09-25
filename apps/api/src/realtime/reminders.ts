@@ -4,6 +4,7 @@ import { enviarEmailTemplate } from "../modules/emails/enviados.service.js";
 import { garantirProximasRecorrencias } from "../modules/financeiro/contas.service.js";
 import { hojeBRT } from "../lib/datas.js";
 import { honorariosALembrar } from "../modules/conciliacao/honorario.service.js";
+import { avisarPendenciasNovasAosClientes } from "../modules/portal/aviso-de-pendencias.js";
 
 const JANELA_MIN = 15;
 const SCAN_MIN = 10;
@@ -393,4 +394,9 @@ export async function scanProativo(): Promise<void> {
   } catch {
     /* isola a falha */
   }
+  // ── PENDÊNCIA NOVA DE DOCUMENTO, AVISADA AO CLIENTE (Onda 3B) ────────────────────────
+  //    Resumo diário por clínica, só quando surgiu algo novo desde o último aviso. A régua do
+  //    "no máximo um por dia" e da "primeira vez calada" mora em `aviso-de-pendencias.ts`; aqui
+  //    é só a batida do relógio.
+  await avisarPendenciasNovasAosClientes().catch(() => {});
 }

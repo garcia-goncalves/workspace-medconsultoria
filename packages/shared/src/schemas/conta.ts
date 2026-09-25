@@ -49,12 +49,62 @@ export type CreateContaInput = z.infer<typeof createContaSchema>;
 export const updateContaSchema = createContaSchema.partial().extend({ id: z.string().min(1) });
 export type UpdateContaInput = z.infer<typeof updateContaSchema>;
 
-export const listContasSchema = z.object({
+/**
+ * Valor especial do filtro de categoria: "sem categoria". Existe porque `categoriaId` nulo é
+ * justamente o que sobra quando alguém exclui uma categoria (`onDelete: SetNull`) — e achar
+ * essas contas para reclassificar é a primeira coisa que se quer fazer depois.
+ */
+export const SEM_CATEGORIA = "__sem__";
+
+/** Dia "AAAA-MM-DD" (o que o `<input type="date">` e a URL carregam). */
+const diaIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
+
+/**
+ * O RECORTE da lista de contas — o mesmo para a tela e para a exportação ao contador.
+ *
+ * ⚠️ Um schema só para os dois de propósito: se a exportação tivesse o próprio, bastaria um
+ * filtro novo entrar na tela e não na planilha para o contador receber MAIS contas do que a
+ * pessoa via — sem aviso nenhum, porque o botão diz "exportar o filtro".
+ */
+export const filtroContasSchema = z.object({
   carteira: carteiraEnum.default("EMPRESA"),
   tipo: contaTipoEnum.optional(),
   status: z.enum(["TODAS", "PENDENTES", "PAGAS"]).default("TODAS"),
+  clienteId: z.string().min(1).max(64).optional(),
+  /** Id da categoria, ou `SEM_CATEGORIA`. */
+  categoriaId: z.string().min(1).max(64).optional(),
+  /** Vencimento a partir de (inclusive). */
+  vencimentoDe: diaIso.optional(),
+  /** Vencimento até (inclusive). */
+  vencimentoAte: diaIso.optional(),
+  /** Busca na descrição. Mesmo teto de 120 das outras buscas da casa. */
+  busca: z.string().trim().max(120).optional(),
+});
+export type FiltroContasInput = z.infer<typeof filtroContasSchema>;
+
+/**
+ * Lista paginada NO SERVIDOR: a recorrência faz a tabela crescer sozinha, mês a mês, e mandar
+ * tudo ao navegador a cada abertura da página só piora com o tempo.
+ */
+export const listContasSchema = filtroContasSchema.extend({
+  pagina: z.number().int().min(1).max(10_000).default(1),
+  porPagina: z.number().int().min(1).max(200).default(50),
 });
 export type ListContasInput = z.infer<typeof listContasSchema>;
+
+/** Relatório mês a mês (regime de caixa) — quantos meses para trás, contando o corrente. */
+export const relatorioMensalSchema = z.object({
+  carteira: carteiraEnum.default("EMPRESA"),
+  meses: z.number().int().min(1).max(24).default(12),
+});
+export type RelatorioMensalInput = z.infer<typeof relatorioMensalSchema>;
+
+/** Projeção de caixa — quantos meses à frente, contando o corrente. */
+export const projecaoCaixaSchema = z.object({
+  carteira: carteiraEnum.default("EMPRESA"),
+  meses: z.number().int().min(1).max(12).default(3),
+});
+export type ProjecaoCaixaInput = z.infer<typeof projecaoCaixaSchema>;
 
 export const marcarPagaSchema = z.object({ id: z.string().min(1), pago: z.boolean() });
 
