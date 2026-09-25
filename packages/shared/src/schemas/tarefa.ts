@@ -60,3 +60,16 @@ export const listTarefasSchema = z.object({
   filtro: z.enum(["ABERTAS", "CONCLUIDAS", "TODAS"]).default("ABERTAS"),
 });
 export type ListTarefasInput = z.infer<typeof listTarefasSchema>;
+
+/**
+ * Relatório de entregas da equipe (ADMIN+): período em dias de Brasília, `de` e `ate` inclusivos
+ * ("AAAA-MM-DD"). Teto de ~1 ano para a consulta não virar varredura da base inteira.
+ */
+export const relatorioEntregasSchema = z
+  .object({ de: z.coerce.date(), ate: z.coerce.date() })
+  .refine((v) => v.de <= v.ate, { message: "A data inicial precisa vir antes da final.", path: ["ate"] })
+  .refine((v) => v.ate.getTime() - v.de.getTime() <= 366 * 24 * 60 * 60 * 1000, {
+    message: "Escolha um período de até um ano.",
+    path: ["ate"],
+  });
+export type RelatorioEntregasInput = z.infer<typeof relatorioEntregasSchema>;

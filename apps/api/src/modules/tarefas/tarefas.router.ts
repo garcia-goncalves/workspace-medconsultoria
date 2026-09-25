@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { createTarefaSchema, updateTarefaSchema, listTarefasSchema, setTarefaStatusSchema } from "@app/shared";
-import { router, funcionarioProcedure } from "../../trpc/trpc.js";
+import { createTarefaSchema, updateTarefaSchema, listTarefasSchema, setTarefaStatusSchema, relatorioEntregasSchema } from "@app/shared";
+import { router, funcionarioProcedure, adminProcedure } from "../../trpc/trpc.js";
 import * as tarefas from "./tarefas.service.js";
+import { relatorioEntregas } from "./relatorio-entregas.service.js";
 
 // Delegação entre a equipe interna → funcionarioProcedure (exclui o Portal/CLIENTE).
 const ctxDe = (ctx: { user: { id: string; role: string } }): tarefas.Ctx => ({ userId: ctx.user.id, role: ctx.user.role });
@@ -12,5 +13,7 @@ export const tarefasRouter = router({
   create: funcionarioProcedure.input(createTarefaSchema).mutation(({ input, ctx }) => tarefas.createTarefa(input, ctxDe(ctx))),
   update: funcionarioProcedure.input(updateTarefaSchema).mutation(({ input, ctx }) => tarefas.updateTarefa(input, ctxDe(ctx))),
   setStatus: funcionarioProcedure.input(setTarefaStatusSchema).mutation(({ input, ctx }) => tarefas.setStatus(input.id, input.status, ctxDe(ctx))),
+  // Entregas por pessoa e período — visão de gestão, mesma régua da aba "Da equipe" (ADMIN+).
+  relatorioEntregas: adminProcedure.input(relatorioEntregasSchema).query(({ input }) => relatorioEntregas(input)),
   remove: funcionarioProcedure.input(z.object({ id: z.string() })).mutation(({ input, ctx }) => tarefas.removeTarefa(input.id, ctxDe(ctx))),
 });
