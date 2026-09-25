@@ -2,7 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
 import { hashPassword } from "../lib/password.js";
-import { credenciamentoDoCliente, NOME_SERVICO_CREDENCIAMENTO } from "../modules/servicos/credenciamento.service.js";
+import {
+  credenciamentoDoCliente,
+  NOME_SERVICO_CREDENCIAMENTO,
+  sincronizarRequisitosCredenciamento,
+} from "../modules/servicos/credenciamento.service.js";
 
 /**
  * M13 — DESATIVAR UM MÉDICO ESCONDIA A PAPELADA DELE E INFLAVA O PROGRESSO.
@@ -21,6 +25,8 @@ const PFX = `desat-${randomBytes(4).toString("hex")}`;
 let ator: { id: string };
 let clienteId: string;
 let servicoCredId: string;
+let marcaAntes = false;
+let outrosMarcados: string[] = [];
 
 beforeAll(async () => {
   expect(process.env.DATABASE_URL).toContain("_test");
@@ -30,15 +36,31 @@ beforeAll(async () => {
   ator = { id: u.id };
   clienteId = (await prisma.cliente.create({ data: { nome: `${PFX}-clinica` } })).id;
 
-  const existente = await prisma.servico.findFirst({ where: { nome: NOME_SERVICO_CREDENCIAMENTO }, select: { id: true } });
-  servicoCredId = existente
-    ? existente.id
-    : (
-        await prisma.servico.create({
-          data: { nome: NOME_SERVICO_CREDENCIAMENTO, valor: 2000, valorRecorrencia: "AVULSO", ehCredenciamento: true },
-          select: { id: true },
-        })
-      ).id;
+  // ⚠️ A marca `ehCredenciamento` é ÚNICA no sistema e outros arquivos da suíte a ligam/desligam
+  // como fixture: reaproveitar o serviço canônico sem conferir a marca fazia este teste passar ou
+  // reprovar conforme a ordem do Vitest (sem marca, a papelada some e o progresso dá 0 vagas).
+  // Garante a marca, sincroniza as exigências e devolve o estado no afterAll.
+  const existente = await prisma.servico.findFirst({
+    where: { nome: NOME_SERVICO_CREDENCIAMENTO },
+    select: { id: true, ehCredenciamento: true },
+  });
+  marcaAntes = existente?.ehCredenciamento ?? false;
+  if (existente) {
+    servicoCredId = existente.id;
+    outrosMarcados = (
+      await prisma.servico.findMany({ where: { ehCredenciamento: true, id: { not: existente.id } }, select: { id: true } })
+    ).map((x) => x.id);
+    if (outrosMarcados.length) await prisma.servico.updateMany({ where: { id: { in: outrosMarcados } }, data: { ehCredenciamento: false } });
+    if (!existente.ehCredenciamento) await prisma.servico.update({ where: { id: existente.id }, data: { ehCredenciamento: true } });
+  } else {
+    servicoCredId = (
+      await prisma.servico.create({
+        data: { nome: NOME_SERVICO_CREDENCIAMENTO, valor: 2000, valorRecorrencia: "AVULSO", ehCredenciamento: true },
+        select: { id: true },
+      })
+    ).id;
+  }
+  await sincronizarRequisitosCredenciamento(true);
   await prisma.clienteServico.upsert({
     where: { clienteId_servicoId: { clienteId, servicoId: servicoCredId } },
     update: { status: "ATIVO" },
@@ -53,6 +75,8 @@ afterAll(async () => {
   await prisma.cliente.deleteMany({ where: { id: clienteId } });
   await prisma.user.deleteMany({ where: { email: { startsWith: PFX } } });
   void ator;
+  if (servicoCredId) await prisma.servico.update({ where: { id: servicoCredId }, data: { ehCredenciamento: marcaAntes } });
+  if (outrosMarcados.length) await prisma.servico.updateMany({ where: { id: { in: outrosMarcados } }, data: { ehCredenciamento: true } });
   await prisma.$disconnect();
 });
 
