@@ -50,7 +50,7 @@ export const clientesRouter = router({
         })
         .optional(),
     )
-    .mutation(({ input }) => service.exportarClientes(input ?? {})),
+    .mutation(({ input, ctx }) => service.exportarClientes(input ?? {}, ctx.user.id)),
 
   // KPIs da base (topo da lista de clientes).
   resumo: funcionarioProcedure.query(() => service.resumoClientes()),

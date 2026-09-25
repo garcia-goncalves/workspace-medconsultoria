@@ -255,18 +255,28 @@ describe("duplicar proposta", () => {
 describe("exportar a lista de clientes", () => {
   it("respeita busca e situação, lista os serviços ativos e neutraliza fórmula", async () => {
     await prisma.cliente.update({ where: { id: outroClienteId }, data: { nome: `=HYPERLINK("x") ${PFX}-outra` } });
-    const todos = await exportarClientes({ search: PFX });
+    const todos = await exportarClientes({ search: PFX }, atorId);
     expect(todos.linhas).toBe(2);
     expect(todos.csv.startsWith("\uFEFF")).toBe(true);
     expect(todos.csv).toContain(`"'=HYPERLINK(""x"") ${PFX}-outra"`);
     expect(todos.csv).toContain(`${PFX}-fat`); // serviço ativo do cliente (veio do aceite)
 
-    const ativos = await exportarClientes({ search: PFX, situacao: "ATIVO" });
+    const ativos = await exportarClientes({ search: PFX, situacao: "ATIVO" }, atorId);
     expect(ativos.linhas).toBe(1);
     expect(ativos.csv).toContain(`${PFX}-clinica`);
     expect(ativos.csv).not.toContain(`${PFX}-outra`);
 
-    const doResponsavel = await exportarClientes({ search: PFX, responsavelId: atorId });
+    const doResponsavel = await exportarClientes({ search: PFX, responsavelId: atorId }, atorId);
     expect(doResponsavel.linhas).toBe(1);
+  });
+
+  it("deixa rastro de QUEM exportou, com o filtro e a contagem — e sem os dados (B4)", async () => {
+    await prisma.activityLog.deleteMany({ where: { userId: atorId, acao: "clientes.exportados" } });
+    await exportarClientes({ search: PFX, situacao: "ATIVO" }, atorId);
+    const rastro = await prisma.activityLog.findMany({ where: { userId: atorId, acao: "clientes.exportados" } });
+    expect(rastro).toHaveLength(1);
+    expect(rastro[0]!.dados).toEqual({ filtro: { search: PFX, situacao: "ATIVO" }, linhas: 1 });
+    // Nada da planilha no rastro: nem nome, nem e-mail da clínica.
+    expect(JSON.stringify(rastro)).not.toContain(`${PFX}-c@teste.local`);
   });
 });

@@ -476,11 +476,14 @@ export function arquivarNota(notaId: string, userId: string, arquivar: boolean) 
  * do cliente pode ter nascido no formulário público `/comecar`, que qualquer anônimo preenche, e
  * uma célula começando com `=` o Excel executaria no computador de quem abre.
  */
-export async function exportarClientes(filtro: {
-  search?: string;
-  situacao?: (typeof SITUACOES_CLIENTE)[number];
-  responsavelId?: string;
-}) {
+export async function exportarClientes(
+  filtro: {
+    search?: string;
+    situacao?: (typeof SITUACOES_CLIENTE)[number];
+    responsavelId?: string;
+  },
+  userId: string,
+) {
   const s = filtro.search?.trim();
   const clientes = await prisma.cliente.findMany({
     where: {
@@ -516,5 +519,18 @@ export async function exportarClientes(filtro: {
       ].map(celulaTexto),
     ),
   ];
+  // ⚠️ RASTRO DE QUEM LEVOU A BASE PARA FORA (achado B4 da revisão da onda 4). A planilha tem nome,
+  // CNPJ, e-mail e telefone de toda clínica do filtro — dado pessoal saindo do sistema, igual ao
+  // download de arquivo (`arquivo.baixado`). Grava o FILTRO e a CONTAGEM, nunca o conteúdo: o
+  // rastro responde "quem exportou o quê e quando" sem virar uma segunda cópia da planilha.
+  // A ação está entre as que o expurgo de retenção preserva.
+  const filtroGravado = Object.fromEntries(
+    Object.entries({ search: s || undefined, situacao: filtro.situacao, responsavelId: filtro.responsavelId }).filter(
+      ([, v]) => v !== undefined,
+    ),
+  );
+  await prisma.activityLog.create({
+    data: { userId, acao: "clientes.exportados", dados: { filtro: filtroGravado, linhas: clientes.length } },
+  });
   return { csv: montarCsv(linhas), linhas: clientes.length };
 }
