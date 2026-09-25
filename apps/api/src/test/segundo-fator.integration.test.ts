@@ -119,6 +119,28 @@ describe("2FA — ativação", () => {
     expect(restantes.map((x) => x.id)).toEqual([atual.id]);
   });
 
+  it("ativar revoga as delegações da API do agente (B2) — a terceira porta, como na troca de senha", async () => {
+    const { u, sessao } = await criarUsuario("delega");
+    const cliente = await prisma.agentClient.create({
+      data: { nome: `${PFX}-agente`, segredoHash: randomBytes(32).toString("hex") },
+    });
+    const viva = await prisma.agentDelegation.create({
+      data: {
+        clientId: cliente.id,
+        userId: u.id,
+        tokenHash: randomBytes(32).toString("hex"),
+        escopos: "tasks:read",
+        expiraEm: new Date(Date.now() + 3_600_000),
+      },
+    });
+    try {
+      await ativar(sessao);
+      expect((await prisma.agentDelegation.findUniqueOrThrow({ where: { id: viva.id } })).revogadaEm).not.toBeNull();
+    } finally {
+      await prisma.agentClient.delete({ where: { id: cliente.id } }); // cascata leva a delegação
+    }
+  });
+
   it("guarda o segredo CIFRADO e os códigos só como HASH", async () => {
     const { u, sessao } = await criarUsuario("guarda");
     const { chave, codigosRecuperacao } = await ativar(sessao);

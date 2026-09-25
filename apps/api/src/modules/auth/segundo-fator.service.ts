@@ -5,6 +5,7 @@ import { segundoFatorRecomendadoPara, type SessionUser } from "@app/shared";
 import { config, isSegundoFatorEnabled } from "../../config.js";
 import { cifrarCom, decifrarCom, lerChave, subchave } from "../../lib/cripto.js";
 import { verifyPassword } from "../../lib/password.js";
+import { revogarDelegacoesDoUsuario } from "../agente/agente.service.js";
 import { base32Codificar, conferirCodigoTotp, gerarSegredoTotp, uriOtpauth } from "../../lib/totp.js";
 
 /**
@@ -499,6 +500,11 @@ export async function confirmarAtivacao(
   await prisma.session.deleteMany({
     where: { userId: user.id, ...(sidAtual ? { NOT: { id: sidAtual } } : {}) },
   });
+  // ⚠️ A TERCEIRA PORTA (ADR-149, achado B2 da revisão da onda 4). Derrubar as sessões não basta:
+  // a delegação da API do agente é credencial que vive fora delas. Ativar o 2FA é, como trocar a
+  // senha, o gesto de "quero fechar a conta" — sem isto, um token de agente emitido antes seguia
+  // lendo as tarefas da pessoa por uma via que nenhuma tela mostra.
+  await revogarDelegacoesDoUsuario(user.id);
   await prisma.activityLog.create({ data: { userId: user.id, acao: "seguranca.2fa_ativado" } });
   return { codigosRecuperacao: codigos };
 }
