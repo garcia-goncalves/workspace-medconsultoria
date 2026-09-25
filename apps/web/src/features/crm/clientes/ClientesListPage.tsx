@@ -21,6 +21,7 @@ import {
   Package,
   AlertTriangle,
   X,
+  FileDown,
 } from "lucide-react";
 import { cn } from "@app/ui";
 import { trpc, type RouterOutputs } from "../../../lib/trpc";
@@ -39,6 +40,8 @@ import { useConfirm } from "../../../components/ui/confirm-dialog";
 import { SITUACAO_COMERCIAL_LABEL, formatarCNPJ, type SituacaoComercial } from "@app/shared";
 import { ClienteFormDialog } from "./ClienteFormDialog";
 import { ConviteLinkDialog } from "../../configuracoes/ConviteLinkDialog";
+import { baixarTexto } from "../../conciliacao/partes";
+import { toast } from "../../../components/ui/toast";
 import type { ConviteResultado } from "../../configuracoes/UsuarioFormDialog";
 
 export const situacaoVar: Record<SituacaoComercial, BadgeProps["variant"]> = {
@@ -242,6 +245,17 @@ export function ClientesListPage() {
       convidarPortal.mutate({ id: c.id });
   };
 
+  // PLANILHA DA LISTA (Onda 4A): o servidor reaplica o MESMO filtro da tela (busca, situação,
+  // responsável) — a planilha tem de ser o que a pessoa está vendo, não a base inteira.
+  const exportar = trpc.clientes.exportar.useMutation({
+    onSuccess: (r) => {
+      const hoje = new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+      baixarTexto(r.csv, `clientes_${hoje}.csv`);
+      toast(`${r.linhas} cliente(s) exportado(s).`, "success");
+    },
+    onError: (e) => toast(e.message),
+  });
+
   const abrir = (id: string) => navigate({ to: "/clientes/$clienteId", params: { clienteId: id } });
 
   // Busca instantânea (client-side) + filtros. A busca alimenta as contagens dos chips.
@@ -387,6 +401,20 @@ export function ClientesListPage() {
         title="Clientes"
         subtitle="Seus clientes ativos e inativos. (Leads e prospects em negociação ficam no Funil de vendas.) Abra uma ficha para ver tudo do cliente."
       >
+        <Button
+          variant="outline"
+          disabled={exportar.isPending || !filtrados.length}
+          onClick={() =>
+            exportar.mutate({
+              search: search.trim() || undefined,
+              situacao: situacao === "ATIVO" || situacao === "INATIVO" ? situacao : undefined,
+              responsavelId: responsavelId || undefined,
+            })
+          }
+        >
+          <FileDown className="h-4 w-4" />
+          Exportar planilha
+        </Button>
         <Button onClick={() => setNovo(true)}>
           <Plus className="h-4 w-4" />
           Novo cliente
