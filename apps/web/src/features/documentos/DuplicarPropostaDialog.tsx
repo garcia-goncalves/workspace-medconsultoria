@@ -18,11 +18,14 @@ export function DuplicarPropostaDialog({
   onClose,
   documentoId,
   clienteNome,
+  aguardandoAceite,
 }: {
   open: boolean;
   onClose: () => void;
   documentoId: string;
   clienteNome: string | null;
+  /** A original está com o link de aceite no ar (M3): duplicar para o mesmo cliente o desliga. */
+  aguardandoAceite: boolean;
 }) {
   const navigate = useNavigate();
   const utils = trpc.useUtils();
@@ -86,10 +89,17 @@ export function DuplicarPropostaDialog({
             emptyText={destinatarios.isError ? "Não foi possível carregar a lista." : "Nada encontrado."}
           />
         </div>
+        {!destino && aguardandoAceite && (
+          <p role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            Esta proposta está aguardando o aceite do cliente. Ao duplicar, o link dela deixa de valer e ela fica marcada
+            como substituída pela cópia — o cliente só poderá aceitar a nova, depois que você a enviar.
+          </p>
+        )}
         {destino && (
           <p role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-            O nome da clínica é trocado no texto automaticamente. Confira a cópia antes de enviar — dados específicos do
-            cliente original podem continuar no texto.
+            Só o nome da clínica é trocado no texto. Antes de enviar, confira e apague do texto o que é da clínica
+            original: <strong>CNPJ, nomes de médicos, endereço e observações</strong> — mandar dado de um cliente para
+            outro expõe informação pessoal (LGPD).
           </p>
         )}
         {duplicar.error && <p className="text-sm text-destructive">{duplicar.error.message}</p>}

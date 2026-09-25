@@ -3,7 +3,9 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
 import { listModelos } from "../modules/documentos/modelos.service.js";
 import { criarPropostaPersonalizada } from "../modules/documentos/proposta-personalizada.service.js";
-import { habilitarAceite, responder } from "../modules/propostas/propostas.service.js";
+import { getPorToken, habilitarAceite, responder, statusDoDocumento } from "../modules/propostas/propostas.service.js";
+import { duplicarProposta } from "../modules/documentos/documentos.service.js";
+import { PROPOSTA_SUBSTITUIDA } from "@app/shared";
 
 /**
  * RESPOSTAS SIMULTÂNEAS À PROPOSTA (achado M2 da revisão da onda 4), contra o MySQL de verdade.
@@ -98,5 +100,41 @@ describe("respostas simultâneas à mesma proposta", () => {
     await new Promise((res) => setTimeout(res, 1500));
     expect(await contratos(clienteId)).toBe(1);
     expect(await prisma.conta.count({ where: { origemDocumentoId: documentoId } })).toBe(1);
+  });
+});
+
+/**
+ * DUPLICAR DEIXAVA A ORIGINAL VIVA (achado M3). Duplicar para o mesmo cliente é "mudar o preço";
+ * a original seguia PENDENTE com o link valendo, e aceitar as duas cobrava a mesma linha avulsa
+ * duas vezes (a chave da conta inclui o id do documento).
+ */
+describe("duplicar proposta que aguarda aceite", () => {
+  it("para o MESMO cliente: a original vira substituída e o link dela não aceita mais", async () => {
+    const { clienteId, documentoId, token } = await propostaPendente("dup");
+    const copia = await duplicarProposta(documentoId, {}, atorId);
+
+    const orig = await prisma.documento.findUniqueOrThrow({ where: { id: documentoId } });
+    expect(orig.propostaStatus).toBe(PROPOSTA_SUBSTITUIDA);
+    await expect(responder({ token, decisao: "ACEITA" }, "127.0.0.1", null)).rejects.toThrow(/substituída/);
+    await expect(getPorToken(token)).rejects.toThrow(/substituída/);
+    // Reenviar a original a faria aceitável de novo ao lado da cópia.
+    await expect(habilitarAceite(documentoId, { id: atorId, nome: "ator" }, false)).rejects.toThrow(/substituída/);
+    expect((await statusDoDocumento(documentoId))?.substituidaPor).toEqual({ id: copia.id, numero: copia.numero });
+    await new Promise((res) => setTimeout(res, 500));
+    expect(await prisma.conta.count({ where: { clienteId } })).toBe(0);
+
+    // A cópia segue o caminho normal: habilitada, ela aceita.
+    await habilitarAceite(copia.id, { id: atorId, nome: "ator" }, false);
+    const t2 = (await prisma.documento.findUniqueOrThrow({ where: { id: copia.id } })).propostaToken!;
+    expect((await responder({ token: t2, decisao: "ACEITA" }, "127.0.0.1", null)).decisao).toBe("ACEITA");
+  });
+
+  it("para OUTRO cliente: a original continua aceitável", async () => {
+    const { documentoId, token } = await propostaPendente("dup-outro");
+    const outroId = (await prisma.cliente.create({ data: { nome: `${PFX}-destino`, situacaoComercial: "ATIVO" } })).id;
+    clientes.push(outroId);
+    await duplicarProposta(documentoId, { clienteId: outroId }, atorId);
+    expect((await prisma.documento.findUniqueOrThrow({ where: { id: documentoId } })).propostaStatus).toBe("PENDENTE");
+    expect((await responder({ token, decisao: "RECUSADA", motivo: "x" }, "127.0.0.1", null)).decisao).toBe("RECUSADA");
   });
 });

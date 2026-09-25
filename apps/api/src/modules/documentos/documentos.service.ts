@@ -25,6 +25,7 @@ import {
   UMA_OPERADORA_POR_PROPOSTA,
   SITUACOES_CLIENTE,
   MODELO_ACEITA_LEAD,
+  PROPOSTA_SUBSTITUIDA,
   TIPO_MODELO_LABEL,
   documentoServicoItemSchema,
   valoresDeItensAusentesNoTexto,
@@ -1386,24 +1387,51 @@ export async function duplicarProposta(
   for (let tentativa = 0; tentativa < 3; tentativa++) {
     const { conteudo, titulo } = montar(numero);
     try {
-      const doc = await prisma.documento.create({
-        data: {
-          modeloId: orig.modeloId,
-          clienteId,
-          // Projeto é do cliente: só acompanha a cópia quando o destino é o mesmo.
-          projetoId: outroDestino ? null : orig.projetoId,
-          titulo,
-          conteudo,
-          numero,
-          status: "RASCUNHO",
-          criadoPorId: userId,
-          itens: orig.itens ?? undefined,
-          linhasAvulsas: orig.linhasAvulsas ?? undefined,
-          versoes: { create: { conteudo, autorId: userId, origem: "MANUAL" } },
-        },
-      });
-      await prisma.activityLog.create({
-        data: { userId, acao: "documento.duplicado", entidadeTipo: "documento", entidadeId: doc.id, dados: { origemId: orig.id } },
+      const doc = await prisma.$transaction(async (tx) => {
+        const criado = await tx.documento.create({
+          data: {
+            modeloId: orig.modeloId,
+            clienteId,
+            // Projeto é do cliente: só acompanha a cópia quando o destino é o mesmo.
+            projetoId: outroDestino ? null : orig.projetoId,
+            titulo,
+            conteudo,
+            numero,
+            status: "RASCUNHO",
+            criadoPorId: userId,
+            itens: orig.itens ?? undefined,
+            linhasAvulsas: orig.linhasAvulsas ?? undefined,
+            versoes: { create: { conteudo, autorId: userId, origem: "MANUAL" } },
+          },
+        });
+        await tx.activityLog.create({
+          data: { userId, acao: "documento.duplicado", entidadeTipo: "documento", entidadeId: criado.id, dados: { origemId: orig.id } },
+        });
+        // ⚠️ A ORIGINAL DEIXA DE ACEITAR (achado M3 da revisão da onda 4). Duplicar para o MESMO
+        // cliente é o caminho para "mudar o preço" — e a original seguia PENDENTE, com o link
+        // valendo. Aceitar as duas cobrava a mesma linha avulsa duas vezes (a chave da conta
+        // inclui o id do documento, então o índice único não segura). Na MESMA transação da
+        // cópia: cópia sem substituição (ou o contrário) seria exatamente o estado a evitar.
+        // Condicional: se o cliente aceitou a original no meio do caminho, a resposta dele fica.
+        // Para OUTRO cliente a original continua viva — é negócio de outra clínica.
+        if (!outroDestino) {
+          const r = await tx.documento.updateMany({
+            where: { id: orig.id, propostaStatus: "PENDENTE" },
+            data: { propostaStatus: PROPOSTA_SUBSTITUIDA },
+          });
+          if (r.count === 1) {
+            await tx.activityLog.create({
+              data: {
+                userId,
+                acao: "proposta.substituida",
+                entidadeTipo: "documento",
+                entidadeId: orig.id,
+                dados: { porDocumentoId: criado.id, porNumero: numero },
+              },
+            });
+          }
+        }
+        return criado;
       });
       return doc;
     } catch (e) {

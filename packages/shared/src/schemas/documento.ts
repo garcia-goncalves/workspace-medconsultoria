@@ -122,6 +122,15 @@ export const STATUS_DOCUMENTO_LABEL: Record<StatusDocumento, string> = {
   ENVIADO: "Enviado",
 };
 
+/**
+ * `propostaStatus` de uma proposta que foi DUPLICADA para o mesmo cliente enquanto aguardava o
+ * aceite (achado M3 da revisão da onda 4). Duplicar é o caminho para "mudar o preço"; se a
+ * original seguisse PENDENTE, o cliente poderia aceitar as duas e a mesma linha avulsa seria
+ * cobrada duas vezes. A coluna é `String` (PENDENTE | ACEITA | RECUSADA), então o valor novo não
+ * pede migração. Estado final: não aceita resposta nem pode ser reenviada.
+ */
+export const PROPOSTA_SUBSTITUIDA = "SUBSTITUIDA";
+
 // ── Situação COERENTE do documento (une o fluxo interno + aceite da proposta + assinatura) ──
 // É a fonte única de "em que pé está o documento", usada em TODA a app (arquivo, ficha,
 // Portal, funil). O desfecho com o cliente (aceito/recusado/assinado) prevalece sobre o fluxo.
@@ -133,6 +142,7 @@ export type SituacaoDocKey =
   | "AGUARDANDO_ACEITE"
   | "ACEITA"
   | "RECUSADA"
+  | "SUBSTITUIDA"
   | "AGUARDANDO_ASSINATURA"
   | "ASSINADO";
 
@@ -154,6 +164,7 @@ export const SITUACAO_DOC_LABEL: Record<SituacaoDocKey, string> = {
   AGUARDANDO_ACEITE: "Aguardando aceite",
   ACEITA: "Aceita",
   RECUSADA: "Recusada",
+  SUBSTITUIDA: "Substituída",
   AGUARDANDO_ASSINATURA: "Aguardando assinatura",
   ASSINADO: "Assinado",
 };
@@ -170,6 +181,7 @@ export function situacaoDocumento(d: SituacaoDocInput): SituacaoDoc {
   if (d.assinadoEm) return { key: "ASSINADO", label: "Assinado", variant: "success" };
   if (d.propostaStatus === "ACEITA") return { key: "ACEITA", label: "Aceita", variant: "success" };
   if (d.propostaStatus === "RECUSADA") return { key: "RECUSADA", label: "Recusada", variant: "danger" };
+  if (d.propostaStatus === PROPOSTA_SUBSTITUIDA) return { key: "SUBSTITUIDA", label: "Substituída", variant: "default" };
   // 2) Aguardando o cliente responder/assinar.
   if (d.propostaStatus === "PENDENTE")
     return { key: "AGUARDANDO_ACEITE", label: "Aguardando aceite", variant: "warning", atencao: "AGUARDANDO_CLIENTE" };

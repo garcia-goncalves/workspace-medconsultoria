@@ -22,7 +22,7 @@ import {
   Clock,
   AlertTriangle,
 } from "lucide-react";
-import { TIPO_MODELO_LABEL, DOC_INTERACAO, situacaoDocumento, valoresDeItensAusentesNoTexto, type ValorDeItem } from "@app/shared";
+import { TIPO_MODELO_LABEL, DOC_INTERACAO, formatarNumeroProposta, situacaoDocumento, valoresDeItensAusentesNoTexto, type ValorDeItem } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { BotaoIA } from "../../components/ia/BotaoIA";
 import { Button } from "../../components/ui/button";
@@ -206,6 +206,9 @@ function PropostaAceiteCard({ documentoId, temCliente }: { documentoId: string; 
 
   const aceita = p?.status === "ACEITA";
   const recusada = p?.status === "RECUSADA";
+  // Duplicada para o mesmo cliente enquanto aguardava o aceite (M3): o link não vale mais, e
+  // reenviar a faria aceitável de novo ao lado da cópia — por isso o botão some.
+  const substituida = !!p?.substituidaPor;
 
   return (
     <div className="rounded-xl border bg-card shadow-sm">
@@ -216,8 +219,9 @@ function PropostaAceiteCard({ documentoId, temCliente }: { documentoId: string; 
           {aceita && <Badge variant="success">Aceita</Badge>}
           {recusada && <Badge variant="danger">Recusada</Badge>}
           {p?.status === "PENDENTE" && <Badge variant="warning">Aguardando</Badge>}
+          {substituida && <Badge>Substituída</Badge>}
         </span>
-        {temCliente && !aceita && (
+        {temCliente && !aceita && !substituida && (
           <Button size="sm" variant={p ? "outline" : "default"} disabled={habilitar.isPending} onClick={habilitarAceite}>
             <Send className="h-4 w-4" />
             {p ? "Reenviar para aceite" : "Habilitar aceite online"}
@@ -274,6 +278,23 @@ function PropostaAceiteCard({ documentoId, temCliente }: { documentoId: string; 
               <p className="flex items-center gap-2 text-sm text-success">
                 <CheckCircle2 className="h-4 w-4" />
                 Cliente aceitou{p.respondidaEm ? ` em ${dataHora(p.respondidaEm)}` : ""}. Que tal gerar o contrato?
+              </p>
+            )}
+            {p.substituidaPor && (
+              <p className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
+                <XCircle className="h-4 w-4" />
+                Substituída
+                {p.substituidaPor.numero != null ? ` pela proposta nº ${formatarNumeroProposta(p.substituidaPor.numero)}` : " por uma cópia"}
+                . O link desta não aceita mais resposta.
+                {p.substituidaPor.id && (
+                  <Link
+                    to="/documentos/$documentoId"
+                    params={{ documentoId: p.substituidaPor.id }}
+                    className="font-medium text-primary underline-offset-2 hover:underline"
+                  >
+                    Abrir a nova
+                  </Link>
+                )}
               </p>
             )}
             {recusada && (
@@ -601,6 +622,7 @@ export function DocumentoDetailPage() {
           onClose={() => setDuplicando(false)}
           documentoId={d.id}
           clienteNome={d.cliente?.nome ?? null}
+          aguardandoAceite={d.propostaStatus === "PENDENTE"}
         />
       )}
     </div>
