@@ -47,6 +47,7 @@ import {
 import { trpc, type RouterOutputs } from "../../lib/trpc";
 import { useAuth } from "../../lib/auth-context";
 import { TarefaFormDialog } from "../tarefas/TarefaFormDialog";
+import { AvisoSegundoFator } from "../configuracoes/AvisoSegundoFator";
 import { PageHeader } from "../../components/ui/page-header";
 import { Badge, type BadgeProps } from "../../components/ui/badge";
 import { Skeleton } from "../../components/ui/skeleton";
@@ -1008,6 +1009,8 @@ export function DashboardPage() {
       <PageHeader title={`${saudacao}, ${primeiroNome} 👋`} subtitle={resumoDia}>
         <PersonalizarMenu defs={defs} ocultos={prefs.ocultos} onToggle={prefs.ocultar} onRestaurar={prefs.restaurar} personalizado={prefs.personalizado} />
       </PageHeader>
+
+      <AvisoSegundoFator />
 
       {doDia.length > 0 && <div className="grid items-start gap-4 lg:grid-cols-2">{doDia.map(renderWidget)}</div>}
 
