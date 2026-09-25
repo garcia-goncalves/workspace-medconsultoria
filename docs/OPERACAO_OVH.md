@@ -4,7 +4,24 @@
 > ensaiado fora dela; nada foi aplicado em produção. O checklist da seção 2 é a ordem certa de
 > aplicar — cada passo tem o comando pronto e como conferir que deu certo.
 >
-> Contexto: `docs/MIGRACAO_OVH.md` (a migração, ADR-154), `docs/DEPLOY.md`, `.github/workflows/deploy-ovh.yml`.
+> Contexto: `docs/MIGRACAO_OVH.md` (a migração, ADR-154), `docs/DEPLOY.md`, `.github/workflows/deploy-ovh.yml` (removido em 25/09/2026 — ver seção 0).
+
+## 0. Publicar (desde 25/09/2026): pelo VS Code, não mais pelo GitHub
+
+O GitHub guarda o código mas **não publica mais nada**: os workflows `deploy-ovh.yml`,
+`diagnostico-servidor.yml` e `instalar-backup-ovh.yml` foram removidos (o runner e as chaves SSH de
+robô saíram do servidor em 24/09). Publicar agora é: **commit + push** → VS Code →
+*Terminal → Executar Tarefa → "Deploy para a VPS"*. O servidor faz backup do MySQL, monta a imagem
+com a versão antiga no ar, roda o serviço `migrate` (`npm run prisma:deploy`), sobe o app, testa
+`/health/pronto` e **volta sozinho** para a anterior se falhar. Padrão e configuração do computador:
+<https://github.com/garcia-goncalves/deploy-padrao>.
+
+- O compose de produção é o **`docker-compose.vps.yml`** da raiz, em `/srv/medconsultoria`, sempre
+  com o projeto `medconsultoria` (é o que liga aos volumes `medconsultoria_mysql_dados` e
+  `medconsultoria_uploads` que já existem).
+- O `.env` fica só no servidor e a publicação nunca o toca. ⚠️ Ele tem a `PACIENTE_CRYPTO_KEY`:
+  nunca regenerar.
+- O que está abaixo sobre workflows (2.1, 2.2, `VPS_KNOWN_HOSTS`, seção 5) é **histórico**.
 
 ---
 
@@ -387,7 +404,6 @@ isso nunca aconteça sem esses passos.
 | `infra/ovh/acoes/abrir-ssh-vps/action.yml` | SSH com chave do servidor conferida (`VPS_KNOWN_HOSTS`) |
 | `infra/ovh/docker-compose.yml` · `mysql.env.example` | compose endurecido (passo 2.5) |
 | `infra/ovh/nginx-producao.conf` | espelho do site de produção no nginx do host |
-| `.github/workflows/instalar-backup-ovh.yml` | instala o backup e prova (1 backup + 1 ensaio) |
-| `.github/workflows/deploy-ovh.yml` | publicar, com `/health/pronto` e volta automática |
-| `.github/workflows/diagnostico-servidor.yml` | retrato só-leitura da OVH (ou da TineHost) |
+| `docker-compose.vps.yml` | compose de produção usado pelo deploy pelo VS Code (seção 0) |
+| `.deploy-vps` · `.vscode/tasks.json` · `scripts/deploy-vps.*` | kit do deploy pelo VS Code |
 | `.github/workflows/emitir-credencial-agente.yml` | credencial da Cora, dentro do container da OVH |
