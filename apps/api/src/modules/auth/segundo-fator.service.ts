@@ -88,6 +88,13 @@ function gerarCodigoDeRecuperacao(): string {
  *  - por PESSOA: 5 erros em 15 min. É o que protege a conta — e não depende de quem ataca;
  *  - por IP: 30 em 15 min. É o que protege o servidor de quem varre várias contas.
  * Recusa ANTES de conferir, e o acerto zera o contador da pessoa.
+ *
+ * ⚠️ A TENTATIVA É COBRADA NA ENTRADA, não no erro — achado da revisão de segurança. Conferir só
+ * depois de duas idas ao banco deixava TODAS as chamadas simultâneas passarem pelo freio antes de
+ * a primeira registrar o erro; e o cliente fala por LOTE (dezenas de chamadas numa requisição),
+ * então uma rajada virava dezenas de milhares de palpites. `reservarTentativa` confere e soma no
+ * MESMO trecho síncrono (sem `await` no meio, o Node não intercala outra chamada), e o acerto
+ * devolve a tentativa. Assim o teto vale inclusive para quem manda tudo ao mesmo tempo.
  */
 const JANELA_MS = 15 * 60 * 1000;
 const MAX_POR_PESSOA = 5;
@@ -113,13 +120,20 @@ function contarErro(mapa: Map<string, { count: number; ate: number }>, chave: st
   else reg.count += 1;
 }
 
-function freioEstourado(userId: string, ip: string | undefined): boolean {
-  return estourou(errosPorPessoa, userId, MAX_POR_PESSOA) || (!!ip && estourou(errosPorIp, ip, MAX_POR_IP));
-}
-
-function registrarErro(userId: string, ip: string | undefined): void {
+/** Confere o freio e JÁ cobra a tentativa, sem `await` entre as duas coisas. */
+function reservarTentativa(userId: string, ip: string | undefined): void {
+  if (estourou(errosPorPessoa, userId, MAX_POR_PESSOA) || (!!ip && estourou(errosPorIp, ip, MAX_POR_IP))) {
+    throw MUITAS_TENTATIVAS();
+  }
   contarErro(errosPorPessoa, userId);
   if (ip) contarErro(errosPorIp, ip);
+}
+
+/** Acertou: a conta da pessoa zera e a tentativa cobrada do IP é devolvida. */
+function devolverTentativa(userId: string, ip: string | undefined): void {
+  errosPorPessoa.delete(userId);
+  const reg = ip ? errosPorIp.get(ip) : undefined;
+  if (reg && reg.count > 0) reg.count -= 1;
 }
 
 /** Só para teste: zera os freios entre casos. */
@@ -158,7 +172,7 @@ export async function conferirSegundoFator(
   codigo: string,
   ip: string | undefined,
 ): Promise<"totp" | "recuperacao"> {
-  if (freioEstourado(userId, ip)) throw MUITAS_TENTATIVAS();
+  reservarTentativa(userId, ip);
 
   const sf = await prisma.segundoFator.findUnique({ where: { userId } });
   if (!sf?.ativadoEm) throw CODIGO_INVALIDO();
@@ -192,11 +206,8 @@ export async function conferirSegundoFator(
     }
   }
 
-  if (!via) {
-    registrarErro(userId, ip);
-    throw CODIGO_INVALIDO();
-  }
-  errosPorPessoa.delete(userId);
+  if (!via) throw CODIGO_INVALIDO(); // a tentativa já foi cobrada na entrada
+  devolverTentativa(userId, ip);
   return via;
 }
 
@@ -337,16 +348,30 @@ export async function iniciarAtivacao(user: SessionUser): Promise<{ chave: strin
 }
 
 /**
- * Confirma a ativação com um código do aplicativo e devolve os 10 códigos de recuperação —
- * a ÚNICA vez que eles existem em claro. Guardamos só o hash.
+ * Confirma a ativação com a SENHA e um código do aplicativo, e devolve os 10 códigos de
+ * recuperação — a ÚNICA vez que eles existem em claro. Guardamos só o hash.
+ *
+ * ⚠️ EXIGE A SENHA (achado da revisão de segurança). Sem ela, quem roubasse só o COOKIE de uma
+ * sessão de ADMIN (aba esquecida) cadastraria o PRÓPRIO autenticador — e dali em diante o dono
+ * da conta digitaria a senha certa e receberia um desafio cujo código só o invasor tem. Nem
+ * redefinir a senha o salvaria, porque o reset (corretamente) não pula o 2FA.
+ *
+ * ⚠️ E DERRUBA AS OUTRAS SESSÕES, no molde da troca de senha: uma sessão roubada ANTES de ativar
+ * continuaria valendo 30 dias — exatamente o cenário que o 2FA veio fechar.
  */
 export async function confirmarAtivacao(
   user: SessionUser,
+  senha: string,
   codigo: string,
   ip: string | undefined,
+  sidAtual?: string,
 ): Promise<{ codigosRecuperacao: string[] }> {
   exigirQuePodeAtivar(user);
-  if (freioEstourado(user.id, ip)) throw MUITAS_TENTATIVAS();
+  reservarTentativa(user.id, ip);
+  const u = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { passwordHash: true } });
+  if (!u.passwordHash || !(await verifyPassword(u.passwordHash, senha))) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Senha ou código incorretos." });
+  }
   const sf = await prisma.segundoFator.findUnique({ where: { userId: user.id } });
   if (!sf || sf.ativadoEm) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Comece a ativação de novo." });
@@ -354,13 +379,12 @@ export async function confirmarAtivacao(
   const segredo = decifrarSegredo(sf.segredoCifrado);
   const passo = segredo ? conferirCodigoTotp(segredo, codigo, Date.now(), null) : null;
   if (passo === null) {
-    registrarErro(user.id, ip);
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "O código não confere. Confira se o relógio do celular está certo e digite o código atual.",
+      message: "Senha ou código incorretos. Confira também se o relógio do celular está certo.",
     });
   }
-  errosPorPessoa.delete(user.id);
+  devolverTentativa(user.id, ip);
 
   const codigos = Array.from({ length: QUANTOS_CODIGOS }, gerarCodigoDeRecuperacao);
   const ativou = await prisma.$transaction(async (tx) => {
@@ -377,6 +401,9 @@ export async function confirmarAtivacao(
     return true;
   });
   if (!ativou) throw new TRPCError({ code: "BAD_REQUEST", message: "A verificação em duas etapas já está ativa." });
+  await prisma.session.deleteMany({
+    where: { userId: user.id, ...(sidAtual ? { NOT: { id: sidAtual } } : {}) },
+  });
   await prisma.activityLog.create({ data: { userId: user.id, acao: "seguranca.2fa_ativado" } });
   return { codigosRecuperacao: codigos };
 }
@@ -392,13 +419,14 @@ export async function desativarSegundoFator(
   ip: string | undefined,
 ): Promise<{ ok: true }> {
   recusarSessaoDeSuporte(user);
-  if (freioEstourado(user.id, ip)) throw MUITAS_TENTATIVAS();
+  // A senha errada conta no mesmo freio: repetida aqui, também é força bruta.
+  reservarTentativa(user.id, ip);
   const u = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { passwordHash: true } });
   if (!u.passwordHash || !(await verifyPassword(u.passwordHash, senha))) {
-    // Conta no mesmo freio: senha errada repetida aqui também é força bruta.
-    registrarErro(user.id, ip);
     throw new TRPCError({ code: "BAD_REQUEST", message: "Senha ou código incorretos." });
   }
+  // Senha certa: devolve esta tentativa — o código cobra a dele dentro de `conferirSegundoFator`.
+  devolverTentativa(user.id, ip);
   try {
     await conferirSegundoFator(user.id, codigo, ip);
   } catch (e) {

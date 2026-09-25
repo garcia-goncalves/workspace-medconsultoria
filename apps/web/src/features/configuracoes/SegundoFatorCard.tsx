@@ -29,6 +29,8 @@ export function SegundoFatorCard() {
   const status = trpc.auth.segundoFator.status.useQuery();
   const [ativacao, setAtivacao] = useState<{ chave: string; uri: string } | null>(null);
   const [codigo, setCodigo] = useState("");
+  // A senha é pedida para ATIVAR também: quem só roubou a sessão não cadastra o próprio celular.
+  const [senhaAtivar, setSenhaAtivar] = useState("");
   const [codigosNovos, setCodigosNovos] = useState<string[] | null>(null);
   const [desativando, setDesativando] = useState(false);
   const [senha, setSenha] = useState("");
@@ -46,6 +48,7 @@ export function SegundoFatorCard() {
     onSuccess: (r) => {
       setAtivacao(null);
       setCodigo("");
+      setSenhaAtivar("");
       setCodigosNovos(r.codigosRecuperacao);
       void recarregar();
     },
@@ -96,8 +99,8 @@ export function SegundoFatorCard() {
           <div className="space-y-3">
             <p className="text-sm font-medium text-success">Ativada. Agora guarde os códigos de recuperação.</p>
             <p className="text-sm text-muted-foreground">
-              Se perder o celular, cada código abaixo entra <strong>uma vez</strong> no lugar do código do aplicativo.
-              Eles <strong>não serão mostrados de novo</strong> — guarde num lugar seguro, fora deste computador.
+              Se perder o celular, cada código abaixo entra <strong>uma vez</strong> no lugar do código do aplicativo. Eles{" "}
+              <strong>não serão mostrados de novo</strong> — guarde num lugar seguro, fora deste computador.
             </p>
             <ul className="grid grid-cols-1 gap-1.5 rounded-lg border bg-muted/40 p-3 font-mono text-sm sm:grid-cols-2">
               {codigosNovos.map((c) => (
@@ -123,8 +126,7 @@ export function SegundoFatorCard() {
         ) : s.ativo ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Ativa desde {s.ativadoEm ? formatarData(s.ativadoEm) : "—"}. Ao entrar, além da senha, o sistema pede o código do
-              aplicativo.
+              Ativa desde {s.ativadoEm ? formatarData(s.ativadoEm) : "—"}. Ao entrar, além da senha, o sistema pede o código do aplicativo.
             </p>
             <p className={s.codigosRestantes <= 3 ? "text-sm font-medium text-warning" : "text-sm text-muted-foreground"}>
               {s.codigosRestantes === 1 ? "Resta 1 código de recuperação." : `Restam ${s.codigosRestantes} códigos de recuperação.`}
@@ -166,11 +168,7 @@ export function SegundoFatorCard() {
                 </div>
                 {desativar.error && <p className="text-sm text-destructive">{desativar.error.message}</p>}
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="submit"
-                    variant="destructive"
-                    disabled={desativar.isPending || !senha || codigoDesativar.trim().length < 6}
-                  >
+                  <Button type="submit" variant="destructive" disabled={desativar.isPending || !senha || codigoDesativar.trim().length < 6}>
                     Desativar
                   </Button>
                   <Button type="button" variant="outline" onClick={() => setDesativando(false)}>
@@ -186,15 +184,15 @@ export function SegundoFatorCard() {
           </div>
         ) : !s.disponivel ? (
           <p className="text-sm text-muted-foreground">
-            A verificação em duas etapas ainda não foi configurada neste servidor. Peça a quem administra a hospedagem para
-            definir a chave <code className="rounded bg-muted px-1">TOTP_CRYPTO_KEY</code>.
+            A verificação em duas etapas ainda não foi configurada neste servidor. Peça a quem administra a hospedagem para definir a chave{" "}
+            <code className="rounded bg-muted px-1">TOTP_CRYPTO_KEY</code>.
           </p>
         ) : ativacao ? (
           <form
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              confirmar.mutate({ codigo: codigo.trim() });
+              confirmar.mutate({ senha: senhaAtivar, codigo: codigo.trim() });
             }}
             noValidate
           >
@@ -223,22 +221,37 @@ export function SegundoFatorCard() {
                 </a>
               </div>
             </div>
-            <div className="max-w-xs space-y-1.5">
-              <Label htmlFor="sf-codigo">Código do aplicativo</Label>
-              <Input
-                id="sf-codigo"
-                autoComplete="one-time-code"
-                inputMode="numeric"
-                maxLength={7}
-                placeholder="000000"
-                value={codigo}
-                onChange={(e) => setCodigo(e.target.value)}
-                className="font-mono tracking-[0.3em]"
-              />
+            <div className="grid max-w-md gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="sf-senha-ativar">Sua senha</Label>
+                <Input
+                  id="sf-senha-ativar"
+                  type="password"
+                  autoComplete="current-password"
+                  value={senhaAtivar}
+                  onChange={(e) => setSenhaAtivar(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sf-codigo">Código do aplicativo</Label>
+                <Input
+                  id="sf-codigo"
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  maxLength={7}
+                  placeholder="000000"
+                  value={codigo}
+                  onChange={(e) => setCodigo(e.target.value)}
+                  className="font-mono tracking-[0.3em]"
+                />
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Ao ativar, as suas outras sessões abertas (outros navegadores e computadores) são encerradas.
+            </p>
             {confirmar.error && <p className="text-sm text-destructive">{confirmar.error.message}</p>}
             <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={confirmar.isPending || codigo.trim().length < 6}>
+              <Button type="submit" disabled={confirmar.isPending || !senhaAtivar || codigo.trim().length < 6}>
                 {confirmar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                 Confirmar e ativar
               </Button>

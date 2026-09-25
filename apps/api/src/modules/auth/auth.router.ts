@@ -90,7 +90,13 @@ export const authRouter = router({
     iniciar: protectedProcedure.mutation(({ ctx }) => iniciarAtivacao(ctx.user)),
     confirmar: protectedProcedure
       .input(confirmarAtivacaoSegundoFatorSchema)
-      .mutation(({ ctx, input }) => confirmarAtivacao(ctx.user, input.codigo, ctx.req.ip)),
+      .mutation(({ ctx, input }) => {
+        // A sessão ATUAL sobrevive; as outras caem (ver `confirmarAtivacao`).
+        const raw = ctx.req.cookies[SESSION_COOKIE];
+        const unsigned = raw ? ctx.req.unsignCookie(raw) : null;
+        const sidAtual = unsigned?.valid ? unsigned.value ?? undefined : undefined;
+        return confirmarAtivacao(ctx.user, input.senha, input.codigo, ctx.req.ip, sidAtual);
+      }),
     desativar: protectedProcedure
       .input(desativarSegundoFatorSchema)
       .mutation(({ ctx, input }) => desativarSegundoFator(ctx.user, input.senha, input.codigo, ctx.req.ip)),

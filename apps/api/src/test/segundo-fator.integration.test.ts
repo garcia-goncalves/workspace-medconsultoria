@@ -54,7 +54,7 @@ async function ativar(sessao: SessionUser) {
   const { chave } = await iniciarAtivacao(sessao);
   const segredo = base32Decodificar(chave);
   const passo = passoDoInstante(Date.now());
-  const { codigosRecuperacao } = await confirmarAtivacao(sessao, codigoDoPasso(segredo, passo), ip());
+  const { codigosRecuperacao } = await confirmarAtivacao(sessao, SENHA, codigoDoPasso(segredo, passo), ip());
   return { segredo, passo, codigosRecuperacao, chave };
 }
 
@@ -85,15 +85,16 @@ describe("2FA — ativação", () => {
     const r0 = await login({ email: u.email, password: SENHA }, "ua", ip());
     expect(r0.sid).toBeTruthy();
 
-    await expect(confirmarAtivacao(sessao, "000000", ip())).rejects.toThrow(/não confere/);
+    await expect(confirmarAtivacao(sessao, SENHA, "000000", ip())).rejects.toThrow(/incorretos/);
     expect((await statusSegundoFator(sessao)).ativo).toBe(false);
 
     const segredo = base32Decodificar(chave);
-    const { codigosRecuperacao } = await confirmarAtivacao(
-      sessao,
-      codigoDoPasso(segredo, passoDoInstante(Date.now())),
-      ip(),
-    );
+    // Sem a senha certa não ativa, mesmo com o código certo (sessão roubada não basta).
+    const codigoAgora = codigoDoPasso(segredo, passoDoInstante(Date.now()));
+    await expect(confirmarAtivacao(sessao, "senha-errada", codigoAgora, ip())).rejects.toThrow(/incorretos/);
+    expect((await statusSegundoFator(sessao)).ativo).toBe(false);
+
+    const { codigosRecuperacao } = await confirmarAtivacao(sessao, SENHA, codigoAgora, ip());
     expect(codigosRecuperacao).toHaveLength(10);
     expect(new Set(codigosRecuperacao).size).toBe(10);
     for (const c of codigosRecuperacao) expect(c).toMatch(/^[A-Z2-7]{4}(-[A-Z2-7]{4}){3}$/);
@@ -102,6 +103,17 @@ describe("2FA — ativação", () => {
     expect(st).toMatchObject({ ativo: true, codigosRestantes: 10, disponivel: true, recomendado: true });
     // O status nunca devolve segredo.
     expect(JSON.stringify(st)).not.toContain(chave);
+  });
+
+  it("ativar derruba as OUTRAS sessões e mantém a atual", async () => {
+    const { u, sessao } = await criarUsuario("derruba");
+    const atual = await prisma.session.create({ data: { userId: u.id, expiresAt: new Date(Date.now() + 86_400_000) } });
+    await prisma.session.create({ data: { userId: u.id, expiresAt: new Date(Date.now() + 86_400_000) } });
+    const { chave } = await iniciarAtivacao(sessao);
+    const cod = codigoDoPasso(base32Decodificar(chave), passoDoInstante(Date.now()));
+    await confirmarAtivacao(sessao, SENHA, cod, ip(), atual.id);
+    const restantes = await prisma.session.findMany({ where: { userId: u.id }, select: { id: true } });
+    expect(restantes.map((x) => x.id)).toEqual([atual.id]);
   });
 
   it("guarda o segredo CIFRADO e os códigos só como HASH", async () => {
@@ -211,6 +223,21 @@ describe("2FA — login", () => {
     const d2 = (await login({ email: u.email, password: SENHA }, "ua", ip())).desafio!;
     await expect(concluirEntradaComSegundoFator(d2, cod, "ua", ip())).rejects.toThrow(/Código inválido/);
     expect(await prisma.activityLog.count({ where: { userId: u.id, acao: "seguranca.2fa_codigo_recuperacao_usado" } })).toBe(1);
+  });
+
+  it("FREIO contra RAJADA: 20 códigos errados SIMULTÂNEOS — no máximo 5 chegam a ser conferidos", async () => {
+    const { u, sessao } = await criarUsuario("rajada");
+    const { segredo, passo } = await ativar(sessao);
+    const { desafio } = await login({ email: u.email, password: SENHA }, "ua", ip());
+    const certo = codigoDoPasso(segredo, passo + 1);
+    const errado = certo === "111111" ? "222222" : "111111";
+    const r = await Promise.allSettled(
+      Array.from({ length: 20 }, () => concluirEntradaComSegundoFator(desafio!, errado, "ua", ip())),
+    );
+    const motivos = r.map((x) => (x.status === "rejected" ? String((x.reason as Error).message) : "ok"));
+    expect(motivos.filter((m) => /Código inválido/.test(m)).length).toBeLessThanOrEqual(5);
+    expect(motivos.filter((m) => /Muitas tentativas/.test(m)).length).toBeGreaterThanOrEqual(15);
+    await expect(concluirEntradaComSegundoFator(desafio!, certo, "ua", ip())).rejects.toThrow(/Muitas tentativas/);
   });
 
   it("FREIO: 5 erros seguram a 6ª tentativa, mesmo com o código certo", async () => {

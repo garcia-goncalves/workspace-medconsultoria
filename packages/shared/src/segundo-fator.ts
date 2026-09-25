@@ -50,6 +50,8 @@ export const confirmarSegundoFatorSchema = z.object({
 export type ConfirmarSegundoFatorInput = z.infer<typeof confirmarSegundoFatorSchema>;
 
 export const confirmarAtivacaoSegundoFatorSchema = z.object({
+  // A senha é exigida para ATIVAR também: quem só roubou a sessão não cadastra o próprio celular.
+  senha: z.string().min(1, "Informe a sua senha").max(200),
   codigo: z
     .string()
     .trim()
