@@ -4,6 +4,7 @@ import { ROTULO_STATUS } from "./conciliacao-cirurgica.js";
 export { ROTULO_STATUS };
 import type { LinhaConciliada } from "./conciliacao-financeira.service.js";
 import { chaveDoConvenio } from "./producao-consultas.js";
+import { celulaReais, celulaTexto, montarCsv } from "../../lib/planilha-csv.js";
 
 /**
  * CONCILIAÇÃO — Fase 2b: as planilhas que saem do sistema. Puras.
@@ -17,16 +18,13 @@ import { chaveDoConvenio } from "./producao-consultas.js";
  * continuar com o formato de sempre; quem precisar do prontuário tem o arquivo original do TASY.
  */
 
-/** Texto entre aspas; e sem abrir porta para fórmula quando a planilha for aberta no Excel. */
-function texto(v: string | null | undefined): string {
-  let s = v ?? "";
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  return `"${s.replace(/"/g, '""')}"`;
-}
-/** Dinheiro no jeito brasileiro, sem milhar: `1234,56` — o Excel em pt-BR lê como número. */
-const reais = (v: number | null) => (v === null ? "" : v.toFixed(2).replace(".", ","));
+// A proteção contra fórmula (CSV injection), o dinheiro e a montagem do CSV moram num lugar só
+// (`lib/planilha-csv.ts`), usado também pela exportação do Financeiro: duas cópias da mesma
+// proteção divergem no dia em que alguém corrigir só uma.
+const texto = celulaTexto;
+const reais = celulaReais;
 const dataBR = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "");
-const csv = (linhas: string[][]) => "﻿" + linhas.map((l) => l.join(";")).join("\r\n") + "\r\n";
+const csv = montarCsv;
 
 const nomeDoMedico = (l: LinhaConciliada) => l.profissional?.nome ?? l.profissionalBruto;
 
