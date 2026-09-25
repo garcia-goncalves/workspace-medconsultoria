@@ -138,6 +138,21 @@ export const documentosRouter = router({
     .input(setStatusDocumentoSchema)
     .mutation(({ input, ctx }) => documentos.setStatus(input.id, input.status, ctx.user.id)),
 
+  /**
+   * Duplicar proposta (Onda 4A): novo rascunho com o mesmo texto e itens, número novo, sem aceite
+   * nem assinatura. Destino opcional: omitido = mesmo cliente. Mesma porta das outras propostas
+   * (`funcionarioProcedure`, como `criarProposta`).
+   */
+  duplicar: funcionarioProcedure
+    .input(
+      z
+        .object({ id: z.string().min(1), clienteId: z.string().min(1).optional(), leadId: z.string().min(1).optional() })
+        .refine((v) => !(v.clienteId && v.leadId), { message: "Escolha um cliente OU um lead.", path: ["clienteId"] }),
+    )
+    .mutation(({ input, ctx }) =>
+      documentos.duplicarProposta(input.id, { clienteId: input.clienteId, leadId: input.leadId }, ctx.user.id),
+    ),
+
   remove: funcionarioProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ input }) => documentos.removeDocumento(input.id)),

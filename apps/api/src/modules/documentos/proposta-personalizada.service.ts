@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import {
   aplicarMolduraPersonalizada,
+  CONVENIOS_SO_NO_CATALOGO,
   ehServicoSomentePercentual,
   formatarNumeroProposta,
   fraseDoRepasse,
@@ -77,7 +78,22 @@ async function resolverItens(itens: ItemPropostaPersonalizada[]) {
       })
     : [];
   const porId = new Map(servicos.map((s) => [s.id, s]));
+
+  // CONVÊNIOS (ADR-126): os NOMES vêm do banco, pelos ids — nome copiado da tela não sobrevive a
+  // um "renomear" no catálogo, e este é o papel que vai ao cliente. Id que não existe mais some em
+  // silêncio da lista (o mesmo comportamento da proposta de faturamento).
+  const idsConvenios = [...new Set(itens.flatMap((i) => i.conveniosIds ?? []))];
+  const operadoras = idsConvenios.length
+    ? await prisma.operadora.findMany({
+        where: { id: { in: idsConvenios } },
+        orderBy: [{ ordem: "asc" }, { nome: "asc" }],
+        select: { id: true, nome: true },
+      })
+    : [];
+
   const resolvidos: ItemPersonalizadoResolvido[] = [];
+  /** Os convênios VALIDADOS de cada item (mesma ordem de `itens`), para gravar no documento. */
+  const conveniosPorItem: string[][] = [];
   const condicoesDoRepasse: (string | null)[] = [];
   let temSoPercentual = false;
   for (const it of itens) {
@@ -88,6 +104,15 @@ async function resolverItens(itens: ItemPropostaPersonalizada[]) {
     if (sv && percentualForaDoFaturamento({ valor: it.valor, percentual: it.percentual }, sv.ehFaturamento)) {
       throw new TRPCError({ code: "BAD_REQUEST", message: PRECO_PERCENTUAL_SO_NO_FATURAMENTO });
     }
+    // Convênio pertence ao serviço de FATURAMENTO (identidade pela marca, nunca por nome ou
+    // categoria — ADR-145). Em outro serviço ele não tem para onde ir no aceite, e aceitar calado
+    // imprimiria no papel uma lista que a ficha nunca vai mostrar.
+    if (it.conveniosIds?.length && !sv?.ehFaturamento) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: CONVENIOS_SO_NO_CATALOGO });
+    }
+    const pedidos = new Set(it.conveniosIds ?? []);
+    const convenios = operadoras.filter((o) => pedidos.has(o.id));
+    conveniosPorItem.push(convenios.map((o) => o.id));
     if (ehServicoSomentePercentual({ valor: it.valor, percentual: it.percentual ?? null })) {
       temSoPercentual = true;
       condicoesDoRepasse.push(sv?.condicaoPagamento ?? null);
@@ -102,9 +127,10 @@ async function resolverItens(itens: ItemPropostaPersonalizada[]) {
       quantidade: it.quantidade,
       recorrencia: it.recorrencia,
       percentual: it.percentual ?? null,
+      convenios: convenios.map((o) => o.nome),
     });
   }
-  return { resolvidos, fraseRepasse: temSoPercentual ? fraseDoRepasse(condicoesDoRepasse) : null };
+  return { resolvidos, conveniosPorItem, fraseRepasse: temSoPercentual ? fraseDoRepasse(condicoesDoRepasse) : null };
 }
 
 export async function criarPropostaPersonalizada(input: CriarPropostaPersonalizadaInput, userId: string) {
@@ -112,7 +138,7 @@ export async function criarPropostaPersonalizada(input: CriarPropostaPersonaliza
   const cliente = await prisma.cliente.findFirst({ where: { id: clienteId, deletedAt: null }, select: { id: true, nome: true } });
   if (!cliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
 
-  const { resolvidos, fraseRepasse } = await resolverItens(input.itens);
+  const { resolvidos, conveniosPorItem, fraseRepasse } = await resolverItens(input.itens);
 
   // `listModelos()` semeia os modelos-padrão antes da busca — sem isto, um banco onde ninguém
   // abriu "Modelos" ainda não teria o Personalizado (o mesmo cuidado de `criarProposta`).
@@ -163,16 +189,38 @@ export async function criarPropostaPersonalizada(input: CriarPropostaPersonaliza
   // SÓ as linhas do catálogo vão para `Documento.itens`, no formato de sempre
   // (`documentoServicoItemSchema`). É esse campo que o aceite copia para `ClienteServico` e que o
   // contrato do funil relê com `safeParse` do array INTEIRO — uma linha avulsa sem `servicoId`
-  // ali reprovaria a lista toda e o contrato sairia sem serviço nenhum. A linha avulsa existe no
-  // texto do papel, que é onde ela foi combinada; ela não tem cadastro para virar serviço.
-  const itensDoCatalogo = input.itens
-    .filter((i) => !!i.servicoId)
-    .map((i) => ({
-      servicoId: i.servicoId!,
+  // ali reprovaria a lista toda e o contrato sairia sem serviço nenhum.
+  //
+  // Os convênios viajam DENTRO do item do faturamento (ADR-126), já validados: é o mesmo campo
+  // que a proposta de faturamento grava e que `sincronizarServicosContratados` lê no aceite —
+  // a MESMA porta, sem uma segunda costura só para o Personalizado.
+  const itensDoCatalogo = input.itens.flatMap((i, idx) =>
+    i.servicoId
+      ? [
+          {
+            servicoId: i.servicoId,
+            valor: i.valor,
+            quantidade: i.quantidade,
+            recorrencia: i.recorrencia,
+            percentual: i.percentual ?? null,
+            ...(conveniosPorItem[idx]?.length ? { conveniosIds: conveniosPorItem[idx] } : {}),
+          },
+        ]
+      : [],
+  );
+
+  // As LINHAS AVULSAS ficam estruturadas numa coluna própria (Onda 4A): no aceite, cada uma com
+  // valor vira conta a receber (`linhas-avulsas.service`). O índice `linha` é a chave de
+  // idempotência da cobrança — ele é a posição NESTA lista, que é congelada com o documento
+  // (editar o texto não mexe aqui).
+  const linhasAvulsas = input.itens
+    .filter((i) => !i.servicoId)
+    .map((i, linha) => ({
+      linha,
+      descricao: i.descricao!.trim(),
       valor: i.valor,
       quantidade: i.quantidade,
       recorrencia: i.recorrencia,
-      percentual: i.percentual ?? null,
     }));
 
   const tituloBase = input.titulo?.trim() || modelo.nome;
@@ -186,6 +234,7 @@ export async function criarPropostaPersonalizada(input: CriarPropostaPersonaliza
     status: "RASCUNHO" as const,
     criadoPorId: userId,
     itens: itensDoCatalogo.length ? (itensDoCatalogo as object[]) : undefined,
+    linhasAvulsas: linhasAvulsas.length ? (linhasAvulsas as object[]) : undefined,
     versoes: { create: { conteudo, autorId: userId, origem: "MANUAL" as const } },
   });
 
