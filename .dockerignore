@@ -18,3 +18,7 @@ brand
 .env
 .env.*
 !.env.example
+# Kit do deploy pelo VS Code — só roda no computador de quem publica.
+.deploy-vps
+.vscode
+scripts/deploy-vps.*

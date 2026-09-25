@@ -1,0 +1,72 @@
+# Produção na VPS compartilhada — publicado pelo VS Code (deploy-padrao), não mais pelo GitHub.
+# Mora em /srv/medconsultoria/docker-compose.vps.yml. O servidor roda, a cada publicação:
+#   docker compose -p medconsultoria -f docker-compose.vps.yml build
+#   docker compose -p medconsultoria -f docker-compose.vps.yml up -d
+# Padrão e kit: https://github.com/garcia-goncalves/deploy-padrao
+#
+# ⚠️ O NOME DO PROJETO TEM DE CONTINUAR `medconsultoria`. É ele que faz os volumes resolverem para
+# os que já existem (`medconsultoria_mysql_dados` e `medconsultoria_uploads`). Outro nome = volume
+# novo e VAZIO = o banco "some" (os dados continuam no volume antigo, mas o app sobe sem eles).
+#
+# Base: `infra/ovh/docker-compose.yml` e os containers no ar em 25/09/2026 (`docker inspect`).
+# O `mysql` está IGUAL ao que roda hoje (inclusive `env_file: .env`), para a primeira publicação
+# não recriar o banco. Separar o `mysql.env` (ver infra/ovh) fica para depois, com o administrador.
+#
+# A ordem de antes (banco → migration → app, cada um com seu código de saída) agora está nos
+# `depends_on`: o `migrate` só roda com o banco saudável, e o `app` só sobe se o `migrate` sair
+# com código 0. Migration falhada = o app novo NÃO sobe e o deploy volta sozinho para a anterior.
+# O `.env` não é mais alterado a cada publicação (acabou a linha APP_IMAGE), então o hash de
+# configuração do `mysql` não muda e o `up -d` não o recria — o motivo dos `--no-deps` antigos.
+
+name: medconsultoria
+
+services:
+  app:
+    build: .
+    # Nome fixo: é ele que o deploy usa para guardar a versão anterior (tag deploy-anterior-app).
+    image: medconsultoria:atual
+    restart: unless-stopped
+    # Tudo vem do .env do servidor, inclusive a DATABASE_URL (host `mysql`, nunca `localhost`).
+    # ⚠️ O .env tem a PACIENTE_CRYPTO_KEY: nunca regenerar — sem ela os dados de pacientes ficam ilegíveis.
+    env_file: .env
+    ports:
+      - "127.0.0.1:4319:4319"
+    volumes:
+      # Volume nomeado: herda o dono (`node`) da imagem, sem precisar de sudo para chown.
+      - uploads:/dados/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Roda uma vez por publicação e sai. Mesma imagem do app — o mesmo `prisma migrate deploy` que
+  # o deploy-ovh.yml rodava com `docker compose run --rm --no-deps app npm run prisma:deploy`.
+  migrate:
+    build: .
+    image: medconsultoria:atual
+    command: ["npm", "run", "prisma:deploy"]
+    restart: "no"
+    env_file: .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    # Mesma collation do desenvolvimento: divergir é acentuação quebrada em nome de paciente.
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    env_file: .env
+    volumes:
+      - mysql_dados:/var/lib/mysql
+    healthcheck:
+      # `$$` para o compose não interpolar: a senha é lida DENTRO do container.
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p\"$$MYSQL_ROOT_PASSWORD\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  uploads:
+  mysql_dados:
