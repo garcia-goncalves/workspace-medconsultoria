@@ -84,9 +84,13 @@ export async function expurgarDadosVencidos(agora = new Date()) {
   // envelheceria calada — rota nova ficaria de fora sem ninguém perceber. O prefixo cobre as que
   // existem e as que vierem. É a mesma razão do `painel_cliente.*` acima: é a única prova de quem
   // mudou quanto uma clínica cobrou e recebeu, e ela não pode evaporar em 180 dias.
-  const atividadeDeConciliacao = { acao: { startsWith: "conciliacao." } };
+  // ⚠️ E os eventos de SEGURANÇA da conta (`seguranca.*`: ativar/desativar a verificação em duas
+  // etapas, usar código de recuperação — Onda 4C). São a prova de quem mexeu na proteção de uma
+  // conta de administrador; apagá-los com o prazo do corpo de e-mail seria perder a trilha de
+  // um incidente justamente quando ela é pedida. Prefixo, pelo mesmo motivo da Conciliação.
+  const preservadosPorPrefixo = [{ acao: { startsWith: "conciliacao." } }, { acao: { startsWith: "seguranca." } }];
   const atividade = await prisma.activityLog.deleteMany({
-    where: { createdAt: { lt: limite }, acao: { notIn: ACOES_QUE_NAO_EXPIRAM }, NOT: atividadeDeConciliacao },
+    where: { createdAt: { lt: limite }, acao: { notIn: ACOES_QUE_NAO_EXPIRAM }, NOT: preservadosPorPrefixo },
   });
 
   // As reservas de idempotência da API do agente (CORA-003). O contrato declara 24 h; passado
