@@ -53,6 +53,18 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   { tipo: "documento_assinado", label: "Documento assinado por todos", descricao: "Quando a última assinatura entra e o documento fica concluído.", grupo: "Documentos", minRole: "ADMIN" },
   { tipo: "conta_vencida", label: "Contas vencidas", descricao: "Alertas de contas a pagar/receber vencidas.", grupo: "Financeiro", minRole: "ADMIN" },
   { tipo: "conta_a_vencer", label: "Contas a vencer", descricao: "Aviso de contas a pagar/receber que vencem em breve.", grupo: "Financeiro", minRole: "ADMIN" },
+  // ── HONORÁRIO DO FATURAMENTO A LANÇAR (Onda 2) ────────────────────────────────────────
+  //
+  // Nasce ligado por e-mail SÓ para ADMIN — quem lança conta no Financeiro. O ROOT nominal vê
+  // pelo sininho e liga na tela se quiser, o mesmo desenho do "lead novo" (ADR-134).
+  {
+    tipo: "honorario_a_lancar",
+    label: "Honorário do faturamento a lançar",
+    descricao: "Quando um mês encerrado tem repasse importado na Conciliação e o honorário do faturamento ainda não foi lançado no Financeiro.",
+    grupo: "Financeiro",
+    minRole: "ADMIN",
+    padraoDesligadoPara: ["ROOT"],
+  },
   {
     tipo: "lead_novo",
     label: "Novo lead pelo site",

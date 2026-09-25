@@ -23,3 +23,4 @@ export * from "./portal-papeis.js";
 export * from "./dado-pessoal.js";
 export * from "./consentimento-assinatura.js";
 export * from "./link-publico.js";
+export * from "./honorario-faturamento.js";

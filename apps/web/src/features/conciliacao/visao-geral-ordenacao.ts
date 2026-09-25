@@ -10,7 +10,8 @@ export type ChaveOrdenacaoVisaoGeral =
   | "glosa"
   | "aReceber"
   | "aReceberAtrasado"
-  | "glosaSemRecurso";
+  | "glosaSemRecurso"
+  | "honorarioALancar";
 
 /**
  * Direção do PRIMEIRO clique em cada coluna. "Cliente" é texto — começa em A→Z, como qualquer
@@ -26,6 +27,7 @@ export const DIRECAO_INICIAL: Record<ChaveOrdenacaoVisaoGeral, DirecaoOrdenacao>
   aReceber: "desc",
   aReceberAtrasado: "desc",
   glosaSemRecurso: "desc",
+  honorarioALancar: "desc",
 };
 
 /**

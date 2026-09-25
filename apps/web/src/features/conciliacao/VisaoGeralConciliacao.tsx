@@ -26,6 +26,8 @@ const COLUNAS: { chave: ChaveOrdenacaoVisaoGeral; rotulo: string; valor: (l: Lin
   { chave: "aReceber", rotulo: "A receber", valor: (l) => l.aReceber },
   { chave: "aReceberAtrasado", rotulo: "Passou do prazo", valor: (l) => l.aReceberAtrasado },
   { chave: "glosaSemRecurso", rotulo: "Glosa sem recurso", valor: (l) => l.glosaSemRecurso },
+  // O percentual do faturamento sobre o repasse de meses encerrados que ninguém lançou (Onda 2).
+  { chave: "honorarioALancar", rotulo: "Honorário a lançar", valor: (l) => l.honorarioALancar },
 ];
 
 /**
@@ -141,6 +143,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
           Cobrado {formatBRL(t.cobrado)} · recebido {formatBRL(t.recebido)} · glosa {formatBRL(t.glosa)} · a receber {formatBRL(t.aReceber)}
           {t.aReceberAtrasado > 0 && <span className="text-destructive"> · {formatBRL(t.aReceberAtrasado)} passou do prazo</span>}
           {t.glosaSemRecurso > 0 && <span className="text-destructive"> · {formatBRL(t.glosaSemRecurso)} de glosa sem recurso</span>}
+          {t.honorarioALancar > 0 && <span className="text-warning"> · {formatBRL(t.honorarioALancar)} de honorário a lançar</span>}
         </p>
       </div>
       {/* A tabela em si já rola na horizontal (`Table`) e os cabeçalhos continuam clicáveis lá
@@ -167,6 +170,7 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
             <ThOrdenavel chave="aReceber" rotulo="A receber" ordenacao={ordenacao} onOrdenar={alternarOrdenacao} direita />
             <ThOrdenavel chave="aReceberAtrasado" rotulo="Passou do prazo" ordenacao={ordenacao} onOrdenar={alternarOrdenacao} direita />
             <ThOrdenavel chave="glosaSemRecurso" rotulo="Glosa sem recurso" ordenacao={ordenacao} onOrdenar={alternarOrdenacao} direita />
+            <ThOrdenavel chave="honorarioALancar" rotulo="Honorário a lançar" ordenacao={ordenacao} onOrdenar={alternarOrdenacao} direita />
             <TH>Pendências</TH>
             <TH>Última importação</TH>
           </TR>
@@ -200,6 +204,9 @@ export function VisaoGeralConciliacao({ onEscolher }: { onEscolher: (clienteId: 
                 {/* Glosa que ninguém recorreu: dinheiro perdido por omissão, cliente a cliente. */}
                 <TD className={`whitespace-nowrap text-right ${c.glosaSemRecurso > 0 ? "font-medium text-destructive" : ""}`}>
                   {c.glosaSemRecurso > 0 ? formatBRL(c.glosaSemRecurso) : "—"}
+                </TD>
+                <TD className={`whitespace-nowrap text-right ${c.honorarioALancar > 0 ? "font-medium text-warning" : ""}`}>
+                  {c.honorarioALancar > 0 ? formatBRL(c.honorarioALancar) : "—"}
                 </TD>
                 <TD className="text-xs text-warning">{pendencias.join(" · ") || <span className="text-muted-foreground">—</span>}</TD>
                 <TD className="text-xs text-muted-foreground">{c.ultimaImportacao ? dataBrasilia(c.ultimaImportacao.em) : "—"}</TD>

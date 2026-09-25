@@ -18,7 +18,8 @@
  * arquivo, e a página da Conciliação continua num pedaço separado, carregado sob demanda.
  */
 
-export const ABAS_CONCILIACAO = ["consultas", "cirurgias"] as const;
+/** `honorario` (Onda 2): o percentual do faturamento sobre o repasse — não tem filtro próprio. */
+export const ABAS_CONCILIACAO = ["consultas", "cirurgias", "honorario"] as const;
 export type AbaConciliacao = (typeof ABAS_CONCILIACAO)[number];
 
 export const TIPOS_ATENDIMENTO = ["CONSULTA", "CORTESIA", "SEM_VINCULO_AGENDA", "OUTRO"] as const;

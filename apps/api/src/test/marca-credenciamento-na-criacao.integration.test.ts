@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@app/db";
 import { criarServico } from "../modules/servicos/servicos.service.js";
@@ -20,8 +20,21 @@ import { criarServico } from "../modules/servicos/servicos.service.js";
 
 const PFX = `marca-criacao-${randomBytes(4).toString("hex")}`;
 
+// ⚠️ A marca é ÚNICA no sistema inteiro, e este arquivo testa justamente "quando não há outro
+// marcado". O banco de teste é compartilhado pela suíte em sequência, e outros arquivos marcam o
+// serviço canônico de credenciamento como fixture — então o ponto de partida depende da ORDEM em
+// que o Vitest roda os arquivos (que vem do histórico de duração, não do nome). O teste desliga as
+// marcas que achar e devolve cada uma no fim: ele passa a controlar a própria premissa.
+let marcadosAntes: string[] = [];
+
+beforeAll(async () => {
+  marcadosAntes = (await prisma.servico.findMany({ where: { ehCredenciamento: true }, select: { id: true } })).map((s) => s.id);
+  if (marcadosAntes.length) await prisma.servico.updateMany({ where: { id: { in: marcadosAntes } }, data: { ehCredenciamento: false } });
+});
+
 afterAll(async () => {
   await prisma.servico.deleteMany({ where: { nome: { startsWith: PFX } } });
+  if (marcadosAntes.length) await prisma.servico.updateMany({ where: { id: { in: marcadosAntes } }, data: { ehCredenciamento: true } });
 });
 
 describe("marca do credenciamento, exposta na criação", () => {
