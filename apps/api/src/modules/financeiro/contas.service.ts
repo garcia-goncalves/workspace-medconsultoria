@@ -11,6 +11,7 @@ import type {
 } from "@app/shared";
 import { hojeBRT, somarDiasUTC, inicioDoMesBRT, inicioDoProximoMesBRT } from "../../lib/datas.js";
 
+import { escaparCoringas } from "../../lib/like.js";
 /** Contexto do usuário logado (para escopar a carteira PESSOAL). */
 export type Ctx = { userId: string; role: string };
 
@@ -86,11 +87,8 @@ async function contaComPosse(id: string, ctx: Ctx) {
 /** Dia "AAAA-MM-DD" → meia-noite UTC, o mesmo formato em que o vencimento é gravado. */
 const diaUTC = (dia: string) => new Date(`${dia}T00:00:00.000Z`);
 
-/**
- * ⚠️ `%` e `_` são coringas do `LIKE`, e o `contains` do Prisma NÃO os escapa: buscar "10%"
- * casaria "10 parcelas". Mesma armadilha já registrada na API do agente (ADR-150).
- */
-const escaparCoringas = (t: string) => t.replace(/[\\%_]/g, (c) => `\\${c}`);
+// ⚠️ `%` e `_` são coringas do `LIKE`, e o `contains` do Prisma NÃO os escapa: buscar "10%"
+// casaria "10 parcelas". O escape mora em `lib/like.ts` (ADR-150), um lugar só para a casa toda.
 
 /**
  * O `where` do recorte — UM só para a lista e para a exportação ao contador (ver o comentário de

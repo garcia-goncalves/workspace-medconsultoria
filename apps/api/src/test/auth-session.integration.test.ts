@@ -42,7 +42,7 @@ describe("Auth — login", () => {
     await criarUsuario("ok");
     const r = await login({ email: email("ok"), password: SENHA }, "ua", ip());
     expect(r.sid).toBeTruthy();
-    expect(r.user.role).toBe("FUNCIONARIO");
+    expect(r.user?.role).toBe("FUNCIONARIO");
   });
 
   it("rejeita senha incorreta", async () => {

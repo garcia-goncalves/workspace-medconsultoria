@@ -7,7 +7,8 @@ import type {
   CreateNotaInput,
   Role,
 } from "@app/shared";
-import { SITUACOES_CLIENTE } from "@app/shared";
+import { SITUACOES_CLIENTE, SITUACAO_COMERCIAL_LABEL, formatarCNPJ } from "@app/shared";
+import { celulaTexto, montarCsv } from "../../lib/planilha-csv.js";
 import { garantirAcessoPortal, convidarUsuario, reenviarConvite } from "../usuarios/usuarios.service.js";
 import { acessoAoPortal } from "../../lib/acesso-portal.js";
 import { emReais } from "../../lib/dinheiro.js";
@@ -460,4 +461,76 @@ export function arquivarNota(notaId: string, userId: string, arquivar: boolean) 
     data: arquivar ? { arquivadaEm: new Date(), arquivadaPorId: userId } : { arquivadaEm: null, arquivadaPorId: null },
     include: { autor: { select: { nome: true } } },
   });
+}
+
+/**
+ * EXPORTAR A LISTA DE CLIENTES (Onda 4A) — a planilha do que a página Clientes mostra com o filtro
+ * atual: nome, CNPJ, e-mail, telefone, situação, responsável e serviços ativos.
+ *
+ * ⚠️ O FILTRO É O MESMO DA TELA, reaplicado aqui: busca em nome/e-mail/CNPJ/telefone, situação e
+ * responsável. A lista é filtrada no navegador; se o servidor exportasse "tudo", a planilha diria
+ * uma coisa e a tela outra — e quem pediu "os ativos da Thaís" mandaria a base inteira adiante.
+ * Só CLIENTES de verdade (ativos/inativos): prospect é lead e vive no funil (ADR-24).
+ *
+ * ⚠️ O CSV SAI PELO ESCRITOR DA CASA (`lib/planilha-csv.ts`), que protege contra fórmula: o nome
+ * do cliente pode ter nascido no formulário público `/comecar`, que qualquer anônimo preenche, e
+ * uma célula começando com `=` o Excel executaria no computador de quem abre.
+ */
+export async function exportarClientes(
+  filtro: {
+    search?: string;
+    situacao?: (typeof SITUACOES_CLIENTE)[number];
+    responsavelId?: string;
+  },
+  userId: string,
+) {
+  const s = filtro.search?.trim();
+  const clientes = await prisma.cliente.findMany({
+    where: {
+      deletedAt: null,
+      situacaoComercial: filtro.situacao ? filtro.situacao : { in: [...SITUACOES_CLIENTE] },
+      ...(filtro.responsavelId ? { responsavelId: filtro.responsavelId } : {}),
+      ...(s
+        ? { OR: [{ nome: { contains: s } }, { email: { contains: s } }, { cnpj: { contains: s } }, { telefone: { contains: s } }] }
+        : {}),
+    },
+    orderBy: { nome: "asc" },
+    select: {
+      nome: true,
+      cnpj: true,
+      email: true,
+      telefone: true,
+      situacaoComercial: true,
+      responsavel: { select: { nome: true } },
+      servicosContratados: { where: { status: "ATIVO" }, select: { servico: { select: { nome: true } } } },
+    },
+  });
+  const linhas: string[][] = [
+    ["Cliente", "CNPJ", "E-mail", "Telefone", "Situação", "Responsável", "Serviços ativos"].map(celulaTexto),
+    ...clientes.map((c) =>
+      [
+        c.nome,
+        formatarCNPJ(c.cnpj),
+        c.email ?? "",
+        c.telefone ?? "",
+        SITUACAO_COMERCIAL_LABEL[c.situacaoComercial],
+        c.responsavel?.nome ?? "",
+        c.servicosContratados.map((cs) => cs.servico.nome).join(", "),
+      ].map(celulaTexto),
+    ),
+  ];
+  // ⚠️ RASTRO DE QUEM LEVOU A BASE PARA FORA (achado B4 da revisão da onda 4). A planilha tem nome,
+  // CNPJ, e-mail e telefone de toda clínica do filtro — dado pessoal saindo do sistema, igual ao
+  // download de arquivo (`arquivo.baixado`). Grava o FILTRO e a CONTAGEM, nunca o conteúdo: o
+  // rastro responde "quem exportou o quê e quando" sem virar uma segunda cópia da planilha.
+  // A ação está entre as que o expurgo de retenção preserva.
+  const filtroGravado = Object.fromEntries(
+    Object.entries({ search: s || undefined, situacao: filtro.situacao, responsavelId: filtro.responsavelId }).filter(
+      ([, v]) => v !== undefined,
+    ),
+  );
+  await prisma.activityLog.create({
+    data: { userId, acao: "clientes.exportados", dados: { filtro: filtroGravado, linhas: clientes.length } },
+  });
+  return { csv: montarCsv(linhas), linhas: clientes.length };
 }

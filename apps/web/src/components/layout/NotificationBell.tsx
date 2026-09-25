@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Bell,
@@ -72,18 +72,77 @@ const META: Record<string, { icon: LucideIcon; tom: string }> = {
 };
 const fallback = { icon: Bell, tom: "bg-muted text-muted-foreground" };
 
+/** Tamanho da página: o `list` traz 30 e o histórico (`PAGINA_HISTORICO`) também. */
+const PAGINA = 30;
+type Filtro = "todas" | "naoLidas";
+
 export function NotificationBell() {
   const navigate = useNavigate();
   const [aberto, setAberto] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const utils = trpc.useUtils();
   const notificacoes = trpc.notificacoes.list.useQuery(undefined, { staleTime: 30_000, refetchInterval: POLL.notificacoes });
-  const invalidate = () => utils.notificacoes.list.invalidate();
-  const markAll = trpc.notificacoes.markAllRead.useMutation({ onSuccess: invalidate });
-  const markRead = trpc.notificacoes.markRead.useMutation({ onSuccess: invalidate });
+  // Páginas antigas do histórico ("Ver mais antigos"), acumuladas fora da consulta com polling.
+  const [antigas, setAntigas] = useState<Notif[]>([]);
+  const invalidate = () => {
+    utils.notificacoes.list.invalidate();
+    utils.notificacoes.historico.invalidate();
+  };
+  const markAll = trpc.notificacoes.markAllRead.useMutation({
+    onSuccess: () => (invalidate(), setAntigas((a) => a.map((n) => ({ ...n, lida: true })))),
+  });
+  const markRead = trpc.notificacoes.markRead.useMutation({
+    onSuccess: (_r, { id }) => (invalidate(), setAntigas((a) => a.map((n) => (n.id === id ? { ...n, lida: true } : n)))),
+  });
 
   const lista = (notificacoes.data ?? []) as Notif[];
   const naoLidas = lista.filter((n) => !n.lida).length;
+
+  // Histórico: o padrão continua sendo as 30 últimas (`list`, com polling). "Não lidas" troca a
+  // primeira página por outra consulta; "Ver mais antigos" acumula páginas à parte, por chave
+  // (createdAt, id) do último item na tela — mesmo molde do "Carregar mais antigos" do E-mail.
+  const [filtro, setFiltro] = useState<Filtro>("todas");
+  const soNaoLidas = trpc.notificacoes.historico.useQuery({ apenasNaoLidas: true }, { enabled: aberto && filtro === "naoLidas" });
+  const [temMaisAntigas, setTemMaisAntigas] = useState(true);
+  const [carregandoAntigas, setCarregandoAntigas] = useState(false);
+  const [falhaAntigas, setFalhaAntigas] = useState(false);
+  useEffect(() => {
+    setAntigas([]);
+    setTemMaisAntigas(true);
+    setFalhaAntigas(false);
+  }, [filtro]);
+
+  const primeira = useMemo(
+    () => (filtro === "todas" ? (notificacoes.data ?? []) : (soNaoLidas.data ?? [])) as Notif[],
+    [filtro, notificacoes.data, soNaoLidas.data],
+  );
+  // Dedup por id: um aviso novo chegando empurra a primeira página, e o mesmo item poderia
+  // aparecer nela e no acumulado — chave repetida quebra a lista do React.
+  const exibidas = useMemo(() => {
+    const vistos = new Set(primeira.map((n) => n.id));
+    return [...primeira, ...antigas.filter((n) => !vistos.has(n.id))];
+  }, [primeira, antigas]);
+  const podeCarregarMais = temMaisAntigas && primeira.length >= PAGINA;
+  const carregandoPrimeira = filtro === "naoLidas" && soNaoLidas.isLoading;
+
+  const carregarMaisAntigos = async () => {
+    const ultima = exibidas[exibidas.length - 1];
+    if (!ultima || carregandoAntigas) return;
+    setCarregandoAntigas(true);
+    setFalhaAntigas(false);
+    try {
+      const pagina = (await utils.notificacoes.historico.fetch({
+        antesDe: { createdAt: new Date(ultima.createdAt), id: ultima.id },
+        apenasNaoLidas: filtro === "naoLidas",
+      })) as Notif[];
+      setAntigas((a) => [...a, ...pagina]);
+      if (pagina.length < PAGINA) setTemMaisAntigas(false);
+    } catch {
+      setFalhaAntigas(true);
+    } finally {
+      setCarregandoAntigas(false);
+    }
+  };
 
   // Recebe push em tempo real e refaz a busca.
   useEventoRealtime("notificacao", () => invalidate());
@@ -128,6 +187,9 @@ export function NotificationBell() {
       case "sistema":
         navigate({ to: "/sistema" });
         break;
+      case "configuracoes":
+        navigate({ to: "/configuracoes" });
+        break;
       case "honorario":
         navigate({ to: "/conciliacao", search: { cliente: decisao.clienteId, aba: "honorario" } });
         break;
@@ -171,14 +233,47 @@ export function NotificationBell() {
             )}
           </div>
 
+          <div className="flex gap-1 border-b px-4 py-1.5" role="group" aria-label="Filtrar notificações">
+            {(
+              [
+                ["todas", "Todas"],
+                ["naoLidas", "Não lidas"],
+              ] as const
+            ).map(([chave, rotulo]) => (
+              <button
+                key={chave}
+                type="button"
+                onClick={() => setFiltro(chave)}
+                aria-pressed={filtro === chave}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  filtro === chave ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+
           <div className="max-h-[26rem] overflow-auto">
-            {lista.length === 0 ? (
+            {filtro === "naoLidas" && soNaoLidas.isError ? (
+              <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+                <p className="text-sm text-muted-foreground">Não foi possível carregar as não lidas.</p>
+                <button type="button" onClick={() => soNaoLidas.refetch()} className="text-xs font-medium text-primary hover:underline">
+                  Tentar de novo
+                </button>
+              </div>
+            ) : carregandoPrimeira ? (
+              <p className="px-4 py-10 text-center text-sm text-muted-foreground">Carregando…</p>
+            ) : exibidas.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
                 <Bell className="h-6 w-6 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">Tudo em dia. Nenhuma notificação.</p>
+                <p className="text-sm text-muted-foreground">
+                  {filtro === "naoLidas" ? "Nenhuma notificação não lida." : "Tudo em dia. Nenhuma notificação."}
+                </p>
               </div>
             ) : (
-              lista.map((n) => {
+              exibidas.map((n) => {
                 const meta = META[n.tipo] ?? fallback;
                 const Icon = meta.icon;
                 const clicavel = !!n.entidadeTipo;
@@ -209,6 +304,18 @@ export function NotificationBell() {
                   </button>
                 );
               })
+            )}
+            {!carregandoPrimeira && (podeCarregarMais || falhaAntigas) && (
+              <div className="border-t px-4 py-2 text-center">
+                <button
+                  type="button"
+                  onClick={carregarMaisAntigos}
+                  disabled={carregandoAntigas}
+                  className="text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                >
+                  {carregandoAntigas ? "Carregando…" : falhaAntigas ? "Não carregou — tentar de novo" : "Ver mais antigos"}
+                </button>
+              </div>
             )}
           </div>
         </div>

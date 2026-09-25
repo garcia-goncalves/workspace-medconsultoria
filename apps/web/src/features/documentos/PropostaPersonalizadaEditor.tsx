@@ -13,6 +13,7 @@ import { Select } from "../../components/ui/select";
 import { MoneyInput } from "../../components/ui/money-input";
 import { useConfirm } from "../../components/ui/confirm-dialog";
 import { formatBRL, formatPct } from "../../lib/masks";
+import { ConveniosPicker } from "./ConveniosPicker";
 import {
   mover,
   novaChave,
@@ -178,13 +179,13 @@ export function PropostaPersonalizadaEditor({
     <div className="space-y-5">
       {/* ── Investimento ─────────────────────────────── */}
       <section className="space-y-2">
-        <Label hint="Serviços do catálogo viram serviço contratado quando o cliente aceita. A linha avulsa é combinada só neste papel.">
+        <Label hint="Serviços do catálogo viram serviço contratado quando o cliente aceita. A linha avulsa com valor vira conta a receber.">
           Itens do investimento
         </Label>
         {form.itens.some((l) => l.servicoId === null) && (
           <p role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-            Linha avulsa vale só neste papel: ao aceitar, ela <strong>não vira serviço contratado nem conta a receber</strong>. Lance essa
-            cobrança à mão no Financeiro.
+            Linha avulsa com valor vira <strong>conta a receber</strong> quando o cliente aceita (e entra no contrato). Ela não vira
+            serviço contratado na ficha, e é sempre valor fixo.
           </p>
         )}
         {form.itens.length === 0 && (
@@ -194,9 +195,11 @@ export function PropostaPersonalizadaEditor({
         )}
         {form.itens.map((l, i) => {
           const sv = l.servicoId ? catalogo.find((s) => s.id === l.servicoId) : undefined;
-          // Percentual só na linha avulsa ou no serviço marcado como faturamento médico (ADR-145):
-          // o servidor recusa o resto, e a tela não oferece o que o servidor recusa.
-          const podePercentual = !l.servicoId || ehServicoDeFaturamento(sv);
+          // Percentual só no serviço marcado como faturamento médico (ADR-145) — linha avulsa é
+          // sempre valor fixo (Onda 4A). O servidor recusa o resto, e a tela não oferece o que o
+          // servidor recusa.
+          const ehFaturamento = !!l.servicoId && ehServicoDeFaturamento(sv);
+          const podePercentual = ehFaturamento;
           const r = resolvidos[i];
           const sub = r ? (r.valor || 0) * (r.quantidade || 1) : 0;
           return (
@@ -216,6 +219,8 @@ export function PropostaPersonalizadaEditor({
                             recorrencia: novo?.valorRecorrencia ?? "AVULSO",
                             cobranca: "FIXO",
                             percentual: null,
+                            // Convênio é do serviço de faturamento: trocar de serviço zera a lista.
+                            conveniosIds: [],
                           });
                         }}
                       >
@@ -329,6 +334,14 @@ export function PropostaPersonalizadaEditor({
                       : "a combinar"}
                 </span>
               </div>
+              {/* CONVÊNIOS (ADR-126): o mesmo seletor da proposta de faturamento. Os ids viajam
+                  dentro do item e, no aceite, viram os convênios do cliente na ficha. */}
+              {ehFaturamento && (
+                <ConveniosPicker
+                  selecionados={l.conveniosIds}
+                  setSelecionados={(v) => setLinha(l.chave, { conveniosIds: v })}
+                />
+              )}
             </div>
           );
         })}

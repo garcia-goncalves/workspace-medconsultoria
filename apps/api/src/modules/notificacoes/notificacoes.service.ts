@@ -35,6 +35,10 @@ function rotaEntidade(tipo?: string | null, id?: string | null): string {
     case "incidente":
     case "erro":
       return "/sistema";
+    // Aviso de segurança da própria conta (código de 2FA errado): leva a Configurações, onde se
+    // troca a senha.
+    case "seguranca":
+      return "/configuracoes";
     default:
       return "/";
   }
@@ -45,6 +49,35 @@ export function listNotificacoes(userId: string) {
     where: { userId },
     orderBy: { createdAt: "desc" },
     take: 30,
+  });
+}
+
+/** Tamanho da página do histórico do sininho ("ver mais antigos"). */
+export const PAGINA_HISTORICO = 30;
+
+/**
+ * Histórico do sininho, página a página, do mais novo para o mais antigo. O que o sino mostra de
+ * cara continua sendo `listNotificacoes` (as 30 últimas, com polling); isto só é chamado quando a
+ * pessoa pede "ver mais antigos" ou filtra "não lidas".
+ *
+ * Paginação por CHAVE `(createdAt, id)`, não por deslocamento: com `skip`, um aviso novo chegando
+ * entre duas páginas empurra a lista e a página seguinte REPETE uma linha (ou pula uma, ao marcar
+ * como lida no filtro "não lidas"). `antesDe` é o último item já na tela; o `id` desempata avisos
+ * gravados no mesmo milissegundo. Sempre escopado ao próprio usuário.
+ */
+export function historicoNotificacoes(
+  userId: string,
+  opts: { antesDe?: { createdAt: Date; id: string }; apenasNaoLidas?: boolean; limite?: number } = {},
+) {
+  const { antesDe, apenasNaoLidas } = opts;
+  return prisma.notificacao.findMany({
+    where: {
+      userId,
+      ...(apenasNaoLidas ? { lida: false } : {}),
+      ...(antesDe ? { OR: [{ createdAt: { lt: antesDe.createdAt } }, { createdAt: antesDe.createdAt, id: { lt: antesDe.id } }] } : {}),
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: opts.limite ?? PAGINA_HISTORICO,
   });
 }
 

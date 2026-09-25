@@ -25,8 +25,11 @@ import {
   UMA_OPERADORA_POR_PROPOSTA,
   SITUACOES_CLIENTE,
   MODELO_ACEITA_LEAD,
+  PROPOSTA_SUBSTITUIDA,
   TIPO_MODELO_LABEL,
   documentoServicoItemSchema,
+  valoresDeItensAusentesNoTexto,
+  type ValorDeItem,
 } from "@app/shared";
 import { aiService } from "../../lib/ai.js";
 import { avancarLeadPorClienteAuto, garantirClienteDoLead } from "../leads/leads.service.js";
@@ -113,6 +116,20 @@ export function listDocumentos(status?: StatusDocumento) {
   });
 }
 
+/**
+ * Os valores que o ACEITE vai cobrar (itens do catálogo + linhas avulsas) e que NÃO aparecem mais
+ * no texto da proposta (Onda 4A). Só vale para PROPOSTA: é o único tipo cujo aceite lê `itens` para
+ * gravar preço e gerar cobrança. Contrato também guarda `itens`, mas ninguém cobra a partir dele.
+ * A régua é `valoresDeItensAusentesNoTexto` (`@app/shared`), a MESMA que a tela usa ao vivo.
+ */
+function alertaDeValores(doc: { conteudo: string; itens: unknown; linhasAvulsas: unknown; modelo: { tipo: string } | null }): string[] {
+  if (doc.modelo?.tipo !== "PROPOSTA") return [];
+  const itens = Array.isArray(doc.itens) ? (doc.itens as ValorDeItem[]) : [];
+  const avulsas = Array.isArray(doc.linhasAvulsas) ? (doc.linhasAvulsas as ValorDeItem[]) : [];
+  if (!itens.length && !avulsas.length) return [];
+  return valoresDeItensAusentesNoTexto(doc.conteudo, [...itens, ...avulsas]);
+}
+
 export async function getDocumento(id: string) {
   const doc = await prisma.documento.findFirst({
     where: { id, deletedAt: null },
@@ -125,7 +142,7 @@ export async function getDocumento(id: string) {
     },
   });
   if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Documento não encontrado" });
-  return doc;
+  return { ...doc, alertaValores: alertaDeValores(doc) };
 }
 
 export async function createDocumento(input: CreateDocumentoInput, userId: string) {
@@ -754,7 +771,20 @@ function textoVigencia(meses: number): string {
  * vigência. Preenche `{{objeto}}` (serviço + cláusula de cada um), a tabela de `{{valor}}` e o
  * `{{prazo}}` do modelo de contrato. Fica RASCUNHO editável, ligado ao tipo CONTRATO. Ver ADR-81.
  */
-export async function criarContrato(input: CriarContratoInput, userId: string) {
+/** Linha avulsa aceita numa proposta personalizada (Onda 4A) — entra no contrato como texto. */
+type LinhaAvulsaDoContrato = { descricao: string; valor: number; quantidade: number; recorrencia: "AVULSO" | "MENSAL" };
+
+export async function criarContrato(
+  input: CriarContratoInput,
+  userId: string,
+  // Só a automação pós-aceite passa isto (não vem da tela): a linha avulsa não tem serviço do
+  // catálogo, então não cabe em `input.itens` — mas foi aceita e é cobrada, e um contrato que a
+  // omitisse deixaria uma cobrança sem lastro no papel assinado.
+  extras: { linhasAvulsas?: LinhaAvulsaDoContrato[] } = {},
+) {
+  const linhasAvulsas = extras.linhasAvulsas ?? [];
+  // Nome de linha avulsa é texto digitado: escapa HTML como qualquer valor que entra no papel.
+  const escLinha = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const cliente = await prisma.cliente.findUnique({
     where: { id: input.clienteId },
     select: { nome: true, email: true, cnpj: true, telefone: true },
@@ -775,13 +805,17 @@ export async function criarContrato(input: CriarContratoInput, userId: string) {
     if (it.percentual != null && it.percentual > 0) partes.push(`${fmtPct(it.percentual)} do faturamento/mês`);
     return partes.join(" + ");
   };
-  const objeto = input.itens
-    .map((it) => {
+  const objeto = [
+    ...input.itens.map((it) => {
       const s = servicos.find((x) => x.id === it.servicoId);
       const preco = precoDoItem(it);
       return `- **${s?.nome ?? "Serviço"}**${preco ? ` — ${preco}` : ""}`;
-    })
-    .join("\n");
+    }),
+    ...linhasAvulsas.map((l) => {
+      const preco = precoDoItem({ servicoId: "", valor: l.valor, quantidade: l.quantidade, recorrencia: l.recorrencia, percentual: null });
+      return `- **${escLinha(l.descricao)}**${preco ? ` — ${preco}` : ""}`;
+    }),
+  ].join("\n");
 
   // {{clausulas_servicos}} = seção PERSONALIZADA: cada serviço contratado como subtítulo + a sua
   // cláusula específica (editável em Ajustes → Serviços). Só entram os serviços deste contrato.
@@ -793,8 +827,17 @@ export async function criarContrato(input: CriarContratoInput, userId: string) {
     })
     .join("\n\n");
 
-  // {{valor}} = a tabela de investimento real (mesmo cálculo da proposta).
-  const r = montarServicos(input.itens, servicos);
+  // {{valor}} = a tabela de investimento real (mesmo cálculo da proposta). As linhas avulsas
+  // entram no MESMO cálculo como pseudo-serviços (id sintético + nome da linha), para o total do
+  // contrato bater com o que o aceite cobrou — um segundo somador divergiria no primeiro caso.
+  const pseudo = linhasAvulsas.map((l, i) => ({ id: `avulsa:${i}`, nome: escLinha(l.descricao) }));
+  const r = montarServicos(
+    [
+      ...input.itens,
+      ...linhasAvulsas.map((l, i) => ({ servicoId: `avulsa:${i}`, valor: l.valor, quantidade: l.quantidade, recorrencia: l.recorrencia, percentual: null })),
+    ],
+    [...servicos, ...pseudo],
+  );
   const valorBloco = [r.investimento, input.observacoes?.trim() ? `\n${input.observacoes.trim()}` : ""].filter(Boolean).join("");
   const prazoTxt = textoVigencia(input.vigenciaMeses);
   // Identidade da CONTRATADA e foro vêm de Ajustes → Dados da empresa (editáveis pela Thaís).
@@ -965,7 +1008,33 @@ export async function gerarPropostaAutoParaLead(leadId: string, userId: string) 
  * contrato para o cliente, sai. `opts.leadId` só liga o passo do funil e serve de fallback
  * (gerador genérico) quando o cliente ainda não tem serviços estruturados. Ver ADR-81.
  */
-export async function gerarContratoAutoParaCliente(clienteId: string, userId: string, opts?: { leadId?: string }) {
+export function gerarContratoAutoParaCliente(
+  clienteId: string,
+  userId: string,
+  opts?: { leadId?: string; linhasAvulsas?: LinhaAvulsaDoContrato[] },
+) {
+  // ⚠️ EM FILA POR CLIENTE (achado M2 da revisão da onda 4). O "já tem contrato?" abaixo é
+  // leitura-então-gravação: duas automações simultâneas para o mesmo cliente (dois aceites de
+  // propostas diferentes, ou o aceite junto com a conversão do lead) passavam as duas pela leitura
+  // e geravam DOIS contratos. Processo único (ADR-2), então uma fila em memória basta: a segunda
+  // chamada só começa depois da primeira, e aí já enxerga o contrato criado.
+  const anterior = contratoAutoEmAndamento.get(clienteId) ?? Promise.resolve();
+  const esta = anterior.catch(() => {}).then(() => gerarContratoAutoParaClienteAgora(clienteId, userId, opts));
+  const fim = esta.catch(() => {});
+  contratoAutoEmAndamento.set(clienteId, fim);
+  void fim.then(() => {
+    if (contratoAutoEmAndamento.get(clienteId) === fim) contratoAutoEmAndamento.delete(clienteId);
+  });
+  return esta;
+}
+
+const contratoAutoEmAndamento = new Map<string, Promise<unknown>>();
+
+async function gerarContratoAutoParaClienteAgora(
+  clienteId: string,
+  userId: string,
+  opts?: { leadId?: string; linhasAvulsas?: LinhaAvulsaDoContrato[] },
+) {
   const jaTem = await prisma.documento.findFirst({
     where: { clienteId, deletedAt: null, modelo: { tipo: "CONTRATO" } },
     select: { id: true },
@@ -973,8 +1042,11 @@ export async function gerarContratoAutoParaCliente(clienteId: string, userId: st
   if (jaTem) return;
 
   const { itens } = await itensDoCliente(clienteId);
+  const linhasAvulsas = opts?.linhasAvulsas ?? [];
   let documentoId: string;
-  if (itens.length) {
+  // Proposta personalizada SÓ com linhas avulsas também gera contrato: o cliente aceitou e vai ser
+  // cobrado, e o contrato é o lastro dessa cobrança.
+  if (itens.length || linhasAvulsas.length) {
     const doc = await criarContrato(
       {
         clienteId,
@@ -982,6 +1054,7 @@ export async function gerarContratoAutoParaCliente(clienteId: string, userId: st
         itens: itens.map(({ servicoId, valor, quantidade, recorrencia, percentual }) => ({ servicoId, valor, quantidade, recorrencia, percentual })),
       },
       userId,
+      { linhasAvulsas },
     );
     documentoId = doc.id;
     if (opts?.leadId) await prisma.leadPasso.updateMany({ where: { leadId: opts.leadId, acaoDoc: "contrato", documentoId: null }, data: { documentoId } });
@@ -1170,7 +1243,7 @@ export async function gerarParaLead(leadId: string, tipo: string, ator: { id: st
 }
 
 export async function updateConteudo(id: string, conteudo: string, userId: string) {
-  const doc = await prisma.documento.findUnique({ where: { id } });
+  const doc = await prisma.documento.findUnique({ where: { id }, include: { modelo: { select: { tipo: true } } } });
   if (!doc || doc.deletedAt) throw new TRPCError({ code: "NOT_FOUND" });
   if (doc.status === "ENVIADO") {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Documento já enviado não pode ser editado" });
@@ -1181,7 +1254,10 @@ export async function updateConteudo(id: string, conteudo: string, userId: strin
       data: { documentoId: id, conteudo, autorId: userId, origem: "MANUAL" },
     }),
   ]);
-  return { ok: true };
+  // ⚠️ NÃO BLOQUEIA: o texto da proposta se negocia. Mas se um valor que o aceite vai cobrar sumiu
+  // do texto, a tela precisa dizer isso ANTES de a proposta ir ao cliente — senão ele aceita um
+  // preço e é cobrado por outro, e ninguém percebe até a cobrança.
+  return { ok: true, alertaValores: alertaDeValores({ ...doc, conteudo }) };
 }
 
 /** Fluxo: rascunho → em revisão → aprovado → enviado. Aprovação/envio são humanos. */
@@ -1231,6 +1307,142 @@ export async function removeDocumento(id: string) {
   // volta a oferecer "Gerar {tipo}" em vez de um link para um documento inexistente.
   await prisma.leadPasso.updateMany({ where: { documentoId: id }, data: { documentoId: null } });
   return { ok: true };
+}
+
+/**
+ * DUPLICAR PROPOSTA (Onda 4A): um documento NOVO, em rascunho, com o mesmo texto, os mesmos itens
+ * e as mesmas linhas avulsas — para o mesmo destinatário ou outro cliente/lead. É o caminho para
+ * "mudar o preço" sem editar o texto de uma proposta cujos itens já estão congelados, e para
+ * reaproveitar uma proposta boa em outra clínica.
+ *
+ * ⚠️ O QUE NÃO VEM JUNTO, de propósito: aceite (token, status, hash, IP, quem respondeu),
+ * assinaturas, aprovação e envio. Copiar o token faria o link do cliente antigo responder pela
+ * proposta nova; copiar "ACEITA" dispararia nada, mas mentiria na tela.
+ *
+ * ⚠️ NÚMERO NOVO pela MESMA régua de toda proposta (`proximoNumeroProposta`, a contagem da Thaís
+ * que começou em 0225): a original com número ganha uma cópia com o próximo; a sem número (modelo
+ * sem `{{numero}}`) continua sem. O número é trocado também dentro do texto e do título — senão o
+ * papel da cópia diria "Proposta 0231" com a coluna dizendo 0240.
+ *
+ * ⚠️ PROPOSTA DE CREDENCIAMENTO SÓ DUPLICA PARA O MESMO CLIENTE: ela é por MÉDICO daquele cliente
+ * (ADR-103/104) — os nomes estão no texto e a grade médico × operadora é dele. Levá-la a outra
+ * clínica produziria uma proposta com os médicos de outra pessoa.
+ */
+export async function duplicarProposta(
+  id: string,
+  destino: { clienteId?: string; leadId?: string },
+  userId: string,
+) {
+  const orig = await prisma.documento.findFirst({
+    where: { id, deletedAt: null },
+    include: { modelo: { select: { tipo: true, corpo: true } }, cliente: { select: { id: true, nome: true } } },
+  });
+  if (!orig) throw new TRPCError({ code: "NOT_FOUND", message: "Documento não encontrado." });
+  if (orig.modelo?.tipo !== "PROPOSTA") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Só propostas podem ser duplicadas." });
+  }
+
+  let clienteId = orig.clienteId;
+  if (destino.leadId) clienteId = (await clienteDoLeadParaDocumento(destino.leadId, userId)).clienteId;
+  else if (destino.clienteId) clienteId = destino.clienteId;
+
+  const outroDestino = clienteId !== orig.clienteId;
+  let novoCliente: { id: string; nome: string } | null = orig.cliente;
+  if (outroDestino) {
+    novoCliente = clienteId
+      ? await prisma.cliente.findFirst({ where: { id: clienteId, deletedAt: null }, select: { id: true, nome: true } })
+      : null;
+    if (!novoCliente) throw new TRPCError({ code: "NOT_FOUND", message: "Cliente não encontrado." });
+    const ehCredenciamento =
+      !!orig.modelo?.corpo.includes("{{operadoras}}") ||
+      (await prisma.credenciamento.count({ where: { documentoId: orig.id } })) > 0;
+    if (ehCredenciamento) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message:
+          "A proposta de credenciamento é por médico deste cliente e não pode ir para outra clínica. Gere uma nova proposta de credenciamento para o outro cliente.",
+      });
+    }
+  }
+
+  // O nome do cliente entra no corpo ESCAPADO (ver `render`) e no título cru.
+  const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const montar = (numero: number | null) => {
+    let conteudo = orig.conteudo;
+    let titulo = orig.titulo;
+    if (orig.numero != null && numero != null) {
+      conteudo = conteudo.split(formatarNumeroProposta(orig.numero)).join(formatarNumeroProposta(numero));
+      titulo = titulo.split(formatarNumeroProposta(orig.numero)).join(formatarNumeroProposta(numero));
+    }
+    // Troca o nome da clínica quando o destino muda. É troca de TEXTO — por isso a tela pede para
+    // conferir a cópia antes de enviar (um nome curto e comum poderia casar em outro lugar).
+    if (outroDestino && orig.cliente && novoCliente && orig.cliente.nome.trim()) {
+      conteudo = conteudo.split(esc(orig.cliente.nome)).join(esc(novoCliente.nome));
+      titulo = titulo.split(orig.cliente.nome).join(novoCliente.nome);
+    }
+    return { conteudo, titulo };
+  };
+
+  let numero = orig.numero != null ? await proximoNumeroProposta() : null;
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const { conteudo, titulo } = montar(numero);
+    try {
+      const doc = await prisma.$transaction(async (tx) => {
+        const criado = await tx.documento.create({
+          data: {
+            modeloId: orig.modeloId,
+            clienteId,
+            // Projeto é do cliente: só acompanha a cópia quando o destino é o mesmo.
+            projetoId: outroDestino ? null : orig.projetoId,
+            titulo,
+            conteudo,
+            numero,
+            status: "RASCUNHO",
+            criadoPorId: userId,
+            itens: orig.itens ?? undefined,
+            linhasAvulsas: orig.linhasAvulsas ?? undefined,
+            versoes: { create: { conteudo, autorId: userId, origem: "MANUAL" } },
+          },
+        });
+        await tx.activityLog.create({
+          data: { userId, acao: "documento.duplicado", entidadeTipo: "documento", entidadeId: criado.id, dados: { origemId: orig.id } },
+        });
+        // ⚠️ A ORIGINAL DEIXA DE ACEITAR (achado M3 da revisão da onda 4). Duplicar para o MESMO
+        // cliente é o caminho para "mudar o preço" — e a original seguia PENDENTE, com o link
+        // valendo. Aceitar as duas cobrava a mesma linha avulsa duas vezes (a chave da conta
+        // inclui o id do documento, então o índice único não segura). Na MESMA transação da
+        // cópia: cópia sem substituição (ou o contrário) seria exatamente o estado a evitar.
+        // Condicional: se o cliente aceitou a original no meio do caminho, a resposta dele fica.
+        // Para OUTRO cliente a original continua viva — é negócio de outra clínica.
+        if (!outroDestino) {
+          const r = await tx.documento.updateMany({
+            where: { id: orig.id, propostaStatus: "PENDENTE" },
+            data: { propostaStatus: PROPOSTA_SUBSTITUIDA },
+          });
+          if (r.count === 1) {
+            await tx.activityLog.create({
+              data: {
+                userId,
+                acao: "proposta.substituida",
+                entidadeTipo: "documento",
+                entidadeId: orig.id,
+                dados: { porDocumentoId: criado.id, porNumero: numero },
+              },
+            });
+          }
+        }
+        return criado;
+      });
+      return doc;
+    } catch (e) {
+      const erro = e as { code?: string; meta?: { target?: unknown } };
+      const alvo = Array.isArray(erro.meta?.target) ? erro.meta.target.join(",") : String(erro.meta?.target ?? "");
+      // Duas emissões no mesmo instante disputam o número; quem perde tenta o seguinte.
+      if (!(erro.code === "P2002" && alvo.includes("numero")) || numero == null) throw e;
+      numero = await proximoNumeroProposta();
+    }
+  }
+  throw new TRPCError({ code: "CONFLICT", message: "Não foi possível reservar o número da proposta. Tente de novo." });
 }
 
 // ── IA (Fase 9) ──────────────────────────────────────────

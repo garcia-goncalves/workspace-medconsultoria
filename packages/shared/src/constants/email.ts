@@ -144,6 +144,18 @@ export const EMAIL_CATEGORIAS: EmailCategoria[] = [
   },
   { tipo: "incidente", label: "Alertas do sistema", descricao: "Incidentes técnicos detectados na aplicação.", grupo: "Sistema", minRole: "ROOT" },
   { tipo: "erro", label: "Erros do sistema", descricao: "Novos erros registrados na aplicação.", grupo: "Sistema", minRole: "ROOT" },
+  // ── CÓDIGO DE VERIFICAÇÃO ERRADO (onda 4, B1) ─────────────────────────────────────────
+  //
+  // Só chega a pedir código quem ACERTOU a senha: código errado ali é o sinal de senha vazada.
+  // Nasce LIGADA — é justamente o aviso que ninguém iria buscar — e `minRole: ADMIN` porque o
+  // 2FA, por ora, é de administrador.
+  {
+    tipo: "seguranca_2fa_codigo_errado",
+    label: "Código de verificação errado na sua conta",
+    descricao: "Quando alguém acerta a sua senha e erra o código da verificação em duas etapas — sinal de que a senha está com outra pessoa.",
+    grupo: "Sistema",
+    minRole: "ADMIN",
+  },
   // ── MENSAGEM INTERNA NÃO AVISAVA NINGUÉM FORA DO SISTEMA (W5, Onda 1) ────────────────
   //
   // Conversa INDIVIDUAL/GRUPO/PROJETO só emitia socket — e em produção o tempo real é polling

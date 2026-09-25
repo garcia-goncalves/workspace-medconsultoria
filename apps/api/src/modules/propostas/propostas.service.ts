@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { prisma } from "@app/db";
 import { destinatarioDeAssinatura } from "../documentos/destinatario-de-assinatura.js";
-import { mensagemDeLinkExpirado, situacaoDoLinkPublico, type ResponderPropostaInput } from "@app/shared";
+import { formatarNumeroProposta, mensagemDeLinkExpirado, PROPOSTA_SUBSTITUIDA, situacaoDoLinkPublico, type ResponderPropostaInput } from "@app/shared";
 import { hashConteudo } from "../../lib/hash.js";
 import { enviarEmailTemplate } from "../emails/enviados.service.js";
 import { notificar } from "../notificacoes/notificacoes.service.js";
 import { avancarLeadPorClienteAuto } from "../leads/leads.service.js";
 import { config } from "../../config.js";
+import { lerLinhasAvulsas, provisionarLinhasAvulsasAceitas } from "./linhas-avulsas.service.js";
 
 const linkProposta = (token: string) => `${config.WEB_ORIGIN}/proposta/${token}`;
 
@@ -43,6 +44,9 @@ export async function habilitarAceite(
   if (!doc.cliente) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Vincule um cliente à proposta antes de habilitar o aceite." });
   }
+  // ⚠️ Reenviar a SUBSTITUÍDA a faria PENDENTE de novo, ao lado da cópia — exatamente o estado de
+  // duas propostas aceitáveis cobrando a mesma coisa que a substituição veio fechar (M3).
+  if (doc.propostaStatus === PROPOSTA_SUBSTITUIDA) throw await erroDeSubstituida(documentoId);
 
   const token = randomUUID();
   await prisma.documento.update({
@@ -103,6 +107,7 @@ export async function statusDoDocumento(documentoId: string) {
     respondidaEm: doc.propostaRespondidaEm,
     motivoRecusa: doc.propostaMotivoRecusa,
     ip: doc.propostaRespIp,
+    substituidaPor: doc.propostaStatus === PROPOSTA_SUBSTITUIDA ? await substitutaDe(documentoId) : null,
     // Se o conteúdo mudou depois de habilitar, o cliente não consegue aceitar (integridade).
     conteudoAlterado: doc.propostaStatus === "PENDENTE" && doc.propostaHash !== hashConteudo(doc.conteudo),
   };
@@ -119,6 +124,33 @@ function exigirLinkValido(doc: { propostaSolicitadaEm: Date | null; propostaResp
     agora: new Date(),
   });
   if (!s.valido) throw new TRPCError({ code: "PRECONDITION_FAILED", message: mensagemDeLinkExpirado(s) });
+}
+
+/** Qual proposta substituiu esta (M3) — lido do rastro gravado na duplicação. */
+export async function substitutaDe(documentoId: string): Promise<{ id: string | null; numero: number | null }> {
+  const log = await prisma.activityLog.findFirst({
+    where: { entidadeTipo: "documento", entidadeId: documentoId, acao: "proposta.substituida" },
+    orderBy: { createdAt: "desc" },
+    select: { dados: true },
+  });
+  const d = (log?.dados ?? {}) as { porDocumentoId?: unknown; porNumero?: unknown };
+  return {
+    id: typeof d.porDocumentoId === "string" ? d.porDocumentoId : null,
+    numero: typeof d.porNumero === "number" ? d.porNumero : null,
+  };
+}
+
+/**
+ * `PRECONDITION_FAILED` de propósito: a página pública já trata esse código como "este link não
+ * vale mais — peça um novo" (a tela do link expirado, ADR-141), que é exatamente o recado.
+ */
+async function erroDeSubstituida(documentoId: string): Promise<TRPCError> {
+  const { numero } = await substitutaDe(documentoId);
+  const qual = numero != null ? ` pela proposta nº ${formatarNumeroProposta(numero)}` : " por uma versão mais nova";
+  return new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: `Esta proposta foi substituída${qual} e não pode mais ser aceita. Peça o link da nova à MedConsultoria.`,
+  });
 }
 
 /** Dados públicos da proposta (acesso por token, sem login). */
@@ -139,6 +171,7 @@ export async function getPorToken(token: string) {
     },
   });
   if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Link de proposta inválido." });
+  if (doc.propostaStatus === PROPOSTA_SUBSTITUIDA) throw await erroDeSubstituida(doc.id);
   exigirLinkValido(doc);
 
   // Quem abriu, e quando. Antes disto ninguém sabia (LGPD, ADR-141). Sem usuário: é gente de fora.
@@ -165,9 +198,11 @@ export async function getPorToken(token: string) {
 export async function responder(input: ResponderPropostaInput, ip?: string, respondidoPorId?: string | null) {
   const doc = await prisma.documento.findFirst({
     where: { propostaToken: input.token, deletedAt: null },
-    select: { id: true, titulo: true, conteudo: true, propostaStatus: true, propostaHash: true, propostaSolicitadaEm: true, propostaRespondidaEm: true, clienteId: true, criadoPorId: true, itens: true, cliente: { select: { nome: true } } },
+    select: { id: true, titulo: true, conteudo: true, propostaStatus: true, propostaHash: true, propostaSolicitadaEm: true, propostaRespondidaEm: true, clienteId: true, criadoPorId: true, itens: true, linhasAvulsas: true, cliente: { select: { nome: true } } },
   });
   if (!doc) throw new TRPCError({ code: "NOT_FOUND", message: "Link de proposta inválido." });
+  // Substituída NÃO é "já respondida": ninguém respondeu, e o cliente precisa saber que há outra (M3).
+  if (doc.propostaStatus === PROPOSTA_SUBSTITUIDA) throw await erroDeSubstituida(doc.id);
   if (doc.propostaStatus !== "PENDENTE") {
     return { ok: true, jaRespondida: true, decisao: doc.propostaStatus };
   }
@@ -181,8 +216,14 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
   }
 
   const aceita = input.decisao === "ACEITA";
-  await prisma.documento.update({
-    where: { id: doc.id },
+  // ⚠️ GRAVAÇÃO CONDICIONAL (achado M2 da revisão da onda 4). A conferência "PENDENTE" acima é
+  // uma LEITURA: aceitar e recusar ao mesmo tempo (duas abas, o e-mail e o Portal) passavam os
+  // dois por ela, e a automação do aceite — que cria a conta a receber das linhas avulsas — rodava
+  // numa proposta que terminava RECUSADA; dois aceites rodavam a automação duas vezes. Com
+  // `propostaStatus: "PENDENTE"` no filtro, só UMA resposta grava; a outra é recusada e não
+  // dispara nada (molde da reserva atômica do credenciamento, ADR-148).
+  const gravou = await prisma.documento.updateMany({
+    where: { id: doc.id, propostaStatus: "PENDENTE" },
     data: {
       propostaStatus: aceita ? "ACEITA" : "RECUSADA",
       propostaRespondidaEm: new Date(),
@@ -192,6 +233,9 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
       propostaMotivoRecusa: aceita ? null : input.motivo?.trim() || null,
     },
   });
+  if (gravou.count !== 1) {
+    throw new TRPCError({ code: "CONFLICT", message: "Esta proposta já foi respondida." });
+  }
   await prisma.activityLog.create({
     data: {
       userId: respondidoPorId ?? null,
@@ -216,8 +260,9 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
       //
       // ⚠️ SÓ LINHA DO CATÁLOGO VIRA SERVIÇO CONTRATADO (ADR-156). A proposta personalizada tem
       // linhas avulsas ("Treinamento da recepção"), combinadas naquele papel e sem cadastro por
-      // trás. Hoje ela grava em `itens` só as do catálogo; o filtro aqui é a segunda tranca, para
-      // uma linha sem `servicoId` que chegue por outro caminho nunca virar `ClienteServico`.
+      // trás. Ela grava em `itens` só as do catálogo; o filtro aqui é a segunda tranca, para uma
+      // linha sem `servicoId` que chegue por outro caminho nunca virar `ClienteServico`. As
+      // avulsas moram em `linhasAvulsas` e viram CONTA A RECEBER logo abaixo (Onda 4A).
       const itensAceitos = Array.isArray(doc.itens)
         ? (doc.itens as {
             servicoId: string;
@@ -228,6 +273,8 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
             conveniosIds?: string[];
           }[]).filter((i) => typeof i?.servicoId === "string" && i.servicoId.length > 0)
         : [];
+      const linhasAvulsas = lerLinhasAvulsas(doc.linhasAvulsas);
+      const documentoId = doc.id;
       void (async () => {
         // Ator das automações: quem criou a proposta; se o criador foi removido (criadoPorId nulo),
         // cai no responsável do cliente e, por fim, num ADMIN/ROOT ativo (para a atribuição/FK valer).
@@ -243,6 +290,24 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
           const { sincronizarServicosContratados } = await import("../servicos/servicos-cliente.service.js");
           await sincronizarServicosContratados(clienteId, itensAceitos, { id: atorId });
         }
+        // 1b) As LINHAS AVULSAS da proposta personalizada viram conta a receber (Onda 4A). Tem o
+        // próprio `try`: o Financeiro tropeçar não pode impedir o contrato, que vem a seguir — e a
+        // falha precisa aparecer em SISTEMA → Erros, não sumir.
+        if (linhasAvulsas.length) {
+          try {
+            await provisionarLinhasAvulsasAceitas(documentoId, clienteId, linhasAvulsas, { id: atorId });
+          } catch (e) {
+            const { registrarErro } = await import("../sistema/sistema.service.js");
+            await registrarErro({
+              rota: "propostas.responder/linhas-avulsas",
+              mensagem:
+                `A proposta do documento ${documentoId} foi ACEITA, mas a cobrança das linhas avulsas ` +
+                `falhou: a conta a receber pode NÃO ter sido criada. Confira o Financeiro do cliente ` +
+                `${clienteId}. Causa: ${(e as Error)?.message ?? String(e)}`,
+              stack: (e as Error)?.stack ?? null,
+            }).catch(() => {});
+          }
+        }
         // 2) Gera o CONTRATO automaticamente (EM_REVISÃO) já com esses serviços/valores + cláusulas.
         // Por CLIENTE (não exige lead ativo) → funciona também para cliente já convertido.
         const lead = await prisma.lead.findFirst({
@@ -251,7 +316,7 @@ export async function responder(input: ResponderPropostaInput, ip?: string, resp
           select: { id: true },
         });
         const { gerarContratoAutoParaCliente } = await import("../documentos/documentos.service.js");
-        await gerarContratoAutoParaCliente(clienteId, atorId, { leadId: lead?.id });
+        await gerarContratoAutoParaCliente(clienteId, atorId, { leadId: lead?.id, linhasAvulsas });
       })().catch(async (e) => {
         // ⚠️ AQUI ESTAVA UM `catch(() => {})` — o silêncio mais caro da aplicação.
         //

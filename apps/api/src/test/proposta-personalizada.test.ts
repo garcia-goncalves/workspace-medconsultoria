@@ -7,6 +7,9 @@ import {
   resumoInvestimentoPersonalizado,
   PRECO_VALOR_E_PERCENTUAL,
   TEXTO_COM_MARCADOR,
+  LINHA_AVULSA_SEM_PERCENTUAL,
+  CONVENIOS_SO_NO_CATALOGO,
+  valoresDeItensAusentesNoTexto,
   type ItemPersonalizadoResolvido,
 } from "@app/shared";
 
@@ -180,5 +183,75 @@ describe("o schema da proposta personalizada", () => {
     const r = criarPropostaPersonalizadaSchema.safeParse({ ...base, clausulas: ["Vale {{valor}}"] });
     expect(r.success).toBe(false);
     expect(r.error?.issues.map((i) => i.message)).toContain(TEXTO_COM_MARCADOR);
+  });
+});
+
+// ── Onda 4A ──────────────────────────────────────────────
+
+describe("linha avulsa e convênios no schema (Onda 4A)", () => {
+  it("linha avulsa NÃO pode ser cobrada por percentual — só o faturamento é percentual", () => {
+    const r = itemPropostaPersonalizadaSchema.safeParse({ descricao: "Repasse", valor: 0, percentual: 5 });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues.map((i) => i.message)).toContain(LINHA_AVULSA_SEM_PERCENTUAL);
+  });
+
+  it("item do catálogo com percentual passa no schema (quem confere a marca é o servidor)", () => {
+    expect(itemPropostaPersonalizadaSchema.safeParse({ servicoId: "s1", valor: 0, percentual: 5 }).success).toBe(true);
+  });
+
+  it("convênio em linha avulsa é recusado — não há serviço onde guardá-lo", () => {
+    const r = itemPropostaPersonalizadaSchema.safeParse({ descricao: "x", valor: 10, conveniosIds: ["op1"] });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues.map((i) => i.message)).toContain(CONVENIOS_SO_NO_CATALOGO);
+    expect(
+      itemPropostaPersonalizadaSchema.safeParse({ servicoId: "s1", valor: 0, percentual: 5, conveniosIds: ["op1"] }).success,
+    ).toBe(true);
+  });
+});
+
+describe("convênios no papel (Onda 4A)", () => {
+  it("lista os convênios atendidos numa seção própria, sem repetir", () => {
+    const doc = montarBlocoPersonalizado({
+      secoes: [],
+      itens: [{ nome: "Faturamento", valor: 0, quantidade: 1, recorrencia: "MENSAL", percentual: 5, convenios: ["Unimed", "Omint", "Unimed"] }],
+      clausulas: [],
+      validadeDias: 15,
+    });
+    expect(doc).toContain("## Convênios atendidos\n\n- **Unimed**\n- **Omint**");
+  });
+
+  it("sem convênio escolhido, a seção não aparece", () => {
+    const doc = montarBlocoPersonalizado({ secoes: [], itens, clausulas: [], validadeDias: 15 });
+    expect(doc).not.toContain("Convênios atendidos");
+  });
+});
+
+describe("valores dos itens que sumiram do texto (Onda 4A)", () => {
+  const texto = semNbsp(montarBlocoPersonalizado({ secoes: [], itens, clausulas: [], validadeDias: 15 }));
+
+  it("texto gerado e itens concordam — nenhum alerta", () => {
+    expect(valoresDeItensAusentesNoTexto(texto, itens)).toEqual([]);
+  });
+
+  it("valor editado à mão no texto vira alerta com o valor que o aceite vai cobrar", () => {
+    // O valor aparece na linha E no total: a régua acusa quando ele some do texto inteiro.
+    const editado = texto.split("R$ 3.500,00").join("R$ 3.000,00");
+    expect(valoresDeItensAusentesNoTexto(editado, itens)).toEqual(["R$ 3.500,00"]);
+  });
+
+  it("aceita o espaço inseparável do Intl e o espaço comum do editor", () => {
+    const comNbsp = `Total ${(3500).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`;
+    expect(valoresDeItensAusentesNoTexto(comNbsp, [{ valor: 3500 }])).toEqual([]);
+    expect(valoresDeItensAusentesNoTexto("Total R$ 3.500,00", [{ valor: 3500 }])).toEqual([]);
+  });
+
+  it("percentual que some do texto vira alerta; '15%' não passa por '5%'", () => {
+    expect(valoresDeItensAusentesNoTexto("Cobramos 15% do faturamento", [{ valor: 0, percentual: 5 }])).toEqual(["5%"]);
+    expect(valoresDeItensAusentesNoTexto("Cobramos 5% do faturamento", [{ valor: 0, percentual: 5 }])).toEqual([]);
+  });
+
+  it("confere o SUBTOTAL (quantidade × valor), que é o que o papel imprime", () => {
+    expect(valoresDeItensAusentesNoTexto("3 × R$ 400,00 = R$ 1.200,00", [{ valor: 400, quantidade: 3 }])).toEqual([]);
+    expect(valoresDeItensAusentesNoTexto("R$ 400,00", [{ valor: 400, quantidade: 3 }])).toEqual(["R$ 1.200,00"]);
   });
 });

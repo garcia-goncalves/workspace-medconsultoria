@@ -48,6 +48,12 @@ describe("decidirRotaDaNotificacao", () => {
     expect(decidirRotaDaNotificacao(notif({ entidadeTipo: "lead", entidadeId: "l1" }))).toEqual({ destino: "lead" });
   });
 
+  it("aviso de segurança da conta: vai para Configurações (onde se troca a senha)", () => {
+    expect(
+      decidirRotaDaNotificacao(notif({ tipo: "seguranca_2fa_codigo_errado", entidadeTipo: "seguranca", entidadeId: "u1" })),
+    ).toEqual({ destino: "configuracoes" });
+  });
+
   it("incidente e erro: vão para o Sistema", () => {
     expect(decidirRotaDaNotificacao(notif({ entidadeTipo: "incidente", entidadeId: "i1" }))).toEqual({ destino: "sistema" });
     expect(decidirRotaDaNotificacao(notif({ entidadeTipo: "erro", entidadeId: "er1" }))).toEqual({ destino: "sistema" });

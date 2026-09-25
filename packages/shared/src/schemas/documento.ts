@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { celulaGradeSchema } from "./credenciamento.js";
-import { temValorEPercentual, PRECO_VALOR_E_PERCENTUAL } from "../estimativa.js";
+import { temValorEPercentual, temPercentual, PRECO_VALOR_E_PERCENTUAL } from "../estimativa.js";
 
 // ── Assinatura eletrônica (Fase 3) ───────────────────────
 export const assinarSchema = z
@@ -122,6 +122,15 @@ export const STATUS_DOCUMENTO_LABEL: Record<StatusDocumento, string> = {
   ENVIADO: "Enviado",
 };
 
+/**
+ * `propostaStatus` de uma proposta que foi DUPLICADA para o mesmo cliente enquanto aguardava o
+ * aceite (achado M3 da revisão da onda 4). Duplicar é o caminho para "mudar o preço"; se a
+ * original seguisse PENDENTE, o cliente poderia aceitar as duas e a mesma linha avulsa seria
+ * cobrada duas vezes. A coluna é `String` (PENDENTE | ACEITA | RECUSADA), então o valor novo não
+ * pede migração. Estado final: não aceita resposta nem pode ser reenviada.
+ */
+export const PROPOSTA_SUBSTITUIDA = "SUBSTITUIDA";
+
 // ── Situação COERENTE do documento (une o fluxo interno + aceite da proposta + assinatura) ──
 // É a fonte única de "em que pé está o documento", usada em TODA a app (arquivo, ficha,
 // Portal, funil). O desfecho com o cliente (aceito/recusado/assinado) prevalece sobre o fluxo.
@@ -133,6 +142,7 @@ export type SituacaoDocKey =
   | "AGUARDANDO_ACEITE"
   | "ACEITA"
   | "RECUSADA"
+  | "SUBSTITUIDA"
   | "AGUARDANDO_ASSINATURA"
   | "ASSINADO";
 
@@ -154,6 +164,7 @@ export const SITUACAO_DOC_LABEL: Record<SituacaoDocKey, string> = {
   AGUARDANDO_ACEITE: "Aguardando aceite",
   ACEITA: "Aceita",
   RECUSADA: "Recusada",
+  SUBSTITUIDA: "Substituída",
   AGUARDANDO_ASSINATURA: "Aguardando assinatura",
   ASSINADO: "Assinado",
 };
@@ -170,6 +181,7 @@ export function situacaoDocumento(d: SituacaoDocInput): SituacaoDoc {
   if (d.assinadoEm) return { key: "ASSINADO", label: "Assinado", variant: "success" };
   if (d.propostaStatus === "ACEITA") return { key: "ACEITA", label: "Aceita", variant: "success" };
   if (d.propostaStatus === "RECUSADA") return { key: "RECUSADA", label: "Recusada", variant: "danger" };
+  if (d.propostaStatus === PROPOSTA_SUBSTITUIDA) return { key: "SUBSTITUIDA", label: "Substituída", variant: "default" };
   // 2) Aguardando o cliente responder/assinar.
   if (d.propostaStatus === "PENDENTE")
     return { key: "AGUARDANDO_ACEITE", label: "Aguardando aceite", variant: "warning", atencao: "AGUARDANDO_CLIENTE" };
@@ -472,9 +484,19 @@ export const TEXTO_COM_MARCADOR =
 const semMarcador = (s: string | undefined) => !s || !TEM_MARCADOR.test(s);
 
 /**
+ * Linha avulsa é cobrada por VALOR FIXO. Percentual é exclusivo do serviço de faturamento médico
+ * (ADR-145), e a linha avulsa não é serviço nenhum — não há marca que a autorize.
+ */
+export const LINHA_AVULSA_SEM_PERCENTUAL =
+  "Linha avulsa é cobrada por valor fixo (avulso ou mensal). Percentual só no serviço de faturamento médico — escolha-o do catálogo.";
+
+/** Convênio pertence ao serviço de faturamento (ADR-126); linha avulsa não tem onde guardá-lo. */
+export const CONVENIOS_SO_NO_CATALOGO = "Convênios só se informam no serviço de faturamento médico, escolhido do catálogo.";
+
+/**
  * Uma linha do investimento: OU um serviço do catálogo (`servicoId`), OU uma linha avulsa
- * (`descricao`). Só a do catálogo vira serviço contratado no aceite — a avulsa é combinada
- * naquele papel e não tem cadastro por trás (ver `criarPropostaPersonalizada`).
+ * (`descricao`). A do catálogo vira serviço contratado no aceite; a avulsa com valor vira CONTA A
+ * RECEBER no aceite (Onda 4A), sem cadastro de serviço por trás — ver `linhas-avulsas.service`.
  */
 export const itemPropostaPersonalizadaSchema = z
   .object({
@@ -484,6 +506,11 @@ export const itemPropostaPersonalizadaSchema = z
     quantidade: z.number().int().min(1).max(10_000).default(1),
     recorrencia: z.enum(["AVULSO", "MENSAL"]).default("AVULSO"),
     percentual: z.number().min(0).max(100).nullable().optional(),
+    /**
+     * Convênios atendidos (ADR-126) — só no item do serviço de faturamento. Viajam DENTRO do item,
+     * como na proposta de faturamento, para atravessar o aceite pelo mesmo caminho do preço.
+     */
+    conveniosIds: z.array(z.string().min(1)).max(80).optional(),
   })
   .refine((v) => !!v.servicoId || !!v.descricao, {
     message: "Descreva a linha avulsa ou escolha um serviço do catálogo.",
@@ -495,6 +522,11 @@ export const itemPropostaPersonalizadaSchema = z
     message: PRECO_VALOR_E_PERCENTUAL,
     path: ["percentual"],
   })
+  .refine((v) => !!v.servicoId || !temPercentual({ valor: v.valor, percentual: v.percentual }), {
+    message: LINHA_AVULSA_SEM_PERCENTUAL,
+    path: ["percentual"],
+  })
+  .refine((v) => !!v.servicoId || !v.conveniosIds?.length, { message: CONVENIOS_SO_NO_CATALOGO, path: ["conveniosIds"] })
   .refine((v) => semMarcador(v.descricao), { message: TEXTO_COM_MARCADOR, path: ["descricao"] });
 export type ItemPropostaPersonalizada = z.infer<typeof itemPropostaPersonalizadaSchema>;
 
@@ -575,6 +607,8 @@ export type ItemPersonalizadoResolvido = {
   quantidade: number;
   recorrencia: "AVULSO" | "MENSAL";
   percentual?: number | null;
+  /** Nomes dos convênios atendidos (só no item do faturamento, ADR-126). */
+  convenios?: string[] | null;
 };
 
 const centavos = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -653,6 +687,14 @@ export function montarBlocoPersonalizado(p: {
     const bloco = [`## Investimento\n\n${tabela}`];
     if (p.fraseRepasse?.trim()) bloco.push(p.fraseRepasse.trim());
     partes.push(bloco.join("\n\n"));
+
+    // CONVÊNIOS ATENDIDOS (ADR-126) — a lista que o cliente confere, no mesmo formato da proposta
+    // de faturamento. Sem convênio escolhido a seção não aparece: o Personalizado nunca escreve
+    // "a definir" num papel que já tem preço.
+    const convenios = [...new Set(p.itens.flatMap((it) => it.convenios ?? []))];
+    if (convenios.length) {
+      partes.push(`## Convênios atendidos\n\n${convenios.map((c) => `- **${celula(c)}**`).join("\n")}`);
+    }
   }
 
   partes.push(

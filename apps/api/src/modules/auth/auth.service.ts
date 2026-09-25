@@ -12,6 +12,23 @@ import { templateDeBoasVindas } from "../emails/boas-vindas-por-publico.js";
 import { avancarLeadPorClienteAuto } from "../leads/leads.service.js";
 import { config } from "../../config.js";
 import { linhaDeLinkNaoEnviado } from "../../lib/log-de-link.js";
+import {
+  conferirSegundoFator,
+  desafioBateComASenha,
+  emitirDesafio,
+  lerDesafio,
+  segundoFatorAtivo,
+} from "./segundo-fator.service.js";
+
+/**
+ * O que os caminhos que ABREM SESSÃO devolvem ao router (login, aceitar convite, redefinir
+ * senha). Com a verificação em duas etapas ativa, não há sessão ainda — só o desafio de 5 min,
+ * que vira sessão em `concluirEntradaComSegundoFator`. Os dois lados são exclusivos; os campos
+ * `?: undefined` existem só para `r.sid`/`r.desafio` poderem ser lidos sem estreitar antes.
+ */
+export type EntradaDoServico =
+  | { sid: string; user: SessionUser; desafio?: undefined }
+  | { desafio: string; sid?: undefined; user?: undefined };
 
 /** Link de redefinição de senha válido por 1 hora. */
 const RESET_TTL_MS = 60 * 60 * 1000;
@@ -229,12 +246,11 @@ export function aquecerDefesaDeTempo(): void {
   void hashParaQueimarTempo().catch(() => {});
 }
 
-/** Autentica por e-mail/senha, cria sessão e retorna o usuário público. */
-export async function login(
-  input: LoginInput,
-  userAgent?: string,
-  ip?: string,
-): Promise<{ sid: string; user: SessionUser }> {
+/**
+ * Autentica por e-mail/senha. Sem 2FA: cria a sessão e devolve o usuário público. Com 2FA ativo:
+ * NÃO cria sessão — devolve o desafio, e a sessão nasce em `concluirEntradaComSegundoFator`.
+ */
+export async function login(input: LoginInput, userAgent?: string, ip?: string): Promise<EntradaDoServico> {
   const chave = chaveLogin(ip, input.email);
   // Os dois freios, nesta ordem: o do par (ip, e-mail) protege UMA conta; o de IP protege o
   // servidor de quem varia o e-mail justamente para escapar do primeiro.
@@ -272,6 +288,14 @@ export async function login(
 
   tentativas.delete(chave); // sucesso zera o contador
 
+  // VERIFICAÇÃO EM DUAS ETAPAS (onda 4C): senha certa de quem ativou o 2FA NÃO abre sessão.
+  // ⚠️ O rehash e o `ultimoAcessoEm` também esperam: "último acesso" responde "a pessoa ENTROU?",
+  // e só com a senha ela ainda não entrou. O rehash fica para um login sem 2FA pendente — perder
+  // uma oportunidade dele não custa nada; repeti-lo aqui espalharia a lógica em dois lugares.
+  if (await segundoFatorAtivo(user.id)) {
+    return { desafio: emitirDesafio(user) };
+  }
+
   // AS QUATRO ESCRITAS DO LOGIN BEM-SUCEDIDO NÃO DEPENDEM UMA DA OUTRA — nenhuma lê o
   // resultado de outra (nem `createSession` precisa do rehash, nem o registro de acesso
   // precisa do `sid`). Rodá-las em paralelo, em vez de em série, corta a latência do login sem
@@ -293,20 +317,72 @@ export async function login(
     )
     .catch(() => {});
 
-  // ÚLTIMO ACESSO (ADR-128): marcado só aqui, no login com senha. É o que o card do lead/cliente
-  // mostra para a Thaís saber se o cliente apareceu depois do convite. Sessão de suporte da
-  // equipe NÃO passa por aqui, de propósito — nós entrarmos no painel dele não é ele vindo.
-  const ultimoAcesso = prisma.user
-    .update({ where: { id: user.id }, data: { ultimoAcessoEm: new Date() } })
-    .catch(() => {});
+  const [sid] = await Promise.all([abrirSessaoDoLogin(user.id, userAgent, ip), rehash]);
 
+  return { sid, user: toSessionUser(user) };
+}
+
+/**
+ * As escritas de um login que DEU CERTO — sessão, rastro e último acesso —, num lugar só, para o
+ * login com senha e a conclusão pelo segundo fator não divergirem (o modo de falha da ADR-133).
+ * Rodam em paralelo porque nenhuma lê o resultado da outra.
+ *
+ * ÚLTIMO ACESSO (ADR-128): marcado só aqui. É o que o card do lead/cliente mostra para a Thaís
+ * saber se o cliente apareceu depois do convite. Sessão de suporte da equipe NÃO passa por aqui,
+ * de propósito — nós entrarmos no painel dele não é ele vindo.
+ */
+async function abrirSessaoDoLogin(
+  userId: string,
+  userAgent: string | undefined,
+  ip: string | undefined,
+  dados?: { segundoFator: "totp" | "recuperacao" },
+): Promise<string> {
+  const ultimoAcesso = prisma.user
+    .update({ where: { id: userId }, data: { ultimoAcessoEm: new Date() } })
+    .catch(() => {});
   const [sid] = await Promise.all([
-    createSession(user.id, { userAgent, ip }),
-    prisma.activityLog.create({ data: { userId: user.id, acao: "login" } }),
-    rehash,
+    createSession(userId, { userAgent, ip }),
+    prisma.activityLog.create({ data: { userId, acao: "login", ...(dados ? { dados } : {}) } }),
     ultimoAcesso,
   ]);
+  return sid;
+}
 
+/** Desafio vencido, adulterado, de conta que mudou de estado — uma frase só, sem pista. */
+const DESAFIO_INVALIDO = () =>
+  new TRPCError({
+    code: "UNAUTHORIZED",
+    message: "A verificação expirou. Entre de novo com o seu e-mail e a sua senha.",
+  });
+
+/**
+ * SEGUNDA ETAPA DO LOGIN: troca desafio + código por uma sessão de verdade.
+ *
+ * Revalida a conta INTEIRA, e não só o código: nos 5 minutos do desafio a pessoa pode ter sido
+ * desativada, excluída, ter o acesso revogado ou a senha trocada — e qualquer um desses estados
+ * derruba o desafio. É a mesma régua do `login`, aplicada de novo no instante que conta.
+ */
+export async function concluirEntradaComSegundoFator(
+  desafio: string,
+  codigo: string,
+  userAgent?: string,
+  ip?: string,
+): Promise<{ sid: string; user: SessionUser }> {
+  const lido = lerDesafio(desafio);
+  if (!lido) throw DESAFIO_INVALIDO();
+  const user = await prisma.user.findUnique({ where: { id: lido.userId } });
+  if (
+    !user ||
+    !user.ativo ||
+    user.deletedAt ||
+    user.acessoRevogadoEm ||
+    !user.passwordHash ||
+    !desafioBateComASenha(lido.versao, user.senhaTrocadaEm)
+  ) {
+    throw DESAFIO_INVALIDO();
+  }
+  const via = await conferirSegundoFator(user.id, codigo, ip);
+  const sid = await abrirSessaoDoLogin(user.id, userAgent, ip, { segundoFator: via });
   return { sid, user: toSessionUser(user) };
 }
 
@@ -396,7 +472,7 @@ export async function aceitarConvite(
   novaSenha: string,
   userAgent?: string,
   ip?: string,
-): Promise<{ sid: string; user: SessionUser }> {
+): Promise<EntradaDoServico> {
   const userId = await consumirToken(token, "CONVITE");
   if (!userId) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Convite inválido ou expirado." });
@@ -406,10 +482,14 @@ export async function aceitarConvite(
     where: { id: userId },
     data: { passwordHash: await hashPassword(novaSenha), ativo: true, senhaTrocadaEm: new Date() },
   });
+  await prisma.activityLog.create({ data: { userId: user.id, acao: "convite_aceito" } });
+  // ⚠️ Convite reenviado a quem JÁ tinha 2FA ativo (raro, mas possível): definir a senha pelo
+  // link não pode pular o segundo fator — quem tivesse a caixa de e-mail teria as duas etapas.
+  // A senha fica gravada; a sessão espera o código.
+  if (await segundoFatorAtivo(user.id)) return { desafio: emitirDesafio(user) };
   const sid = await createSession(user.id, { userAgent, ip });
   // Definir a senha pelo convite JÁ é entrar: o cliente atravessou a porta neste instante.
   await prisma.user.update({ where: { id: user.id }, data: { ultimoAcessoEm: new Date() } }).catch(() => {});
-  await prisma.activityLog.create({ data: { userId: user.id, acao: "convite_aceito" } });
   void enviarBoasVindas(user.nome, user.email, user.role).catch(() => {});
   // Automação do funil: o prospect ativou o acesso e entrou no Portal (sinal de
   // engajamento) → avança o lead para "qualificação" (nunca pula direto p/ proposta).
@@ -506,7 +586,7 @@ export async function redefinirSenha(
   novaSenha: string,
   userAgent?: string,
   ip?: string,
-): Promise<{ sid: string; user: SessionUser }> {
+): Promise<EntradaDoServico> {
   const userId = await consumirToken(token, "RESET");
   if (!userId) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Link inválido ou expirado." });
@@ -523,8 +603,13 @@ export async function redefinirSenha(
   // `SISTEMA → Sessões` mostraria tudo limpo enquanto um token vazado continuava lendo as
   // tarefas da pessoa até o prazo vencer, por uma via que **nenhuma tela mostra**.
   await revogarDelegacoesDoUsuario(userId);
+  await prisma.activityLog.create({ data: { userId: user.id, acao: "senha_redefinida" } });
+  // ⚠️ REDEFINIR A SENHA NÃO PULA O SEGUNDO FATOR, e nem o desliga. O link chega por e-mail: se
+  // ele bastasse para entrar, quem invadisse a caixa de e-mail teria as DUAS etapas numa só — e o
+  // 2FA existe justamente para a senha (e o que a recupera) não bastarem. A senha nova fica
+  // gravada e as sessões antigas caem; a sessão nova espera o código.
+  if (await segundoFatorAtivo(user.id)) return { desafio: emitirDesafio(user) };
   const sid = await createSession(user.id, { userAgent, ip });
   await prisma.user.update({ where: { id: user.id }, data: { ultimoAcessoEm: new Date() } }).catch(() => {});
-  await prisma.activityLog.create({ data: { userId: user.id, acao: "senha_redefinida" } });
   return { sid, user: toSessionUser(user) };
 }

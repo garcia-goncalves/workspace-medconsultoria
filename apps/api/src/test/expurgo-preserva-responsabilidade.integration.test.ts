@@ -28,6 +28,8 @@ const PRESERVAR = [
   "documento.link_de_assinatura_aberto",
   "arquivo.removido",
   "arquivo.baixado",
+  // Quem levou a lista de clientes para uma planilha (B4, onda 4) — dado pessoal saindo do sistema.
+  "clientes.exportados",
   "conta.criada",
   // ⚠️ A Conciliação é preservada por PREFIXO, não por nome: são dezenas de rotas e uma lista
   // fixa envelheceria calada, deixando a rota nova de fora sem ninguém perceber. Esta ação

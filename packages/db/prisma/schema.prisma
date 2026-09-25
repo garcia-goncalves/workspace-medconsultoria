@@ -136,10 +136,57 @@ model User {
   competenciasFechadas   CompetenciaFechada[]   @relation("CompetenciasFechadas")
   eventosDeFechamento    CompetenciaFechamentoEvento[] @relation("EventosDeFechamento")
   honorariosLancados     HonorarioFaturamento[]        @relation("HonorariosLancados")
+  // VERIFICAÇÃO EM DUAS ETAPAS (onda 4C): o segredo TOTP e os códigos de recuperação.
+  segundoFator           SegundoFator?
+  codigosRecuperacao     CodigoRecuperacao[]
 
   @@index([role])
   @@index([clienteId])
   @@index([convidadoPorId])
+}
+
+/// VERIFICAÇÃO EM DUAS ETAPAS (TOTP, RFC 6238) — uma linha por pessoa que começou a ativar.
+///
+/// Existe porque, sem ela, uma senha roubada de ADMIN/ROOT dava acesso total por 30 dias (a vida
+/// do cookie). Com ela, o login com senha certa só devolve um DESAFIO; a sessão nasce depois do
+/// código do aplicativo.
+///
+/// ⚠️ `ativadoEm` NULO = ativação COMEÇADA e não confirmada (a chave foi mostrada, ninguém
+/// digitou um código ainda). Nesse estado o login NÃO pede código — senão quem abrisse a tela de
+/// ativação e desistisse ficaria trancado fora com um segredo que nunca chegou ao celular.
+model SegundoFator {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  /// Segredo TOTP CIFRADO (AES-256-GCM, `TOTP_CRYPTO_KEY`). Nunca em claro, nunca no retorno
+  /// do tRPC depois da ativação.
+  segredoCifrado String    @db.Text
+  ativadoEm      DateTime?
+  /// ANTI-REPLAY: o passo de 30 s do último código aceito. Código de passo igual ou anterior é
+  /// recusado — quem viu o código por cima do ombro não o reusa dentro da janela de ±30 s.
+  ultimoPasso    Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Códigos de recuperação do 2FA — 10 por ativação, de USO ÚNICO, guardados só como HASH.
+///
+/// São a saída de quem perdeu o celular. Por isso NÃO dependem da `TOTP_CRYPTO_KEY`: se a chave
+/// sumir do servidor, o TOTP para de conferir, mas o código de recuperação continua entrando.
+/// ⚠️ `hash` é `utf8mb4_bin` na migração (a lição da ADR-147; o Prisma não expressa `COLLATE` —
+/// nunca rode `migrate diff` para "consertar" isso).
+model CodigoRecuperacao {
+  id        String    @id @default(cuid())
+  userId    String
+  /// SHA-256 (hex) do código normalizado. 80 bits sorteados — ver `segundo-fator.service.ts`.
+  hash      String    @db.VarChar(64)
+  usadoEm   DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, hash])
 }
 
 /// Personalização (override) do conteúdo de um e-mail transacional. Ausência = usa o padrão do código.
@@ -1266,6 +1313,14 @@ model Conta {
   // duplicata para ninguém. Nulo nas contas anteriores a esta coluna e nas que não vêm de um
   // serviço (aluguel, imposto): por isso a conferência olha as DUAS coisas.
   origemServicoId String?
+  // QUE LINHA AVULSA DE QUE PROPOSTA originou esta cobrança (Onda 4A). A linha avulsa não tem
+  // serviço — então `origemServicoId` não serve de chave — e a proposta pode ser aceita de novo
+  // (reenviar para aceite reinicia a resposta). O índice único abaixo é o que impede a segunda
+  // conta: a atomicidade é do banco, não de um "confere e grava" que duas requisições atravessam.
+  // Sem FK de propósito, como `origemServicoId`: documento é apagado por soft-delete, e a
+  // cobrança não pode sumir junto. Nulo em toda conta que não nasceu de linha avulsa.
+  origemDocumentoId String?
+  origemLinha       Int?
   recorrenciaAte  DateTime? // limite opcional da série recorrente
   recorrenteId    String? // id da 1ª conta da série (herdado pelas geradas); agrupa a série
   observacoes     String?     @db.Text
@@ -1285,6 +1340,9 @@ model Conta {
   // criar outra (ADR-92). Conta não-recorrente tem recorrenteId nulo e fica de fora
   // (o MySQL trata NULL como distinto em índice único).
   @@unique([recorrenteId, vencimento])
+  // Uma conta por linha avulsa aceita. O MySQL trata NULL como distinto no índice único, então
+  // as contas comuns (as duas colunas nulas) ficam de fora.
+  @@unique([origemDocumentoId, origemLinha])
   @@index([tipo, pago])
   @@index([vencimento])
   @@index([clienteId])
@@ -1419,6 +1477,12 @@ model Tarefa {
   clienteId   String?
   projetoId   String?
   concluidaEm DateTime?
+  // Tarefa que se repete (Onda 4B). Ao CONCLUIR uma ocorrência, nasce a próxima da série,
+  // com prazo = próximo da série (mensal no dia 31 → último dia do mês; mesma `proximo` do
+  // Financeiro). `recorrenteId` é o id da 1ª tarefa da série (nulo na própria 1ª).
+  recorrencia    Recorrencia @default(NENHUMA)
+  recorrenciaAte DateTime?
+  recorrenteId   String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   deletedAt   DateTime?
@@ -1431,6 +1495,11 @@ model Tarefa {
   // Reserva de idempotência da API do agente (CORA-003). Some junto se a tarefa for apagada.
   idempotencias AgentIdempotency[]
 
+  // Uma série não pode ter DUAS ocorrências no mesmo prazo — é o que torna a geração da
+  // próxima idempotente (concluir duas vezes, ou duas pessoas ao mesmo tempo, não cria duas).
+  // Mesmo molde de `Conta @@unique([recorrenteId, vencimento])` (ADR-92). Tarefa fora de série
+  // tem `recorrenteId` nulo e fica de fora (o MySQL trata NULL como distinto em índice único).
+  @@unique([recorrenteId, prazo])
   @@index([criadoPorId, status])
   @@index([clienteId])
   @@index([projetoId])
@@ -1536,6 +1605,11 @@ model Documento {
   // Fonte da verdade estruturada por trás do Markdown — permite o aceite sincronizar
   // ClienteServico e o contrato refletir exatamente o que foi proposto/aceito. Ver ADR-81.
   itens                  Json?
+  /// LINHAS AVULSAS da proposta personalizada (Onda 4A): "Treinamento da recepção", sem serviço
+  /// do catálogo por trás. Coluna PRÓPRIA, e não dentro de `itens`, porque o contrato automático
+  /// relê `itens` com `safeParse` do array inteiro — uma linha sem `servicoId` ali reprovaria a
+  /// lista toda. No aceite, cada linha com valor vira conta a receber (`Conta.origemDocumentoId`).
+  linhasAvulsas          Json?
   createdAt              DateTime        @default(now())
   updatedAt              DateTime        @updatedAt
   deletedAt              DateTime?

@@ -1,5 +1,6 @@
 import { Prisma, prisma } from "@app/db";
 import { montarTarefa, avisarDelegacao } from "../tarefas/tarefas.service.js";
+import { escaparCoringas } from "../../lib/like.js";
 import {
   abrirResolucao,
   emitirAprovacao,
@@ -130,17 +131,6 @@ function lerReferencia(
     };
   }
   return { ok: true, valor: { texto } };
-}
-
-/**
- * ⚠️ **`%` E `_` SÃO CORINGAS DO `LIKE`, E O `contains` DO PRISMA NÃO OS ESCAPA.**
- *
- * Sem isto, `{"texto": "%%"}` passa no mínimo de 2 caracteres e vira `LIKE '%%%'`, que **casa
- * tudo**: a prévia deixa de ser busca e vira listagem paginável da base — nome, CNPJ, situação e
- * e-mail dos oito primeiros, mais o `total`. Achado do revisor de segurança.
- */
-function escaparCoringas(texto: string): string {
-  return texto.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 /** Aceita só ISO 8601 de verdade. `Date` aceitaria "amanhã" como `Invalid Date` calado. */

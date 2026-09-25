@@ -9,18 +9,26 @@ import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { sincronizarAutofill } from "../../lib/form-autofill";
 import { AuthShell } from "./AuthShell";
+import { SegundoFatorEtapa } from "./SegundoFatorEtapa";
 
 export function DefinirSenhaPage() {
   const token = new URLSearchParams(window.location.search).get("token") ?? "";
   const info = trpc.auth.validarConvite.useQuery({ token }, { enabled: !!token, retry: false });
   const utils = trpc.useUtils();
   const aceitar = trpc.auth.aceitarConvite.useMutation({
-    onSuccess: () => {
+    onSuccess: (r) => {
+      // ⚠️ Com 2FA ativo, definir a senha pelo link NÃO abre sessão (quem tem a caixa de e-mail
+      // não pode ter as duas etapas numa só): a senha já foi gravada e a tela pede o código.
+      if (r.segundoFator) {
+        setDesafio(r.desafio);
+        return;
+      }
       void utils.auth.me.invalidate();
       window.location.href = "/"; // entra direto (já autenticado)
     },
   });
   const [showPass, setShowPass] = useState(false);
+  const [desafio, setDesafio] = useState<string | null>(null);
 
   const {
     register,
@@ -33,6 +41,16 @@ export function DefinirSenhaPage() {
   });
 
   const conviteInvalido = !token || (info.isFetched && !info.data?.valido);
+
+  // Vem ANTES do "link inválido": o token já foi consumido, e uma nova leitura dele diria que o
+  // link não vale mais — justo quando a pessoa está a um código de entrar.
+  if (desafio) {
+    return (
+      <AuthShell>
+        <SegundoFatorEtapa desafio={desafio} onVoltar={() => (window.location.href = "/login")} />
+      </AuthShell>
+    );
+  }
 
   if (info.isLoading) {
     return (

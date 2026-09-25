@@ -50,6 +50,9 @@ export default defineConfig({
       DATABASE_URL: urlDeTeste(),
       SESSION_SECRET: process.env.SESSION_SECRET ?? SEGREDO_TESTE_PADRAO,
       NODE_ENV: "test",
+      // Chave do segredo TOTP (2FA) para os testes — 32 bytes fixos, sem valor em produção. Sem
+      // ela a ativação do 2FA fica desligada e os testes do fluxo não teriam o que exercitar.
+      TOTP_CRYPTO_KEY: process.env.TOTP_CRYPTO_KEY || Buffer.alloc(32, 7).toString("base64"),
     },
     // Um único fork: os testes de integração compartilham o banco de teste (evita corrida).
     pool: "forks",

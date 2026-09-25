@@ -22,7 +22,7 @@ import {
   Clock,
   AlertTriangle,
 } from "lucide-react";
-import { TIPO_MODELO_LABEL, DOC_INTERACAO, situacaoDocumento } from "@app/shared";
+import { TIPO_MODELO_LABEL, DOC_INTERACAO, formatarNumeroProposta, situacaoDocumento, valoresDeItensAusentesNoTexto, type ValorDeItem } from "@app/shared";
 import { trpc } from "../../lib/trpc";
 import { BotaoIA } from "../../components/ia/BotaoIA";
 import { Button } from "../../components/ui/button";
@@ -39,6 +39,8 @@ import {
   type DocumentoBrandedProps,
 } from "./DocumentoBranded";
 import { dataHora, data } from "../../lib/format-date";
+import { toast } from "../../components/ui/toast";
+import { DuplicarPropostaDialog } from "./DuplicarPropostaDialog";
 import { useDynamicCrumb } from "../../components/layout/Breadcrumbs";
 
 const route = getRouteApi("/documentos/$documentoId");
@@ -204,6 +206,9 @@ function PropostaAceiteCard({ documentoId, temCliente }: { documentoId: string; 
 
   const aceita = p?.status === "ACEITA";
   const recusada = p?.status === "RECUSADA";
+  // Duplicada para o mesmo cliente enquanto aguardava o aceite (M3): o link não vale mais, e
+  // reenviar a faria aceitável de novo ao lado da cópia — por isso o botão some.
+  const substituida = !!p?.substituidaPor;
 
   return (
     <div className="rounded-xl border bg-card shadow-sm">
@@ -214,8 +219,9 @@ function PropostaAceiteCard({ documentoId, temCliente }: { documentoId: string; 
           {aceita && <Badge variant="success">Aceita</Badge>}
           {recusada && <Badge variant="danger">Recusada</Badge>}
           {p?.status === "PENDENTE" && <Badge variant="warning">Aguardando</Badge>}
+          {substituida && <Badge>Substituída</Badge>}
         </span>
-        {temCliente && !aceita && (
+        {temCliente && !aceita && !substituida && (
           <Button size="sm" variant={p ? "outline" : "default"} disabled={habilitar.isPending} onClick={habilitarAceite}>
             <Send className="h-4 w-4" />
             {p ? "Reenviar para aceite" : "Habilitar aceite online"}
@@ -274,6 +280,23 @@ function PropostaAceiteCard({ documentoId, temCliente }: { documentoId: string; 
                 Cliente aceitou{p.respondidaEm ? ` em ${dataHora(p.respondidaEm)}` : ""}. Que tal gerar o contrato?
               </p>
             )}
+            {p.substituidaPor && (
+              <p className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
+                <XCircle className="h-4 w-4" />
+                Substituída
+                {p.substituidaPor.numero != null ? ` pela proposta nº ${formatarNumeroProposta(p.substituidaPor.numero)}` : " por uma cópia"}
+                . O link desta não aceita mais resposta.
+                {p.substituidaPor.id && (
+                  <Link
+                    to="/documentos/$documentoId"
+                    params={{ documentoId: p.substituidaPor.id }}
+                    className="font-medium text-primary underline-offset-2 hover:underline"
+                  >
+                    Abrir a nova
+                  </Link>
+                )}
+              </p>
+            )}
             {recusada && (
               <div className="space-y-1 text-sm">
                 <p className="flex items-center gap-2 text-muted-foreground">
@@ -307,6 +330,7 @@ export function DocumentoDetailPage() {
   const doc = trpc.documentos.get.useQuery({ id: documentoId });
   const [conteudo, setConteudo] = useState("");
   const [editando, setEditando] = useState(false);
+  const [duplicando, setDuplicando] = useState(false);
   useDynamicCrumb(doc.data?.titulo);
 
   useEffect(() => {
@@ -319,7 +343,14 @@ export function DocumentoDetailPage() {
     utils.documentos.list.invalidate();
   };
   const salvar = trpc.documentos.updateConteudo.useMutation({
-    onSuccess: () => (invalidate(), setEditando(false)),
+    onSuccess: (r) => {
+      invalidate();
+      setEditando(false);
+      // A edição não é bloqueada, mas o valor que o aceite cobra sumiu do texto: avisa na hora.
+      if (r.alertaValores.length) {
+        toast(`Atenção: o texto não mostra mais ${r.alertaValores.join(", ")}, que é o que o aceite vai cobrar.`);
+      }
+    },
   });
   const setStatus = trpc.documentos.setStatus.useMutation({ onSuccess: invalidate });
   const remove = trpc.documentos.remove.useMutation({
@@ -354,6 +385,15 @@ export function DocumentoDetailPage() {
 
   const d = doc.data;
   const enviado = d.status === "ENVIADO";
+  const ehProposta = d.modelo?.tipo === "PROPOSTA";
+  // Os valores que o ACEITE cobra (Onda 4A). A mesma régua do servidor, aplicada ao vivo ao texto
+  // que está sendo digitado — o alerta aparece antes de salvar, não depois.
+  const valoresDosItens: ValorDeItem[] = [
+    ...(Array.isArray(d.itens) ? (d.itens as ValorDeItem[]) : []),
+    ...(Array.isArray(d.linhasAvulsas) ? (d.linhasAvulsas as ValorDeItem[]) : []),
+  ];
+  const propostaComItens = ehProposta && valoresDosItens.length > 0;
+  const ausentesAoVivo = propostaComItens ? valoresDeItensAusentesNoTexto(conteudo, valoresDosItens) : [];
   const sit = situacaoDocumento(d);
 
   // Props da moldura branded — reusadas na leitura, no preview de edição, no PDF e no Word.
@@ -476,6 +516,12 @@ export function DocumentoDetailPage() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          {ehProposta && (
+            <Button size="sm" variant="outline" onClick={() => setDuplicando(true)}>
+              <Copy className="h-4 w-4" />
+              Duplicar
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={async () => {
               if (await confirmarExportacao(confirm, brandedView.conteudoMarkdown)) imprimirDocumento(brandedView);
             }}>
@@ -490,6 +536,18 @@ export function DocumentoDetailPage() {
           </Button>
         </div>
       </div>
+
+      {/* O TEXTO NÃO MOSTRA MAIS UM VALOR QUE O ACEITE COBRA (Onda 4A). Não bloqueia nada: o
+          aviso existe para ninguém mandar ao cliente um papel com um preço e cobrar outro. */}
+      {!editando && d.alertaValores.length > 0 && (
+        <div role="alert" className="flex gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            O texto não mostra mais <strong>{d.alertaValores.join(", ")}</strong>, mas é isso que o aceite vai cobrar. Para mudar
+            o preço, use <strong>Duplicar</strong> e gere a proposta com os valores novos — editar o texto não muda a cobrança.
+          </p>
+        </div>
+      )}
 
       {/* Interação por tipo (DOC_INTERACAO): proposta = aceite/recusa; contrato/escopo = assinatura;
           demais (relatório, ata, briefing, recibo…) = só leitura/entrega. */}
@@ -519,6 +577,18 @@ export function DocumentoDetailPage() {
               </Button>
             </div>
           </div>
+          {propostaComItens && (
+            <p role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              Os valores cobrados vêm dos <strong>itens da proposta</strong>: mudar o valor no texto não muda a cobrança. Para mudar
+              preço, gere a proposta de novo (ou use <strong>Duplicar</strong>).
+              {ausentesAoVivo.length > 0 && (
+                <>
+                  {" "}
+                  <strong>O texto não mostra mais {ausentesAoVivo.join(", ")}.</strong>
+                </>
+              )}
+            </p>
+          )}
           {/* Editor (barra + textarea, gruda ao rolar) | preview A4 inteiro (sem scroll próprio) */}
           <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
             <DocumentoEditor value={conteudo} onChange={setConteudo} className="lg:sticky lg:top-16" />
@@ -545,6 +615,16 @@ export function DocumentoDetailPage() {
       <div className="text-xs text-muted-foreground">
         {d.versoes.length} versão(ões) · última edição {dataHora(d.updatedAt)}
       </div>
+
+      {ehProposta && (
+        <DuplicarPropostaDialog
+          open={duplicando}
+          onClose={() => setDuplicando(false)}
+          documentoId={d.id}
+          clienteNome={d.cliente?.nome ?? null}
+          aguardandoAceite={d.propostaStatus === "PENDENTE"}
+        />
+      )}
     </div>
   );
 }

@@ -7,6 +7,10 @@ import {
   aceitarConviteSchema,
   solicitarResetSchema,
   redefinirSenhaSchema,
+  confirmarSegundoFatorSchema,
+  confirmarAtivacaoSegundoFatorSchema,
+  desativarSegundoFatorSchema,
+  type ResultadoDeEntrada,
 } from "@app/shared";
 import { router, publicProcedure, protectedProcedure, funcionarioProcedure } from "../../trpc/trpc.js";
 import { SESSION_COOKIE, SESSION_TTL_SECONDS, destroySession, ttlDaSessao } from "../../lib/session.js";
@@ -23,7 +27,15 @@ import {
   validarReset,
   redefinirSenha,
   registrarBloqueioCliente,
+  concluirEntradaComSegundoFator,
+  type EntradaDoServico,
 } from "./auth.service.js";
+import {
+  statusSegundoFator,
+  iniciarAtivacao,
+  confirmarAtivacao,
+  desativarSegundoFator,
+} from "./segundo-fator.service.js";
 
 const cookieOptions = {
   httpOnly: true,
@@ -34,13 +46,60 @@ const cookieOptions = {
   maxAge: SESSION_TTL_SECONDS,
 };
 
+/**
+ * Converte o que o serviço devolveu no que vai ao navegador — e só põe o cookie quando HÁ sessão.
+ *
+ * ⚠️ Com 2FA ativo o desafio volta no CORPO, nunca num cookie de sessão: ele não é sessão, e um
+ * cookie `sid` com um valor que não é sessão faria o `me` responder nulo e a tela piscar. O
+ * desafio sozinho não dá acesso a nada (a sessão ainda exige o código).
+ */
+function responderEntrada(
+  ctx: { res: { setCookie: (n: string, v: string, o: typeof cookieOptions) => unknown } },
+  r: EntradaDoServico,
+): ResultadoDeEntrada {
+  if (r.desafio !== undefined) return { segundoFator: true, desafio: r.desafio };
+  ctx.res.setCookie(SESSION_COOKIE, r.sid, cookieOptions);
+  return { segundoFator: false, user: r.user };
+}
+
 export const authRouter = router({
-  /** Login por e-mail/senha. Define o cookie de sessão httpOnly. */
+  /**
+   * Login por e-mail/senha. Sem 2FA, define o cookie de sessão httpOnly. Com 2FA ativo, devolve
+   * o desafio e a sessão só nasce em `confirmarSegundoFator`.
+   */
   login: publicProcedure.input(loginSchema).mutation(async ({ ctx, input }) => {
     const userAgent = ctx.req.headers["user-agent"];
-    const { sid, user } = await login(input, userAgent, ctx.req.ip);
+    return responderEntrada(ctx, await login(input, userAgent, ctx.req.ip));
+  }),
+
+  /** Segunda etapa do login: desafio + código do aplicativo (ou de recuperação) → sessão. */
+  confirmarSegundoFator: publicProcedure.input(confirmarSegundoFatorSchema).mutation(async ({ ctx, input }) => {
+    const userAgent = ctx.req.headers["user-agent"];
+    const { sid, user } = await concluirEntradaComSegundoFator(input.desafio, input.codigo, userAgent, ctx.req.ip);
     ctx.res.setCookie(SESSION_COOKIE, sid, cookieOptions);
     return user;
+  }),
+
+  /**
+   * VERIFICAÇÃO EM DUAS ETAPAS da própria conta (tela Configurações). `protectedProcedure` e não
+   * `adminProcedure` no status e no desativar: quem foi rebaixado de ADMIN continua com o 2FA
+   * ligado e precisa conseguir vê-lo e desligá-lo. Ativar é que fica restrito (no serviço).
+   */
+  segundoFator: router({
+    status: protectedProcedure.query(({ ctx }) => statusSegundoFator(ctx.user)),
+    iniciar: protectedProcedure.mutation(({ ctx }) => iniciarAtivacao(ctx.user)),
+    confirmar: protectedProcedure
+      .input(confirmarAtivacaoSegundoFatorSchema)
+      .mutation(({ ctx, input }) => {
+        // A sessão ATUAL sobrevive; as outras caem (ver `confirmarAtivacao`).
+        const raw = ctx.req.cookies[SESSION_COOKIE];
+        const unsigned = raw ? ctx.req.unsignCookie(raw) : null;
+        const sidAtual = unsigned?.valid ? unsigned.value ?? undefined : undefined;
+        return confirmarAtivacao(ctx.user, input.senha, input.codigo, ctx.req.ip, sidAtual);
+      }),
+    desativar: protectedProcedure
+      .input(desativarSegundoFatorSchema)
+      .mutation(({ ctx, input }) => desativarSegundoFator(ctx.user, input.senha, input.codigo, ctx.req.ip)),
   }),
 
   /**
@@ -114,12 +173,10 @@ export const authRouter = router({
     .input(z.object({ token: z.string().min(1) }))
     .query(({ input }) => validarConvite(input.token)),
 
-  /** Aceita o convite: define a senha e já autentica (cria o cookie de sessão). Público. */
+  /** Aceita o convite: define a senha e já autentica (ou pede o 2FA, se ativo). Público. */
   aceitarConvite: publicProcedure.input(aceitarConviteSchema).mutation(async ({ ctx, input }) => {
     const userAgent = ctx.req.headers["user-agent"];
-    const { sid, user } = await aceitarConvite(input.token, input.novaSenha, userAgent, ctx.req.ip);
-    ctx.res.setCookie(SESSION_COOKIE, sid, cookieOptions);
-    return user;
+    return responderEntrada(ctx, await aceitarConvite(input.token, input.novaSenha, userAgent, ctx.req.ip));
   }),
 
   /** Solicita redefinição de senha. Sempre responde ok (anti-enumeração). Público. */
@@ -132,12 +189,10 @@ export const authRouter = router({
     .input(z.object({ token: z.string().min(1) }))
     .query(({ input }) => validarReset(input.token)),
 
-  /** Redefine a senha via token e já autentica (cria o cookie). Público. */
+  /** Redefine a senha via token e já autentica — ou pede o 2FA, que o reset NÃO pula. Público. */
   redefinirSenha: publicProcedure.input(redefinirSenhaSchema).mutation(async ({ ctx, input }) => {
     const userAgent = ctx.req.headers["user-agent"];
-    const { sid, user } = await redefinirSenha(input.token, input.novaSenha, userAgent, ctx.req.ip);
-    ctx.res.setCookie(SESSION_COOKIE, sid, cookieOptions);
-    return user;
+    return responderEntrada(ctx, await redefinirSenha(input.token, input.novaSenha, userAgent, ctx.req.ip));
   }),
 
   /** Edita o próprio perfil (nome). */
