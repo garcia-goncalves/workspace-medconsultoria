@@ -95,6 +95,13 @@ function gerarCodigoDeRecuperacao(): string {
  * então uma rajada virava dezenas de milhares de palpites. `reservarTentativa` confere e soma no
  * MESMO trecho síncrono (sem `await` no meio, o Node não intercala outra chamada), e o acerto
  * devolve a tentativa. Assim o teto vale inclusive para quem manda tudo ao mesmo tempo.
+ *
+ * ⚠️ UMA RESERVA POR OPERAÇÃO, e só o SEGUNDO FATOR CERTO zera a pessoa (achado M1 da revisão da
+ * onda 4). `desativar` cobrava a tentativa, a SENHA CERTA a "devolvia" APAGANDO o contador inteiro
+ * da pessoa, e o código cobrava +1 — o contador nunca passava de 1 e sobrava só o teto por IP: com
+ * vários IPs, quem tem a senha e uma sessão aberta voltava a poder varrer o TOTP daquela conta, e o
+ * mesmo `delete` zerava os erros da 2ª etapa do login. Senha certa não prova nada sobre o código;
+ * só o código certo (ou o par senha + código certo) pode zerar.
  */
 const JANELA_MS = 15 * 60 * 1000;
 const MAX_POR_PESSOA = 5;
@@ -129,8 +136,11 @@ function reservarTentativa(userId: string, ip: string | undefined): void {
   if (ip) contarErro(errosPorIp, ip);
 }
 
-/** Acertou: a conta da pessoa zera e a tentativa cobrada do IP é devolvida. */
-function devolverTentativa(userId: string, ip: string | undefined): void {
+/**
+ * O SEGUNDO FATOR conferiu: a conta da pessoa zera e a tentativa cobrada do IP é devolvida.
+ * ⚠️ Nunca chame isto por ter acertado só a SENHA (ver o M1 acima).
+ */
+function registrarAcerto(userId: string, ip: string | undefined): void {
   errosPorPessoa.delete(userId);
   const reg = ip ? errosPorIp.get(ip) : undefined;
   if (reg && reg.count > 0) reg.count -= 1;
@@ -173,9 +183,19 @@ export async function conferirSegundoFator(
   ip: string | undefined,
 ): Promise<"totp" | "recuperacao"> {
   reservarTentativa(userId, ip);
+  const via = await conferirCodigoSemFreio(userId, codigo);
+  if (!via) throw CODIGO_INVALIDO(); // a tentativa já foi cobrada na entrada
+  registrarAcerto(userId, ip);
+  return via;
+}
 
+/**
+ * A conferência em si, SEM mexer no freio — quem chama já reservou a tentativa (uma só para a
+ * operação inteira). `null` = não conferiu.
+ */
+async function conferirCodigoSemFreio(userId: string, codigo: string): Promise<"totp" | "recuperacao" | null> {
   const sf = await prisma.segundoFator.findUnique({ where: { userId } });
-  if (!sf?.ativadoEm) throw CODIGO_INVALIDO();
+  if (!sf?.ativadoEm) return null;
 
   const digitado = codigo.trim();
   let via: "totp" | "recuperacao" | null = null;
@@ -206,8 +226,6 @@ export async function conferirSegundoFator(
     }
   }
 
-  if (!via) throw CODIGO_INVALIDO(); // a tentativa já foi cobrada na entrada
-  devolverTentativa(userId, ip);
   return via;
 }
 
@@ -384,7 +402,8 @@ export async function confirmarAtivacao(
       message: "Senha ou código incorretos. Confira também se o relógio do celular está certo.",
     });
   }
-  devolverTentativa(user.id, ip);
+  // Senha E código conferiram — aqui, e só aqui, a pessoa zera.
+  registrarAcerto(user.id, ip);
 
   const codigos = Array.from({ length: QUANTOS_CODIGOS }, gerarCodigoDeRecuperacao);
   const ativou = await prisma.$transaction(async (tx) => {
@@ -419,20 +438,16 @@ export async function desativarSegundoFator(
   ip: string | undefined,
 ): Promise<{ ok: true }> {
   recusarSessaoDeSuporte(user);
-  // A senha errada conta no mesmo freio: repetida aqui, também é força bruta.
+  // UMA tentativa para a operação inteira (senha + código): a senha errada conta no mesmo freio,
+  // e a senha CERTA não devolve nada — só o código certo zera (M1).
   reservarTentativa(user.id, ip);
   const u = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { passwordHash: true } });
   if (!u.passwordHash || !(await verifyPassword(u.passwordHash, senha))) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Senha ou código incorretos." });
   }
-  // Senha certa: devolve esta tentativa — o código cobra a dele dentro de `conferirSegundoFator`.
-  devolverTentativa(user.id, ip);
-  try {
-    await conferirSegundoFator(user.id, codigo, ip);
-  } catch (e) {
-    if (e instanceof TRPCError && e.code === "TOO_MANY_REQUESTS") throw e;
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Senha ou código incorretos." });
-  }
+  const via = await conferirCodigoSemFreio(user.id, codigo);
+  if (!via) throw new TRPCError({ code: "BAD_REQUEST", message: "Senha ou código incorretos." });
+  registrarAcerto(user.id, ip);
   await prisma.$transaction([
     prisma.codigoRecuperacao.deleteMany({ where: { userId: user.id } }),
     prisma.segundoFator.deleteMany({ where: { userId: user.id } }),

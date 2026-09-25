@@ -339,6 +339,47 @@ describe("2FA — desativar", () => {
   });
 });
 
+describe("2FA — o freio por pessoa não zera com a senha certa (M1)", () => {
+  /**
+   * ⚠️ O defeito: `desativar` cobrava a tentativa, e a SENHA CERTA a "devolvia" apagando o
+   * contador inteiro da pessoa — depois o código cobrava +1. O contador nunca passava de 1, e o
+   * único teto que sobrava era o por IP: com vários IPs, a força bruta do TOTP por conta voltava a
+   * ser viável para quem tem a senha e uma sessão aberta. IP diferente a cada chamada, de propósito.
+   */
+  it("6 desativações seguidas com senha certa e código errado: a 6ª é freada", async () => {
+    const { sessao } = await criarUsuario("m1-desativa");
+    const { segredo, passo } = await ativar(sessao);
+    const certo = codigoDoPasso(segredo, passo + 1);
+    const errado = certo === "111111" ? "222222" : "111111";
+    for (let i = 0; i < 5; i++) {
+      await expect(desativarSegundoFator(sessao, SENHA, errado, ip())).rejects.toThrow(/Senha ou código incorretos/);
+    }
+    await expect(desativarSegundoFator(sessao, SENHA, errado, ip())).rejects.toThrow(/Muitas tentativas/);
+    // Nem o código certo passa enquanto o freio está de pé.
+    await expect(desativarSegundoFator(sessao, SENHA, certo, ip())).rejects.toThrow(/Muitas tentativas/);
+    expect((await statusSegundoFator(sessao)).ativo).toBe(true);
+  });
+
+  it("desativar com senha certa NÃO zera os erros da 2ª etapa do login", async () => {
+    const { u, sessao } = await criarUsuario("m1-intercala");
+    const { segredo, passo } = await ativar(sessao);
+    const { desafio } = await login({ email: u.email, password: SENHA }, "ua", ip());
+    const certo = codigoDoPasso(segredo, passo + 1);
+    const errado = certo === "111111" ? "222222" : "111111";
+    // Intercala: login errado, desativar com senha certa e código errado, login errado...
+    for (let i = 0; i < 5; i++) {
+      const tentativa =
+        i % 2 === 0
+          ? concluirEntradaComSegundoFator(desafio!, errado, "ua", ip())
+          : desativarSegundoFator(sessao, SENHA, errado, ip());
+      await expect(tentativa).rejects.toThrow(/inválido|incorretos/);
+    }
+    await expect(concluirEntradaComSegundoFator(desafio!, certo, "ua", ip())).rejects.toThrow(/Muitas tentativas/);
+    await expect(desativarSegundoFator(sessao, SENHA, certo, ip())).rejects.toThrow(/Muitas tentativas/);
+    expect(await sessoesDe(u.id)).toBe(0);
+  });
+});
+
 describe("2FA — pelo router (o que vai ao navegador)", () => {
   it("login com 2FA NÃO põe cookie; confirmarSegundoFator põe", async () => {
     const { u, sessao } = await criarUsuario("router");
